@@ -1,23 +1,22 @@
+using System.Collections.Generic;
 using HarmonyLib;
-using RimWorld.Planet;
 using UnityEngine;
 using Verse;
 
 namespace RimExodus
 {
     /// <summary>
-    /// 方案 B：patch MapEdgeClipDrawer.DrawClippers，跳过与对端地图 footprint 相交的裁剪平面。
-    ///
-    /// 计划书 1.10 结论 2 的关键设计点：
-    /// 跳过范围必须覆盖对端地图的整个可见 footprint，而不仅仅是接缝那一小条。
-    /// 因为当玩家 Pawn 移动到当前地图边界时，对端地图的大部分区域位于宿主边界之外，
-    /// 若只跳过接缝，对端地图在宿主边界外的部分仍会被宿主裁剪平面涂黑。
-    ///
-    /// 判定标准：该裁剪平面是否与任何已加载/可见的对端地图 footprint 相交。
+    /// 在原版四块地图边缘裁剪平面上，仅挖出口袋地图实际占用的 footprint。
+    /// footprint 以外仍由裁剪平面逐帧覆盖，避免只清深度的主相机保留上一帧颜色。
     /// </summary>
     [HarmonyPatch(typeof(MapEdgeClipDrawer), nameof(MapEdgeClipDrawer.DrawClippers))]
     public static class Patch_MapEdgeClipDrawer_DrawClippers
     {
+        private const float ClipSize = 500f;
+        private const float VerticalClipWidth = 1000f;
+
+        private static readonly MaterialPropertyBlock propertyBlock = new MaterialPropertyBlock();
+
         public static bool Prefix(Map map)
         {
             if (!map.DrawMapClippers)
@@ -25,84 +24,114 @@ namespace RimExodus
                 return true;
             }
 
-            // 收集宿主地图上所有无缝地块口袋地图的 footprint（宿主坐标矩形）
             var footprints = SeamlessTileRegistry.GetFootprintsOnHost(map);
             if (footprints.Count == 0)
             {
                 return true;
             }
 
-            // 手动绘制裁剪平面，跳过与 footprint 相交的边
-            DrawClippersSkippingFootprints(map, footprints);
+            DrawClippersWithFootprintHoles(map, footprints);
             return false;
         }
 
-        private static void DrawClippersSkippingFootprints(Map map, System.Collections.Generic.List<CellRect> footprints)
+        private static void DrawClippersWithFootprintHoles(Map map, List<CellRect> footprints)
         {
             var size = map.Size;
-            var clipAltitude = AltitudeLayer.WorldClipper.AltitudeFor();
-            var material = map.MapEdgeMaterial;
+            var halfVerticalWidth = VerticalClipWidth / 2f;
+            var horizontalCenter = size.x / 2f;
 
-            var horPropertyBlock = new MaterialPropertyBlock();
-            var vertPropertyBlock = new MaterialPropertyBlock();
-
-            // 西边 (x = -250, 覆盖 x<0)
-            if (!EdgeIntersectsFootprint(footprints, new CellRect(-500, 0, 500, size.z)))
+            var clipRects = new List<Rect>
             {
-                var scale = new Vector3(500f, 1f, size.z);
-                var center = new Vector3(-250f, 0f, size.z / 2f);
-                horPropertyBlock.SetVector(ShaderPropertyIDs.MainTextureScale, scale);
-                horPropertyBlock.SetVector(ShaderPropertyIDs.MainTextureOffset, center);
-                DrawPlane(material, center, scale, clipAltitude, horPropertyBlock);
-            }
+                Rect.MinMaxRect(-ClipSize, 0f, 0f, size.z),
+                Rect.MinMaxRect(size.x, 0f, size.x + ClipSize, size.z),
+                Rect.MinMaxRect(horizontalCenter - halfVerticalWidth, -ClipSize,
+                    horizontalCenter + halfVerticalWidth, 0f),
+                Rect.MinMaxRect(horizontalCenter - halfVerticalWidth, size.z,
+                    horizontalCenter + halfVerticalWidth, size.z + ClipSize)
+            };
 
-            // 东边 (x = size.x + 250, 覆盖 x>size.x)
-            if (!EdgeIntersectsFootprint(footprints, new CellRect(size.x, 0, 500, size.z)))
-            {
-                var scale = new Vector3(500f, 1f, size.z);
-                var center = new Vector3(size.x + 250f, 0f, size.z / 2f);
-                horPropertyBlock.SetVector(ShaderPropertyIDs.MainTextureScale, scale);
-                horPropertyBlock.SetVector(ShaderPropertyIDs.MainTextureOffset, center);
-                DrawPlane(material, center, scale, clipAltitude, horPropertyBlock);
-            }
-
-            // 南边 (z = -250, 覆盖 z<0)
-            if (!EdgeIntersectsFootprint(footprints, new CellRect(0, -500, size.x, 500)))
-            {
-                var scale = new Vector3(1000f, 1f, 500f);
-                var center = new Vector3(size.x / 2f, 0f, -250f);
-                vertPropertyBlock.SetVector(ShaderPropertyIDs.MainTextureScale, scale);
-                vertPropertyBlock.SetVector(ShaderPropertyIDs.MainTextureOffset, center);
-                DrawPlane(material, center, scale, clipAltitude, vertPropertyBlock);
-            }
-
-            // 北边 (z = size.z + 250, 覆盖 z>size.z)
-            if (!EdgeIntersectsFootprint(footprints, new CellRect(0, size.z, size.x, 500)))
-            {
-                var scale = new Vector3(1000f, 1f, 500f);
-                var center = new Vector3(size.x / 2f, 0f, size.z + 250f);
-                vertPropertyBlock.SetVector(ShaderPropertyIDs.MainTextureScale, scale);
-                vertPropertyBlock.SetVector(ShaderPropertyIDs.MainTextureOffset, center);
-                DrawPlane(material, center, scale, clipAltitude, vertPropertyBlock);
-            }
-        }
-
-        private static bool EdgeIntersectsFootprint(System.Collections.Generic.List<CellRect> footprints, CellRect edgeRect)
-        {
+            var footprintRects = new List<Rect>(footprints.Count);
             foreach (var footprint in footprints)
             {
-                if (footprint.Overlaps(edgeRect))
+                footprintRects.Add(new Rect(
+                    footprint.minX,
+                    footprint.minZ,
+                    footprint.Width,
+                    footprint.Height));
+            }
+
+            foreach (var clipRect in clipRects)
+            {
+                var remaining = new List<Rect> { clipRect };
+                foreach (var footprintRect in footprintRects)
                 {
-                    return true;
+                    remaining = SubtractFromAll(remaining, footprintRect);
+                    if (remaining.Count == 0)
+                    {
+                        break;
+                    }
+                }
+
+                foreach (var rect in remaining)
+                {
+                    DrawPlane(map.MapEdgeMaterial, rect);
                 }
             }
-            return false;
         }
 
-        private static void DrawPlane(Material material, Vector3 center, Vector3 scale, float altitude, MaterialPropertyBlock propertyBlock)
+        private static List<Rect> SubtractFromAll(List<Rect> sources, Rect cut)
         {
-            var matrix = default(Matrix4x4);
-            matrix.SetTRS(center.WithYOffset(altitude), Quaternion.identity, scale);
+            var result = new List<Rect>(sources.Count * 2);
+            foreach (var source in sources)
+            {
+                Subtract(source, cut, result);
+            }
+            return result;
+        }
+
+        private static void Subtract(Rect source, Rect cut, List<Rect> result)
+        {
+            var intersectionMinX = Mathf.Max(source.xMin, cut.xMin);
+            var intersectionMaxX = Mathf.Min(source.xMax, cut.xMax);
+            var intersectionMinZ = Mathf.Max(source.yMin, cut.yMin);
+            var intersectionMaxZ = Mathf.Min(source.yMax, cut.yMax);
+
+            if (intersectionMinX >= intersectionMaxX || intersectionMinZ >= intersectionMaxZ)
+            {
+                result.Add(source);
+                return;
+            }
+
+            AddIfNonEmpty(result, Rect.MinMaxRect(
+                source.xMin, source.yMin, source.xMax, intersectionMinZ));
+            AddIfNonEmpty(result, Rect.MinMaxRect(
+                source.xMin, intersectionMaxZ, source.xMax, source.yMax));
+            AddIfNonEmpty(result, Rect.MinMaxRect(
+                source.xMin, intersectionMinZ, intersectionMinX, intersectionMaxZ));
+            AddIfNonEmpty(result, Rect.MinMaxRect(
+                intersectionMaxX, intersectionMinZ, source.xMax, intersectionMaxZ));
+        }
+
+        private static void AddIfNonEmpty(List<Rect> result, Rect rect)
+        {
+            if (rect.width > 0f && rect.height > 0f)
+            {
+                result.Add(rect);
+            }
+        }
+
+        private static void DrawPlane(Material material, Rect rect)
+        {
+            var scale = new Vector3(rect.width, 1f, rect.height);
+            var center = new Vector3(rect.center.x, 0f, rect.center.y);
+
+            propertyBlock.SetVector(ShaderPropertyIDs.MainTextureScale, scale);
+            propertyBlock.SetVector(ShaderPropertyIDs.MainTextureOffset, center);
+
+            var matrix = Matrix4x4.TRS(
+                center.WithYOffset(AltitudeLayer.WorldClipper.AltitudeFor()),
+                Quaternion.identity,
+                scale);
             Graphics.DrawMesh(MeshPool.plane10, matrix, material, 0, null, 0, propertyBlock);
         }
     }

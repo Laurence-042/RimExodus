@@ -8,7 +8,10 @@
 
 RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的局部地图在视觉与操作上连续连接，Pawn 可直接从一张地图走入相邻地图，无需组成远行队。
 
-设计文档：`doc/无缝世界地块探索.md`（长期设计记录，含 VMF 调研结果）。
+文档索引：
+- `doc/无缝世界地块探索.md` — 长期设计与五阶段路线图。
+- `doc/第一阶段-VMF调研.md` — VMF 源码调研、可复用能力和架构结论。
+- `doc/第二阶段-最小技术原型.md` — 矩形原型的实现进度、渲染验证和剩余事项。
 
 ## 依赖引用目录
 
@@ -62,7 +65,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 9. **存档/宿主迁移**：`PocketMapParent.ExposeData` 存 `sourceMap`/`mapGenerator`；`VehiclePawnWithMap.ExposeData` 存 `interiorMap`；读档 `SpawnSetup` 重关联 `sourceMap`。
 10. **跨地图寻路**：`CrossMapReachabilityUtility` 用 `DestMap`/`DepartMap`/`DepartPosition` 记录 Pawn 跨地图上下文；`CanReach` 把出发/目的地地图通过**入口点对**（`exitSpot`/`enterSpot`）连接，支持 AStar（`AStar<MapTraverse>` 地图图搜索）与 legacy 遍历两种算法。接入：`Patches_Map.cs` 的 `Patch_Reachability_CanReach` 等。
 11. **跨地图射击**：目标搜索 `AttackTargetFinderOnVehicle.BestAttackTarget` 扩展到 `BaseMapAndVehicleMaps`，用 `PositionOnBaseMapSpawned` 统一坐标；LOS 用 `GenSightOnVehicle.LineOfSight`（坐标 `ToBaseMapCoord` 映射到宿主地图）；射击线用 `VerbOnVehicleUtility.TryFindShootLineFromToOnVehicle`（`ShouldConsiderCrossMap` 判定）；弹道用 `Patches_Verb.cs` Transpiler 把 `Thing.Map`/`Position` 替换为 `BaseMap`/`PositionOnBaseMapSpawned`。接入：`Patches_Combat.cs`/`Patches_Verb.cs`。
-12. **口袋地图能否显示在宿主边界之外（核心限制）**：宿主地图 `Map.MapUpdate`（`Verse/Map.cs` ~1176）只在 `Find.CurrentMap == this` 时绘制，`MapDrawer.DrawMapMesh` 只画 ViewRect（裁剪到地图边界）内；`MapEdgeClipDrawer.DrawClippers`（`Verse/MapEdgeClipDrawer.cs`）在地图四边画 500 单位宽黑色裁剪平面（`ClipMat`，`AltitudeLayer.WorldClipper`），在 `Map.MapUpdate` 中**最后**绘制（`dynamicDrawManager.DrawDynamicThings()` 之后），会遮挡宿主边界外的口袋地图。VMF 车辆地图通过 `DrawAt`/`DynamicDrawPhaseAt`（Thing 绘制方法，`VehiclePawnWithMap.cs` ~981/~1032）用 `Graphics.DrawMesh(subMesh.mesh, drawPos, rot, ...)` 绘制到宿主地图任意位置（`drawPos` 由 `ToBaseMapCoord` 计算），**绕开 `Find.CurrentMap == this` 限制**；`SectionLayer_TerrainOnVehicle` 继承 `SectionLayer_Terrain`，网格在车辆地图局部坐标生成再偏移。VMF 自己的 `DrawClippers`（~1307）只在聚焦时画车辆地图边界裁剪，不调用宿主 `MapEdgeClipDrawer.DrawClippers`（被注释）。**结论**：技术上可显示在宿主边界外，但必须处理宿主 `MapEdgeClipDrawer.DrawClippers` 遮挡——方案 A 宿主 `generatorDef.disableMapClippers=true`；方案 B（推荐）patch `MapEdgeClipDrawer.DrawClippers` 跳过与对端地图 footprint 相交的裁剪平面；方案 C 复用 VMF Thing 绘制 + 自绘裁剪（VMF 已证明可行，但**怀疑 VMF 的地图也会因默认的 `MapEdgeClipDrawer.DrawClippers` 被覆盖**，故优先方案 B）。选取/移动命令用 `ToVehicleMapCoord` 反查，与边界无关。**两个关键设计点**：(1) 方案 B 的裁剪跳过范围必须覆盖对端地图**整个可见 footprint**（Pawn 到边界时对端地图大部分在宿主边界外，只跳接缝线仍会被涂黑），判定以"裁剪平面是否与已加载/可见对端地图 footprint 相交"为准；(2) 对端地图与本地地图在接缝处**物理重叠**（overlap band），本端传送点与对端传送点在宿主坐标（drawPos）上重合于同一 tile，Pawn 走到本端传送点后经 `ToilsAcrossMaps.GotoTargetMap` 无缝传送到对端相同 drawPos 的 tile，视觉位置不跳变。
+12. **口袋地图能否显示在宿主边界之外（已验证）**：宿主 `MapDrawer` 的 ViewRect 与 `MapEdgeClipDrawer` 会阻止普通地图网格直接显示在边界外，但额外的主相机绘制通道可以绕开 ViewRect。最终原型使用 `CameraEvent.BeforeForwardOpaque` 的专属 `CommandBuffer` 将口袋地图主 Terrain 作为背景绘制，再只清深度并让原版宿主地图正常覆盖重叠带。宿主四块 `WorldClipper` 不能在 footprint 相交时整块跳过，必须逐块减去所有 footprint 后绘制剩余矩形，否则未被本帧写色的像素会在拖动时形成残影。接缝仍采用物理重叠带，使两端传送点映射到相同宿主坐标。
 
 ## 架构评估
 
@@ -74,10 +77,10 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 - 本仓库 grep 需用**绝对路径 + 正斜杠**（如 `d:/SteamLibrary/...`），相对路径会失败。
 - `memory` 工具与 `create_file` 对超 ~150 行的内容有截断 bug：先建 stub，再分块（≤150 行）插入。
-- 设计文档 `doc/无缝世界地块探索.md` 的"当前阶段计划"定义了 5 个推进步骤：VMF 调研 → 最小技术原型 → 旅行 Pocket Map → 六边形裁切 → 连续地形。
-- 最小技术原型验证点：地图能否绘制/选取/接收移动命令、跨地图入口往返、存档读档恢复。**渲染上已验证可行**（VMF 把口袋地图作为 Thing 绘制可显示在宿主边界外），但原型必须同时处理宿主 `MapEdgeClipDrawer.DrawClippers` 遮挡（见核心结论 12）。
+- 主设计文档的“当前阶段计划”定义了 5 个推进步骤：VMF 调研 → 最小技术原型 → 旅行 Pocket Map → 六边形裁切 → 连续地形；第一、二阶段细节分别维护在独立文档中。
+- 最小技术原型验证点：地图绘制/选取/移动命令、跨地图入口往返、存档读档恢复。**生成与渲染已经验证通过**；交互、双向转移与保存读档仍待验证。
 
-## 最小技术原型实现（已完成，可编译）
+## 最小技术原型基础实现（已完成，可编译）
 
 原型目标：验证"地图能否绘制/选取/接收移动命令、跨地图入口往返、存档读档恢复"。采用**矩形地图**（不做六边形裁切与连续地形），复用 `PocketMapParent`/`sourceMap` 宿主机制 + 自行实现叠加层渲染（不依赖 VMF 渲染管线）。
 
@@ -89,11 +92,11 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ### 源码文件（`Source/`）
 - `RimExodusMod.cs` — `[StaticConstructorOnStartup]`，`new Harmony("RimExodus.SeamlessWorld").PatchAll()`。
-- `MapParent_SeamlessTile.cs` — `PocketMapParent` 子类。字段：`worldTile`、`direction`（0=北,1=东,2=南,3=西）、`hostOffset`（宿主坐标平移）、`neighborTiles`（`List<int>`）。`ExposeData` 存全部字段。
+- `MapParent_SeamlessTile.cs` — `PocketMapParent` 子类。字段：`worldTile`、`direction`（0=北,1=东北,2=东南,3=南,4=西南,5=西北）、`hostOffset`（宿主坐标平移）、`neighborTiles`（`List<int>`）。`ExposeData` 存全部字段。
 - `SeamlessMapUtility.cs` — 坐标转换：`ToHostCoord`/`ToLocalCoord`/`ToHostDrawPos`/`HostCellInFootprint`。静态地块无旋转，仅平移 `hostOffset`。
 - `SeamlessTileManager.cs` — `MapComponent`。`GenerateTileMap(direction, mapSize, overlapBand)`：`WorldObjectMaker.MakeWorldObject` → 设 `sourceMap`/`Tile=0`/`direction`/`hostOffset` → `MapGenerator.GenerateMap(..., isPocketMap: true)` → 加入 `Find.World.pocketMaps` + `Find.World.worldObjects` → 共享宿主 skyManager/weather。`ComputeHostOffset` 把口袋地图放宿主边界外并留重叠带。`GetTileMapInDirection`/`RemoveTileMap`。
-- `SeamlessTileRenderer.cs` — `MapComponent`，`MapComponentDraw()` 遍历 `Find.World.pocketMaps` 中 `sourceMap == map` 的口袋地图，用 `AccessTools.FieldRefAccess` 取 `MapDrawer.sections`/`Section.layers`，对 dirty section 调 `RegenerateAllLayers()`，再用 `Graphics.DrawMesh(subMesh.mesh, drawPos, rot, ...)` 绘制（drawPos = `hostOffset.ToVector3()`，rot = identity）。**注意**：不能依赖 `MapMeshDrawerUpdate_First` 的 ViewRect 逻辑（口袋地图 section 不在宿主 ViewRect 内），须直接 `RegenerateAllLayers()`。
-- `Patch_MapEdgeClipDrawer_DrawClippers.cs` — 方案 B。`Prefix` 收集 `SeamlessTileRegistry.GetFootprintsOnHost(map)`，若非空则手动绘制四条裁剪平面、跳过与 footprint 相交的边（`footprint.Overlaps(edgeRect)`），返回 false。带 `MaterialPropertyBlock` 纹理缩放/偏移（对齐原版）。
+- `SeamlessTileRenderer.cs` — `MapComponent`，维护绑定到主相机 `CameraEvent.BeforeForwardOpaque` 的专属 `CommandBuffer`。每帧只提交精确类型为 `SectionLayer_Terrain` 的主地形层，按 `material.renderQueue` 稳定排序；绘制口袋颜色后只清深度，再由原版宿主地图覆盖重叠带。相机切换与 `MapRemoved()` 会正确解绑、释放。dirty section 仍直接 `RegenerateAllLayers()` 并手动清零 `dirtyFlags`。
+- `Patch_MapEdgeClipDrawer_DrawClippers.cs` — 收集所有口袋地图 footprint，从四块原版世界裁剪矩形中依次做矩形差集，仅绘制剩余矩形；保留原版高度和世界对齐纹理参数。只在真实 footprint 开洞，避免拖动残影。
 - `SeamlessTileRegistry.cs` — `GetFootprintsOnHost(Map)` 返回宿主坐标 `List<CellRect>`（局部矩形 + hostOffset）。
 - `GenStep_SeamlessTile.cs` — `GenStep`，`Generate` 铺设矩形地形：边缘 2 格不可通行（WaterOceanDeep），内部可通行（Soil）。
 - `CompSeamlessTileEnterSpot.cs` — `ThingComp` 入口点，`direction` 属性，`AdjacentTileParent` 经宿主 `SeamlessTileManager.GetTileMapInDirection` 查相邻地块。
@@ -101,9 +104,9 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `SeamlessMapTransferTrigger.cs` — `MapComponent`，每 30 tick 检查 `Find.CurrentMap` 上是否有 Pawn 站在 `CompSeamlessTileEnterSpot` 传送点上，触发转移。
 
 ### 关键实现要点
-- **渲染顺序**：`Root_Play.Update()` 先 `base.Update()`（→ `UIRootUpdate` → `MapComponentOnDraw` 绘制口袋地图），后 `Game.UpdatePlay()`（→ `Map.MapUpdate` → `DrawClippers`）。故口袋地图先画、裁剪平面后画，方案 B patch 必须跳过与 footprint 相交的边，否则覆盖口袋地图。
+- **渲染顺序**：不再依赖 `MapComponentOnDraw` 的 `Graphics.DrawMesh` 调用顺序或高度 epsilon。口袋主 Terrain 在 `BeforeForwardOpaque` 背景通道写颜色，随后清深度，宿主地图照原版路径绘制，因此本端稳定覆盖对端。
 - **MapComponent 自动注册**：`Map.FillComponents` 自动实例化所有 `MapComponent` 非抽象子类，无需手动注册。
-- **编译**：`cd Source; dotnet build RimExodus.csproj -c Debug`，输出 `1.6/Assemblies/RimExodus.dll`。已通过（0 错误 0 警告）。
+- **编译**：仓库根目录运行 `just build`（默认任务也是 `build`），底层命令为 `dotnet build Source/RimExodus.csproj -c Debug`，输出 `1.6/Assemblies/RimExodus.dll`。已通过（0 错误 0 警告）。
 - **踩坑**：`Scribe_Collections.Look` 只接受 `List<T>`（非数组），故 `neighborTiles` 用 `List<int>`；`Pawn_MindState.Reset` 有两个重载需显式传参；`TerrainDefOf` 需 `using RimWorld;`；`WorldObjectDef` 在 `RimWorld` 命名空间（非 Planet）。
 - **待办**：原型尚未实现跨地图寻路/射击（VMF 的 `CrossMapReachabilityUtility`/`AttackTargetFinderOnVehicle` 模型可复用）、六边形裁切、连续地形、传送点 Thing 的生成与放置（当前 `CompSeamlessTileEnterSpot` 需手动放置 Thing）。
 
@@ -119,19 +122,21 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 ### Dev 命令（`Source/DebugActions_SeamlessTile.cs`）
 - 用 `[DebugAction("RimExodus", ..., allowedGameStates = AllowedGameStates.PlayingOnMap)]` 特性注册静态方法（LudeonTK 命名空间）。
 - 命令：Generate North/NorthEast/SouthEast/South/SouthWest/NorthWest、Generate All 6、Remove All。
-- 默认地图尺寸 50×50，overlapBand=4。`CurrentManager` 取 `Find.CurrentMap.GetComponent<SeamlessTileManager>()`。
+- 默认地图尺寸 50×50，`DefaultOverlapBand=5`。`CurrentManager` 取 `Find.CurrentMap.GetComponent<SeamlessTileManager>()`。
 
 ### 自动生成北侧（`SeamlessTileManager`）
 - `MapGenerated()` 钩子：开档自动生成北侧地块（`autoGeneratedNorth` 标志防重复）。
 - **关键坑**：`MapComponentUtility.MapGenerated(map)` 在 `MapGenerator.GenerateMap` **内部**调用（`MapGenerator.cs` ~193），此时 `MapGenerator.mapBeingGenerated` 仍非空，直接调 `GenerateTileMap` 会被拒绝返回 null。**必须延迟到下一 tick**：`MapGenerated()` 里设 `pendingAutoGenerateTicks = 1`，`MapComponentTick()` 里递减到 0 再调 `TryAutoGenerateNorth()`。
-- `TryAutoGenerateNorth`：若方向 0 已存在则跳过，否则 `GenerateTileMap(0, mapSize, 4)`。
+- `TryAutoGenerateNorth`：若方向 0 已存在则跳过，否则使用 `DefaultOverlapBand` 调用 `GenerateTileMap(0, mapSize, overlapBand)`。
 - **致命坑（已修复）**：`SeamlessTileManager` 是 `MapComponent`，会被 `Map.FillComponents` 自动实例化到**每一张地图**上，包括 `GenerateTileMap` 生成的口袋地图本身。若不在口袋地图上跳过，口袋地图的 `MapGenerated()` 也会触发自动生成 → "生成北侧 → 生成口袋地图 → 口袋地图又生成北侧"的**无限递归卡死**（日志刷屏 `Auto-generated north seamless tile map`）。修复：`MapGenerated()` 和 `MapComponentTick()` 开头都加 `if (map.IsPocketMap) return;`。
 - **性能坑（已修复）**：`Section.RegenerateAllLayers()` **不会清除 `dirtyFlags`**（只有 `TryUpdate` 会，且 `TryUpdate` 依赖 `bounds.Overlaps(view)` 宿主 ViewRect，口袋地图在边界外恒 false）。若 `RegenerateAllLayers()` 后不手动 `section.dirtyFlags = 0uL`，只要 dirtyFlags != 0，**每帧都会重建整个口袋地图的所有 SectionLayer 网格**（地形/建筑/植物/光照），大量内存分配 + GC 卡顿。修复：`SeamlessTileRenderer.DrawPocketMap` 里 `RegenerateAllLayers()` 后手动清零 `dirtyFlags`。
-- **深度冲突坑（已修复）**：口袋地图地形与宿主地图地形都在 `AltitudeLayer.Terrain`（`Alts[2]=0.7317`）**同一高度**。绘制顺序：`MapComponentOnDraw`（口袋地图，`UIRoot_Play.UIRootUpdate`→`MapInterfaceUpdate`）**先画**，`Map.MapUpdate`（宿主 `DrawMapMesh` + `DrawClippers`）**后画**。地形 shader 用严格 `ZTest Less`，同深度时**先画的口袋地图赢**（后画的宿主 fragment 深度不严格小于被剔除）→ 对侧覆盖本侧 + 拖动时宿主/裁剪平面无法覆盖口袋旧位置留下残影。修复：`SeamlessTileRenderer` 里 `drawPos.y -= PocketMapAltitudeOffset`（0.01f），压低口袋地图整体高度，让宿主地形在重叠区通过深度测试覆盖口袋地图。
+- **渲染层语义坑（已修复）**：直接重放全部 submesh 会绕过各 `SectionLayer.DrawLayer()` 的专用目标；尤其 `SectionLayer_Watergen` 虽继承 Terrain，却只能进入水深子相机。当前用精确类型判断只提交 `SectionLayer_Terrain`，消除蓝红水深颜色。
+- **深度与残影坑（已修复）**：正负高度 epsilon 都不能可靠控制混合 render queue 的 Terrain。最终通过背景 CommandBuffer → 只清深度 → 宿主原版绘制建立确定顺序，并以 clipper 矩形差集保证 footprint 外每帧仍写入颜色。高度 epsilon 已删除。
 - **重叠带宽度**：`TryAutoGenerateNorth` 里 `overlapBand` 从 4 改为 5（用户确认边界应为 5 格）。
 
 ### 验证
 - `dotnet build` 通过（0 错误 0 警告），输出 `1.6/Assemblies/RimExodus.dll`。
+- **游戏内结果**：5 格重叠带由本端覆盖；水域/土地无蓝红水深色；拖动和缩放无残影；footprint 外仍由 clipper 覆盖。用户已确认问题解决。
 - **测试方式**：开档后北侧地块自动生成（渲染器/裁剪 patch 有东西可画）；Dev 菜单 "RimExodus" 分类下可手动生成其余 5 向、生成全部、卸载全部。
 
 ### 仍待办

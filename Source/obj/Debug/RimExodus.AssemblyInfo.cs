@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("RimExodus")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+40f5897be0b866ff9f2c182a5809a936eeb1541c")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+291a279b2260d0cefb906b42389852447e9c6e5e")]
 [assembly: System.Reflection.AssemblyProductAttribute("RimExodus")]
 [assembly: System.Reflection.AssemblyTitleAttribute("RimExodus")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
