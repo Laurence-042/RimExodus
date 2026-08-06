@@ -1,0 +1,9 @@
+D:\SteamLibrary\steamapps\common\RimWorld\Mods\RimExodus\Source\obj\Debug\RimExodus.csproj.AssemblyReference.cache
+D:\SteamLibrary\steamapps\common\RimWorld\Mods\RimExodus\Source\obj\Debug\RimExodus.GeneratedMSBuildEditorConfig.editorconfig
+D:\SteamLibrary\steamapps\common\RimWorld\Mods\RimExodus\Source\obj\Debug\RimExodus.AssemblyInfoInputs.cache
+D:\SteamLibrary\steamapps\common\RimWorld\Mods\RimExodus\Source\obj\Debug\RimExodus.AssemblyInfo.cs
+D:\SteamLibrary\steamapps\common\RimWorld\Mods\RimExodus\Source\obj\Debug\RimExodus.csproj.CoreCompileInputs.cache
+D:\SteamLibrary\steamapps\common\RimWorld\Mods\RimExodus\1.6\Assemblies\RimExodus.dll
+D:\SteamLibrary\steamapps\common\RimWorld\Mods\RimExodus\1.6\Assemblies\RimExodus.pdb
+D:\SteamLibrary\steamapps\common\RimWorld\Mods\RimExodus\Source\obj\Debug\RimExodus.dll
+D:\SteamLibrary\steamapps\common\RimWorld\Mods\RimExodus\Source\obj\Debug\RimExodus.pdb

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+
+  <MapGeneratorDef>
+    <defName>RimExodus_SeamlessTileGenerator</defName>
+    <label>seamless tile generator</label>
+    <pocketMapProperties>
+      <biome>BorealForest</biome>
+      <temperature>10</temperature>
+    </pocketMapProperties>
+    <disableShadows>true</disableShadows>
+    <genSteps>
+      <li>RimExodus_SeamlessTile</li>
+    </genSteps>
+  </MapGeneratorDef>
+
+  <GenStepDef>
+    <defName>RimExodus_SeamlessTile</defName>
+    <order>10</order>
+    <genStep Class="RimExodus.GenStep_SeamlessTile"/>
+  </GenStepDef>
+
+</Defs>

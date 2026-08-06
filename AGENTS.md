@@ -76,3 +76,63 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `memory` 工具与 `create_file` 对超 ~150 行的内容有截断 bug：先建 stub，再分块（≤150 行）插入。
 - 设计文档 `doc/无缝世界地块探索.md` 的"当前阶段计划"定义了 5 个推进步骤：VMF 调研 → 最小技术原型 → 旅行 Pocket Map → 六边形裁切 → 连续地形。
 - 最小技术原型验证点：地图能否绘制/选取/接收移动命令、跨地图入口往返、存档读档恢复。**渲染上已验证可行**（VMF 把口袋地图作为 Thing 绘制可显示在宿主边界外），但原型必须同时处理宿主 `MapEdgeClipDrawer.DrawClippers` 遮挡（见核心结论 12）。
+
+## 最小技术原型实现（已完成，可编译）
+
+原型目标：验证"地图能否绘制/选取/接收移动命令、跨地图入口往返、存档读档恢复"。采用**矩形地图**（不做六边形裁切与连续地形），复用 `PocketMapParent`/`sourceMap` 宿主机制 + 自行实现叠加层渲染（不依赖 VMF 渲染管线）。
+
+### 项目结构
+- `About/About.xml` — mod 元数据，packageId `RimExodus.SeamlessWorld`，依赖 `brrainz.harmony`，支持 1.6。
+- `Source/RimExodus.csproj` — net48，引用 `Krafs.Rimworld.Ref 1.6.4633` + `Lib.Harmony.Ref 2.4.2`，输出到 `..\1.6\Assemblies\`。
+- `1.6/Defs/WorldObjectDefs/WorldObjects.xml` — `RimExodus_SeamlessTileMap` WorldObjectDef，worldObjectClass `RimExodus.MapParent_SeamlessTile`，mapGenerator `RimExodus_SeamlessTileGenerator`。
+- `1.6/Defs/MapGeneration/SeamlessTileGenerator.xml` — `RimExodus_SeamlessTileGenerator` MapGeneratorDef（pocketMapProperties biome BorealForest）+ `RimExodus_SeamlessTile` GenStepDef（genStep Class="RimExodus.GenStep_SeamlessTile"）。
+
+### 源码文件（`Source/`）
+- `RimExodusMod.cs` — `[StaticConstructorOnStartup]`，`new Harmony("RimExodus.SeamlessWorld").PatchAll()`。
+- `MapParent_SeamlessTile.cs` — `PocketMapParent` 子类。字段：`worldTile`、`direction`（0=北,1=东,2=南,3=西）、`hostOffset`（宿主坐标平移）、`neighborTiles`（`List<int>`）。`ExposeData` 存全部字段。
+- `SeamlessMapUtility.cs` — 坐标转换：`ToHostCoord`/`ToLocalCoord`/`ToHostDrawPos`/`HostCellInFootprint`。静态地块无旋转，仅平移 `hostOffset`。
+- `SeamlessTileManager.cs` — `MapComponent`。`GenerateTileMap(direction, mapSize, overlapBand)`：`WorldObjectMaker.MakeWorldObject` → 设 `sourceMap`/`Tile=0`/`direction`/`hostOffset` → `MapGenerator.GenerateMap(..., isPocketMap: true)` → 加入 `Find.World.pocketMaps` + `Find.World.worldObjects` → 共享宿主 skyManager/weather。`ComputeHostOffset` 把口袋地图放宿主边界外并留重叠带。`GetTileMapInDirection`/`RemoveTileMap`。
+- `SeamlessTileRenderer.cs` — `MapComponent`，`MapComponentDraw()` 遍历 `Find.World.pocketMaps` 中 `sourceMap == map` 的口袋地图，用 `AccessTools.FieldRefAccess` 取 `MapDrawer.sections`/`Section.layers`，对 dirty section 调 `RegenerateAllLayers()`，再用 `Graphics.DrawMesh(subMesh.mesh, drawPos, rot, ...)` 绘制（drawPos = `hostOffset.ToVector3()`，rot = identity）。**注意**：不能依赖 `MapMeshDrawerUpdate_First` 的 ViewRect 逻辑（口袋地图 section 不在宿主 ViewRect 内），须直接 `RegenerateAllLayers()`。
+- `Patch_MapEdgeClipDrawer_DrawClippers.cs` — 方案 B。`Prefix` 收集 `SeamlessTileRegistry.GetFootprintsOnHost(map)`，若非空则手动绘制四条裁剪平面、跳过与 footprint 相交的边（`footprint.Overlaps(edgeRect)`），返回 false。带 `MaterialPropertyBlock` 纹理缩放/偏移（对齐原版）。
+- `SeamlessTileRegistry.cs` — `GetFootprintsOnHost(Map)` 返回宿主坐标 `List<CellRect>`（局部矩形 + hostOffset）。
+- `GenStep_SeamlessTile.cs` — `GenStep`，`Generate` 铺设矩形地形：边缘 2 格不可通行（WaterOceanDeep），内部可通行（Soil）。
+- `CompSeamlessTileEnterSpot.cs` — `ThingComp` 入口点，`direction` 属性，`AdjacentTileParent` 经宿主 `SeamlessTileManager.GetTileMapInDirection` 查相邻地块。
+- `SeamlessMapTransfer.cs` — 跨地图 Pawn 转移：`TransferPawnToTile`（宿主→地块，目标局部坐标 = 宿主坐标 - hostOffset，`DeSpawn()` + `GenSpawn.Spawn()`）、`TransferPawnToHost`（地块→宿主）。
+- `SeamlessMapTransferTrigger.cs` — `MapComponent`，每 30 tick 检查 `Find.CurrentMap` 上是否有 Pawn 站在 `CompSeamlessTileEnterSpot` 传送点上，触发转移。
+
+### 关键实现要点
+- **渲染顺序**：`Root_Play.Update()` 先 `base.Update()`（→ `UIRootUpdate` → `MapComponentOnDraw` 绘制口袋地图），后 `Game.UpdatePlay()`（→ `Map.MapUpdate` → `DrawClippers`）。故口袋地图先画、裁剪平面后画，方案 B patch 必须跳过与 footprint 相交的边，否则覆盖口袋地图。
+- **MapComponent 自动注册**：`Map.FillComponents` 自动实例化所有 `MapComponent` 非抽象子类，无需手动注册。
+- **编译**：`cd Source; dotnet build RimExodus.csproj -c Debug`，输出 `1.6/Assemblies/RimExodus.dll`。已通过（0 错误 0 警告）。
+- **踩坑**：`Scribe_Collections.Look` 只接受 `List<T>`（非数组），故 `neighborTiles` 用 `List<int>`；`Pawn_MindState.Reset` 有两个重载需显式传参；`TerrainDefOf` 需 `using RimWorld;`；`WorldObjectDef` 在 `RimWorld` 命名空间（非 Planet）。
+- **待办**：原型尚未实现跨地图寻路/射击（VMF 的 `CrossMapReachabilityUtility`/`AttackTargetFinderOnVehicle` 模型可复用）、六边形裁切、连续地形、传送点 Thing 的生成与放置（当前 `CompSeamlessTileEnterSpot` 需手动放置 Thing）。
+
+## 生成 + 渲染可测试性补全（已完成，可编译）
+
+**背景**：此前原型只是"能编译的空壳"——`GenerateTileMap` 无任何调用者、传送点 Thing 从未放置、转移只有单向、渲染器遍历空列表，验证点一个都测不了。本次补上"生成 + 渲染"的可测试性（用户明确范围：只补生成+渲染，转移后续再说）。
+
+### 方向系统扩展为 6 向
+- `direction` 语义从 0-3（四向）扩展为 0-5（六边形方向）：**0=北, 1=东北, 2=东南, 3=南, 4=西南, 5=西北**。
+- **原型四向兼容**：1/2 暂时当作东，4/5 暂时当作西（`ComputeHostOffset` 中 case 1/2 共用东偏移，case 4/5 共用西偏移）。这是尚未实现 6 向时的临时兼容。
+- 更新处：`MapParent_SeamlessTile.cs`（字段注释）、`SeamlessTileManager.cs`（`ComputeHostOffset`/`GetTileMapInDirection` 注释）。
+
+### Dev 命令（`Source/DebugActions_SeamlessTile.cs`）
+- 用 `[DebugAction("RimExodus", ..., allowedGameStates = AllowedGameStates.PlayingOnMap)]` 特性注册静态方法（LudeonTK 命名空间）。
+- 命令：Generate North/NorthEast/SouthEast/South/SouthWest/NorthWest、Generate All 6、Remove All。
+- 默认地图尺寸 50×50，overlapBand=4。`CurrentManager` 取 `Find.CurrentMap.GetComponent<SeamlessTileManager>()`。
+
+### 自动生成北侧（`SeamlessTileManager`）
+- `MapGenerated()` 钩子：开档自动生成北侧地块（`autoGeneratedNorth` 标志防重复）。
+- **关键坑**：`MapComponentUtility.MapGenerated(map)` 在 `MapGenerator.GenerateMap` **内部**调用（`MapGenerator.cs` ~193），此时 `MapGenerator.mapBeingGenerated` 仍非空，直接调 `GenerateTileMap` 会被拒绝返回 null。**必须延迟到下一 tick**：`MapGenerated()` 里设 `pendingAutoGenerateTicks = 1`，`MapComponentTick()` 里递减到 0 再调 `TryAutoGenerateNorth()`。
+- `TryAutoGenerateNorth`：若方向 0 已存在则跳过，否则 `GenerateTileMap(0, mapSize, 4)`。
+- **致命坑（已修复）**：`SeamlessTileManager` 是 `MapComponent`，会被 `Map.FillComponents` 自动实例化到**每一张地图**上，包括 `GenerateTileMap` 生成的口袋地图本身。若不在口袋地图上跳过，口袋地图的 `MapGenerated()` 也会触发自动生成 → "生成北侧 → 生成口袋地图 → 口袋地图又生成北侧"的**无限递归卡死**（日志刷屏 `Auto-generated north seamless tile map`）。修复：`MapGenerated()` 和 `MapComponentTick()` 开头都加 `if (map.IsPocketMap) return;`。
+- **性能坑（已修复）**：`Section.RegenerateAllLayers()` **不会清除 `dirtyFlags`**（只有 `TryUpdate` 会，且 `TryUpdate` 依赖 `bounds.Overlaps(view)` 宿主 ViewRect，口袋地图在边界外恒 false）。若 `RegenerateAllLayers()` 后不手动 `section.dirtyFlags = 0uL`，只要 dirtyFlags != 0，**每帧都会重建整个口袋地图的所有 SectionLayer 网格**（地形/建筑/植物/光照），大量内存分配 + GC 卡顿。修复：`SeamlessTileRenderer.DrawPocketMap` 里 `RegenerateAllLayers()` 后手动清零 `dirtyFlags`。
+
+### 验证
+- `dotnet build` 通过（0 错误 0 警告），输出 `1.6/Assemblies/RimExodus.dll`。
+- **测试方式**：开档后北侧地块自动生成（渲染器/裁剪 patch 有东西可画）；Dev 菜单 "RimExodus" 分类下可手动生成其余 5 向、生成全部、卸载全部。
+
+### 仍待办
+- 传送点 Thing 的自动生成与放置（当前 `CompSeamlessTileEnterSpot` 需手动放置 Thing，转移触发仍无法自动化测试）。
+- 双向转移（地块→宿主无触发组件）。
+- 跨地图寻路/射击、六边形裁切、连续地形。

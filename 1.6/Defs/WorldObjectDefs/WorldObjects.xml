@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+
+  <WorldObjectDef>
+    <defName>RimExodus_SeamlessTileMap</defName>
+    <label>seamless tile map</label>
+    <worldObjectClass>RimExodus.MapParent_SeamlessTile</worldObjectClass>
+    <mapGenerator>RimExodus_SeamlessTileGenerator</mapGenerator>
+    <useDynamicDrawer>false</useDynamicDrawer>
+  </WorldObjectDef>
+
+</Defs>
