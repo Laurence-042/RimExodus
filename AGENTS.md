@@ -60,11 +60,12 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 9. **存档/宿主迁移**：`PocketMapParent.ExposeData` 存 `sourceMap`/`mapGenerator`；`VehiclePawnWithMap.ExposeData` 存 `interiorMap`；读档 `SpawnSetup` 重关联 `sourceMap`。
 10. **跨地图寻路**：`CrossMapReachabilityUtility` 用 `DestMap`/`DepartMap`/`DepartPosition` 记录 Pawn 跨地图上下文；`CanReach` 把出发/目的地地图通过**入口点对**（`exitSpot`/`enterSpot`）连接，支持 AStar（`AStar<MapTraverse>` 地图图搜索）与 legacy 遍历两种算法。接入：`Patches_Map.cs` 的 `Patch_Reachability_CanReach` 等。
 11. **跨地图射击**：目标搜索 `AttackTargetFinderOnVehicle.BestAttackTarget` 扩展到 `BaseMapAndVehicleMaps`，用 `PositionOnBaseMapSpawned` 统一坐标；LOS 用 `GenSightOnVehicle.LineOfSight`（坐标 `ToBaseMapCoord` 映射到宿主地图）；射击线用 `VerbOnVehicleUtility.TryFindShootLineFromToOnVehicle`（`ShouldConsiderCrossMap` 判定）；弹道用 `Patches_Verb.cs` Transpiler 把 `Thing.Map`/`Position` 替换为 `BaseMap`/`PositionOnBaseMapSpawned`。接入：`Patches_Combat.cs`/`Patches_Verb.cs`。
+12. **口袋地图能否显示在宿主边界之外（核心限制）**：宿主地图 `Map.MapUpdate`（`Verse/Map.cs` ~1176）只在 `Find.CurrentMap == this` 时绘制，`MapDrawer.DrawMapMesh` 只画 ViewRect（裁剪到地图边界）内；`MapEdgeClipDrawer.DrawClippers`（`Verse/MapEdgeClipDrawer.cs`）在地图四边画 500 单位宽黑色裁剪平面（`ClipMat`，`AltitudeLayer.WorldClipper`），在 `Map.MapUpdate` 中**最后**绘制（`dynamicDrawManager.DrawDynamicThings()` 之后），会遮挡宿主边界外的口袋地图。VMF 车辆地图通过 `DrawAt`/`DynamicDrawPhaseAt`（Thing 绘制方法，`VehiclePawnWithMap.cs` ~981/~1032）用 `Graphics.DrawMesh(subMesh.mesh, drawPos, rot, ...)` 绘制到宿主地图任意位置（`drawPos` 由 `ToBaseMapCoord` 计算），**绕开 `Find.CurrentMap == this` 限制**；`SectionLayer_TerrainOnVehicle` 继承 `SectionLayer_Terrain`，网格在车辆地图局部坐标生成再偏移。VMF 自己的 `DrawClippers`（~1307）只在聚焦时画车辆地图边界裁剪，不调用宿主 `MapEdgeClipDrawer.DrawClippers`（被注释）。**结论**：技术上可显示在宿主边界外，但必须处理宿主 `MapEdgeClipDrawer.DrawClippers` 遮挡——方案 A 宿主 `generatorDef.disableMapClippers=true`；方案 B（推荐）patch `MapEdgeClipDrawer.DrawClippers` 跳过与对端地图 footprint 相交的裁剪平面；方案 C 复用 VMF Thing 绘制 + 自绘裁剪。选取/移动命令用 `ToVehicleMapCoord` 反查，与边界无关。**两个关键设计点**：(1) 方案 B 的裁剪跳过范围必须覆盖对端地图**整个可见 footprint**（Pawn 到边界时对端地图大部分在宿主边界外，只跳接缝线仍会被涂黑），判定以"裁剪平面是否与已加载/可见对端地图 footprint 相交"为准；(2) 对端地图与本地地图在接缝处**物理重叠**（overlap band），本端传送点与对端传送点在宿主坐标（drawPos）上重合于同一 tile，Pawn 走到本端传送点后经 `ToilsAcrossMaps.GotoTargetMap` 无缝传送到对端相同 drawPos 的 tile，视觉位置不跳变。
 
 ## 架构评估
 
 - **可复用**：`PocketMapParent`/`sourceMap` 宿主机制、`Find.World.pocketMaps`、跨地图 Pawn 转移、入口机制、坐标反查选择、**跨地图寻路**（地图图 + 入口点对 + AStar 模型）、**跨地图射击**（坐标统一映射到宿主地图模型）。
-- **需自行实现**：地图叠加层渲染（VMF 渲染管线面向车辆小地图）、把"锚点"从车辆抽象为静态宿主、六边形裁切与连续地形。
+- **需自行实现**：地图叠加层渲染（VMF 渲染管线面向车辆小地图）、把"锚点"从车辆抽象为静态宿主、六边形裁切与连续地形、**处理宿主 `MapEdgeClipDrawer.DrawClippers` 对边界外口袋地图的遮挡**（patch `MapEdgeClipDrawer` 或 Thing 绘制 + 自绘裁剪）。
 - **倾向方案**：复用 PocketMapParent 机制 + 自行实现叠加层渲染，而非直接依赖 VMF 渲染管线。跨地图寻路与射击的"坐标统一映射到宿主地图"模型可直接复用，是实现"跨地块追击入侵者"（Pawn 跨地块射击）的关键。是否把 VMF 作为正式依赖，由最小技术原型验证后决定。
 
 ## 需要记住的事项
@@ -72,4 +73,4 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - 本仓库 grep 需用**绝对路径 + 正斜杠**（如 `d:/SteamLibrary/...`），相对路径会失败。
 - `memory` 工具与 `create_file` 对超 ~150 行的内容有截断 bug：先建 stub，再分块（≤150 行）插入。
 - 设计文档 `doc/无缝世界地块探索.md` 的"当前阶段计划"定义了 5 个推进步骤：VMF 调研 → 最小技术原型 → 旅行 Pocket Map → 六边形裁切 → 连续地形。
-- 最小技术原型验证点：地图能否绘制/选取/接收移动命令、跨地图入口往返、存档读档恢复。
+- 最小技术原型验证点：地图能否绘制/选取/接收移动命令、跨地图入口往返、存档读档恢复。**渲染上已验证可行**（VMF 把口袋地图作为 Thing 绘制可显示在宿主边界外），但原型必须同时处理宿主 `MapEdgeClipDrawer.DrawClippers` 遮挡（见核心结论 12）。
