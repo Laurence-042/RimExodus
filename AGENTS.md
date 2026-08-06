@@ -127,6 +127,8 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `TryAutoGenerateNorth`：若方向 0 已存在则跳过，否则 `GenerateTileMap(0, mapSize, 4)`。
 - **致命坑（已修复）**：`SeamlessTileManager` 是 `MapComponent`，会被 `Map.FillComponents` 自动实例化到**每一张地图**上，包括 `GenerateTileMap` 生成的口袋地图本身。若不在口袋地图上跳过，口袋地图的 `MapGenerated()` 也会触发自动生成 → "生成北侧 → 生成口袋地图 → 口袋地图又生成北侧"的**无限递归卡死**（日志刷屏 `Auto-generated north seamless tile map`）。修复：`MapGenerated()` 和 `MapComponentTick()` 开头都加 `if (map.IsPocketMap) return;`。
 - **性能坑（已修复）**：`Section.RegenerateAllLayers()` **不会清除 `dirtyFlags`**（只有 `TryUpdate` 会，且 `TryUpdate` 依赖 `bounds.Overlaps(view)` 宿主 ViewRect，口袋地图在边界外恒 false）。若 `RegenerateAllLayers()` 后不手动 `section.dirtyFlags = 0uL`，只要 dirtyFlags != 0，**每帧都会重建整个口袋地图的所有 SectionLayer 网格**（地形/建筑/植物/光照），大量内存分配 + GC 卡顿。修复：`SeamlessTileRenderer.DrawPocketMap` 里 `RegenerateAllLayers()` 后手动清零 `dirtyFlags`。
+- **深度冲突坑（已修复）**：口袋地图地形与宿主地图地形都在 `AltitudeLayer.Terrain`（`Alts[2]=0.7317`）**同一高度**。绘制顺序：`MapComponentOnDraw`（口袋地图，`UIRoot_Play.UIRootUpdate`→`MapInterfaceUpdate`）**先画**，`Map.MapUpdate`（宿主 `DrawMapMesh` + `DrawClippers`）**后画**。地形 shader 用严格 `ZTest Less`，同深度时**先画的口袋地图赢**（后画的宿主 fragment 深度不严格小于被剔除）→ 对侧覆盖本侧 + 拖动时宿主/裁剪平面无法覆盖口袋旧位置留下残影。修复：`SeamlessTileRenderer` 里 `drawPos.y -= PocketMapAltitudeOffset`（0.01f），压低口袋地图整体高度，让宿主地形在重叠区通过深度测试覆盖口袋地图。
+- **重叠带宽度**：`TryAutoGenerateNorth` 里 `overlapBand` 从 4 改为 5（用户确认边界应为 5 格）。
 
 ### 验证
 - `dotnet build` 通过（0 错误 0 警告），输出 `1.6/Assemblies/RimExodus.dll`。

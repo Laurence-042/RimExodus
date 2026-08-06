@@ -17,8 +17,6 @@ namespace RimExodus
 
         private const int DefaultMapSize = 50;
 
-        private const int DefaultOverlapBand = 4;
-
         /// <summary>获取当前宿主地图上的 SeamlessTileManager。</summary>
         private static SeamlessTileManager CurrentManager
         {
@@ -50,7 +48,7 @@ namespace RimExodus
             }
 
             var mapSize = new IntVec3(DefaultMapSize, 1, DefaultMapSize);
-            var parent = manager.GenerateTileMap(direction, mapSize, DefaultOverlapBand);
+            var parent = manager.GenerateTileMap(direction, mapSize, SeamlessTileManager.DefaultOverlapBand);
             if (parent != null)
             {
                 Log.Message($"[RimExodus] Generated seamless tile map in direction {direction} (hostOffset={parent.hostOffset}).");

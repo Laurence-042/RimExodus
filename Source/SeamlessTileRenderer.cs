@@ -17,6 +17,16 @@ namespace RimExodus
     /// </summary>
     public class SeamlessTileRenderer : MapComponent
     {
+        /// <summary>
+        /// 口袋地图整体高度的压低量。
+        /// 口袋地图地形与宿主地图地形都在 AltitudeLayer.Terrain（0.7317）同一高度，
+        /// 而口袋地图在 MapComponentOnDraw 阶段先画、宿主地图在 Map.MapUpdate 阶段后画。
+        /// 地形 shader 用严格 ZTest Less，同深度时先画的口袋地图赢（后画的宿主 fragment
+        /// 深度不严格小于被剔除），导致对侧覆盖本侧 + 拖动残影。
+        /// 压低口袋地图整体高度一个 epsilon，让宿主地形在重叠区通过深度测试覆盖口袋地图。
+        /// </summary>
+        private const float PocketMapAltitudeOffset = 0.01f;
+
         private static readonly AccessTools.FieldRef<MapDrawer, Section[,]> sectionsRef =
             AccessTools.FieldRefAccess<MapDrawer, Section[,]>("sections");
 
@@ -90,6 +100,8 @@ namespace RimExodus
             }
 
             var drawPos = parent.hostOffset.ToVector3();
+            // 关键：压低口袋地图整体高度，让宿主地形在重叠区覆盖口袋地图（见 PocketMapAltitudeOffset 注释）。
+            drawPos.y -= PocketMapAltitudeOffset;
             var rot = Quaternion.identity;
 
             for (var x = 0; x < sections.GetLength(0); x++)
