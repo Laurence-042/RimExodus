@@ -15,7 +15,10 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ## 依赖引用目录
 
+> **重要**：本仓库已包含全部所需源码与配置，**无需去游戏安装目录（`SteamLibrary/steamapps/common/RimWorld/`）查找**。游戏的源码、物品/Def 配置、以及 VMF/VF 框架源码都在 `references/` 下，直接在此目录内检索即可。
+
 - `references/RimWorldDecompiled/` — RimWorld 反编译源码（含原生 `PocketMapParent`、`MapParent` 等）。
+- `references/RimWorldData/` — 游戏数据/Def 配置（Core、Royalty、Ideology、Biotech、Anomaly、Odyssey 等官方内容）。
 - `references/VehicleMapFramework/` — VMF（Vehicle Map Framework），口袋地图框架。
 - `references/Vehicle-Framework/` — VF（Vehicle Framework），车辆基础框架。
 
