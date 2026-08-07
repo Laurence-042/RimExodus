@@ -1,1 +1,10 @@
+# 反编译/第三方参考源码，不入库
 references/
+
+# 编译输出
+1.6/Assemblies/*.dll
+1.6/Assemblies/*.pdb
+
+# MSBuild 中间产物
+Source/obj/
+Source/bin/
