@@ -14,13 +14,17 @@ namespace RimExodus
     /// - 宿主地图上的本端传送点 → TransferPawnToTile（宿主→地块）。
     /// - 各口袋地图上的对端传送点 → TransferPawnToHost（地块→宿主）。
     ///
+    /// 防止刚落地立即被传回去：每次传送后写入 SeamlessTransferRegistry 的
+    /// 时间戳-来源传送点-目标传送点记录；若 Pawn 在冷却期内仍站在刚落地的那个
+    /// 传送点上，只刷新时间戳不重复传送；否则（无记录、已过期、或站在不同传送点）
+    /// 正常触发传送并写入新记录。
+    ///
     /// 原型阶段采用简单的 tick 轮询触发（而非 VMF 的完整 JobDriver 系统），
     /// 以验证"Pawn 走到接缝 → 无缝转移到相邻地块"的核心机制。
     /// </summary>
     public class SeamlessMapTransferTrigger : MapComponent
     {
         private int tickCounter;
-        private readonly HashSet<Pawn> transferLockedPawns = new HashSet<Pawn>();
 
         public SeamlessMapTransferTrigger(Map map) : base(map)
         {
@@ -48,10 +52,8 @@ namespace RimExodus
                 return;
             }
 
-            // A transferred pawn lands on the counterpart spot at the same host
-            // coordinate. Keep it locked until it actually leaves that cell, or
-            // the second direction check would transfer it straight back.
-            transferLockedPawns.RemoveWhere(pawn => pawn == null || pawn.Destroyed || !IsOnEnterSpot(pawn));
+            // 清理已销毁 Pawn 的陈旧传送记录。
+            SeamlessTransferRegistry.PurgeStaleEntries();
 
             // 方向一：宿主地图上的本端传送点 → 宿主→地块
             CheckHostSideSpots();
@@ -83,7 +85,7 @@ namespace RimExodus
                 {
                     continue;
                 }
-                if (transferLockedPawns.Contains(pawn))
+                if (SeamlessTransferRegistry.IsRecentArrival(pawn, thing))
                 {
                     continue;
                 }
@@ -94,7 +96,7 @@ namespace RimExodus
                 {
                     if (SeamlessMapTransfer.TransferPawnToTile(pawn, thing, enterParent))
                     {
-                        transferLockedPawns.Add(pawn);
+                        SeamlessTransferRegistry.RecordTransfer(pawn, thing, comp.CounterpartSpot);
                     }
                 }
                 else
@@ -137,7 +139,7 @@ namespace RimExodus
                     {
                         continue;
                     }
-                    if (transferLockedPawns.Contains(pawn))
+                    if (SeamlessTransferRegistry.IsRecentArrival(pawn, thing))
                     {
                         continue;
                     }
@@ -145,28 +147,10 @@ namespace RimExodus
                     Log.Message($"[RimExodus] Tile-side trigger: pawn {pawn.LabelShort} at {pawn.Position} on enter spot at {thing.Position} dir={comp.Direction}");
                     if (SeamlessMapTransfer.TransferPawnToHost(pawn, parent))
                     {
-                        transferLockedPawns.Add(pawn);
+                        SeamlessTransferRegistry.RecordTransfer(pawn, thing, comp.CounterpartSpot);
                     }
                 }
             }
-        }
-
-        /// <summary>传送锁只在 Pawn 仍站在任一传送点上时保持。</summary>
-        private static bool IsOnEnterSpot(Pawn pawn)
-        {
-            if (!pawn.Spawned || pawn.Map == null)
-            {
-                return false;
-            }
-
-            foreach (var thing in pawn.Position.GetThingList(pawn.Map))
-            {
-                if (thing.TryGetComp<CompSeamlessTileEnterSpot>() != null)
-                {
-                    return true;
-                }
-            }
-            return false;
         }
 
         /// <summary>返回指定格子上站立的、可转移的 Pawn（非倒地、非死亡）。</summary>

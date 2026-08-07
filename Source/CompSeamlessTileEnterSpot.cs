@@ -20,12 +20,20 @@ namespace RimExodus
         private int direction;
         private bool isHostSide;
         private bool configured;
+        private Thing counterpartSpot;
 
         /// <summary>该入口点对应的方向（六边形方向：0=北,1=东北,2=东南,3=南,4=西南,5=西北）。</summary>
         public int Direction => direction;
 
         /// <summary>该传送点是否位于宿主地图一侧（true=宿主→地块，false=地块→宿主）。</summary>
         public bool IsHostSide => isHostSide;
+
+        /// <summary>与本传送点配对的对端传送点 Thing（宿主侧↔地块侧一一对应）。</summary>
+        public Thing CounterpartSpot
+        {
+            get => counterpartSpot;
+            set => counterpartSpot = value;
+        }
 
         public void Configure(int newDirection, bool newIsHostSide)
         {
@@ -54,6 +62,7 @@ namespace RimExodus
             Scribe_Values.Look(ref direction, "direction");
             Scribe_Values.Look(ref isHostSide, "isHostSide");
             Scribe_Values.Look(ref configured, "configured");
+            Scribe_References.Look(ref counterpartSpot, "counterpartSpot");
         }
 
         private int InferDirectionFromMap()

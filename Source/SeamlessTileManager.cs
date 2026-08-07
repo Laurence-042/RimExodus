@@ -200,6 +200,13 @@ namespace RimExodus
             }
             var spawnedTile = GenSpawn.Spawn(tileSpot, localCell, interiorMap);
             Log.Message($"[RimExodus] Tile enter spot spawned={spawnedTile != null} at {localCell} walkable={localCell.Walkable(interiorMap)}");
+
+            // 建立本端/对端传送点的直接双向引用，供转移触发与传送记录表使用。
+            if (hostComp != null && tileComp != null)
+            {
+                hostComp.CounterpartSpot = tileSpot;
+                tileComp.CounterpartSpot = hostSpot;
+            }
         }
 
         /// <summary>
