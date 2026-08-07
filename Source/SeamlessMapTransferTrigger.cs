@@ -63,7 +63,9 @@ namespace RimExodus
         /// <summary>检查宿主地图上的本端传送点，把站在上面的 Pawn 转移到相邻地块。</summary>
         private void CheckHostSideSpots()
         {
-            var allThings = map.listerThings.AllThings;
+            // 遍历快照副本：TransferPawnToTile 内部会 DeSpawn/Spawn，
+            // 直接遍历 AllThings 会在枚举期间修改列表导致异常。
+            var allThings = new List<Thing>(map.listerThings.AllThings);
             foreach (var thing in allThings)
             {
                 var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
@@ -119,7 +121,9 @@ namespace RimExodus
                     continue;
                 }
 
-                var allThings = tileMap.listerThings.AllThings;
+                // 遍历快照副本：TransferPawnToHost 内部会 DeSpawn/Spawn，
+                // 直接遍历 AllThings 会在枚举期间修改列表导致异常。
+                var allThings = new List<Thing>(tileMap.listerThings.AllThings);
                 foreach (var thing in allThings)
                 {
                     var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
