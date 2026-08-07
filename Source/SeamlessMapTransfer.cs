@@ -27,6 +27,7 @@ namespace RimExodus
         {
             if (pawn == null || exitSpot == null || enterParent == null)
             {
+                Log.Warning("[RimExodus] TransferPawnToTile: null arg.");
                 return false;
             }
 
@@ -34,6 +35,7 @@ namespace RimExodus
             var targetMap = enterParent.Map;
             if (hostMap == null || targetMap == null || targetMap.Disposed)
             {
+                Log.Warning($"[RimExodus] TransferPawnToTile: bad maps hostMap={hostMap != null} targetMap={targetMap != null} disposed={targetMap?.Disposed}");
                 return false;
             }
 
@@ -61,6 +63,7 @@ namespace RimExodus
             pawn.jobs?.EndCurrentJob(JobCondition.InterruptForced, startNewJob: false);
             pawn.mindState?.Reset(clearInspiration: false, clearMentalState: true);
 
+            Log.Message($"[RimExodus] TransferPawnToTile: {pawn.LabelShort} host {hostCell} -> tile {targetLocalCell} on {targetMap.uniqueID}");
             return true;
         }
 
@@ -71,6 +74,7 @@ namespace RimExodus
         {
             if (pawn == null || exitParent == null)
             {
+                Log.Warning("[RimExodus] TransferPawnToHost: null arg.");
                 return false;
             }
 
@@ -78,6 +82,7 @@ namespace RimExodus
             var tileMap = exitParent.Map;
             if (hostMap == null || tileMap == null || tileMap.Disposed)
             {
+                Log.Warning($"[RimExodus] TransferPawnToHost: bad maps hostMap={hostMap != null} tileMap={tileMap != null} disposed={tileMap?.Disposed}");
                 return false;
             }
 
@@ -98,6 +103,7 @@ namespace RimExodus
             pawn.jobs?.EndCurrentJob(JobCondition.InterruptForced, startNewJob: false);
             pawn.mindState?.Reset(clearInspiration: false, clearMentalState: true);
 
+            Log.Message($"[RimExodus] TransferPawnToHost: {pawn.LabelShort} tile {localCell} -> host {hostCell} on {hostMap.uniqueID}");
             return true;
         }
     }

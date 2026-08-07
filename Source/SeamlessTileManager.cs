@@ -142,7 +142,91 @@ namespace RimExodus
             interiorMap.weatherDecider = map.weatherDecider;
             interiorMap.weatherManager = map.weatherManager;
 
+            // 自动在接缝重叠带放置一对传送点（本端 + 对端），两者宿主坐标重合。
+            PlaceEnterSpots(mapParent, interiorMap, direction, overlapBand);
+
             return mapParent;
+        }
+
+        /// <summary>
+        /// 在接缝重叠带放置一对传送点。
+        /// 本端传送点挂在宿主地图上，对端传送点挂在口袋地图上，
+        /// 两者在宿主坐标（drawPos）上重合于同一 tile，保证 Pawn 转移后视觉位置不跳变。
+        /// </summary>
+        private void PlaceEnterSpots(MapParent_SeamlessTile parent, Map interiorMap, int direction, int overlapBand)
+        {
+            var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
+            if (enterSpotDef == null)
+            {
+                Log.Error("[RimExodus] ThingDef RimExodus_SeamlessEnterSpot not found.");
+                return;
+            }
+
+            // 计算重叠带内的宿主坐标位置。
+            // 传送点放在重叠带中央，避免紧贴地图边缘。
+            var hostCell = ComputeEnterSpotHostCell(direction, overlapBand);
+            Log.Message($"[RimExodus] PlaceEnterSpots dir={direction} hostCell={hostCell} hostSize={map.Size} hostOffset={parent.hostOffset}");
+            if (!hostCell.InBounds(map))
+            {
+                Log.Warning($"[RimExodus] Enter spot host cell {hostCell} out of bounds.");
+                return;
+            }
+
+            // 本端传送点：挂在宿主地图上，宿主→地块。
+            var hostSpot = ThingMaker.MakeThing(enterSpotDef);
+            var hostComp = hostSpot.TryGetComp<CompSeamlessTileEnterSpot>();
+            if (hostComp != null)
+            {
+                hostComp.Configure(direction, newIsHostSide: true);
+            }
+            var spawnedHost = GenSpawn.Spawn(hostSpot, hostCell, map);
+            Log.Message($"[RimExodus] Host enter spot spawned={spawnedHost != null} at {hostCell} walkable={hostCell.Walkable(map)}");
+
+            // 对端传送点：挂在口袋地图上，地块→宿主。
+            // 目标局部坐标 = 宿主坐标 - hostOffset，与宿主坐标重合。
+            var localCell = SeamlessMapUtility.ToLocalCoord(hostCell, parent);
+            Log.Message($"[RimExodus] Tile enter spot localCell={localCell} tileMapSize={interiorMap.Size}");
+            if (!localCell.InBounds(interiorMap))
+            {
+                Log.Warning($"[RimExodus] Enter spot local cell {localCell} out of bounds on tile map.");
+                return;
+            }
+
+            var tileSpot = ThingMaker.MakeThing(enterSpotDef);
+            var tileComp = tileSpot.TryGetComp<CompSeamlessTileEnterSpot>();
+            if (tileComp != null)
+            {
+                tileComp.Configure(direction, newIsHostSide: false);
+            }
+            var spawnedTile = GenSpawn.Spawn(tileSpot, localCell, interiorMap);
+            Log.Message($"[RimExodus] Tile enter spot spawned={spawnedTile != null} at {localCell} walkable={localCell.Walkable(interiorMap)}");
+        }
+
+        /// <summary>
+        /// 计算重叠带内传送点的宿主坐标。
+        /// 传送点放在重叠带中央，避免紧贴地图边缘。
+        /// </summary>
+        private IntVec3 ComputeEnterSpotHostCell(int direction, int overlapBand)
+        {
+            var hostSize = map.Size;
+            var mid = hostSize.x / 2;
+            var bandMid = overlapBand / 2;
+
+            switch (direction)
+            {
+                case 0: // 北
+                    return new IntVec3(mid, 0, hostSize.z - bandMid);
+                case 1: // 东北（原型暂作东）
+                case 2: // 东南（原型暂作东）
+                    return new IntVec3(hostSize.x - bandMid, 0, mid);
+                case 3: // 南
+                    return new IntVec3(mid, 0, bandMid);
+                case 4: // 西南（原型暂作西）
+                case 5: // 西北（原型暂作西）
+                    return new IntVec3(bandMid, 0, mid);
+                default:
+                    return IntVec3.Zero;
+            }
         }
 
         /// <summary>

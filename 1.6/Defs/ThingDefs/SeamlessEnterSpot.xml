@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+
+  <ThingDef ParentName="BuildingBase">
+    <defName>RimExodus_SeamlessEnterSpot</defName>
+    <label>seamless tile entrance</label>
+    <description>A seamless world tile boundary entrance. Pawns walking onto this point cross into the adjacent seamless tile map.</description>
+    <thingClass>Building</thingClass>
+    <category>Building</category>
+    <passability>Standable</passability>
+    <pathCost>0</pathCost>
+    <selectable>true</selectable>
+    <altitudeLayer>FloorEmplacement</altitudeLayer>
+    <graphicData>
+      <texPath>Things/Building/Misc/DropBeacon</texPath>
+      <graphicClass>Graphic_Single</graphicClass>
+      <drawSize>(1,1)</drawSize>
+    </graphicData>
+    <size>(1,1)</size>
+    <comps>
+      <li Class="RimExodus.CompProperties_SeamlessTileEnterSpot"/>
+    </comps>
+  </ThingDef>
+
+</Defs>

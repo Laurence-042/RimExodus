@@ -102,16 +102,16 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `Patch_MapEdgeClipDrawer_DrawClippers.cs` — 收集所有口袋地图 footprint，从四块原版世界裁剪矩形中依次做矩形差集，仅绘制剩余矩形；保留原版高度和世界对齐纹理参数。只在真实 footprint 开洞，避免拖动残影。
 - `SeamlessTileRegistry.cs` — `GetFootprintsOnHost(Map)` 返回宿主坐标 `List<CellRect>`（局部矩形 + hostOffset）。
 - `GenStep_SeamlessTile.cs` — `GenStep`，`Generate` 铺设矩形地形：边缘 2 格不可通行（WaterOceanDeep），内部可通行（Soil）。
-- `CompSeamlessTileEnterSpot.cs` — `ThingComp` 入口点，`direction` 属性，`AdjacentTileParent` 经宿主 `SeamlessTileManager.GetTileMapInDirection` 查相邻地块。
+- `CompSeamlessTileEnterSpot.cs` — `ThingComp` 入口点，`direction` 属性 + `isHostSide`（true=宿主→地块，false=地块→宿主），`AdjacentTileParent` 经宿主 `SeamlessTileManager.GetTileMapInDirection` 查相邻地块，`OwnTileParent` 取对端传送点所在口袋地图的 `Map.Parent`。
 - `SeamlessMapTransfer.cs` — 跨地图 Pawn 转移：`TransferPawnToTile`（宿主→地块，目标局部坐标 = 宿主坐标 - hostOffset，`DeSpawn()` + `GenSpawn.Spawn()`）、`TransferPawnToHost`（地块→宿主）。
-- `SeamlessMapTransferTrigger.cs` — `MapComponent`，每 30 tick 检查 `Find.CurrentMap` 上是否有 Pawn 站在 `CompSeamlessTileEnterSpot` 传送点上，触发转移。
+- `SeamlessMapTransferTrigger.cs` — `MapComponent`，只在宿主地图运行（`map.IsPocketMap` 跳过），每 30 tick 检查：`CheckHostSideSpots`（宿主本端传送点→`TransferPawnToTile`）+ `CheckTileSideSpots`（遍历 `Find.World.pocketMaps` 对端传送点→`TransferPawnToHost`）。关键：口袋地图是宿主叠加层，`Find.CurrentMap` 恒为宿主，故触发集中在宿主。
 
 ### 关键实现要点
 - **渲染顺序**：不再依赖 `MapComponentOnDraw` 的 `Graphics.DrawMesh` 调用顺序或高度 epsilon。口袋主 Terrain 在 `BeforeForwardOpaque` 背景通道写颜色，随后清深度，宿主地图照原版路径绘制，因此本端稳定覆盖对端。
 - **MapComponent 自动注册**：`Map.FillComponents` 自动实例化所有 `MapComponent` 非抽象子类，无需手动注册。
 - **编译**：仓库根目录运行 `just build`（默认任务也是 `build`），底层命令为 `dotnet build Source/RimExodus.csproj -c Debug`，输出 `1.6/Assemblies/RimExodus.dll`。已通过（0 错误 0 警告）。
 - **踩坑**：`Scribe_Collections.Look` 只接受 `List<T>`（非数组），故 `neighborTiles` 用 `List<int>`；`Pawn_MindState.Reset` 有两个重载需显式传参；`TerrainDefOf` 需 `using RimWorld;`；`WorldObjectDef` 在 `RimWorld` 命名空间（非 Planet）。
-- **待办**：原型尚未实现跨地图寻路/射击（VMF 的 `CrossMapReachabilityUtility`/`AttackTargetFinderOnVehicle` 模型可复用）、六边形裁切、连续地形、传送点 Thing 的生成与放置（当前 `CompSeamlessTileEnterSpot` 需手动放置 Thing）。
+- **待办**：原型尚未实现跨地图寻路/射击（VMF 的 `CrossMapReachabilityUtility`/`AttackTargetFinderOnVehicle` 模型可复用）、六边形裁切、连续地形。
 
 ## 生成 + 渲染可测试性补全（已完成，可编译）
 
@@ -142,7 +142,12 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - **游戏内结果**：5 格重叠带由本端覆盖；水域/土地无蓝红水深色；拖动和缩放无残影；footprint 外仍由 clipper 覆盖。用户已确认问题解决。
 - **测试方式**：开档后北侧地块自动生成（渲染器/裁剪 patch 有东西可画）；Dev 菜单 "RimExodus" 分类下可手动生成其余 5 向、生成全部、卸载全部。
 
+### 自动传送点与双向转移（已完成，可编译）
+- `1.6/Defs/ThingDefs/SeamlessEnterSpot.xml`：`RimExodus_SeamlessEnterSpot` ThingDef，继承 `BuildingBase`，`passability=Standable`/`pathCost=0`，核心贴图 `Things/Building/Misc/DropBeacon`（1×1 信标，不依赖 VMF 资源），挂 `CompProperties_SeamlessTileEnterSpot`。
+- `SeamlessTileManager.PlaceEnterSpots`：`GenerateTileMap` 生成口袋地图后自动放置一对传送点。`ComputeEnterSpotHostCell` 算重叠带中央宿主坐标；本端 `GenSpawn.Spawn` 到宿主，对端经 `ToLocalCoord` 放口袋地图对应局部坐标。本端/对端宿主坐标重合 → Pawn 转移后视觉位置不跳变。
+- `SeamlessMapTransferTrigger` 双向：宿主本端传送点→`TransferPawnToTile`；遍历 `Find.World.pocketMaps` 对端传送点→`TransferPawnToHost`。
+- **验证**：`dotnet build` 通过（0 错误 0 警告）。游戏内待验证：开档自动生成北侧后重叠带出现传送点对；Pawn 走到宿主侧进北侧地块、走到地块侧返回宿主。
+
 ### 仍待办
-- 传送点 Thing 的自动生成与放置（当前 `CompSeamlessTileEnterSpot` 需手动放置 Thing，转移触发仍无法自动化测试）。
-- 双向转移（地块→宿主无触发组件）。
+- 游戏内验证自动传送点放置与双向 Pawn 转移的实际表现。
 - 跨地图寻路/射击、六边形裁切、连续地形。
