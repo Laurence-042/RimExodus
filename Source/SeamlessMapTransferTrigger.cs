@@ -8,9 +8,8 @@ namespace RimExodus
     /// 跨地图转移触发组件。
     /// 挂在宿主地图上，每 tick 检查是否有 Pawn 站在接缝传送点上，若是则触发跨地图转移。
     ///
-    /// 关键设计：口袋地图是作为宿主地图的叠加层渲染的，玩家始终在查看宿主地图
-    /// （Find.CurrentMap = 宿主），因此口袋地图上的 MapComponentTick 不会因
-    /// Find.CurrentMap 检查而触发。转移触发必须集中在宿主地图上，同时处理两个方向：
+    /// 关键设计：转移触发集中在宿主地图上，同时处理两个方向。玩家可能聚焦口袋地图，
+    /// 因此宿主触发器不能依赖 Find.CurrentMap，必须持续扫描自己关联的口袋地图：
     /// - 宿主地图上的本端传送点 → TransferPawnToTile（宿主→地块）。
     /// - 各口袋地图上的对端传送点 → TransferPawnToHost（地块→宿主）。
     ///
@@ -46,12 +45,8 @@ namespace RimExodus
             }
             tickCounter = 0;
 
-            // 只处理当前地图（玩家正在查看的地图）
-            if (Find.CurrentMap != map)
-            {
-                return;
-            }
-
+            // 每个宿主地图都必须处理自己关联的口袋地图。不能用 Find.CurrentMap
+            // 过滤：玩家聚焦口袋地图后，UI 的 CurrentMap 会切换到口袋地图。
             // 清理已销毁 Pawn 的陈旧传送记录。
             SeamlessTransferRegistry.PurgeStaleEntries();
 

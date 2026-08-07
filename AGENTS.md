@@ -104,7 +104,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `GenStep_SeamlessTile.cs` — `GenStep`，`Generate` 铺设矩形地形：边缘 2 格不可通行（WaterOceanDeep），内部可通行（Soil）。
 - `CompSeamlessTileEnterSpot.cs` — `ThingComp` 入口点，`direction` 属性 + `isHostSide`（true=宿主→地块，false=地块→宿主），`AdjacentTileParent` 经宿主 `SeamlessTileManager.GetTileMapInDirection` 查相邻地块，`OwnTileParent` 取对端传送点所在口袋地图的 `Map.Parent`。
 - `SeamlessMapTransfer.cs` — 跨地图 Pawn 转移：`TransferPawnToTile`（宿主→地块，目标局部坐标 = 宿主坐标 - hostOffset，`DeSpawn()` + `GenSpawn.Spawn()`）、`TransferPawnToHost`（地块→宿主）。
-- `SeamlessMapTransferTrigger.cs` — `MapComponent`，只在宿主地图运行（`map.IsPocketMap` 跳过），每 30 tick 检查：`CheckHostSideSpots`（宿主本端传送点→`TransferPawnToTile`）+ `CheckTileSideSpots`（遍历 `Find.World.pocketMaps` 对端传送点→`TransferPawnToHost`）。关键：口袋地图是宿主叠加层，`Find.CurrentMap` 恒为宿主，故触发集中在宿主。
+- `SeamlessMapTransferTrigger.cs` — `MapComponent`，只在宿主地图运行（`map.IsPocketMap` 跳过），每 30 tick 检查：`CheckHostSideSpots`（宿主本端传送点→`TransferPawnToTile`）+ `CheckTileSideSpots`（遍历 `Find.World.pocketMaps` 对端传送点→`TransferPawnToHost`）。关键：触发集中在宿主，但不能要求 `Find.CurrentMap == map`；玩家聚焦口袋地图后 `CurrentMap` 会切换，宿主组件仍须处理自己关联的入口。
 
 ### 关键实现要点
 - **渲染顺序**：不再依赖 `MapComponentOnDraw` 的 `Graphics.DrawMesh` 调用顺序或高度 epsilon。口袋主 Terrain 在 `BeforeForwardOpaque` 背景通道写颜色，随后清深度，宿主地图照原版路径绘制，因此本端稳定覆盖对端。
