@@ -175,10 +175,6 @@ namespace RimExodus
             // 本端传送点：挂在宿主地图上，宿主→地块。
             var hostSpot = ThingMaker.MakeThing(enterSpotDef);
             var hostComp = hostSpot.TryGetComp<CompSeamlessTileEnterSpot>();
-            if (hostComp != null)
-            {
-                hostComp.Configure(direction, newIsHostSide: true);
-            }
             var spawnedHost = GenSpawn.Spawn(hostSpot, hostCell, map);
             Log.Message($"[RimExodus] Host enter spot spawned={spawnedHost != null} at {hostCell} walkable={hostCell.Walkable(map)}");
 
@@ -194,10 +190,6 @@ namespace RimExodus
 
             var tileSpot = ThingMaker.MakeThing(enterSpotDef);
             var tileComp = tileSpot.TryGetComp<CompSeamlessTileEnterSpot>();
-            if (tileComp != null)
-            {
-                tileComp.Configure(direction, newIsHostSide: false);
-            }
             var spawnedTile = GenSpawn.Spawn(tileSpot, localCell, interiorMap);
             Log.Message($"[RimExodus] Tile enter spot spawned={spawnedTile != null} at {localCell} walkable={localCell.Walkable(interiorMap)}");
 

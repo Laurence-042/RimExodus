@@ -1,68 +1,70 @@
 using System.Collections.Generic;
-using RimWorld.Planet;
 using Verse;
 
 namespace RimExodus
 {
     /// <summary>
-    /// 跨地图转移触发组件。
-    /// 挂在宿主地图上，每 tick 检查是否有 Pawn 站在接缝传送点上，若是则触发跨地图转移。
-    ///
-    /// 关键设计：转移触发集中在宿主地图上，同时处理两个方向。玩家可能聚焦口袋地图，
-    /// 因此宿主触发器不能依赖 Find.CurrentMap，必须持续扫描自己关联的口袋地图：
-    /// - 宿主地图上的本端传送点 → TransferPawnToTile（宿主→地块）。
-    /// - 各口袋地图上的对端传送点 → TransferPawnToHost（地块→宿主）。
-    ///
-    /// 防止刚落地立即被传回去：每次传送后写入 SeamlessTransferRegistry 的
-    /// 时间戳-来源传送点-目标传送点记录；若 Pawn 在冷却期内仍站在刚落地的那个
-    /// 传送点上，只刷新时间戳不重复传送；否则（无记录、已过期、或站在不同传送点）
-    /// 正常触发传送并写入新记录。
-    ///
-    /// 原型阶段采用简单的 tick 轮询触发（而非 VMF 的完整 JobDriver 系统），
-    /// 以验证"Pawn 走到接缝 → 无缝转移到相邻地块"的核心机制。
+    /// 当前地图上的无缝入口触发器。
+    /// 每张地图只扫描自己的入口；入口通过 CounterpartSpot 直接指向目标端点。
     /// </summary>
     public class SeamlessMapTransferTrigger : MapComponent
     {
+        private const int ScanIntervalTicks = 30;
+
         private int tickCounter;
+        private Dictionary<Pawn, Thing> arrivalLocks = new Dictionary<Pawn, Thing>();
 
         public SeamlessMapTransferTrigger(Map map) : base(map)
         {
         }
 
+        public override void ExposeData()
+        {
+            base.ExposeData();
+            Scribe_Values.Look(ref tickCounter, "tickCounter");
+            Scribe_Collections.Look(ref arrivalLocks, "arrivalLocks", LookMode.Reference, LookMode.Reference);
+
+            if (Scribe.mode == LoadSaveMode.PostLoadInit)
+            {
+                arrivalLocks ??= new Dictionary<Pawn, Thing>();
+                PurgeInvalidArrivalLocks();
+            }
+        }
+
         public override void MapComponentTick()
         {
-            // 只在宿主地图上运行（口袋地图的触发由宿主统一处理）。
-            if (map.IsPocketMap)
-            {
-                return;
-            }
+            // 防抖锁不是定时冷却：Pawn 一旦离开到达入口，就在本 tick 解除。
+            PurgeInvalidArrivalLocks();
 
-            // 每 30 tick 检查一次，降低开销
             tickCounter++;
-            if (tickCounter < 30)
+            if (tickCounter < ScanIntervalTicks)
             {
                 return;
             }
             tickCounter = 0;
 
-            // 每个宿主地图都必须处理自己关联的口袋地图。不能用 Find.CurrentMap
-            // 过滤：玩家聚焦口袋地图后，UI 的 CurrentMap 会切换到口袋地图。
-            // 清理已销毁 Pawn 的陈旧传送记录。
-            SeamlessTransferRegistry.PurgeStaleEntries();
-
-            // 方向一：宿主地图上的本端传送点 → 宿主→地块
-            CheckHostSideSpots();
-
-            // 方向二：各口袋地图上的对端传送点 → 地块→宿主
-            CheckTileSideSpots();
+            CheckLocalEnterSpots();
         }
 
-        /// <summary>检查宿主地图上的本端传送点，把站在上面的 Pawn 转移到相邻地块。</summary>
-        private void CheckHostSideSpots()
+        /// <summary>在目标地图上登记 Pawn 的到达入口，直到 Pawn 离开该格。</summary>
+        internal void RecordArrival(Pawn pawn, Thing arrivalSpot)
         {
-            // 遍历快照副本：TransferPawnToTile 内部会 DeSpawn/Spawn，
-            // 直接遍历 AllThings 会在枚举期间修改列表导致异常。
+            if (pawn == null || arrivalSpot == null || !pawn.Spawned || !arrivalSpot.Spawned
+                || pawn.Map != map || arrivalSpot.Map != map || pawn.Position != arrivalSpot.Position)
+            {
+                Log.Error("[RimExodus] Cannot record an invalid seamless-map arrival lock.");
+                return;
+            }
+
+            arrivalLocks[pawn] = arrivalSpot;
+        }
+
+        private void CheckLocalEnterSpots()
+        {
+            // 转移会修改地图的 Thing/Pawn 注册表，因此两者都使用快照。
             var allThings = new List<Thing>(map.listerThings.AllThings);
+            var pawns = new List<Pawn>(map.mapPawns.AllPawnsSpawned);
+
             foreach (var thing in allThings)
             {
                 var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
@@ -70,101 +72,64 @@ namespace RimExodus
                 {
                     continue;
                 }
-                if (!comp.IsHostSide)
-                {
-                    continue;
-                }
 
-                var pawn = PawnOnCell(thing.Position, map);
-                if (pawn == null)
+                foreach (var pawn in pawns)
                 {
-                    continue;
-                }
-                if (SeamlessTransferRegistry.IsRecentArrival(pawn, thing))
-                {
-                    continue;
-                }
-
-                Log.Message($"[RimExodus] Host-side trigger: pawn {pawn.LabelShort} at {pawn.Position} on enter spot at {thing.Position} dir={comp.Direction}");
-                var enterParent = comp.AdjacentTileParent;
-                if (enterParent != null)
-                {
-                    if (SeamlessMapTransfer.TransferPawnToTile(pawn, thing, enterParent))
-                    {
-                        SeamlessTransferRegistry.RecordTransfer(pawn, thing, comp.CounterpartSpot);
-                    }
-                }
-                else
-                {
-                    Log.Warning("[RimExodus] Host-side trigger: AdjacentTileParent is null.");
-                }
-            }
-
-        }
-
-        /// <summary>检查各口袋地图上的对端传送点，把站在上面的 Pawn 转移回宿主地图。</summary>
-        private void CheckTileSideSpots()
-        {
-            foreach (var pocketMap in Find.World.pocketMaps)
-            {
-                if (pocketMap is not MapParent_SeamlessTile parent || parent.sourceMap != map)
-                {
-                    continue;
-                }
-
-                var tileMap = parent.Map;
-                if (tileMap == null || tileMap.Disposed)
-                {
-                    continue;
-                }
-
-                // 遍历快照副本：TransferPawnToHost 内部会 DeSpawn/Spawn，
-                // 直接遍历 AllThings 会在枚举期间修改列表导致异常。
-                var allThings = new List<Thing>(tileMap.listerThings.AllThings);
-                foreach (var thing in allThings)
-                {
-                    var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
-                    if (comp == null || comp.IsHostSide)
+                    if (!pawn.Spawned || pawn.Map != map || pawn.Position != thing.Position
+                        || pawn.Downed || pawn.Dead || IsArrivalLocked(pawn, thing))
                     {
                         continue;
                     }
 
-                    var pawn = PawnOnCell(thing.Position, tileMap);
-                    if (pawn == null)
-                    {
-                        continue;
-                    }
-                    if (SeamlessTransferRegistry.IsRecentArrival(pawn, thing))
-                    {
-                        continue;
-                    }
-
-                    Log.Message($"[RimExodus] Tile-side trigger: pawn {pawn.LabelShort} at {pawn.Position} on enter spot at {thing.Position} dir={comp.Direction}");
-                    if (SeamlessMapTransfer.TransferPawnToHost(pawn, parent))
-                    {
-                        SeamlessTransferRegistry.RecordTransfer(pawn, thing, comp.CounterpartSpot);
-                    }
+                    Log.Message($"[RimExodus] Seamless trigger: pawn {pawn.LabelShort} at {thing.Position} "
+                        + $"on map {map.uniqueID} targeting {DescribeTarget(comp.CounterpartSpot)}");
+                    SeamlessMapTransfer.TryTransferPawn(pawn, thing, comp.CounterpartSpot);
                 }
             }
         }
 
-        /// <summary>返回指定格子上站立的、可转移的 Pawn（非倒地、非死亡）。</summary>
-        private static Pawn PawnOnCell(IntVec3 cell, Map targetMap)
+        private bool IsArrivalLocked(Pawn pawn, Thing currentSpot)
         {
-            var pawns = targetMap.mapPawns.AllPawnsSpawned;
-            foreach (var pawn in pawns)
+            return arrivalLocks.TryGetValue(pawn, out var arrivalSpot) && arrivalSpot == currentSpot;
+        }
+
+        private void PurgeInvalidArrivalLocks()
+        {
+            if (arrivalLocks == null || arrivalLocks.Count == 0)
             {
-                if (pawn.Position != cell)
-                {
-                    continue;
-                }
-                if (pawn.Downed || pawn.Dead)
-                {
-                    continue;
-                }
-                return pawn;
+                return;
             }
-            return null;
+
+            List<Pawn> stalePawns = null;
+            foreach (var pair in arrivalLocks)
+            {
+                var pawn = pair.Key;
+                var arrivalSpot = pair.Value;
+                if (pawn == null || pawn.Destroyed || pawn.Dead || !pawn.Spawned
+                    || arrivalSpot == null || arrivalSpot.Destroyed || !arrivalSpot.Spawned
+                    || pawn.Map != map || arrivalSpot.Map != map || pawn.Position != arrivalSpot.Position)
+                {
+                    stalePawns ??= new List<Pawn>();
+                    stalePawns.Add(pawn);
+                }
+            }
+
+            if (stalePawns == null)
+            {
+                return;
+            }
+
+            foreach (var pawn in stalePawns)
+            {
+                arrivalLocks.Remove(pawn);
+            }
+        }
+
+        private static string DescribeTarget(Thing targetSpot)
+        {
+            return targetSpot?.Spawned == true
+                ? $"{targetSpot.Position} on map {targetSpot.Map.uniqueID}"
+                : "an invalid endpoint";
         }
     }
 }

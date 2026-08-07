@@ -102,9 +102,9 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `Patch_MapEdgeClipDrawer_DrawClippers.cs` — 收集所有口袋地图 footprint，从四块原版世界裁剪矩形中依次做矩形差集，仅绘制剩余矩形；保留原版高度和世界对齐纹理参数。只在真实 footprint 开洞，避免拖动残影。
 - `SeamlessTileRegistry.cs` — `GetFootprintsOnHost(Map)` 返回宿主坐标 `List<CellRect>`（局部矩形 + hostOffset）。
 - `GenStep_SeamlessTile.cs` — `GenStep`，`Generate` 铺设矩形地形：边缘 2 格不可通行（WaterOceanDeep），内部可通行（Soil）。
-- `CompSeamlessTileEnterSpot.cs` — `ThingComp` 入口点，`direction` 属性 + `isHostSide`（true=宿主→地块，false=地块→宿主），`AdjacentTileParent` 经宿主 `SeamlessTileManager.GetTileMapInDirection` 查相邻地块，`OwnTileParent` 取对端传送点所在口袋地图的 `Map.Parent`。
-- `SeamlessMapTransfer.cs` — 跨地图 Pawn 转移：`TransferPawnToTile`（宿主→地块，目标局部坐标 = 宿主坐标 - hostOffset，`DeSpawn()` + `GenSpawn.Spawn()`）、`TransferPawnToHost`（地块→宿主）。
-- `SeamlessMapTransferTrigger.cs` — `MapComponent`，只在宿主地图运行（`map.IsPocketMap` 跳过），每 30 tick 检查：`CheckHostSideSpots`（宿主本端传送点→`TransferPawnToTile`）+ `CheckTileSideSpots`（遍历 `Find.World.pocketMaps` 对端传送点→`TransferPawnToHost`）。关键：触发集中在宿主，但不能要求 `Find.CurrentMap == map`；玩家聚焦口袋地图后 `CurrentMap` 会切换，宿主组件仍须处理自己关联的入口。
+- `CompSeamlessTileEnterSpot.cs` — 对等入口端点 `ThingComp`，仅持有并保存 `CounterpartSpot`；不区分宿主侧/口袋侧。
+- `SeamlessMapTransfer.cs` — 统一的 `TryTransferPawn(pawn, departureSpot, arrivalSpot)`，验证端点互指后直接使用对端 `Map/Position` 完成 `DeSpawn()` + `GenSpawn.Spawn()`。
+- `SeamlessMapTransferTrigger.cs` — 每张地图各自每 30 tick 扫描本地入口，不依赖 `Find.CurrentMap` 或 `Find.World.pocketMaps`。组件持久化本地图的 Pawn→到达入口锁，每 tick 检查，Pawn 一旦离开到达入口格就删除锁；仍站在入口上时持续阻止回弹。
 
 ### 关键实现要点
 - **渲染顺序**：不再依赖 `MapComponentOnDraw` 的 `Graphics.DrawMesh` 调用顺序或高度 epsilon。口袋主 Terrain 在 `BeforeForwardOpaque` 背景通道写颜色，随后清深度，宿主地图照原版路径绘制，因此本端稳定覆盖对端。
@@ -145,8 +145,9 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 ### 自动传送点与双向转移（已完成，可编译）
 - `1.6/Defs/ThingDefs/SeamlessEnterSpot.xml`：`RimExodus_SeamlessEnterSpot` ThingDef，继承 `BuildingBase`，`passability=Standable`/`pathCost=0`，核心贴图 `Things/Building/Misc/DropBeacon`（1×1 信标，不依赖 VMF 资源），挂 `CompProperties_SeamlessTileEnterSpot`。
 - `SeamlessTileManager.PlaceEnterSpots`：`GenerateTileMap` 生成口袋地图后自动放置一对传送点。`ComputeEnterSpotHostCell` 算重叠带中央宿主坐标；本端 `GenSpawn.Spawn` 到宿主，对端经 `ToLocalCoord` 放口袋地图对应局部坐标。本端/对端宿主坐标重合 → Pawn 转移后视觉位置不跳变。
-- `SeamlessMapTransferTrigger` 双向：宿主本端传送点→`TransferPawnToTile`；遍历 `Find.World.pocketMaps` 对端传送点→`TransferPawnToHost`。
-- **验证**：`dotnet build` 通过（0 错误 0 警告）。游戏内待验证：开档自动生成北侧后重叠带出现传送点对；Pawn 走到宿主侧进北侧地块、走到地块侧返回宿主。
+- `SeamlessMapTransferTrigger` 对称化：每张地图只处理自己的入口，入口互相以 `CounterpartSpot` 为目标；宿主/口袋身份只保留在生成、生命周期与渲染层。
+- 防抖改为持久化“到达入口锁”：站在落点时持续锁定，离开一个 tick 即删除；入口触发扫描仍为每 30 tick。
+- **验证**：`dotnet build` 通过（0 错误 0 警告）。游戏内待验证：双向转移、离开即解锁、聚焦任意地图，以及入口上保存/读档后锁状态恢复。
 
 ### 仍待办
 - 游戏内验证自动传送点放置与双向 Pawn 转移的实际表现。
