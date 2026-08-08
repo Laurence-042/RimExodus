@@ -40,9 +40,6 @@ namespace RimExodus
         {
             var currentCell = IntVec3.FromVector3(mouseMapPosition);
 
-            // 用最近中心所有权规则决定归属：候选 = 当前地图 + 覆盖该格的直接邻居，
-            // 取距离最近的格子中心作为逻辑所有者。重叠带内靠近当前地图中心的格归当前地图，
-            // 靠近邻居中心的格归邻居。
             if (currentMap != null
                 && SeamlessTileRegistry.TryGetOwnerNeighbor(currentMap, currentCell, out var ownerMap, out var ownerLocalCell))
             {

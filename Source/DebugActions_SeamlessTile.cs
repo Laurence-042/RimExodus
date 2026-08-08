@@ -53,9 +53,7 @@ namespace RimExodus
                 return;
             }
 
-            // 锚点地图需先补铺虚空。
-            manager.EnsureAnchorVoidApplied();
-
+            // void 铺设在 GenerateTileMap 内部邻居登记后自动刷新。
             var mapSize = new IntVec3(currentMap.Size.x, 1, currentMap.Size.z);
             var parent = manager.GenerateTileMap(currentWorldTile, neighborWorldTile, mapSize);
             if (parent != null)

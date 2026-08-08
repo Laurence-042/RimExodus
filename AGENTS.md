@@ -82,7 +82,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `memory` 工具与 `create_file` 对超 ~150 行的内容有截断 bug：先建 stub，再分块（≤150 行）插入。
 - 主设计文档的“当前阶段计划”当前定义推进顺序：VMF 调研 → 最小技术原型 → 六边形裁切 → 连续地形 → 跨地图寻路与射击（5 个阶段，其中“旅行 Pocket Map 宿主迁移”已被扁平化架构作废，跨地图寻路与射击增列为最后独立阶段）。阶段重排理由与扁平化作废详情见主文档“当前阶段计划”和“地块地图管理”节。第一、二阶段细节分别维护在独立文档中。
 - 最小技术原型验证点：地图绘制/选取/移动命令、跨地图入口往返、存档读档恢复。**生成与渲染、双向 Pawn 转移、相邻地块选中与跨地图移动指令均已实现并通过编译**；游戏内交互表现与保存读档恢复仍待验证。
-- **重叠带归属语义**（阶段3已升级）：重叠带内一个格子的逻辑归属由**点在凸多边形内判定**决定（`SeamlessTileRegistry.TryGetOwnerNeighbor` → `SeamlessPolygonGeometry.ContainsPoint`）。cell 在当前地块多边形（内切圆顶点模型）内 → 归属当前地块；否则归属覆盖该格且其多边形包含该格的邻居。旧的"最近中心所有权规则"（`TryGetOwnerPocketMap`，已随阶段3重命名/重构废弃）已被取代。详见下文"阶段3：多边形裁切"。
+- **点击归属语义**（阶段3已升级，注意与 void 铺设区分）：玩家点击屏幕某位置时，`TryResolveMapPosition` → `TryGetOwnerNeighbor` 判定该点击归属哪个地图——cell 在当前地块六边形内 → 归当前地块；否则查是否在某已生成邻居六边形（按 offset 平移到当前坐标）内 → 归该邻居。这决定 pawn 跨图目标。**这与 void 铺设无关**：void 铺设只看自己六边形（六边形外即 void），而点击归属会查邻居（让玩家能点击 A 地图外的 B 渲染区）。旧的"最近中心所有权规则"（`TryGetOwnerPocketMap`，已废弃）已被点在凸多边形内判定（`ContainsPoint`）取代。详见下文"阶段3：多边形裁切"。
 
 ## 最小技术原型基础实现（已完成，可编译）
 
@@ -256,14 +256,24 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ## 阶段3：多边形裁切（已完成，可编译，游戏内待验证）
 
-实现"用可重叠正方形承载六边形网格"的完整多边形几何。所有地块（含锚点家园 A）的多边形外部铺透明不可通行虚空地形，多边形内为可活动区域。支持 N=5（五边形）和 N=6（六边形）地块，统一遍历 N 个顶点，不区分边数。
+实现"用可重叠正方形承载六边形网格"的完整多边形几何。支持 N=5（五边形）和 N=6（六边形）地块，统一遍历 N 个顶点，不区分边数。已游戏内验证核心闭环（见末尾）。
+
+### 三态几何模型（核心，务必正确理解）
+每个地块地图上的格子分为三态，**完全由自己的六边形决定，不看邻居**：
+- **六边形内部**（不含边）：非 void，**无传送点**。
+- **六边形的边**（顶点连线经过的格）：非 void，**有传送点**（仅对应已生成邻居的边）。
+- **六边形外部**：**void**。
+
+两个地图**各自独立**铺 void。地图 A 六边形外的 void 区域，在地图 B 上恰好是 B 六边形的内部/边（非 void）——这就是"void 完全被 B 覆盖"的含义（从对方地图视角看）。**不要**在 A 地图上把"被 B 覆盖的区域"判为非 void——A 上那个区域就是 void。
+
+两端传送点通过 offset 对齐到同一世界坐标：A 北边格 ↔ B 南边格重合，各自地图上那条边都是非 void（边格），故两端都可站立。
 
 ### 几何模型（内切圆顶点模型）
 - **不使用** H/S/k 长宽比代数、circumradius 比例常数、apothem/cos 换算。
 - **多边形顶点 = 地图中心 + 0.5S × 顶点方向单位向量**（S=地图边长）。顶点位于正方形地图内切圆上。
 - **顶点方向**：世界地块顶点（`grid.GetTileVertices`）相对中心投影到切平面（`WorldRendererUtility.GetTangentsToPlanet`）归一化，忠实于地块真实朝向（flat-top/pointy-top/旋转）。
 - **邻居 offset** = `round(2 × (边中点 - 中心))`，边中点取自多边形顶点。边由邻居 worldTile 在源地块邻居表中的位置确定。
-- **传送点**：沿多边形边 Bresenham 划线满铺。
+- **传送点**：沿多边形边（顶点 j→j+1）Bresenham 划线满铺，两端映射同一世界坐标。
 
 ### 数据模型重构（direction → 动态方向）
 - **`MapParent_SeamlessTile.direction` 字段移除**。旧固定 0-5 编号（北/东北/...）完全废弃。
@@ -274,14 +284,14 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ### 新增源码文件
 - `Source/WorldTileGeometry.cs` — 世界地块真实几何读取。`ComputeVertexDirections`/`ComputeEdgeDirections`（顶点/边方向）、`FindNeighborIndex`（邻居序号反查）。用 Odyssey 版 `WorldGrid` API（`GetTileVertices`/`GetTileNeighbors`/`GetTileCenter`/`GetMaxTileNeighborCountEver`）。
-- `Source/SeamlessPolygonGeometry.cs` — 多边形几何工具。`BuildPolygonVertices`（内切圆顶点）、`ScanlineFill`（凸多边形扫描线填充）、`ContainsPoint`（点在凸多边形内）、`EnumerateEdgeCells`（边 Bresenham 划线）。
-- `Source/SeamlessTerrainFill.cs` — 多边形地形铺设。`ApplyPolygonTerrain`（多边形外铺 RimExodus_Void）。
+- `Source/SeamlessPolygonGeometry.cs` — 多边形几何工具。`BuildPolygonVertices`（内切圆顶点）、`BuildNeighborCenterOffsets`（邻居中心偏移，纯几何）、`ContainsPoint`/`ContainsPointTranslated`（点在凸多边形内）、`ScanlineFill`（凸多边形扫描线填充）、`EnumerateEdgeCells`（边 Bresenham 划线）。
+- `Source/SeamlessTerrainFill.cs` — 多边形地形铺设。`ApplyPolygonTerrain`（自己六边形内+边格→非void，六边形外→铺 RimExodus_Void 并清除实体/Pawn）。
 - `1.6/Defs/TerrainDefs/VoidTerrain.xml` — `RimExodus_Void` 虚空地形 Def。
 
 ### 重写的源码文件
 - `MapParent_SeamlessTile.cs` — NeighborLink/MapParent 数据模型（direction→edgeAngle+worldTile）。
 - `SeamlessTileGraph.cs` — 邻居查询（worldTile 主键，移除 OppositeDirection）。
-- `SeamlessTileManager.cs` — `ComputeNeighborOffset`（内切圆边中点）、`GenerateTileMap(sourceWorldTile, newWorldTile, mapSize)`、`PlaceEnterSpots`（Bresenham 划线）、`EnsureAnchorVoidApplied`（锚点补铺虚空）、`TryAutoGenerateFirstNeighbor`。
+- `SeamlessTileManager.cs` — `ComputeNeighborOffset`（内切圆边中点）、`GenerateTileMap(sourceWorldTile, newWorldTile, mapSize)`、`PlaceEnterSpots`（Bresenham 划线）、`RefreshMapVoid`（可重复铺 void，锚点+口袋都适用）、`TryAutoGenerateFirstNeighbor`。
 - `GenStep_SeamlessTile.cs` — 全铺 Soil 后调 `ApplyPolygonTerrain` 挖虚空。
 - `SeamlessTileRegistry.cs` — `TryGetOwnerNeighbor` 改为点在凸多边形内判定（`ContainsPoint`）。
 - `DebugActions_SeamlessTile.cs` — Dev 命令改为"Generate All Seamless Neighbors"/"Remove All Tile Maps"。
@@ -293,14 +303,24 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
   - **不设 `forcePassableByFlyingPawns`**（保持默认 false）：Flying PathGrid 也判不可通行，堵飞行漏洞（`PathGrid.cs:125`）。
   - `fertility=0`：不生植物。空 `affordances`：不可建造。`changeable=false`+`layerable=false`：不可覆盖。`dontRender=true`：透明（消除重叠带视觉冲突，无需渲染归属裁剪）。
 
+### void 铺设规则（务必只看自己六边形）
+- **判定**：格在自己六边形内（`ContainsPoint`，含边）**或** 是六边形某条边的 Bresenham 边格 → 非 void；否则 → void。
+- **边格强制非 void**：传送点铺在边上，边格必须可站立。`ApplyPolygonTerrain` 先收集所有边的 Bresenham 格到 `edgeCells` HashSet，铺 void 时跳过这些格。
+- **不看邻居**：void 完全由自己的六边形决定。曾经错误地把"邻居六边形覆盖区"判为非 void，导致 A 地图外部全是非 void、没有 void 出现——已纠正。
+- **void 格实体清除**（`ClearThingsOnCells`）：铺 void 前清除该格上的建筑/岩石/植物/物品（`Destroy(Vanish)`，`destroyable=false` 如 SteamGeyser 改 `DeSpawn`）；铺 void 后把生成在 void 格上的 Pawn 径向移到最近可通行格（`EvacuatePawnsOnCells`，找不到则销毁非人类 Pawn）。
+- **锚点 A 的 void 铺设**：A 是原生 Map 不走 RimExodus GenStep。`GenerateTileMap` 在邻居登记后调 `RefreshMapVoid(map)` 为源地块（含 A）铺 void。`RefreshMapVoid` 可重复调用（每次生成新邻居后刷新，幂等）。
+
 ### 关键实现要点
-- **锚点家园 A 的虚空铺设**：A 是原生 Map 不走 RimExodus GenStep。`SeamlessTileManager.EnsureAnchorVoidApplied` 在首次生成邻居前用 `ApplyPolygonTerrain(map, map.Tile)` 补铺一次（`anchorVoidApplied` 标志防重复）。A 的 worldTile 从 `map.Tile` 取。
 - **offset 对称性**：A→B 与 B→A 各自从自己的多边形边中点算，理论上 = -(对端)，但凑整可能 ±1 误差（待游戏内验证）。
-- **扫描线填充**：凸多边形每行最多 2 交点，O(S·N) 复杂度（比逐格投影 O(S²·N) 高效）。格中心 `(x+0.5, z+0.5)` 采样。
-- **传送点 Bresenham**：沿多边形边（顶点 j→j+1）整数 Bresenham 划线，线经过的每个格放一对传送点。源端+对端均须 Walkable（虚空不 Walkable，自动只铺可通行侧）。
+- **传送点 Bresenham**：沿多边形边（顶点 j→j+1）整数 Bresenham 划线，线经过的每个格放一对传送点。源端+对端均须 Walkable（边格保证两端非 void）。少数边界格仍可能因自然地形不可通行被跳过（游戏内实测 103 候选 placed 94，9 个被自然地形/边角跳过）。
+
+### 已游戏内验证（阶段3核心闭环）
+- 自动生成首个世界邻居、多边形虚空裁切（void 出现在六边形外）、传送点满铺（94 对）。
+- 点击邻居渲染区域正确解析归属、pawn 跨图转移（Rachel + 野生动物均成功）、自动聚焦切图。
+- 无 `placed=0`、无 `destroy non-destroyable`、无 `on unwalkable cell` 报错。
 
 ### 待办
-- 游戏内验证：多边形虚空裁切形状、不同朝向/五边形地块、Bresenham 传送点转移、虚空区不可进入/建造/生植物。
-- offset 凑整对称性验证。
+- offset 凑整对称性精确验证（B→C 多跳场景）。
+- 五边形地块（12 个特殊 tile）游戏内验证。
 - 未来：patch 禁止"地势开阔"等影响地块地图长宽的地标，注明与硬改地块地图生成的 mod 不兼容。
 - 连续地形（阶段4）依赖本阶段稳定的多边形边界几何。

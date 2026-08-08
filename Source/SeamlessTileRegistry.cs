@@ -40,7 +40,6 @@ namespace RimExodus
             ownerLocalCell = default;
             if (currentMap == null) return false;
 
-            // 当前地块的 worldTile（锚点用 map.Tile，口袋用 MapParent_SeamlessTile.worldTile）。
             var currentWorldTile = GetCurrentWorldTile(currentMap);
             if (currentWorldTile < 0) return false;
 
@@ -48,17 +47,15 @@ namespace RimExodus
             var currentVerts = SeamlessPolygonGeometry.BuildPolygonVertices(currentWorldTile, currentMap.Size.x);
             if (SeamlessPolygonGeometry.ContainsPoint(currentVerts, currentMap.Size.x, currentCell))
             {
-                return false; // 归属当前地块
+                return false;
             }
 
             // 不在当前地块多边形内：查覆盖该格的邻居。
             foreach (var info in SeamlessTileGraph.GetAllNeighbors(currentMap))
             {
-                // 该格在邻居本地坐标系内？
                 var neighborLocal = currentCell - info.offset;
                 if (!neighborLocal.InBounds(info.map)) continue;
 
-                // 邻居多边形是否包含该格（邻居本地坐标）？
                 var neighborWorldTile = GetMapWorldTile(info.map);
                 if (neighborWorldTile < 0) continue;
                 var neighborVerts = SeamlessPolygonGeometry.BuildPolygonVertices(neighborWorldTile, info.map.Size.x);
@@ -70,7 +67,6 @@ namespace RimExodus
                 }
             }
 
-            // 既不在当前地块也不在任何邻居多边形内：归属当前地块（虚空地带，由地形阻挡进入）。
             return false;
         }
 

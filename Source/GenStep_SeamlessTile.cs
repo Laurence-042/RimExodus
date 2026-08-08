@@ -5,9 +5,9 @@ namespace RimExodus
 {
     /// <summary>
     /// 生成无缝地块口袋地图的地形（阶段3：多边形裁切）。
-    /// 先全图铺可通行地形（Soil），再按多边形所有权区域把外部挖成虚空（RimExodus_Void）。
-    /// 多边形 = 内切圆顶点模型（顶点 = center + 0.5S × 世界地块顶点方向）。
-    /// 锚点家园 A 是原生地图，不走本 GenStep，由 SeamlessTileManager.EnsureAnchorVoidApplied 补铺。
+    /// 先全图铺可通行地形（Soil），再按六边形把外部挖成虚空（RimExodus_Void）。
+    /// 六边形 = 内切圆顶点模型（顶点 = center + 0.5S × 世界地块顶点方向）。
+    /// 锚点家园 A 是原生地图，不走本 GenStep，由 SeamlessTileManager.RefreshMapVoid 补铺。
     /// </summary>
     public class GenStep_SeamlessTile : GenStep
     {
@@ -31,7 +31,7 @@ namespace RimExodus
                 }
             }
 
-            // 2. 取地块 worldTile，按多边形挖虚空。
+            // 2. 取地块 worldTile，按六边形挖虚空（六边形外 = void）。
             var worldTile = -1;
             if (map.Parent is MapParent_SeamlessTile parent)
             {
