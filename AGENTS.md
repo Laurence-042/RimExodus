@@ -82,7 +82,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `memory` 工具与 `create_file` 对超 ~150 行的内容有截断 bug：先建 stub，再分块（≤150 行）插入。
 - 主设计文档的“当前阶段计划”当前定义推进顺序：VMF 调研 → 最小技术原型 → 六边形裁切 → 连续地形 → 跨地图寻路与射击（5 个阶段，其中“旅行 Pocket Map 宿主迁移”已被扁平化架构作废，跨地图寻路与射击增列为最后独立阶段）。阶段重排理由与扁平化作废详情见主文档“当前阶段计划”和“地块地图管理”节。第一、二阶段细节分别维护在独立文档中。
 - 最小技术原型验证点：地图绘制/选取/移动命令、跨地图入口往返、存档读档恢复。**生成与渲染、双向 Pawn 转移、相邻地块选中与跨地图移动指令均已实现并通过编译**；游戏内交互表现与保存读档恢复仍待验证。
-- **重叠带归属语义**：重叠带内一个格子的逻辑归属**不是**"在地图 A 内就算地图 A"，而是采用六边形方案的**最近中心所有权规则**（`SeamlessTileRegistry.TryGetOwnerPocketMap`）：候选 = 宿主地图中心 + 所有 footprint 覆盖该格的锚定口袋地图中心，取距离最近的格子中心作为逻辑所有者。`TryResolveMapPosition` 调用它决定点击归属。北缘边界：宿主中心 z=125、北侧口袋中心 z=370，中点 z=247.5，因此 `125,0,247` 留在地图 A，`125,0,248`/`125,0,249` 传送到地图 B。该规则与 `doc/用可重叠正方形承载六边形网格的空间映射方案.md` 一致，为六边形裁切/连续地形铺路。
+- **重叠带归属语义**（阶段3已升级）：重叠带内一个格子的逻辑归属由**点在凸多边形内判定**决定（`SeamlessTileRegistry.TryGetOwnerNeighbor` → `SeamlessPolygonGeometry.ContainsPoint`）。cell 在当前地块多边形（内切圆顶点模型）内 → 归属当前地块；否则归属覆盖该格且其多边形包含该格的邻居。旧的"最近中心所有权规则"（`TryGetOwnerPocketMap`，已随阶段3重命名/重构废弃）已被取代。详见下文"阶段3：多边形裁切"。
 
 ## 最小技术原型基础实现（已完成，可编译）
 
@@ -96,7 +96,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ### 源码文件（`Source/`）
 - `RimExodusMod.cs` — `[StaticConstructorOnStartup]`，`new Harmony("RimExodus.SeamlessWorld").PatchAll()`。
-- `MapParent_SeamlessTile.cs` — `PocketMapParent` 子类。字段：`worldTile`、`direction`（0=北,1=东北,2=东南,3=南,4=西南,5=西北）、`hostOffset`（宿主坐标平移）、`neighborTiles`（`List<int>`）。`ExposeData` 存全部字段。
+- `MapParent_SeamlessTile.cs` — `PocketMapParent` 子类。字段：`worldTile`、`hostOffset`（宿主坐标平移）、`neighborTiles`（`List<int>`）、`neighbors`（`List<NeighborLink>`，含 `worldTile`/`edgeAngle`/`neighbor`/`offset`）。阶段3已移除旧的 `direction` 字段（固定 0-5 编号），改用基于世界地块真实顶点角度的动态方向。`ExposeData` 存全部字段。
 - `SeamlessMapUtility.cs` — 坐标转换：基于显式 offset 的 `ToMapCoord`/`FromMapCoord`/`ToMapDrawPos`/`TryResolveMapPosition`（泛化所有权解析）。
 - `SeamlessTileManager.cs` — `MapComponent`。`GenerateTileMap(direction, mapSize, overlapBand)`：`WorldObjectMaker.MakeWorldObject` → 设 `sourceMap`/`Tile=0`/`direction`/`hostOffset` → `MapGenerator.GenerateMap(..., isPocketMap: true)` → 加入 `Find.World.pocketMaps` + `Find.World.worldObjects` → 共享宿主 skyManager/weather。`ComputeHostOffset` 把口袋地图放宿主边界外并留重叠带。`GetTileMapInDirection`/`RemoveTileMap`。
 - `SeamlessTileRenderer.cs` — `MapComponent`，维护绑定到主相机 `CameraEvent.BeforeForwardOpaque` 的专属 `CommandBuffer`。对称渲染：遍历 `SeamlessTileGraph.PopulateNeighbors(map)`（复用缓存列表），对每个邻居提交 `SectionLayer_Terrain` + `SectionLayer_ThingsGeneral`（精确类型）+ 手动绘制 Pawn。绘制后只清深度，由原版当前地图覆盖重叠带。
@@ -118,10 +118,9 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 **背景**：此前原型只是"能编译的空壳"——`GenerateTileMap` 无任何调用者、传送点 Thing 从未放置、转移只有单向、渲染器遍历空列表，验证点一个都测不了。本次补上"生成 + 渲染"的可测试性（用户明确范围：只补生成+渲染，转移后续再说）。
 
-### 方向系统扩展为 6 向
-- `direction` 语义从 0-3（四向）扩展为 0-5（六边形方向）：**0=北, 1=东北, 2=东南, 3=南, 4=西南, 5=西北**。
-- **原型四向兼容**：1/2 暂时当作东，4/5 暂时当作西（`ComputeHostOffset` 中 case 1/2 共用东偏移，case 4/5 共用西偏移）。这是尚未实现 6 向时的临时兼容。
-- 更新处：`MapParent_SeamlessTile.cs`（字段注释）、`SeamlessTileManager.cs`（`ComputeHostOffset`/`GetTileMapInDirection` 注释）。
+### 方向系统扩展为 6 向（已被阶段3取代）
+- **历史记录**：第二阶段 `direction` 语义从 0-3（四向）扩展为 0-5（六边形方向），原型四向兼容（1/2 当东，4/5 当西）。
+- **阶段3已废弃**：`direction` 字段完全移除，改用基于世界地块真实顶点角度的动态方向（`NeighborLink.edgeAngle` + `worldTile` 主键）。详见下文"阶段3：多边形裁切"。
 
 ### Dev 命令（`Source/DebugActions_SeamlessTile.cs`）
 - 用 `[DebugAction("RimExodus", ..., allowedGameStates = AllowedGameStates.PlayingOnMap)]` 特性注册静态方法（LudeonTK 命名空间）。
@@ -254,3 +253,54 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 ### 修复 5：过传送点卡一下（轮询间隔 + GC）
 - **根因**：`ScanIntervalTicks=30`（~0.5s）轮询，Pawn 到达传送点后 Goto 已结束、无事件触发，等下一次扫描窗口。续程 Goto 在转移同 tick 内 StartJob 无延迟。
 - **修复**：`ScanIntervalTicks` 改 1（每 tick 扫描）。配合：缓存 `cachedEnterSpotDef` 避免每 tick `DefDatabase` 查；用 `static readonly` 复用列表（`List<Thing>/List<Pawn>/HashSet<IntVec3>`，Clear+Add）替代每 tick `new List` 快照，消除 GC 分配；`PurgeInvalidArrivalLocks` 在 `arrivalLocks.Count==0` 时空操作。
+
+## 阶段3：多边形裁切（已完成，可编译，游戏内待验证）
+
+实现"用可重叠正方形承载六边形网格"的完整多边形几何。所有地块（含锚点家园 A）的多边形外部铺透明不可通行虚空地形，多边形内为可活动区域。支持 N=5（五边形）和 N=6（六边形）地块，统一遍历 N 个顶点，不区分边数。
+
+### 几何模型（内切圆顶点模型）
+- **不使用** H/S/k 长宽比代数、circumradius 比例常数、apothem/cos 换算。
+- **多边形顶点 = 地图中心 + 0.5S × 顶点方向单位向量**（S=地图边长）。顶点位于正方形地图内切圆上。
+- **顶点方向**：世界地块顶点（`grid.GetTileVertices`）相对中心投影到切平面（`WorldRendererUtility.GetTangentsToPlanet`）归一化，忠实于地块真实朝向（flat-top/pointy-top/旋转）。
+- **邻居 offset** = `round(2 × (边中点 - 中心))`，边中点取自多边形顶点。边由邻居 worldTile 在源地块邻居表中的位置确定。
+- **传送点**：沿多边形边 Bresenham 划线满铺。
+
+### 数据模型重构（direction → 动态方向）
+- **`MapParent_SeamlessTile.direction` 字段移除**。旧固定 0-5 编号（北/东北/...）完全废弃。
+- **`NeighborLink` 结构变更**：`direction`(int) → `edgeAngle`(float 弧度) + `worldTile`(int)。`worldTile` 作为邻居表主键（稳定无歧义）。
+- **查询方法**：`GetNeighborInDirection(int)` → `GetNeighborByWorldTile(int)`；`SetNeighbor(int,...)` → `SetNeighbor(int worldTile, float edgeAngle, MapParent, IntVec3 offset)`。
+- **`SeamlessTileGraph.OppositeDirection` 移除**（双向登记保证反向关系）。`TryGetNeighborLink` → `TryGetNeighborLinkByWorldTile`。
+- **存档不兼容**：旧存档（含 direction）无法加载，原型阶段接受。
+
+### 新增源码文件
+- `Source/WorldTileGeometry.cs` — 世界地块真实几何读取。`ComputeVertexDirections`/`ComputeEdgeDirections`（顶点/边方向）、`FindNeighborIndex`（邻居序号反查）。用 Odyssey 版 `WorldGrid` API（`GetTileVertices`/`GetTileNeighbors`/`GetTileCenter`/`GetMaxTileNeighborCountEver`）。
+- `Source/SeamlessPolygonGeometry.cs` — 多边形几何工具。`BuildPolygonVertices`（内切圆顶点）、`ScanlineFill`（凸多边形扫描线填充）、`ContainsPoint`（点在凸多边形内）、`EnumerateEdgeCells`（边 Bresenham 划线）。
+- `Source/SeamlessTerrainFill.cs` — 多边形地形铺设。`ApplyPolygonTerrain`（多边形外铺 RimExodus_Void）。
+- `1.6/Defs/TerrainDefs/VoidTerrain.xml` — `RimExodus_Void` 虚空地形 Def。
+
+### 重写的源码文件
+- `MapParent_SeamlessTile.cs` — NeighborLink/MapParent 数据模型（direction→edgeAngle+worldTile）。
+- `SeamlessTileGraph.cs` — 邻居查询（worldTile 主键，移除 OppositeDirection）。
+- `SeamlessTileManager.cs` — `ComputeNeighborOffset`（内切圆边中点）、`GenerateTileMap(sourceWorldTile, newWorldTile, mapSize)`、`PlaceEnterSpots`（Bresenham 划线）、`EnsureAnchorVoidApplied`（锚点补铺虚空）、`TryAutoGenerateFirstNeighbor`。
+- `GenStep_SeamlessTile.cs` — 全铺 Soil 后调 `ApplyPolygonTerrain` 挖虚空。
+- `SeamlessTileRegistry.cs` — `TryGetOwnerNeighbor` 改为点在凸多边形内判定（`ContainsPoint`）。
+- `DebugActions_SeamlessTile.cs` — Dev 命令改为"Generate All Seamless Neighbors"/"Remove All Tile Maps"。
+
+### 虚空地形（RimExodus_Void）
+- 参考 VMF `VMF_ImpassableFloor` + 官方 `Space`（Odyssey）。独立顶级 TerrainDef（不继承 NaturalTerrainBase，避免太空边框贴图污染）。
+- **不可通行保证**（经源码调研，无需额外 Harmony patch）：
+  - `passability=Impassable`：`PathGrid.CalculatedCostAt` 返回 10000，寻路/Region/JumpUtility.ValidJumpTarget 全拒绝。
+  - **不设 `forcePassableByFlyingPawns`**（保持默认 false）：Flying PathGrid 也判不可通行，堵飞行漏洞（`PathGrid.cs:125`）。
+  - `fertility=0`：不生植物。空 `affordances`：不可建造。`changeable=false`+`layerable=false`：不可覆盖。`dontRender=true`：透明（消除重叠带视觉冲突，无需渲染归属裁剪）。
+
+### 关键实现要点
+- **锚点家园 A 的虚空铺设**：A 是原生 Map 不走 RimExodus GenStep。`SeamlessTileManager.EnsureAnchorVoidApplied` 在首次生成邻居前用 `ApplyPolygonTerrain(map, map.Tile)` 补铺一次（`anchorVoidApplied` 标志防重复）。A 的 worldTile 从 `map.Tile` 取。
+- **offset 对称性**：A→B 与 B→A 各自从自己的多边形边中点算，理论上 = -(对端)，但凑整可能 ±1 误差（待游戏内验证）。
+- **扫描线填充**：凸多边形每行最多 2 交点，O(S·N) 复杂度（比逐格投影 O(S²·N) 高效）。格中心 `(x+0.5, z+0.5)` 采样。
+- **传送点 Bresenham**：沿多边形边（顶点 j→j+1）整数 Bresenham 划线，线经过的每个格放一对传送点。源端+对端均须 Walkable（虚空不 Walkable，自动只铺可通行侧）。
+
+### 待办
+- 游戏内验证：多边形虚空裁切形状、不同朝向/五边形地块、Bresenham 传送点转移、虚空区不可进入/建造/生植物。
+- offset 凑整对称性验证。
+- 未来：patch 禁止"地势开阔"等影响地块地图长宽的地标，注明与硬改地块地图生成的 mod 不兼容。
+- 连续地形（阶段4）依赖本阶段稳定的多边形边界几何。

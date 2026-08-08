@@ -6,7 +6,10 @@ namespace RimExodus
     /// <summary>
     /// 无缝地块地图的静态注册表（基于直接邻居表，对称架构）。
     /// 提供"当前地图所有直接邻居的 footprint"查询，供 MapEdgeClipDrawer 裁剪与渲染使用。
-    /// 不再依赖 sourceMap/IsPocketMap，支持 A→B、B→A、B→C 对等处理。
+    /// 不依赖 sourceMap/IsPocketMap，支持 A→B、B→A、B→C 对等处理。
+    ///
+    /// 阶段3：归属判定改为点在凸多边形内（当前地块所有权区域）。
+    /// cell 在当前地块多边形内 → 归属当前地块；否则归属覆盖该格的邻居中多边形包含该格者。
     /// </summary>
     public static class SeamlessTileRegistry
     {
@@ -27,58 +30,63 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 用最近中心所有权规则（六边形方案）反查当前地图上的一个格子属于哪个邻居。
-        /// 候选 = 当前地图自身 + 所有 footprint 覆盖该格的直接邻居；取距离最近的格子中心。
-        /// 返回 true 表示该格属于某个邻居；out owner 为邻居的 Map。
+        /// 用多边形所有权规则反查当前地图上的一个格子属于哪个邻居。
+        /// cell 在当前地块多边形内 → 归属当前地块（返回 false）。
+        /// 否则遍历覆盖该格的直接邻居，取其多边形包含该格者（坐标转邻居本地后判定）。
         /// </summary>
         public static bool TryGetOwnerNeighbor(Map currentMap, IntVec3 currentCell, out Map ownerMap, out IntVec3 ownerLocalCell)
         {
             ownerMap = null;
             ownerLocalCell = default;
-            if (currentMap == null)
+            if (currentMap == null) return false;
+
+            // 当前地块的 worldTile（锚点用 map.Tile，口袋用 MapParent_SeamlessTile.worldTile）。
+            var currentWorldTile = GetCurrentWorldTile(currentMap);
+            if (currentWorldTile < 0) return false;
+
+            // 当前地块多边形：cell 在内则归属当前地块。
+            var currentVerts = SeamlessPolygonGeometry.BuildPolygonVertices(currentWorldTile, currentMap.Size.x);
+            if (SeamlessPolygonGeometry.ContainsPoint(currentVerts, currentMap.Size.x, currentCell))
             {
-                return false;
+                return false; // 归属当前地块
             }
 
-            var currentCenter = currentMap.Center;
-            var bestDistSq = DistanceSq(currentCell, currentCenter);
-            Map bestNeighbor = null;
-            IntVec3 bestLocalCell = default;
-
+            // 不在当前地块多边形内：查覆盖该格的邻居。
             foreach (var info in SeamlessTileGraph.GetAllNeighbors(currentMap))
             {
-                // 邻居覆盖该格的前提：该格在邻居本地坐标系内（即邻居 footprint 覆盖）。
+                // 该格在邻居本地坐标系内？
                 var neighborLocal = currentCell - info.offset;
-                if (!neighborLocal.InBounds(info.map))
-                {
-                    continue;
-                }
+                if (!neighborLocal.InBounds(info.map)) continue;
 
-                // 邻居中心转到当前地图坐标系。
-                var neighborCenterInCurrent = info.map.Center + info.offset;
-                var d = DistanceSq(currentCell, neighborCenterInCurrent);
-                if (d < bestDistSq)
+                // 邻居多边形是否包含该格（邻居本地坐标）？
+                var neighborWorldTile = GetMapWorldTile(info.map);
+                if (neighborWorldTile < 0) continue;
+                var neighborVerts = SeamlessPolygonGeometry.BuildPolygonVertices(neighborWorldTile, info.map.Size.x);
+                if (SeamlessPolygonGeometry.ContainsPoint(neighborVerts, info.map.Size.x, neighborLocal))
                 {
-                    bestDistSq = d;
-                    bestNeighbor = info.map;
-                    bestLocalCell = neighborLocal;
+                    ownerMap = info.map;
+                    ownerLocalCell = neighborLocal;
+                    return true;
                 }
             }
 
-            if (bestNeighbor != null)
-            {
-                ownerMap = bestNeighbor;
-                ownerLocalCell = bestLocalCell;
-                return true;
-            }
+            // 既不在当前地块也不在任何邻居多边形内：归属当前地块（虚空地带，由地形阻挡进入）。
             return false;
         }
 
-        private static int DistanceSq(IntVec3 a, IntVec3 b)
+        /// <summary>获取地图对应的世界 tile id（锚点用 map.Tile，口袋用 MapParent_SeamlessTile.worldTile）。</summary>
+        private static int GetCurrentWorldTile(Map map)
         {
-            var dx = a.x - b.x;
-            var dz = a.z - b.z;
-            return dx * dx + dz * dz;
+            return GetMapWorldTile(map);
+        }
+
+        /// <summary>获取地图对应的世界 tile id。</summary>
+        internal static int GetMapWorldTile(Map map)
+        {
+            if (map == null) return -1;
+            if (map.Parent is MapParent_SeamlessTile tileParent) return tileParent.worldTile;
+            if (!map.IsPocketMap) return map.Tile;
+            return -1;
         }
 
         /// <summary>判断 a 与 b 是否为直接邻居（对称关系）。</summary>

@@ -8,6 +8,9 @@ namespace RimExodus
     /// 地块直接邻居表的统一查询入口。
     /// 屏蔽"锚点地图（普通 Map，邻居表存 MapComponent）"与"口袋地图（邻居表存 MapParent_SeamlessTile）"的差异。
     /// 所有上层逻辑（渲染/转移/交互）通过本类查邻居，不直接依赖 sourceMap/IsPocketMap。
+    ///
+    /// 阶段3：邻居方向改为基于世界地块真实顶点角度（动态），不再用固定 0-5 编号。
+    /// 查询主键改为 worldTile（稳定，无角度歧义）。OppositeDirection 已移除（双向登记保证反向关系）。
     /// </summary>
     public static class SeamlessTileGraph
     {
@@ -16,44 +19,39 @@ namespace RimExodus
         {
             public Map map;
             public IntVec3 offset;
+            public int worldTile;
+            public float edgeAngle;
         }
 
-        /// <summary>获取 map 指定方向的邻居连接信息。返回 false 表示该方向无邻居。</summary>
-        public static bool TryGetNeighborLink(Map map, int dir, out NeighborInfo info)
+        /// <summary>获取 map 上指向 worldTile 的邻居连接信息。返回 false 表示无此邻居。</summary>
+        public static bool TryGetNeighborLinkByWorldTile(Map map, int worldTile, out NeighborInfo info)
         {
             info = default;
-            if (map == null || dir < 0 || dir >= 6)
-            {
-                return false;
-            }
+            if (map == null) return false;
 
             NeighborLink link = null;
             if (map.Parent is MapParent_SeamlessTile pocketParent)
             {
-                link = pocketParent.GetNeighborInDirection(dir);
+                link = pocketParent.GetNeighborByWorldTile(worldTile);
             }
             else
             {
-                // 锚点地图（普通 Map）：邻居表存于 SeamlessTileManager MapComponent。
                 var manager = map.GetComponent<SeamlessTileManager>();
-                if (manager != null)
-                {
-                    link = manager.GetNeighborInDirection(dir);
-                }
+                if (manager != null) link = manager.GetNeighborByWorldTile(worldTile);
             }
 
-            if (link?.neighbor == null)
-            {
-                return false;
-            }
+            if (link?.neighbor == null) return false;
 
             var neighborMap = link.neighbor.Map;
-            if (neighborMap == null || neighborMap.Disposed)
-            {
-                return false;
-            }
+            if (neighborMap == null || neighborMap.Disposed) return false;
 
-            info = new NeighborInfo { map = neighborMap, offset = link.offset };
+            info = new NeighborInfo
+            {
+                map = neighborMap,
+                offset = link.offset,
+                worldTile = link.worldTile,
+                edgeAngle = link.edgeAngle
+            };
             return true;
         }
 
@@ -68,10 +66,7 @@ namespace RimExodus
         /// <summary>把 map 的所有有效直接邻居填入已有的列表（避免每帧分配）。调用方负责 Clear。</summary>
         public static void PopulateNeighbors(Map map, List<NeighborInfo> result)
         {
-            if (map == null || result == null)
-            {
-                return;
-            }
+            if (map == null || result == null) return;
 
             List<NeighborLink> links;
             if (map.Parent is MapParent_SeamlessTile pocketParent)
@@ -84,39 +79,30 @@ namespace RimExodus
                 links = manager?.neighbors;
             }
 
-            if (links == null)
-            {
-                return;
-            }
+            if (links == null) return;
 
             foreach (var link in links)
             {
-                if (link?.neighbor == null)
-                {
-                    continue;
-                }
+                if (link?.neighbor == null) continue;
                 var neighborMap = link.neighbor.Map;
-                if (neighborMap == null || neighborMap.Disposed)
+                if (neighborMap == null || neighborMap.Disposed) continue;
+                result.Add(new NeighborInfo
                 {
-                    continue;
-                }
-                result.Add(new NeighborInfo { map = neighborMap, offset = link.offset });
+                    map = neighborMap,
+                    offset = link.offset,
+                    worldTile = link.worldTile,
+                    edgeAngle = link.edgeAngle
+                });
             }
         }
 
         /// <summary>判断 b 是否为 a 的直接邻居（对称：a 是 b 的邻居 ⟺ b 是 a 的邻居）。</summary>
         public static bool AreNeighbors(Map a, Map b)
         {
-            if (a == null || b == null)
-            {
-                return false;
-            }
+            if (a == null || b == null) return false;
             foreach (var info in GetAllNeighbors(a))
             {
-                if (info.map == b)
-                {
-                    return true;
-                }
+                if (info.map == b) return true;
             }
             return false;
         }
@@ -133,26 +119,10 @@ namespace RimExodus
         /// </summary>
         public static Map GetAnchorMap(Map map)
         {
-            if (map == null)
-            {
-                return null;
-            }
-            if (!map.IsPocketMap)
-            {
-                return map;
-            }
-            // 口袋地图的 sourceMap 即锚点（扁平化：所有地块 sourceMap 指向锚点）。
-            if (map.Parent is PocketMapParent pocketParent)
-            {
-                return pocketParent.sourceMap;
-            }
+            if (map == null) return null;
+            if (!map.IsPocketMap) return map;
+            if (map.Parent is PocketMapParent pocketParent) return pocketParent.sourceMap;
             return null;
-        }
-
-        /// <summary>计算方向 dir 的反方向（0↔3, 1↔4, 2↔5）。</summary>
-        public static int OppositeDirection(int dir)
-        {
-            return (dir + 3) % 6;
         }
     }
 }

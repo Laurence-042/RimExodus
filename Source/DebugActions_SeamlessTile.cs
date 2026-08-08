@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using LudeonTK;
 using RimWorld.Planet;
 using Verse;
@@ -8,31 +9,28 @@ namespace RimExodus
     /// 无缝地块的调试命令（Dev 菜单）。
     /// 用于在游戏内手动生成/卸载无缝地块口袋地图，验证渲染与接缝。
     ///
-    /// 六边形方向：0=北,1=东北,2=东南,3=南,4=西南,5=西北。
-    /// 原型阶段四向兼容：1/2 暂时当作东，4/5 暂时当作西。
+    /// 阶段3：邻居方向基于世界地块真实顶点角度（动态），不再用固定 0-5 编号。
+    /// 命令改为"生成当前地块的指定世界邻居地块"。
     /// </summary>
     public static class DebugActions_SeamlessTile
     {
         private const string Category = "RimExodus";
 
-        private const int DefaultMapSize = 50;
+        private const int DefaultMapSize = 250;
 
-        /// <summary>获取当前宿主地图上的 SeamlessTileManager。</summary>
+        /// <summary>获取当前地图上的 SeamlessTileManager。</summary>
         private static SeamlessTileManager CurrentManager
         {
             get
             {
                 var map = Find.CurrentMap;
-                if (map == null)
-                {
-                    return null;
-                }
+                if (map == null) return null;
                 return map.GetComponent<SeamlessTileManager>();
             }
         }
 
-        /// <summary>生成指定方向的相邻地块地图。</summary>
-        private static void GenerateInDirection(int direction)
+        /// <summary>生成当前地块的指定世界邻居地块。</summary>
+        private static void GenerateForNeighbor(int neighborWorldTile)
         {
             var manager = CurrentManager;
             if (manager == null)
@@ -41,62 +39,47 @@ namespace RimExodus
                 return;
             }
 
-            if (manager.GetTileMapInDirection(direction) != null)
+            var currentMap = Find.CurrentMap;
+            var currentWorldTile = SeamlessTileRegistry.GetMapWorldTile(currentMap);
+            if (currentWorldTile < 0)
             {
-                Log.Message($"[RimExodus] Tile map in direction {direction} already exists.");
+                Log.Warning("[RimExodus] Current map has no valid world tile.");
                 return;
             }
 
-            var mapSize = new IntVec3(DefaultMapSize, 1, DefaultMapSize);
-            var parent = manager.GenerateTileMap(direction, mapSize, SeamlessTileManager.DefaultOverlapBand);
+            if (manager.GetNeighborByWorldTile(neighborWorldTile) != null)
+            {
+                Log.Message($"[RimExodus] World tile {neighborWorldTile} already has a seamless tile map.");
+                return;
+            }
+
+            // 锚点地图需先补铺虚空。
+            manager.EnsureAnchorVoidApplied();
+
+            var mapSize = new IntVec3(currentMap.Size.x, 1, currentMap.Size.z);
+            var parent = manager.GenerateTileMap(currentWorldTile, neighborWorldTile, mapSize);
             if (parent != null)
             {
-                Log.Message($"[RimExodus] Generated seamless tile map in direction {direction} (hostOffset={parent.hostOffset}).");
+                Log.Message($"[RimExodus] Generated seamless tile map for world tile {neighborWorldTile} (hostOffset={parent.hostOffset}).");
             }
         }
 
-        [DebugAction(Category, "Generate North Tile Map", allowedGameStates = AllowedGameStates.PlayingOnMap)]
-        private static void GenerateNorth()
+        [DebugAction(Category, "Generate All Seamless Neighbors", allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void GenerateAllNeighbors()
         {
-            GenerateInDirection(0);
-        }
-
-        [DebugAction(Category, "Generate NorthEast Tile Map", allowedGameStates = AllowedGameStates.PlayingOnMap)]
-        private static void GenerateNorthEast()
-        {
-            GenerateInDirection(1);
-        }
-
-        [DebugAction(Category, "Generate SouthEast Tile Map", allowedGameStates = AllowedGameStates.PlayingOnMap)]
-        private static void GenerateSouthEast()
-        {
-            GenerateInDirection(2);
-        }
-
-        [DebugAction(Category, "Generate South Tile Map", allowedGameStates = AllowedGameStates.PlayingOnMap)]
-        private static void GenerateSouth()
-        {
-            GenerateInDirection(3);
-        }
-
-        [DebugAction(Category, "Generate SouthWest Tile Map", allowedGameStates = AllowedGameStates.PlayingOnMap)]
-        private static void GenerateSouthWest()
-        {
-            GenerateInDirection(4);
-        }
-
-        [DebugAction(Category, "Generate NorthWest Tile Map", allowedGameStates = AllowedGameStates.PlayingOnMap)]
-        private static void GenerateNorthWest()
-        {
-            GenerateInDirection(5);
-        }
-
-        [DebugAction(Category, "Generate All 6 Tile Maps", allowedGameStates = AllowedGameStates.PlayingOnMap)]
-        private static void GenerateAll()
-        {
-            for (var d = 0; d < 6; d++)
+            var currentMap = Find.CurrentMap;
+            var currentWorldTile = SeamlessTileRegistry.GetMapWorldTile(currentMap);
+            if (currentWorldTile < 0)
             {
-                GenerateInDirection(d);
+                Log.Warning("[RimExodus] Current map has no valid world tile.");
+                return;
+            }
+
+            var worldNeighbors = new List<PlanetTile>();
+            Find.WorldGrid.GetTileNeighbors(currentWorldTile, worldNeighbors);
+            foreach (var neighborTile in worldNeighbors)
+            {
+                GenerateForNeighbor(neighborTile.tileId);
             }
         }
 
@@ -104,15 +87,11 @@ namespace RimExodus
         private static void RemoveAll()
         {
             var manager = CurrentManager;
-            if (manager == null)
-            {
-                return;
-            }
+            if (manager == null) return;
 
-            // 收集当前地图的所有直接邻居（对称：不再依赖 sourceMap）。
             var currentMap = Find.CurrentMap;
             var neighbors = SeamlessTileGraph.GetAllNeighbors(currentMap);
-            var toRemove = new System.Collections.Generic.List<MapParent_SeamlessTile>();
+            var toRemove = new List<MapParent_SeamlessTile>();
             foreach (var info in neighbors)
             {
                 if (info.map.Parent is MapParent_SeamlessTile neighborParent)
