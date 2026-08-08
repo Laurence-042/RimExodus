@@ -1,4 +1,5 @@
 using RimWorld;
+using UnityEngine;
 using Verse;
 
 namespace RimExodus
@@ -45,25 +46,29 @@ namespace RimExodus
                 return;
             }
 
-            // 记录切换前相机位置（currentMap 坐标系）。
+            // 记录切换前相机位置和缩放（currentMap 坐标系）。
+            // 缩放必须记：CurrentMap setter 会触发 Notify_SwitchedMap 用 SetRootPosAndSize
+            // 从新地图 rememberedCameraPos 同时恢复位置+缩放，只靠 JumpToCurrentMapLoc 恢复位置不够。
             var camPos = Find.CameraDriver.MapPosition.ToVector3();
+            var camSize = Find.CameraDriver.RootSize;
 
             // 目标位置：同一世界位置在 arrivalMap 坐标系中的坐标 = camPos - offset。
             // （offset 是 arrivalMap 本地 → currentMap 坐标，故反向：currentMap → arrivalMap = 减去 offset）
             var targetPos = camPos - offset.Value.ToVector3();
 
-            // 切图（触发原生硬跳到 arrivalMap 的 rememberedCameraPos）。
+            // 切图（触发原生硬跳到 arrivalMap 的 rememberedCameraPos，覆盖位置+缩放）。
             Current.Game.CurrentMap = arrivalMap;
 
-            // 立即覆盖相机位置，让画面不动（无感）。JumpToCurrentMapLoc 只设 x/z，不 clamp 不动画。
-            Find.CameraDriver.JumpToCurrentMapLoc(targetPos);
+            // 立即同时恢复位置和缩放，让画面不动（无感）。
+            // SetRootPosAndSize 与原生 Notify_SwitchedMap 用同一方法，y 由 ApplyPositionToGameObject 重算。
+            Find.CameraDriver.SetRootPosAndSize(new Vector3(targetPos.x, 0f, targetPos.z), camSize);
 
             parent.autoFocused = true;
             Log.Message($"[RimExodus] Auto-focused to map {arrivalMap.uniqueID}, camera offset by {-offset.Value}.");
         }
 
         /// <summary>在 currentMap 的邻居表中查找 neighborMap 的相对偏移（neighborMap 本地 → currentMap）。</summary>
-        private static IntVec3? FindNeighborOffset(Map currentMap, Map neighborMap)
+        internal static IntVec3? FindNeighborOffset(Map currentMap, Map neighborMap)
         {
             foreach (var info in SeamlessTileGraph.GetAllNeighbors(currentMap))
             {

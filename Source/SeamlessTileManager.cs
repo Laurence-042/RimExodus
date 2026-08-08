@@ -240,7 +240,9 @@ namespace RimExodus
         /// 沿接缝重叠带满铺传送点对。
         /// 本端传送点挂在源地图（map）上，对端传送点挂在新地块地图（interiorMap）上，
         /// 每对本端/对端在源地图坐标上重合于同一格，保证 Pawn 转移后视觉位置不跳变。
-        /// 沿接缝方向每隔一格放一对，跳过边缘 2 格不可通行区和不可站立格。
+        /// 沿接缝方向每隔一格放一对，跳过边缘 2 格不可通行区。
+        /// 传送点是 Ethereal 载体，可与任何地形（岩山/深水/墙）共存，因此源端不再过滤地形。
+        /// 但对端必须可站立（Pawn 落地格需 Walkable），否则传送永远失败——该对直接跳过。
         /// </summary>
         private void PlaceEnterSpots(MapParent_SeamlessTile parent, Map interiorMap, int direction, int overlapBand)
         {
@@ -260,13 +262,16 @@ namespace RimExodus
             var seamCells = EnumerateSeamCells(direction, overlapBand, sourceSize);
             foreach (var sourceCell in seamCells)
             {
-                if (!sourceCell.InBounds(map) || !sourceCell.Walkable(map))
+                // Ethereal 不占 edifice，可与岩山/深水/墙共存，源端只需在边界内。
+                if (!sourceCell.InBounds(map))
                 {
                     continue;
                 }
 
                 // 对端局部坐标 = 源坐标 - hostOffset（两端在源地图坐标系重合）。
                 var localCell = SeamlessMapUtility.FromMapCoord(sourceCell, offset);
+                // 对端必须可站立：Pawn 落地格需 Walkable（TryTransferPawn 也会校验），
+                // 不可站立的对端意味着该对传送点永远无法使用，跳过不铺。
                 if (!localCell.InBounds(interiorMap) || !localCell.Walkable(interiorMap))
                 {
                     continue;
@@ -290,8 +295,9 @@ namespace RimExodus
                 else
                 {
                     // 部分生成失败，清理已生成的一端避免悬空传送点。
-                    if (spawnedSource != null) spawnedSource.Destroy();
-                    if (spawnedTile != null) spawnedTile.Destroy();
+                    // 传送点 destroyable=false，Destroy 会被拒绝，必须用 DeSpawn 移除。
+                    if (spawnedSource != null) spawnedSource.DeSpawn();
+                    if (spawnedTile != null) spawnedTile.DeSpawn();
                 }
             }
 

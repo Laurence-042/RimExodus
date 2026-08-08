@@ -103,16 +103,16 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `Patch_MapEdgeClipDrawer_DrawClippers.cs` — 收集所有口袋地图 footprint，从四块原版世界裁剪矩形中依次做矩形差集，仅绘制剩余矩形；保留原版高度和世界对齐纹理参数。只在真实 footprint 开洞，避免拖动残影。
 - `SeamlessTileRegistry.cs` — `GetFootprintsOnHost(Map)` 返回宿主坐标 `List<CellRect>`（局部矩形 + hostOffset）。
 - `GenStep_SeamlessTile.cs` — `GenStep`，`Generate` 铺设矩形地形：边缘 2 格不可通行（WaterOceanDeep），内部可通行（Soil）。
-- `CompSeamlessTileEnterSpot.cs` — `ThingComp` 入口点，仅持有持久化的 `CounterpartSpot` 对端引用。端点双方地位完全对等，不感知方向/宿主/口袋身份。
+- `CompSeamlessTileEnterSpot.cs` — `ThingComp` 入口点，仅持有持久化的 `CounterpartSpot` 对端引用。端点双方地位完全对等，不感知方向/宿主/口袋身份。载体是 Ethereal/ThingWithComps（非 Building），见下文"第二阶段细节修复"。
 - `SeamlessMapTransfer.cs` — 跨地图 Pawn 转移：`TryTransferPawn`（端点对端点，`DeSpawn()` + `GenSpawn.Spawn()`，不感知宿主/口袋身份）。
-- `SeamlessMapTransferTrigger.cs` — `MapComponent`，每 30 tick 用 `ThingsOfDef`（O(1) def 索引）检查本地图传送点上是否有 Pawn，触发转移，转移成功后调用自动聚焦并消费续程登记。
+- `SeamlessMapTransferTrigger.cs` — `MapComponent`，**每 tick** 用 `ThingsOfDef`（O(1) def 索引）检查本地图传送点上是否有 Pawn，触发转移，转移成功后调用自动聚焦并消费续程登记。每 tick 扫描消除轮询卡顿；复用静态列表避免每 tick GC。防反弹用 **pawn 级锁**（`Dictionary<Pawn,bool>`）：Pawn 跨图到达后进入锁状态，只要还站在本图任一接缝传送点上就保持锁，离开整条接缝带才解锁。
 
 ### 关键实现要点
 - **渲染顺序**：不再依赖 `MapComponentOnDraw` 的 `Graphics.DrawMesh` 调用顺序或高度 epsilon。口袋主 Terrain 在 `BeforeForwardOpaque` 背景通道写颜色，随后清深度，宿主地图照原版路径绘制，因此本端稳定覆盖对端。
 - **MapComponent 自动注册**：`Map.FillComponents` 自动实例化所有 `MapComponent` 非抽象子类，无需手动注册。
 - **编译**：仓库根目录运行 `just build`（默认任务也是 `build`），底层命令为 `dotnet build Source/RimExodus.csproj -c Debug`，输出 `1.6/Assemblies/RimExodus.dll`。已通过（0 错误 0 警告）。
 - **踩坑**：`Scribe_Collections.Look` 只接受 `List<T>`（非数组），故 `neighborTiles` 用 `List<int>`；`Pawn_MindState.Reset` 有两个重载需显式传参；`TerrainDefOf` 需 `using RimWorld;`；`WorldObjectDef` 在 `RimWorld` 命名空间（非 Planet）。
-- **待办**：原型尚未实现跨地图寻路/射击（VMF 的 `CrossMapReachabilityUtility`/`AttackTargetFinderOnVehicle` 模型可复用）、六边形裁切、连续地形、传送点 Thing 的生成与放置（当前 `CompSeamlessTileEnterSpot` 需手动放置 Thing）。
+- **待办**：原型尚未实现跨地图寻路/射击（VMF 的 `CrossMapReachabilityUtility`/`AttackTargetFinderOnVehicle` 模型可复用）、六边形裁切、连续地形。
 
 ## 生成 + 渲染可测试性补全（已完成，可编译）
 
@@ -191,16 +191,19 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - 口袋地块的邻居生成由玩家显式命令（Dev 菜单）或未来的"pawn 接近边界"事件驱动，不通过 MapGenerated 级联。
 
 ### 传送点满铺 + 多点寻路
-- `PlaceEnterSpots` 沿接缝方向满铺传送点对（跳过边缘 2 格不可通行区）。`EnumerateSeamCells` 按方向枚举接缝候选格。
+- `PlaceEnterSpots` 沿接缝方向满铺传送点对（跳过边缘 2 格不可通行区）。`EnumerateSeamCells` 按方向枚举接缝候选格。传送点载体是 **Ethereal/ThingWithComps**（非 Building），不可摧毁/不可攻击/不可占领/不占 edifice，可与岩山/深水/墙共存（见下文"第二阶段细节修复"）。
 - `Standable/pathCost=0` 的传送点不影响寻路网格成本。
 - `TryFindNearestReachableBridgeSpot`：按 def 索引查询候选传送点，按到 pawn 距离排序，依次试 `CanReach`，返回第一个可达。
 - 触发扫描 `CheckLocalEnterSpots` 改用 `ThingsOfDef`（O(1) def 索引），避免全量 AllThings 遍历。
+- **防反弹（pawn 级锁）**：Pawn 跨图到达后进入锁状态（`Dictionary<Pawn,bool>`），只要还站在本图任一接缝传送点上就保持锁，离开整条接缝带才解锁。锁状态与特定 spot 无关——Pawn 在锁期间踩任何接缝传送点都不会再触发传送，防止续程寻路沿接缝前进时踩到相邻 spot 被立刻传回。
 
 ### 自动聚焦 + 无感相机切换（`SeamlessCameraFocus.cs`）
 - 首个玩家殖民者（`pawn.IsColonist`）跨图进入新地块（`MapParent_SeamlessTile` 且 `!autoFocused`）时触发。
-- 流程：记录相机位置 → `Current.Game.CurrentMap = arrivalMap`（触发原生硬跳）→ 立即 `JumpToCurrentMapLoc(camPos - offset)` 覆盖（硬跳，画面不动=无感）。
+- 流程：记录相机位置**和缩放**（`camSize = RootSize`）→ `Current.Game.CurrentMap = arrivalMap`（触发原生 `Notify_SwitchedMap` 同时恢复位置+缩放）→ 立即 `SetRootPosAndSize(camPos - offset, camSize)` 覆盖（同时恢复位置和缩放，画面不动=无感）。
 - `autoFocused` 标志持久化，每个地块仅触发一次。玩家切回原地图后，第二个 pawn 进入不再自动聚焦。
 - **必须在续程前调用**（切图后 `pawn.Map == CurrentMap`，避免 `Selector.SelectInternal` 二次跳镜头）。
+- `FindNeighborOffset` 从 `private` 提为 `internal`，供选中切换的无感覆盖（`Patch_Selector_SelectInternal`）复用同一偏移查询。
+- **缩放必须一并恢复**：`CurrentMap` setter 触发的 `Notify_SwitchedMap` 会用新地图 `rememberedCameraPos` 同时恢复位置+缩放（`MapInterface.cs:211-212`），`JumpToCurrentMapLoc` 只设位置不设缩放会缩放不一致，必须用 `SetRootPosAndSize`。
 
 ### 对称渲染
 - `SeamlessTileRenderer` 移除 `map.IsPocketMap` 守门，任意图块聚焦时 Renderer 都工作。
@@ -223,3 +226,31 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 ### 源码文件新增/大幅修改
 - 新增：`SeamlessTileGraph.cs`（邻居表统一查询入口）、`SeamlessCameraFocus.cs`（自动聚焦+无感相机）。
 - 大幅修改：`MapParent_SeamlessTile.cs`（邻居表+NeighborLink）、`SeamlessTileManager.cs`（扁平化+满铺+防递归+GetTileMapInDirection/RemoveTileMap 改邻居表）、`SeamlessTileRegistry.cs`（GetNeighborFootprints/TryGetOwnerNeighbor/AreSeamlessNeighbors）、`SeamlessMapUtility.cs`（ToMapCoord/FromMapCoord/TryResolveMapPosition 泛化）、`SeamlessTileRenderer.cs`（对称渲染）、`SeamlessCrossMapOrders.cs`（多点寻路）、`SeamlessMapTransferTrigger.cs`（def 索引扫描+自动聚焦）、`DebugActions_SeamlessTile.cs`（RemoveAll 改邻居表）。
+
+## 第二阶段细节修复三则（已完成，可编译，游戏内待验证）
+
+### 修复 1：选中跨图 Pawn 的无感相机覆盖
+- **问题**：原生 `Selector.SelectInternal`（`references/.../RimWorld/Selector.cs:379-384`）选中跨图 Thing 时 `Current.Game.CurrentMap = map`（行 381）后 `JumpToCurrentMapLoc(thing.PositionHeld)`（行 384）硬跳聚焦到该 Pawn。期望是切图但相机保持相对偏移。
+- **修复**：`Patches_Selector.cs` 新增 `Patch_Selector_SelectInternal`（Prefix + Postfix）。Prefix 在原方法切图前检测即将选中跨图直接邻居 Thing → 记录 `preservedCamPos`/`crossMapOffset`；Postfix 用 `JumpToCurrentMapLoc(camPos - offset)` 覆盖行 384 的聚焦，末尾清空上下文。非直接邻居回退原生聚焦。`SeamlessCameraFocus.FindNeighborOffset` 提为 `internal` 供复用。
+
+### 修复 2：传送点载体从 Building 改为 Ethereal（ThingWithComps）
+- **问题**：Building category 可被攻击/拆除/占领，`isEdifice` 默认 true 与岩山墙冲突，`Walkable` 过滤跳过岩山/深水。
+- **修复**：`1.6/Defs/ThingDefs/SeamlessEnterSpot.xml` 改 `thingClass=ThingWithComps`、`category=Ethereal`，加 `destroyable=false`/`useHitPoints=false`/`selectable=false`/`drawerType=None`，删 `graphicData`。`PlaceEnterSpots` 源端去掉 `Walkable` 过滤（Ethereal 可与任何地形共存），对端保留 `Walkable`（传送可行性），失败回退 `Destroy()→DeSpawn()`。
+- **关键坑**：
+  - **`drawerType=None` 必须**：`selectable=false` 不跳过绘制（`DynamicDrawManager` 只看 `drawerType`），默认 `RealtimeOnly` 会画粉色 `BadGraphic`。
+  - **Ethereal 进 `listerThings`**：`ListerThings.EverListable` 只排除 `Mote`（和 Region 级 `Projectile`），Ethereal 返回 true，`ThingsOfDef` 照常工作，消费者零改动。
+  - **不被攻击/占领**：`AttackTargetFinder` 按 `IAttackTarget` 接口查（与 category 无关）；`Claimable` 要求 `building != null`，Ethereal 无 building 节点。
+  - **不进 edificeGrid**：`IsEdifice()` 读 `building.isEdifice`，Ethereal 无 building；`GenSpawn.SpawningWipes` 的 edifice 冲突擦除只在"新生成物 IsEdifice()"时触发，Ethereal 跳过，不擦岩山墙。
+  - **`destroyable=false` 后清理用 `DeSpawn`**：`Thing.Destroy`（`Thing.cs:1045`）在 `!def.destroyable` 时直接 return。正常卸载走 `DeinitAndRemoveMap`（整张地图销毁）不受影响，只有 `PlaceEnterSpots` 失败回退需改 `DeSpawn`。
+
+### 修复 3：传送反弹 bug（pawn 级锁 + 离开接缝带才解锁）
+- **问题**：传送点满铺接缝，Pawn 被传到对端 B_x 后续程沿接缝前进，离开 B_x 即解锁（旧锁是"特定 spot"），踩上相邻 B_{x+1}（无锁）被传回。
+- **修复**：`SeamlessMapTransferTrigger.cs` 的 `arrivalLocks` 从 `Dictionary<Pawn,Thing>` 改为 `Dictionary<Pawn,bool>`（pawn 级锁状态）。`RecordArrival(pawn)` 只记 pawn；`IsArrivalLocked(pawn)` 不比较 spot；`PurgeInvalidArrivalLocks` 清除条件改为"pawn 不再站在本图任何接缝传送点上"（每帧收集接缝 spot 位置到 `HashSet<IntVec3>` 查询）。Pawn 在锁期间踩任何接缝 spot 都不触发传送。`SeamlessMapTransfer.TryTransferPawn` 的 `RecordArrival` 调用同步改为单参数。`ExposeData` value LookMode 从 `Reference` 改 `Value`。
+
+### 修复 4：跨图切换相机缩放不一致
+- **根因**：`Current.Game.CurrentMap` setter 触发 `MapInterface.Notify_SwitchedMap`（`MapInterface.cs:211-212`），用 `SetRootPosAndSize` 从新地图的 `rememberedCameraPos`（每张 Map 一份，`Map.cs:217`，默认 rootSize=24f）**同时恢复位置和缩放**。原先只用 `JumpToCurrentMapLoc`（只设 rootPos.x/z）恢复位置，缩放被原生值覆盖。
+- **修复**：切图前记 `camSize = Find.CameraDriver.RootSize`，切图后改用 `SetRootPosAndSize(new Vector3(targetPos.x, 0f, targetPos.z), camSize)` 同时恢复。改了 `SeamlessCameraFocus.TryAutoFocusOnArrival` 和 `Patches_Selector.cs` 的 `Patch_Selector_SelectInternal`。无需手写 `rememberedCameraPos`——`CameraUpdater`（`CameraDriver.cs:427-432`）每帧自动镜像回 CurrentMap。
+
+### 修复 5：过传送点卡一下（轮询间隔 + GC）
+- **根因**：`ScanIntervalTicks=30`（~0.5s）轮询，Pawn 到达传送点后 Goto 已结束、无事件触发，等下一次扫描窗口。续程 Goto 在转移同 tick 内 StartJob 无延迟。
+- **修复**：`ScanIntervalTicks` 改 1（每 tick 扫描）。配合：缓存 `cachedEnterSpotDef` 避免每 tick `DefDatabase` 查；用 `static readonly` 复用列表（`List<Thing>/List<Pawn>/HashSet<IntVec3>`，Clear+Add）替代每 tick `new List` 快照，消除 GC 分配；`PurgeInvalidArrivalLocks` 在 `arrivalLocks.Count==0` 时空操作。

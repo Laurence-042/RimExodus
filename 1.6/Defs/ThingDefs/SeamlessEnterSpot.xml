@@ -1,21 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Defs>
 
-  <ThingDef ParentName="BuildingBase">
+  <!--
+    无缝地块接缝传送点。
+    用 Ethereal + ThingWithComps 载体，而非 Building：
+    - 不进 edificeGrid，可与岩山墙/任意地形共存（不会被 PlaceEnterSpots 的地形限制阻挡）；
+    - 不实现 IAttackTarget，不会被敌人攻击/锁定；
+    - 无 building.claimable，不会被 AI 占领；
+    - destroyable=false 防止被屋顶塌方/陨石/事件误销毁（清理走 DeinitAndRemoveMap 或 DeSpawn）。
+    drawerType=None 不参与绘制（selectable=false 也不可选），纯逻辑载体。
+    passability=Standable + pathCost=0 不阻挡寻路，pawn 可踩上去触发转移。
+  -->
+  <ThingDef>
     <defName>RimExodus_SeamlessEnterSpot</defName>
     <label>seamless tile entrance</label>
     <description>A seamless world tile boundary entrance. Pawns walking onto this point cross into the adjacent seamless tile map.</description>
-    <thingClass>Building</thingClass>
-    <category>Building</category>
+    <thingClass>ThingWithComps</thingClass>
+    <category>Ethereal</category>
+    <destroyable>false</destroyable>
+    <useHitPoints>false</useHitPoints>
+    <selectable>false</selectable>
+    <drawerType>None</drawerType>
     <passability>Standable</passability>
     <pathCost>0</pathCost>
-    <selectable>true</selectable>
     <altitudeLayer>FloorEmplacement</altitudeLayer>
-    <graphicData>
-      <texPath>Things/Building/Misc/DropBeacon</texPath>
-      <graphicClass>Graphic_Single</graphicClass>
-      <drawSize>(1,1)</drawSize>
-    </graphicData>
     <size>(1,1)</size>
     <comps>
       <li Class="RimExodus.CompProperties_SeamlessTileEnterSpot"/>
