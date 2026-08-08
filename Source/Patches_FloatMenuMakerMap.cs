@@ -103,7 +103,7 @@ namespace RimExodus
         /// </summary>
         private static AcceptanceReport ShouldGenerateFloatMenuForPawnCrossMap(Pawn pawn, Map hostMap)
         {
-            if (pawn.Map != hostMap && !SeamlessTileRegistry.IsPocketMapAnchoredTo(pawn.Map, hostMap))
+            if (pawn.Map != hostMap && !SeamlessTileRegistry.AreSeamlessNeighbors(pawn.Map, hostMap))
             {
                 return false;
             }

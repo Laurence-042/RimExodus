@@ -9,13 +9,14 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// 将宿主地图的无缝地块口袋地图作为主相机的背景地形绘制。
-    /// 口袋地形在原版宿主地图之前提交，绘制完成后只清除深度，
-    /// 从而让宿主地图可靠覆盖重叠带，同时保留宿主边界外的口袋地图颜色。
+    /// 将当前地图的直接邻居地块作为背景绘制（对称架构）。
+    /// 邻居地形/建筑在原版当前地图之前提交，绘制完成后只清除深度，
+    /// 从而让当前地图可靠覆盖重叠带，同时保留当前地图边界外的邻居颜色。
+    /// 对称性：聚焦任意图块时，其所有直接邻居（含锚点和口袋）都会被绘制。
     /// </summary>
     public class SeamlessTileRenderer : MapComponent
     {
-        private const string CommandBufferName = "RimExodus Seamless Pocket Terrain";
+        private const string CommandBufferName = "RimExodus Seamless Neighbor Terrain";
 
         private static readonly AccessTools.FieldRef<MapDrawer, Section[,]> sectionsRef =
             AccessTools.FieldRefAccess<MapDrawer, Section[,]>("sections");
@@ -26,6 +27,7 @@ namespace RimExodus
         private static SeamlessTileRenderer activeRenderer;
 
         private readonly List<TerrainDrawCommand> drawCommands = new List<TerrainDrawCommand>();
+        private readonly List<SeamlessTileGraph.NeighborInfo> cachedNeighbors = new List<SeamlessTileGraph.NeighborInfo>();
 
         private CommandBuffer commandBuffer;
         private Camera attachedCamera;
@@ -46,7 +48,15 @@ namespace RimExodus
 
         public override void MapComponentDraw()
         {
-            if (map.IsPocketMap || Find.CurrentMap != map || !WorldRendererUtility.DrawingMap)
+            if (Find.CurrentMap != map || !WorldRendererUtility.DrawingMap)
+            {
+                return;
+            }
+
+            // 收集当前地图的所有直接邻居（对称：锚点/口袋都遍历）。复用缓存列表避免每帧分配。
+            cachedNeighbors.Clear();
+            SeamlessTileGraph.PopulateNeighbors(map, cachedNeighbors);
+            if (cachedNeighbors.Count == 0)
             {
                 return;
             }
@@ -56,21 +66,10 @@ namespace RimExodus
             drawCommands.Clear();
             nextSequence = 0;
 
-            foreach (var pocketMap in Find.World.pocketMaps)
+            foreach (var neighbor in cachedNeighbors)
             {
-                if (pocketMap is not MapParent_SeamlessTile parent || parent.sourceMap != map)
-                {
-                    continue;
-                }
-
-                var pocketMapInstance = parent.Map;
-                if (pocketMapInstance == null || pocketMapInstance.Disposed)
-                {
-                    continue;
-                }
-
-                CollectPocketTerrain(pocketMapInstance, parent);
-                DrawPocketMapPawns(pocketMapInstance, parent);
+                CollectNeighborLayers(neighbor.map, neighbor.offset.ToVector3());
+                DrawNeighborPawns(neighbor.map, neighbor.offset.ToVector3());
             }
 
             if (drawCommands.Count == 0)
@@ -84,20 +83,20 @@ namespace RimExodus
                 commandBuffer.DrawMesh(drawCommand.mesh, drawCommand.matrix, drawCommand.material);
             }
 
-            // 保留口袋地图已经写入的颜色，但清除它写入的深度。
-            // 随后进入原版主相机渲染流程的宿主地图不会再受口袋地图深度遮挡。
+            // 保留邻居地图已经写入的颜色，但清除它写入的深度。
+            // 随后进入原版主相机渲染流程的当前地图不会再受邻居地图深度遮挡。
+            // 注意：这使重叠带由"聚焦地图"覆盖（非完全对称）；完全对称留待连续地形阶段的归属裁剪。
             commandBuffer.ClearRenderTarget(true, false, Color.clear, 1f);
         }
 
         /// <summary>
-        /// 口袋地图上的 Pawn 不会被宿主地图的 DynamicDrawManager 绘制（那只画 Find.CurrentMap 自己的动态物体），
-        /// 因此需要在这里手动以 hostOffset 平移后的位置立即绘制一遍，Pawn 才能在宿主视角里可见、进而可被选中。
-        /// Thing.DrawNowAt 接受显式坐标，绕开 DrawPos/Position，不需要额外 patch 坐标读取。
+        /// 邻居地图上的 Pawn 不会被当前地图的 DynamicDrawManager 绘制，
+        /// 因此需要手动以 offset 平移后的位置立即绘制一遍。
+        /// Thing.DrawNowAt 接受显式坐标，绕开 DrawPos/Position。
         /// </summary>
-        private static void DrawPocketMapPawns(Map pocketMap, MapParent_SeamlessTile parent)
+        private static void DrawNeighborPawns(Map neighborMap, Vector3 offset)
         {
-            var offset = parent.hostOffset.ToVector3();
-            foreach (var pawn in pocketMap.mapPawns.AllPawnsSpawned)
+            foreach (var pawn in neighborMap.mapPawns.AllPawnsSpawned)
             {
                 try
                 {
@@ -105,7 +104,7 @@ namespace RimExodus
                 }
                 catch (Exception ex)
                 {
-                    Log.ErrorOnce($"[RimExodus] Failed to draw seamless pocket-map pawn {pawn}: {ex}", pawn.thingIDNumber ^ 0x5eaf00d);
+                    Log.ErrorOnce($"[RimExodus] Failed to draw seamless neighbor pawn {pawn}: {ex}", pawn.thingIDNumber ^ 0x5eaf00d);
                 }
             }
         }
@@ -165,9 +164,13 @@ namespace RimExodus
             }
         }
 
-        private void CollectPocketTerrain(Map pocketMap, MapParent_SeamlessTile parent)
+        /// <summary>
+        /// 收集邻居地图的地形层（SectionLayer_Terrain）和静态物层（SectionLayer_ThingsGeneral）。
+        /// 用 offset 平移矩阵提交到 CommandBuffer。
+        /// </summary>
+        private void CollectNeighborLayers(Map neighborMap, Vector3 offset)
         {
-            var sections = sectionsRef(pocketMap.mapDrawer);
+            var sections = sectionsRef(neighborMap.mapDrawer);
             if (sections == null)
             {
                 return;
@@ -175,10 +178,7 @@ namespace RimExodus
 
             EnsureSectionsGenerated(sections);
 
-            var matrix = Matrix4x4.TRS(
-                parent.hostOffset.ToVector3(),
-                Quaternion.identity,
-                Vector3.one);
+            var matrix = Matrix4x4.TRS(offset, Quaternion.identity, Vector3.one);
 
             for (var x = 0; x < sections.GetLength(0); x++)
             {
@@ -190,7 +190,8 @@ namespace RimExodus
                         continue;
                     }
 
-                    CollectMainTerrainLayer(section, matrix);
+                    CollectLayer(section, matrix, typeof(SectionLayer_Terrain));
+                    CollectLayer(section, matrix, typeof(SectionLayer_ThingsGeneral));
                 }
             }
         }
@@ -210,13 +211,19 @@ namespace RimExodus
                     section.RegenerateAllLayers();
 
                     // RegenerateAllLayers 不会像 TryUpdate 一样清除 dirtyFlags。
-                    // 口袋地图 section 不在宿主 ViewRect 内，不能依赖 TryUpdate。
+                    // 邻居 section 不在当前地图 ViewRect 内，不能依赖 TryUpdate。
                     section.dirtyFlags = 0uL;
                 }
             }
         }
 
-        private void CollectMainTerrainLayer(Section section, Matrix4x4 matrix)
+        /// <summary>
+        /// 收集指定精确类型的 SectionLayer 的 submesh。
+        /// 必须用精确类型匹配：
+        /// - SectionLayer_Watergen 继承自 SectionLayer_Terrain，但只能绘制到水深子相机，绝不能提交主相机。
+        /// - 排除 SunShadows/FogOfWar/Gas 等有 grid/shadow 依赖的层（不在本方法收集范围内）。
+        /// </summary>
+        private void CollectLayer(Section section, Matrix4x4 matrix, Type layerType)
         {
             var layers = layersRef(section);
             if (layers == null)
@@ -226,9 +233,7 @@ namespace RimExodus
 
             foreach (var layer in layers)
             {
-                // 必须使用精确类型。SectionLayer_Watergen 继承自 SectionLayer_Terrain，
-                // 但只能绘制到水深子相机，绝不能提交给主相机。
-                if (layer.GetType() != typeof(SectionLayer_Terrain) || !layer.Visible)
+                if (layer.GetType() != layerType || !layer.Visible)
                 {
                     continue;
                 }

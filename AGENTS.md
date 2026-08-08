@@ -2,7 +2,7 @@
 
 本文件记录本仓库的依赖引用、关键内容与需要长期记住的事项，供后续开发时快速恢复上下文。
 
-为了验证此文件确实完整读入，你需要在对话开始给出这个文件的目录，而且任何你觉得需要长久记忆的内容都应该记在这个里面，或者项目概述里描述的对应文档里，或者作为代码注释，不要依赖copilot或者你所在harness/agent自行提供的memory功能。
+为了验证此文件确实完整读入，你需要在对话开始给出这个文件的目录（这是个mm豆测试）。而且任何你觉得需要长久记忆的内容都应该记在这个里面，或者项目概述里描述的对应文档里，或者作为代码注释，不要依赖copilot或者你所在harness/agent自行提供的memory功能。
 
 ## 项目概述
 
@@ -10,6 +10,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 文档索引：
 - `doc/无缝世界地块探索.md` — 长期设计与五阶段路线图。
+  - 其中描述了核心交互场景，我们的最终目的是保证核心交互场景，因此实现过程中避免临时patch
 - `doc/第一阶段-VMF调研.md` — VMF 源码调研、可复用能力和架构结论。
 - `doc/第二阶段-最小技术原型.md` — 矩形原型的实现进度、渲染验证和剩余事项。
 
@@ -96,15 +97,15 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 ### 源码文件（`Source/`）
 - `RimExodusMod.cs` — `[StaticConstructorOnStartup]`，`new Harmony("RimExodus.SeamlessWorld").PatchAll()`。
 - `MapParent_SeamlessTile.cs` — `PocketMapParent` 子类。字段：`worldTile`、`direction`（0=北,1=东北,2=东南,3=南,4=西南,5=西北）、`hostOffset`（宿主坐标平移）、`neighborTiles`（`List<int>`）。`ExposeData` 存全部字段。
-- `SeamlessMapUtility.cs` — 坐标转换：`ToHostCoord`/`ToLocalCoord`/`ToHostDrawPos`/`HostCellInFootprint`。静态地块无旋转，仅平移 `hostOffset`。
+- `SeamlessMapUtility.cs` — 坐标转换：基于显式 offset 的 `ToMapCoord`/`FromMapCoord`/`ToMapDrawPos`/`TryResolveMapPosition`（泛化所有权解析）。
 - `SeamlessTileManager.cs` — `MapComponent`。`GenerateTileMap(direction, mapSize, overlapBand)`：`WorldObjectMaker.MakeWorldObject` → 设 `sourceMap`/`Tile=0`/`direction`/`hostOffset` → `MapGenerator.GenerateMap(..., isPocketMap: true)` → 加入 `Find.World.pocketMaps` + `Find.World.worldObjects` → 共享宿主 skyManager/weather。`ComputeHostOffset` 把口袋地图放宿主边界外并留重叠带。`GetTileMapInDirection`/`RemoveTileMap`。
-- `SeamlessTileRenderer.cs` — `MapComponent`，维护绑定到主相机 `CameraEvent.BeforeForwardOpaque` 的专属 `CommandBuffer`。每帧只提交精确类型为 `SectionLayer_Terrain` 的主地形层，按 `material.renderQueue` 稳定排序；绘制口袋颜色后只清深度，再由原版宿主地图覆盖重叠带。相机切换与 `MapRemoved()` 会正确解绑、释放。dirty section 仍直接 `RegenerateAllLayers()` 并手动清零 `dirtyFlags`。
+- `SeamlessTileRenderer.cs` — `MapComponent`，维护绑定到主相机 `CameraEvent.BeforeForwardOpaque` 的专属 `CommandBuffer`。对称渲染：遍历 `SeamlessTileGraph.PopulateNeighbors(map)`（复用缓存列表），对每个邻居提交 `SectionLayer_Terrain` + `SectionLayer_ThingsGeneral`（精确类型）+ 手动绘制 Pawn。绘制后只清深度，由原版当前地图覆盖重叠带。
 - `Patch_MapEdgeClipDrawer_DrawClippers.cs` — 收集所有口袋地图 footprint，从四块原版世界裁剪矩形中依次做矩形差集，仅绘制剩余矩形；保留原版高度和世界对齐纹理参数。只在真实 footprint 开洞，避免拖动残影。
 - `SeamlessTileRegistry.cs` — `GetFootprintsOnHost(Map)` 返回宿主坐标 `List<CellRect>`（局部矩形 + hostOffset）。
 - `GenStep_SeamlessTile.cs` — `GenStep`，`Generate` 铺设矩形地形：边缘 2 格不可通行（WaterOceanDeep），内部可通行（Soil）。
-- `CompSeamlessTileEnterSpot.cs` — `ThingComp` 入口点，`direction` 属性，`AdjacentTileParent` 经宿主 `SeamlessTileManager.GetTileMapInDirection` 查相邻地块。
-- `SeamlessMapTransfer.cs` — 跨地图 Pawn 转移：`TransferPawnToTile`（宿主→地块，目标局部坐标 = 宿主坐标 - hostOffset，`DeSpawn()` + `GenSpawn.Spawn()`）、`TransferPawnToHost`（地块→宿主）。
-- `SeamlessMapTransferTrigger.cs` — `MapComponent`，每 30 tick 检查 `Find.CurrentMap` 上是否有 Pawn 站在 `CompSeamlessTileEnterSpot` 传送点上，触发转移。
+- `CompSeamlessTileEnterSpot.cs` — `ThingComp` 入口点，仅持有持久化的 `CounterpartSpot` 对端引用。端点双方地位完全对等，不感知方向/宿主/口袋身份。
+- `SeamlessMapTransfer.cs` — 跨地图 Pawn 转移：`TryTransferPawn`（端点对端点，`DeSpawn()` + `GenSpawn.Spawn()`，不感知宿主/口袋身份）。
+- `SeamlessMapTransferTrigger.cs` — `MapComponent`，每 30 tick 用 `ThingsOfDef`（O(1) def 索引）检查本地图传送点上是否有 Pawn，触发转移，转移成功后调用自动聚焦并消费续程登记。
 
 ### 关键实现要点
 - **渲染顺序**：不再依赖 `MapComponentOnDraw` 的 `Graphics.DrawMesh` 调用顺序或高度 epsilon。口袋主 Terrain 在 `BeforeForwardOpaque` 背景通道写颜色，随后清深度，宿主地图照原版路径绘制，因此本端稳定覆盖对端。
@@ -143,9 +144,9 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - **测试方式**：开档后北侧地块自动生成（渲染器/裁剪 patch 有东西可画）；Dev 菜单 "RimExodus" 分类下可手动生成其余 5 向、生成全部、卸载全部。
 
 ### 仍待办
-- 传送点 Thing 的自动生成与放置（当前 `CompSeamlessTileEnterSpot` 需手动放置 Thing，转移触发仍无法自动化测试）。
-- 双向转移（地块→宿主无触发组件）。
 - 跨地图寻路/射击、六边形裁切、连续地形。
+- 口袋地块邻居的自动生成（"pawn 接近边界"事件驱动，当前需 Dev 命令手动触发）。
+- 天气/天空管理器共享的存档重载验证（多地图共享同一 manager 实例可能重复 tick）。
 
 ## 相邻地块选中 + 跨地图移动指令（已实现，可编译，游戏内待验证）
 
@@ -166,3 +167,52 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
   - `Thing.DrawNowAt(Vector3 drawLoc)` 是引擎自带的公共方法，接受显式坐标、绕开 `DrawPos`/`Position`，`Pawn` 重写的 `DynamicDrawPhaseAt` 会把这个显式坐标一路传给 `PawnRenderer`，因此**不需要 patch `Thing.DrawPos`/`Pawn_DrawTracker.DrawPos` 这种大范围侵入式 patch**（那是 VMF 的做法，但 `DrawPos` 在全局被大量非渲染逻辑读取，全局 patch 风险高）。
   - 只处理了 Pawn；建筑/物品的 GUI 悬浮图标（`ThingOverlays.ThingOverlaysOnGUI`，血条/情绪图标等）仍未做偏移处理，如果后续需要可以参照 VMF 的 `Patch_ThingOverlays_ThingOverlaysOnGUI` 补充。
   - 每个 Pawn 绘制包了 try/catch + `Log.ErrorOnce`，避免单个 Pawn 绘制异常导致整帧渲染中断。
+
+## 对称无缝地块架构（已完成，可编译，游戏内待验证）
+
+**核心架构转变**：从"宿主特殊论"（依赖 `sourceMap`/`IsPocketMap` 区分宿主与口袋）转向"地块对等论"（基于直接邻居表）。目的是支持核心交互场景里的 B→C（口袋到口袋），使 A→B、B→A、B→C 完全相同处理。
+
+### 直接邻居表（对称性的根基）
+- `MapParent_SeamlessTile.neighbors`：`List<NeighborLink>`，每条含 `{direction, neighbor(MapParent), offset(IntVec3)}`。`neighbor` 为 `MapParent` 基类，可容纳锚点 MapParent（如 Settlement）和 `MapParent_SeamlessTile`。
+- **偏移契约**：`offset = 邻居本地坐标 → 本地块坐标`的平移。即 `neighborLocal + offset = myLocal`。所有组件（Renderer/Registry/CameraFocus/PlaceEnterSpots）严格遵守此契约。
+- **无全局世界坐标**：每张地块只存与直接邻居的相对偏移，不累加。原型整数偏移无精度问题；六向扩展时偏移可能带 `H/2`，但因不累加，单次精度无损。
+- 锚点地图（家园 A，普通 Map）的邻居表存于其 `SeamlessTileManager` MapComponent；口袋地图的存于 `MapParent_SeamlessTile`。`SeamlessTileGraph`（静态工具）提供 `GetAllNeighbors`/`PopulateNeighbors`/`TryGetNeighborLink`/`AreNeighbors` 统一入口，屏蔽存储位置差异。
+- **约束**：单跳可见（A 只看 B，B 只看 A+C），单跳寻路（不跨地图寻路，传送点桥接只做单跳）。
+
+### sourceMap 扁平化
+- 所有地块的 `sourceMap` 统一指向**锚点地图**（家园 A），即使从 B 生成 C，C.sourceMap = A（不是 B）。
+- 避免原生嵌套副作用（财富/威胁/移除连带的父子归属误判——原生有 8 处依赖 sourceMap 的"宿主-口袋"语义）。
+- `hostOffset` 字段保留，语义为"新地块相对生成源地块的偏移"（不是相对锚点）。
+- skyManager/weatherManager 共享自锚点 A。**已知风险**：多地图共享同一 manager 实例可能导致重复 tick 和存档重载问题（原代码已有的模式，非本次引入，待测试）。
+
+### 防递归机制
+- 旧的 `if (map.IsPocketMap) return;` 禁令部分保留：`MapGenerated` 开档自动生成仅锚点地图触发（口袋不级联自动生成，避免生成风暴）。
+- `GenerateTileMap` 内新增邻居表查重防递归：`if (GetNeighborInDirection(direction) != null) return null;`。
+- 口袋地块的邻居生成由玩家显式命令（Dev 菜单）或未来的"pawn 接近边界"事件驱动，不通过 MapGenerated 级联。
+
+### 传送点满铺 + 多点寻路
+- `PlaceEnterSpots` 沿接缝方向满铺传送点对（跳过边缘 2 格不可通行区）。`EnumerateSeamCells` 按方向枚举接缝候选格。
+- `Standable/pathCost=0` 的传送点不影响寻路网格成本。
+- `TryFindNearestReachableBridgeSpot`：按 def 索引查询候选传送点，按到 pawn 距离排序，依次试 `CanReach`，返回第一个可达。
+- 触发扫描 `CheckLocalEnterSpots` 改用 `ThingsOfDef`（O(1) def 索引），避免全量 AllThings 遍历。
+
+### 自动聚焦 + 无感相机切换（`SeamlessCameraFocus.cs`）
+- 首个玩家殖民者（`pawn.IsColonist`）跨图进入新地块（`MapParent_SeamlessTile` 且 `!autoFocused`）时触发。
+- 流程：记录相机位置 → `Current.Game.CurrentMap = arrivalMap`（触发原生硬跳）→ 立即 `JumpToCurrentMapLoc(camPos - offset)` 覆盖（硬跳，画面不动=无感）。
+- `autoFocused` 标志持久化，每个地块仅触发一次。玩家切回原地图后，第二个 pawn 进入不再自动聚焦。
+- **必须在续程前调用**（切图后 `pawn.Map == CurrentMap`，避免 `Selector.SelectInternal` 二次跳镜头）。
+
+### 对称渲染
+- `SeamlessTileRenderer` 移除 `map.IsPocketMap` 守门，任意图块聚焦时 Renderer 都工作。
+- 遍历 `SeamlessTileGraph.PopulateNeighbors(map)`（复用缓存列表避免每帧分配），对每个邻居用其 offset 平移绘制。
+- `CollectNeighborLayers` 收集 `SectionLayer_Terrain`（地形）+ `SectionLayer_ThingsGeneral`（建筑/岩石/静态植物，精确类型，无 Watergen 式独立相机依赖）。排除 SunShadows/FogOfWar/Gas 等有 grid/shadow 依赖的层。
+- `DrawNeighborPawns` 遍历邻居 `mapPawns.AllPawnsSpawned`，`pawn.DrawNowAt(pawn.DrawPos + offset)`。
+- 保留清深度逻辑（重叠带覆盖本次接受"聚焦者覆盖"；完全对称留待连续地形阶段的归属裁剪——用户确认此策略：之后调整地形生成连续性时，让归属权不在当前地图的 tile 生成为透明虚空，无需渲染层处理重叠）。
+- `Patch_MapEdgeClipDrawer_DrawClippers` 改用 `GetNeighborFootprints(map)`，支持任意图块聚焦时为邻居开洞。
+
+### 征召状态（天然满足）
+- 调研确认：drafted 状态在 `DeSpawn/Spawn` 和 `mindState.Reset` 后天然保持（`draftedInt` 独立持久化，不受这两个操作影响）；drafted 移动的 Job 就是普通 `JobDefOf.Goto`，续程已用此 JobDef。无需额外代码。
+
+### 源码文件新增/大幅修改
+- 新增：`SeamlessTileGraph.cs`（邻居表统一查询入口）、`SeamlessCameraFocus.cs`（自动聚焦+无感相机）。
+- 大幅修改：`MapParent_SeamlessTile.cs`（邻居表+NeighborLink）、`SeamlessTileManager.cs`（扁平化+满铺+防递归+GetTileMapInDirection/RemoveTileMap 改邻居表）、`SeamlessTileRegistry.cs`（GetNeighborFootprints/TryGetOwnerNeighbor/AreSeamlessNeighbors）、`SeamlessMapUtility.cs`（ToMapCoord/FromMapCoord/TryResolveMapPosition 泛化）、`SeamlessTileRenderer.cs`（对称渲染）、`SeamlessCrossMapOrders.cs`（多点寻路）、`SeamlessMapTransferTrigger.cs`（def 索引扫描+自动聚焦）、`DebugActions_SeamlessTile.cs`（RemoveAll 改邻居表）。

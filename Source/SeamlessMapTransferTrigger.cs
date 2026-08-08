@@ -63,11 +63,25 @@ namespace RimExodus
 
         private void CheckLocalEnterSpots()
         {
-            // 转移会修改地图的 Thing/Pawn 注册表，因此两者都使用快照。
-            var allThings = new List<Thing>(map.listerThings.AllThings);
-            var pawns = new List<Pawn>(map.mapPawns.AllPawnsSpawned);
+            var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
+            if (enterSpotDef == null)
+            {
+                return;
+            }
 
-            foreach (var thing in allThings)
+            // 用 def 索引查询传送点（O(1)），避免全量遍历 AllThings。
+            // 转移会修改 Thing 注册表，因此对传送点列表做快照。
+            var enterSpots = new List<Thing>(map.listerThings.ThingsOfDef(enterSpotDef));
+            if (enterSpots.Count == 0)
+            {
+                return;
+            }
+
+            // pawn 列表也需要快照（转移会修改 pawn 注册表）。
+            var pawns = map.mapPawns.AllPawnsSpawned;
+            var pawnSnapshot = new List<Pawn>(pawns);
+
+            foreach (var thing in enterSpots)
             {
                 var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
                 if (comp == null)
@@ -75,7 +89,7 @@ namespace RimExodus
                     continue;
                 }
 
-                foreach (var pawn in pawns)
+                foreach (var pawn in pawnSnapshot)
                 {
                     if (!pawn.Spawned || pawn.Map != map || pawn.Position != thing.Position
                         || pawn.Downed || pawn.Dead || IsArrivalLocked(pawn, thing))
@@ -88,6 +102,8 @@ namespace RimExodus
                     var arrivalMap = comp.CounterpartSpot.Map;
                     if (SeamlessMapTransfer.TryTransferPawn(pawn, thing, comp.CounterpartSpot))
                     {
+                        // 自动聚焦必须在续程之前完成（切图后 pawn.Map==CurrentMap，避免 SelectInternal 二次跳镜头）。
+                        SeamlessCameraFocus.TryAutoFocusOnArrival(pawn, arrivalMap);
                         ContinueCrossMapMove(pawn, arrivalMap);
                     }
                 }

@@ -24,7 +24,7 @@ namespace RimExodus
                 return true;
             }
 
-            var footprints = SeamlessTileRegistry.GetFootprintsOnHost(map);
+            var footprints = SeamlessTileRegistry.GetNeighborFootprints(map);
             if (footprints.Count == 0)
             {
                 return true;

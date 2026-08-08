@@ -4,72 +4,55 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// 无缝地块地图的坐标转换工具。
+    /// 无缝地块地图的坐标转换工具（基于显式偏移，对称架构）。
     /// 与 VMF 的 VehicleMapUtility 不同，静态地块地图没有旋转项，
-    /// 只保留"地图局部坐标 → 宿主地图坐标"的平移映射。
+    /// 只保留"地图局部坐标 + 偏移 → 另一地图坐标"的平移映射。
     ///
-    /// 关键设计（计划书 1.10 结论 4）：
-    /// 对端地图与本地地图在接缝处物理重叠（overlap band），
-    /// 本端传送点与对端传送点在宿主坐标（drawPos）上重合于同一 tile。
-    /// 因此 ToHostCoord 必须保证：对端地图的 enter spot 与本地地图的
-    /// exit spot 映射到宿主地图后坐标一致。
+    /// 偏移语义：邻居本地坐标 + offset = 当前地图坐标系的坐标。
+    /// offset 由邻居表 <see cref="NeighborLink.offset"/> 提供，方向无关（对称）。
     /// </summary>
     public static class SeamlessMapUtility
     {
-        /// <summary>
-        /// 把口袋地图局部坐标映射到宿主地图坐标。
-        /// 静态地块地图无旋转，仅平移 hostOffset。
-        /// </summary>
-        public static IntVec3 ToHostCoord(IntVec3 localCell, MapParent_SeamlessTile parent)
+        /// <summary>把局部坐标按偏移映射到目标地图坐标（通用平移）。</summary>
+        public static IntVec3 ToMapCoord(IntVec3 localCell, IntVec3 offset)
         {
-            return localCell + parent.hostOffset;
+            return localCell + offset;
+        }
+
+        /// <summary>把目标地图坐标按偏移反查为局部坐标（通用平移取反）。</summary>
+        public static IntVec3 FromMapCoord(IntVec3 mapCell, IntVec3 offset)
+        {
+            return mapCell - offset;
+        }
+
+        /// <summary>把局部坐标按偏移映射到目标地图的世界绘制位置（Vector3）。</summary>
+        public static Vector3 ToMapDrawPos(IntVec3 localCell, IntVec3 offset)
+        {
+            return (localCell + offset).ToVector3Shifted();
         }
 
         /// <summary>
-        /// 把宿主地图坐标反查为口袋地图局部坐标。
+        /// 把当前地图坐标解析成实际应操作的 Map + 局部坐标。
+        /// 用最近中心所有权规则（六边形方案）在当前地图 + 直接邻居间裁决归属。
+        /// 命中邻居则返回该邻居 Map + 其局部坐标；否则归属当前地图自身。
         /// </summary>
-        public static IntVec3 ToLocalCoord(IntVec3 hostCell, MapParent_SeamlessTile parent)
+        public static bool TryResolveMapPosition(Vector3 mouseMapPosition, Map currentMap, out Map targetMap, out IntVec3 targetLocalCell)
         {
-            return hostCell - parent.hostOffset;
-        }
+            var currentCell = IntVec3.FromVector3(mouseMapPosition);
 
-        /// <summary>
-        /// 口袋地图局部坐标 → 宿主地图世界绘制位置（Vector3）。
-        /// 用于把口袋地图作为 Thing 绘制到宿主地图上。
-        /// </summary>
-        public static Vector3 ToHostDrawPos(IntVec3 localCell, MapParent_SeamlessTile parent)
-        {
-            return (localCell + parent.hostOffset).ToVector3Shifted();
-        }
-
-        /// <summary>
-        /// 判断宿主地图上的一个格子是否落在某个口袋地图的 footprint 内。
-        /// 用于 MapEdgeClipDrawer 裁剪跳过判定（方案 B）。
-        /// </summary>
-        public static bool HostCellInFootprint(IntVec3 hostCell, MapParent_SeamlessTile parent)
-        {
-            var local = ToLocalCoord(hostCell, parent);
-            var map = parent.Map;
-            return map != null && local.InBounds(map);
-        }
-
-        /// <summary>把宿主坐标解析成实际应操作的 Map + 局部坐标；命中相邻地块 footprint 则返回该口袋地图。</summary>
-        public static bool TryResolveMapPosition(Vector3 mouseMapPosition, Map hostMap, out Map targetMap, out IntVec3 targetLocalCell)
-        {
-            var hostCell = IntVec3.FromVector3(mouseMapPosition);
-
-            // 用最近中心所有权规则（六边形方案）决定归属：候选 = 宿主 + 覆盖该格的口袋地图，
-            // 取距离最近的格子中心作为逻辑所有者。这样重叠带内靠近宿主中心的格属于宿主，
-            // 靠近口袋地图中心的格属于口袋地图（如北缘 125,0,248/249 属于地图 B，125,0,247 属于宿主）。
-            if (hostMap != null && SeamlessTileRegistry.TryGetOwnerPocketMap(hostMap, hostCell, out var parent))
+            // 用最近中心所有权规则决定归属：候选 = 当前地图 + 覆盖该格的直接邻居，
+            // 取距离最近的格子中心作为逻辑所有者。重叠带内靠近当前地图中心的格归当前地图，
+            // 靠近邻居中心的格归邻居。
+            if (currentMap != null
+                && SeamlessTileRegistry.TryGetOwnerNeighbor(currentMap, currentCell, out var ownerMap, out var ownerLocalCell))
             {
-                targetMap = parent.Map;
-                targetLocalCell = ToLocalCoord(hostCell, parent);
+                targetMap = ownerMap;
+                targetLocalCell = ownerLocalCell;
                 return true;
             }
 
-            targetMap = hostMap;
-            targetLocalCell = hostCell;
+            targetMap = currentMap;
+            targetLocalCell = currentCell;
             return false;
         }
     }

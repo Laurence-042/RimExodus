@@ -109,12 +109,15 @@ namespace RimExodus
                 return;
             }
 
+            // 收集当前地图的所有直接邻居（对称：不再依赖 sourceMap）。
+            var currentMap = Find.CurrentMap;
+            var neighbors = SeamlessTileGraph.GetAllNeighbors(currentMap);
             var toRemove = new System.Collections.Generic.List<MapParent_SeamlessTile>();
-            foreach (var pocketMap in Find.World.pocketMaps)
+            foreach (var info in neighbors)
             {
-                if (pocketMap is MapParent_SeamlessTile parent && parent.sourceMap == Find.CurrentMap)
+                if (info.map.Parent is MapParent_SeamlessTile neighborParent)
                 {
-                    toRemove.Add(parent);
+                    toRemove.Add(neighborParent);
                 }
             }
 

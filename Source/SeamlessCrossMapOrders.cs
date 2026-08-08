@@ -69,15 +69,9 @@ namespace RimExodus
 
         private static bool TryBridgeJob(Pawn pawn, Map targetMap, IntVec3 targetLocalCell)
         {
-            if (!TryFindBridgeSpot(pawn.Map, targetMap, out var exitSpot))
+            if (!TryFindNearestReachableBridgeSpot(pawn, targetMap, out var exitSpot))
             {
-                Log.Message($"[RimExodus] Cross-map move rejected: no seamless enter spot bridges map {pawn.Map.uniqueID} to map {targetMap.uniqueID}.");
-                return false;
-            }
-
-            if (!pawn.Map.reachability.CanReach(pawn.Position, exitSpot.Position, PathEndMode.OnCell, TraverseParms.For(pawn)))
-            {
-                Log.Message($"[RimExodus] Cross-map move rejected: {pawn.LabelShort} cannot reach bridging spot at {exitSpot.Position}.");
+                Log.Message($"[RimExodus] Cross-map move rejected: no reachable seamless enter spot bridges map {pawn.Map.uniqueID} to map {targetMap.uniqueID}.");
                 return false;
             }
 
@@ -86,19 +80,43 @@ namespace RimExodus
             return true;
         }
 
-        private static bool TryFindBridgeSpot(Map fromMap, Map toMap, out Thing exitSpot)
+        /// <summary>
+        /// 在 fromMap 上找到所有能桥接到 toMap 的传送点，按到 pawn 的距离排序，
+        /// 返回第一个 pawn 能到达的。满铺接缝后候选很多，最近的通常可达即返回。
+        /// </summary>
+        private static bool TryFindNearestReachableBridgeSpot(Pawn pawn, Map toMap, out Thing exitSpot)
         {
-            foreach (var thing in fromMap.listerThings.AllThings)
+            exitSpot = null;
+            var fromMap = pawn.Map;
+            var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
+            if (enterSpotDef == null)
+            {
+                return false;
+            }
+
+            // 用 def 索引查询（O(1)），避免全量遍历 AllThings。
+            var candidates = new List<(Thing spot, int distSq)>();
+            foreach (var thing in fromMap.listerThings.ThingsOfDef(enterSpotDef))
             {
                 var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
-                if (comp?.CounterpartSpot != null && comp.CounterpartSpot.Map == toMap)
+                if (comp?.CounterpartSpot == null || comp.CounterpartSpot.Map != toMap)
                 {
-                    exitSpot = thing;
+                    continue;
+                }
+                candidates.Add((thing, pawn.Position.DistanceToSquared(thing.Position)));
+            }
+
+            // 按距离升序排序，依次尝试可达性。
+            candidates.Sort((a, b) => a.distSq.CompareTo(b.distSq));
+            var traverseParms = TraverseParms.For(pawn);
+            foreach (var (spot, _) in candidates)
+            {
+                if (fromMap.reachability.CanReach(pawn.Position, spot.Position, PathEndMode.OnCell, traverseParms))
+                {
+                    exitSpot = spot;
                     return true;
                 }
             }
-
-            exitSpot = null;
             return false;
         }
     }
