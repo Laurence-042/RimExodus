@@ -52,5 +52,21 @@ namespace RimExodus
             var map = parent.Map;
             return map != null && local.InBounds(map);
         }
+
+        /// <summary>把宿主坐标解析成实际应操作的 Map + 局部坐标；命中相邻地块 footprint 则返回该口袋地图。</summary>
+        public static bool TryResolveMapPosition(Vector3 mouseMapPosition, Map hostMap, out Map targetMap, out IntVec3 targetLocalCell)
+        {
+            var hostCell = IntVec3.FromVector3(mouseMapPosition);
+            if (hostMap != null && SeamlessTileRegistry.TryGetPocketMapAtHostCell(hostMap, hostCell, out var parent))
+            {
+                targetMap = parent.Map;
+                targetLocalCell = ToLocalCoord(hostCell, parent);
+                return true;
+            }
+
+            targetMap = hostMap;
+            targetLocalCell = hostCell;
+            return false;
+        }
     }
 }

@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using RimWorld;
 using Verse;
+using Verse.AI;
 
 namespace RimExodus
 {
@@ -83,9 +85,30 @@ namespace RimExodus
 
                     Log.Message($"[RimExodus] Seamless trigger: pawn {pawn.LabelShort} at {thing.Position} "
                         + $"on map {map.uniqueID} targeting {DescribeTarget(comp.CounterpartSpot)}");
-                    SeamlessMapTransfer.TryTransferPawn(pawn, thing, comp.CounterpartSpot);
+                    var arrivalMap = comp.CounterpartSpot.Map;
+                    if (SeamlessMapTransfer.TryTransferPawn(pawn, thing, comp.CounterpartSpot))
+                    {
+                        ContinueCrossMapMove(pawn, arrivalMap);
+                    }
                 }
             }
+        }
+
+        /// <summary>转移完成后，如果这次移动指令登记了跨图续程目的地，则在到达的地图上续发 Goto。</summary>
+        private static void ContinueCrossMapMove(Pawn pawn, Map arrivalMap)
+        {
+            if (!SeamlessCrossMapPendingDestinations.TryConsume(pawn, arrivalMap, out var finalCell))
+            {
+                return;
+            }
+
+            if (!finalCell.InBounds(arrivalMap) || !finalCell.Walkable(arrivalMap))
+            {
+                Log.Message($"[RimExodus] Cross-map move continuation skipped: final cell {finalCell} on map {arrivalMap.uniqueID} is not walkable.");
+                return;
+            }
+
+            pawn.jobs.StartJob(JobMaker.MakeJob(JobDefOf.Goto, finalCell), JobCondition.InterruptForced);
         }
 
         private bool IsArrivalLocked(Pawn pawn, Thing currentSpot)

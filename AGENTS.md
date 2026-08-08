@@ -18,7 +18,6 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 > **重要**：本仓库已包含全部所需源码与配置，**无需去游戏安装目录（`SteamLibrary/steamapps/common/RimWorld/`）查找**。游戏的源码、物品/Def 配置、以及 VMF/VF 框架源码都在 `references/` 下，直接在此目录内检索即可。
 
 - `references/RimWorldDecompiled/` — RimWorld 反编译源码（含原生 `PocketMapParent`、`MapParent` 等）。
-- `references/RimWorldData/` — 游戏数据/Def 配置（Core、Royalty、Ideology、Biotech、Anomaly、Odyssey 等官方内容）。
 - `references/VehicleMapFramework/` — VMF（Vehicle Map Framework），口袋地图框架。
 - `references/Vehicle-Framework/` — VF（Vehicle Framework），车辆基础框架。
 
@@ -102,16 +101,16 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `Patch_MapEdgeClipDrawer_DrawClippers.cs` — 收集所有口袋地图 footprint，从四块原版世界裁剪矩形中依次做矩形差集，仅绘制剩余矩形；保留原版高度和世界对齐纹理参数。只在真实 footprint 开洞，避免拖动残影。
 - `SeamlessTileRegistry.cs` — `GetFootprintsOnHost(Map)` 返回宿主坐标 `List<CellRect>`（局部矩形 + hostOffset）。
 - `GenStep_SeamlessTile.cs` — `GenStep`，`Generate` 铺设矩形地形：边缘 2 格不可通行（WaterOceanDeep），内部可通行（Soil）。
-- `CompSeamlessTileEnterSpot.cs` — 对等入口端点 `ThingComp`，仅持有并保存 `CounterpartSpot`；不区分宿主侧/口袋侧。
-- `SeamlessMapTransfer.cs` — 统一的 `TryTransferPawn(pawn, departureSpot, arrivalSpot)`，验证端点互指后直接使用对端 `Map/Position` 完成 `DeSpawn()` + `GenSpawn.Spawn()`。
-- `SeamlessMapTransferTrigger.cs` — 每张地图各自每 30 tick 扫描本地入口，不依赖 `Find.CurrentMap` 或 `Find.World.pocketMaps`。组件持久化本地图的 Pawn→到达入口锁，每 tick 检查，Pawn 一旦离开到达入口格就删除锁；仍站在入口上时持续阻止回弹。
+- `CompSeamlessTileEnterSpot.cs` — `ThingComp` 入口点，`direction` 属性，`AdjacentTileParent` 经宿主 `SeamlessTileManager.GetTileMapInDirection` 查相邻地块。
+- `SeamlessMapTransfer.cs` — 跨地图 Pawn 转移：`TransferPawnToTile`（宿主→地块，目标局部坐标 = 宿主坐标 - hostOffset，`DeSpawn()` + `GenSpawn.Spawn()`）、`TransferPawnToHost`（地块→宿主）。
+- `SeamlessMapTransferTrigger.cs` — `MapComponent`，每 30 tick 检查 `Find.CurrentMap` 上是否有 Pawn 站在 `CompSeamlessTileEnterSpot` 传送点上，触发转移。
 
 ### 关键实现要点
 - **渲染顺序**：不再依赖 `MapComponentOnDraw` 的 `Graphics.DrawMesh` 调用顺序或高度 epsilon。口袋主 Terrain 在 `BeforeForwardOpaque` 背景通道写颜色，随后清深度，宿主地图照原版路径绘制，因此本端稳定覆盖对端。
 - **MapComponent 自动注册**：`Map.FillComponents` 自动实例化所有 `MapComponent` 非抽象子类，无需手动注册。
 - **编译**：仓库根目录运行 `just build`（默认任务也是 `build`），底层命令为 `dotnet build Source/RimExodus.csproj -c Debug`，输出 `1.6/Assemblies/RimExodus.dll`。已通过（0 错误 0 警告）。
 - **踩坑**：`Scribe_Collections.Look` 只接受 `List<T>`（非数组），故 `neighborTiles` 用 `List<int>`；`Pawn_MindState.Reset` 有两个重载需显式传参；`TerrainDefOf` 需 `using RimWorld;`；`WorldObjectDef` 在 `RimWorld` 命名空间（非 Planet）。
-- **待办**：原型尚未实现跨地图寻路/射击（VMF 的 `CrossMapReachabilityUtility`/`AttackTargetFinderOnVehicle` 模型可复用）、六边形裁切、连续地形。
+- **待办**：原型尚未实现跨地图寻路/射击（VMF 的 `CrossMapReachabilityUtility`/`AttackTargetFinderOnVehicle` 模型可复用）、六边形裁切、连续地形、传送点 Thing 的生成与放置（当前 `CompSeamlessTileEnterSpot` 需手动放置 Thing）。
 
 ## 生成 + 渲染可测试性补全（已完成，可编译）
 
@@ -142,13 +141,19 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - **游戏内结果**：5 格重叠带由本端覆盖；水域/土地无蓝红水深色；拖动和缩放无残影；footprint 外仍由 clipper 覆盖。用户已确认问题解决。
 - **测试方式**：开档后北侧地块自动生成（渲染器/裁剪 patch 有东西可画）；Dev 菜单 "RimExodus" 分类下可手动生成其余 5 向、生成全部、卸载全部。
 
-### 自动传送点与双向转移（已完成，可编译）
-- `1.6/Defs/ThingDefs/SeamlessEnterSpot.xml`：`RimExodus_SeamlessEnterSpot` ThingDef，继承 `BuildingBase`，`passability=Standable`/`pathCost=0`，核心贴图 `Things/Building/Misc/DropBeacon`（1×1 信标，不依赖 VMF 资源），挂 `CompProperties_SeamlessTileEnterSpot`。
-- `SeamlessTileManager.PlaceEnterSpots`：`GenerateTileMap` 生成口袋地图后自动放置一对传送点。`ComputeEnterSpotHostCell` 算重叠带中央宿主坐标；本端 `GenSpawn.Spawn` 到宿主，对端经 `ToLocalCoord` 放口袋地图对应局部坐标。本端/对端宿主坐标重合 → Pawn 转移后视觉位置不跳变。
-- `SeamlessMapTransferTrigger` 对称化：每张地图只处理自己的入口，入口互相以 `CounterpartSpot` 为目标；宿主/口袋身份只保留在生成、生命周期与渲染层。
-- 防抖改为持久化“到达入口锁”：站在落点时持续锁定，离开一个 tick 即删除；入口触发扫描仍为每 30 tick。
-- **验证**：`dotnet build` 通过（0 错误 0 警告）。游戏内待验证：双向转移、离开即解锁、聚焦任意地图，以及入口上保存/读档后锁状态恢复。
-
 ### 仍待办
-- 游戏内验证自动传送点放置与双向 Pawn 转移的实际表现。
+- 传送点 Thing 的自动生成与放置（当前 `CompSeamlessTileEnterSpot` 需手动放置 Thing，转移触发仍无法自动化测试）。
+- 双向转移（地块→宿主无触发组件）。
 - 跨地图寻路/射击、六边形裁切、连续地形。
+
+## 相邻地块选中 + 跨地图移动指令（已实现，可编译，游戏内待验证）
+
+实现细节完整记录在 `/memories/session/plan.md`（会话记忆，本仓库外）；这里只记长期有效的关键事实。
+
+- 新增文件：`SeamlessGenUI.cs`（Map 感知版 `ThingsUnderMouse`）、`Patches_Selector.cs`（鼠标反查选中口袋地图对象）、`Patches_FloatMenuMakerMap.cs`（Prefix 接管跨地图 FloatMenu 生成）、`SeamlessCrossMapOrders.cs`（pending 目标登记 + 桥接 Job）、`SeamlessCrossMapPendingDestinations.cs`（转移后续程登记）、`Patches_Job.cs`（`Pawn_JobTracker.StartJob` 拦截点）。`SeamlessMapTransferTrigger.cs` 转移成功后会消费续程登记并自动续发 Goto。
+- **架构**：仿 VMF 的"环境态地图上下文替换"思路，但因为 `FloatMenuMakerMap.GetOptions`/`FloatMenuContext` 构造器把 `Find.CurrentMap` 写死为字面属性访问（不是参数传递），改用 **Prefix 全量接管**（两端都在宿主地图时 `return true` 完全放行原版；否则复制原方法逻辑处理）取代 VMF 式 Transpiler 精确 IL 替换，更稳妥但需要跟随 RimWorld 版本更新同步核对原方法逻辑是否变化。
+- **已知限制**（详见 plan.md）：
+  1. `Selector.SelectInternal` 选中跨图 Thing 时会自动切换 `Find.CurrentMap` 并跳镜头（原版行为，未抑制）。
+  2. 跨图 Job 拦截靠"pawn 是否有未消费的跨图 pending 记录 + 下一个 Goto"判断，不按 Cell 精确匹配（因为 `FloatMenuOptionProvider_DraftedMove` 会用 `RCellFinder.BestOrderedGotoDestNear` 就近改点）。
+  3. `Pawn_JobTracker.TryTakeOrderedJob` 会在 `StartJob` 之前用 `pawn.Map.pawnDestinationReservationManager.Reserve` 预定一个实际属于另一张地图坐标系的 Cell，且这个原始 Job 从不真正 StartJob，正常清理流程不会释放它——已知的无害小缺陷（占用宿主地图上一个不相关格子），未修复。
+  4. 只做移动（`JobDefOf.Goto`），单跳桥接，不做跨图射击/近战/搬运/建造，不做框选/Zone高亮/`CameraJumper`细节。
