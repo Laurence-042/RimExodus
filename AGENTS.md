@@ -77,7 +77,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ## 需要记住的事项
 
-- 本仓库 grep 需用**绝对路径 + 正斜杠**（如 `d:/SteamLibrary/...`），相对路径会失败。
+- 本仓库 grep 需用**绝对路径 + 正斜杠**（如 `d:/SteamLibrary/...`），相对路径会失败。**`grep_search` 工具在本仓库经常对明确存在的内容返回空结果（不报错，静默失败），不可信**；改用 `run_in_terminal` 执行 PowerShell 的 `Select-String -Path <绝对路径> -Pattern <正则>` 代替，稳定可靠。
 - `memory` 工具与 `create_file` 对超 ~150 行的内容有截断 bug：先建 stub，再分块（≤150 行）插入。
 - 主设计文档的“当前阶段计划”定义了 5 个推进步骤：VMF 调研 → 最小技术原型 → 旅行 Pocket Map → 六边形裁切 → 连续地形；第一、二阶段细节分别维护在独立文档中。
 - 最小技术原型验证点：地图绘制/选取/移动命令、跨地图入口往返、存档读档恢复。**生成与渲染已经验证通过**；交互、双向转移与保存读档仍待验证。
@@ -157,3 +157,11 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
   2. 跨图 Job 拦截靠"pawn 是否有未消费的跨图 pending 记录 + 下一个 Goto"判断，不按 Cell 精确匹配（因为 `FloatMenuOptionProvider_DraftedMove` 会用 `RCellFinder.BestOrderedGotoDestNear` 就近改点）。
   3. `Pawn_JobTracker.TryTakeOrderedJob` 会在 `StartJob` 之前用 `pawn.Map.pawnDestinationReservationManager.Reserve` 预定一个实际属于另一张地图坐标系的 Cell，且这个原始 Job 从不真正 StartJob，正常清理流程不会释放它——已知的无害小缺陷（占用宿主地图上一个不相关格子），未修复。
   4. 只做移动（`JobDefOf.Goto`），单跳桥接，不做跨图射击/近战/搬运/建造，不做框选/Zone高亮/`CameraJumper`细节。
+
+### 补充修复：口袋地图上的 Pawn 之前不可见（已修复）
+
+- **问题**：`SeamlessTileRenderer` 之前只重放口袋地图的 `SectionLayer_Terrain`（地形），完全没有绘制 Pawn/建筑等动态物体。原版 `DynamicDrawManager.DrawDynamicThings()` 只在 `Find.CurrentMap == 该地图` 时才会绘制该地图上的动态物体，所以聚焦宿主地图时，口袋地图上的 Pawn 从未被绘制过，自然也无法被鼠标选中（选中反查逻辑本身没问题，只是画面上根本没有东西可点）。
+- **修复**：`SeamlessTileRenderer.DrawPocketMapPawns` 在 `MapComponentDraw()` 里对每个口袋地图，遍历 `pocketMap.mapPawns.AllPawnsSpawned`，直接调用 `pawn.DrawNowAt(pawn.DrawPos + parent.hostOffset.ToVector3())`。
+  - `Thing.DrawNowAt(Vector3 drawLoc)` 是引擎自带的公共方法，接受显式坐标、绕开 `DrawPos`/`Position`，`Pawn` 重写的 `DynamicDrawPhaseAt` 会把这个显式坐标一路传给 `PawnRenderer`，因此**不需要 patch `Thing.DrawPos`/`Pawn_DrawTracker.DrawPos` 这种大范围侵入式 patch**（那是 VMF 的做法，但 `DrawPos` 在全局被大量非渲染逻辑读取，全局 patch 风险高）。
+  - 只处理了 Pawn；建筑/物品的 GUI 悬浮图标（`ThingOverlays.ThingOverlaysOnGUI`，血条/情绪图标等）仍未做偏移处理，如果后续需要可以参照 VMF 的 `Patch_ThingOverlays_ThingOverlaysOnGUI` 补充。
+  - 每个 Pawn 绘制包了 try/catch + `Log.ErrorOnce`，避免单个 Pawn 绘制异常导致整帧渲染中断。

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using RimWorld.Planet;
@@ -69,6 +70,7 @@ namespace RimExodus
                 }
 
                 CollectPocketTerrain(pocketMapInstance, parent);
+                DrawPocketMapPawns(pocketMapInstance, parent);
             }
 
             if (drawCommands.Count == 0)
@@ -85,6 +87,27 @@ namespace RimExodus
             // 保留口袋地图已经写入的颜色，但清除它写入的深度。
             // 随后进入原版主相机渲染流程的宿主地图不会再受口袋地图深度遮挡。
             commandBuffer.ClearRenderTarget(true, false, Color.clear, 1f);
+        }
+
+        /// <summary>
+        /// 口袋地图上的 Pawn 不会被宿主地图的 DynamicDrawManager 绘制（那只画 Find.CurrentMap 自己的动态物体），
+        /// 因此需要在这里手动以 hostOffset 平移后的位置立即绘制一遍，Pawn 才能在宿主视角里可见、进而可被选中。
+        /// Thing.DrawNowAt 接受显式坐标，绕开 DrawPos/Position，不需要额外 patch 坐标读取。
+        /// </summary>
+        private static void DrawPocketMapPawns(Map pocketMap, MapParent_SeamlessTile parent)
+        {
+            var offset = parent.hostOffset.ToVector3();
+            foreach (var pawn in pocketMap.mapPawns.AllPawnsSpawned)
+            {
+                try
+                {
+                    pawn.DrawNowAt(pawn.DrawPos + offset);
+                }
+                catch (Exception ex)
+                {
+                    Log.ErrorOnce($"[RimExodus] Failed to draw seamless pocket-map pawn {pawn}: {ex}", pawn.thingIDNumber ^ 0x5eaf00d);
+                }
+            }
         }
 
         public override void MapComponentUpdate()
