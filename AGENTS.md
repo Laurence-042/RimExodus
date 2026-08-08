@@ -80,7 +80,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - 本仓库 grep 需用**绝对路径 + 正斜杠**（如 `d:/SteamLibrary/...`），相对路径会失败。**`grep_search` 工具在本仓库经常对明确存在的内容返回空结果（不报错，静默失败），不可信**；改用 `run_in_terminal` 执行 PowerShell 的 `Select-String -Path <绝对路径> -Pattern <正则>` 代替，稳定可靠。
 - `memory` 工具与 `create_file` 对超 ~150 行的内容有截断 bug：先建 stub，再分块（≤150 行）插入。
 - 主设计文档的“当前阶段计划”定义了 5 个推进步骤：VMF 调研 → 最小技术原型 → 旅行 Pocket Map → 六边形裁切 → 连续地形；第一、二阶段细节分别维护在独立文档中。
-- 最小技术原型验证点：地图绘制/选取/移动命令、跨地图入口往返、存档读档恢复。**生成与渲染已经验证通过**；交互、双向转移与保存读档仍待验证。
+- 最小技术原型验证点：地图绘制/选取/移动命令、跨地图入口往返、存档读档恢复。**生成与渲染、双向 Pawn 转移、相邻地块选中与跨地图移动指令均已实现并通过编译**；游戏内交互表现与保存读档恢复仍待验证。
 
 ## 最小技术原型基础实现（已完成，可编译）
 
@@ -148,11 +148,11 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ## 相邻地块选中 + 跨地图移动指令（已实现，可编译，游戏内待验证）
 
-实现细节完整记录在 `/memories/session/plan.md`（会话记忆，本仓库外）；这里只记长期有效的关键事实。
+实现细节完整记录在 `doc/第二阶段-最小技术原型.md` 的"相邻地块选中 + 跨地图移动指令"一节；这里只记长期有效的关键事实。
 
 - 新增文件：`SeamlessGenUI.cs`（Map 感知版 `ThingsUnderMouse`）、`Patches_Selector.cs`（鼠标反查选中口袋地图对象）、`Patches_FloatMenuMakerMap.cs`（Prefix 接管跨地图 FloatMenu 生成）、`SeamlessCrossMapOrders.cs`（pending 目标登记 + 桥接 Job）、`SeamlessCrossMapPendingDestinations.cs`（转移后续程登记）、`Patches_Job.cs`（`Pawn_JobTracker.StartJob` 拦截点）。`SeamlessMapTransferTrigger.cs` 转移成功后会消费续程登记并自动续发 Goto。
 - **架构**：仿 VMF 的"环境态地图上下文替换"思路，但因为 `FloatMenuMakerMap.GetOptions`/`FloatMenuContext` 构造器把 `Find.CurrentMap` 写死为字面属性访问（不是参数传递），改用 **Prefix 全量接管**（两端都在宿主地图时 `return true` 完全放行原版；否则复制原方法逻辑处理）取代 VMF 式 Transpiler 精确 IL 替换，更稳妥但需要跟随 RimWorld 版本更新同步核对原方法逻辑是否变化。
-- **已知限制**（详见 plan.md）：
+- **已知限制**（详见 `doc/第二阶段-最小技术原型.md`）：
   1. `Selector.SelectInternal` 选中跨图 Thing 时会自动切换 `Find.CurrentMap` 并跳镜头（原版行为，未抑制）。
   2. 跨图 Job 拦截靠"pawn 是否有未消费的跨图 pending 记录 + 下一个 Goto"判断，不按 Cell 精确匹配（因为 `FloatMenuOptionProvider_DraftedMove` 会用 `RCellFinder.BestOrderedGotoDestNear` 就近改点）。
   3. `Pawn_JobTracker.TryTakeOrderedJob` 会在 `StartJob` 之前用 `pawn.Map.pawnDestinationReservationManager.Reserve` 预定一个实际属于另一张地图坐标系的 Cell，且这个原始 Job 从不真正 StartJob，正常清理流程不会释放它——已知的无害小缺陷（占用宿主地图上一个不相关格子），未修复。
