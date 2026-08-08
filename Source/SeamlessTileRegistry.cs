@@ -42,25 +42,64 @@ namespace RimExodus
             return result;
         }
 
-        /// <summary>反查宿主地图上的一个格子落在哪个无缝地块口袋地图的 footprint 内。</summary>
-        public static bool TryGetPocketMapAtHostCell(Map host, IntVec3 hostCell, out MapParent_SeamlessTile parent)
+        /// <summary>
+        /// 用最近中心所有权规则（六边形方案）反查宿主地图上的一个格子属于哪个口袋地图。
+        /// 候选 = 宿主地图 + 所有 footprint 覆盖该格的锚定口袋地图；取距离最近的格子中心作为逻辑所有者。
+        /// 返回 true 表示该格属于某个口袋地图（owner 为其 MapParent）；false 表示属于宿主地图自身。
+        /// </summary>
+        public static bool TryGetOwnerPocketMap(Map host, IntVec3 hostCell, out MapParent_SeamlessTile owner)
         {
+            owner = null;
+            if (host == null)
+            {
+                return false;
+            }
+
+            var hostCenter = host.Center;
+            var bestDistSq = DistanceSq(hostCell, hostCenter);
+            var bestIsPocket = false;
+            MapParent_SeamlessTile bestPocket = null;
+
             foreach (var pocketMap in Find.World.pocketMaps)
             {
-                if (pocketMap is not MapParent_SeamlessTile candidate || candidate.sourceMap != host)
+                if (pocketMap is not MapParent_SeamlessTile parent || parent.sourceMap != host)
+                {
+                    continue;
+                }
+                var pocketInstance = parent.Map;
+                if (pocketInstance == null || pocketInstance.Disposed)
+                {
+                    continue;
+                }
+                // 只把 footprint 覆盖该格的邻居作为候选，避免远处口袋地图误抢所有权。
+                if (!SeamlessMapUtility.HostCellInFootprint(hostCell, parent))
                 {
                     continue;
                 }
 
-                if (SeamlessMapUtility.HostCellInFootprint(hostCell, candidate))
+                var pocketCenter = SeamlessMapUtility.ToHostCoord(pocketInstance.Center, parent);
+                var d = DistanceSq(hostCell, pocketCenter);
+                if (d < bestDistSq)
                 {
-                    parent = candidate;
-                    return true;
+                    bestDistSq = d;
+                    bestIsPocket = true;
+                    bestPocket = parent;
                 }
             }
 
-            parent = null;
+            if (bestIsPocket)
+            {
+                owner = bestPocket;
+                return true;
+            }
             return false;
+        }
+
+        private static int DistanceSq(IntVec3 a, IntVec3 b)
+        {
+            var dx = a.x - b.x;
+            var dz = a.z - b.z;
+            return dx * dx + dz * dz;
         }
 
         /// <summary>判断 map 是否为锚定在 hostMap 上的无缝地块口袋地图。</summary>

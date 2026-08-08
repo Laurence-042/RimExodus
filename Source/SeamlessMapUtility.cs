@@ -57,7 +57,11 @@ namespace RimExodus
         public static bool TryResolveMapPosition(Vector3 mouseMapPosition, Map hostMap, out Map targetMap, out IntVec3 targetLocalCell)
         {
             var hostCell = IntVec3.FromVector3(mouseMapPosition);
-            if (hostMap != null && SeamlessTileRegistry.TryGetPocketMapAtHostCell(hostMap, hostCell, out var parent))
+
+            // 用最近中心所有权规则（六边形方案）决定归属：候选 = 宿主 + 覆盖该格的口袋地图，
+            // 取距离最近的格子中心作为逻辑所有者。这样重叠带内靠近宿主中心的格属于宿主，
+            // 靠近口袋地图中心的格属于口袋地图（如北缘 125,0,248/249 属于地图 B，125,0,247 属于宿主）。
+            if (hostMap != null && SeamlessTileRegistry.TryGetOwnerPocketMap(hostMap, hostCell, out var parent))
             {
                 targetMap = parent.Map;
                 targetLocalCell = ToLocalCoord(hostCell, parent);
