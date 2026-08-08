@@ -1,5 +1,6 @@
 using Verse;
 using Verse.AI;
+using Verse.AI.Group;
 
 namespace RimExodus
 {
@@ -63,15 +64,25 @@ namespace RimExodus
             var departureCell = pawn.Position;
             var rotation = pawn.Rotation;
 
-            // 保存征召状态：DeSpawn 会销毁整个 Pawn_DraftController（RemoveComponentsOnDespawned 把
-            // drafter 置 null），Spawn 会新建一个 draftedInt=false 的新实例。必须跨 DeSpawn/Spawn 保存。
+            // === 转移前：保存需要跨 DeSpawn/Spawn 保留的状态 ===
+            // DeSpawn 会销毁整个 Pawn_DraftController（RemoveComponentsOnDespawned 把 drafter 置 null），
+            // Spawn 会新建一个 draftedInt=false 的新实例，必须手动保存恢复。
             var wasDrafted = pawn.drafter?.Drafted ?? false;
             var wasFireAtWill = pawn.drafter?.FireAtWill ?? true;
+
+            // Detach 旧 lord：DeSpawn 不清 pawn.lord 字段，跨图后若仍指向旧地图的 lord，
+            // GetGizmos 的 AllowsDrafting 会走旧 lord 判定（可能禁用征召按钮），think tree 也受干扰。
+            var prevLord = pawn.GetLord();
+            prevLord?.Notify_PawnLost(pawn, PawnLostCondition.Vanished);
 
             pawn.DeSpawn();
             GenSpawn.Spawn(pawn, arrivalCell, arrivalMap, rotation);
 
-            // 恢复征召状态。Drafted setter 会 EndCurrentJob（清队列），所以必须在续程 StartJob 之前恢复。
+            // === 转移后：恢复状态 ===
+            // 确保 lord 字段干净（DeSpawn 不清它，上面已 Notify_PawnLost，这里确保字段为 null）。
+            pawn.lord = null;
+
+            // 恢复征召状态。Drafted setter 会 ClearQueuedJobs + EndCurrentJob，所以必须在续程 StartJob 之前恢复。
             if (wasDrafted && pawn.drafter != null)
             {
                 pawn.drafter.Drafted = true;
@@ -80,9 +91,6 @@ namespace RimExodus
 
             // 必须在目标地图本 tick 扫描入口前写入，避免同 tick 立即弹回。
             targetTrigger.RecordArrival(pawn, arrivalSpot);
-
-            pawn.jobs?.EndCurrentJob(JobCondition.InterruptForced, startNewJob: false);
-            pawn.mindState?.Reset(clearInspiration: false, clearMentalState: true);
 
             Log.Message($"[RimExodus] Seamless transfer: {pawn.LabelShort} "
                 + $"map {departureMap.uniqueID} {departureCell} -> map {arrivalMap.uniqueID} {arrivalCell}");

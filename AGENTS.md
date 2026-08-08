@@ -211,8 +211,14 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `Patch_MapEdgeClipDrawer_DrawClippers` 改用 `GetNeighborFootprints(map)`，支持任意图块聚焦时为邻居开洞。
 
 ### 征召状态跨图保持（已修复）
-- **关键坑**：`Pawn.DeSpawn()` 调用 `RemoveComponentsOnDespawned`，把 `pawn.drafter = null`（整个 `Pawn_DraftController` 实例被丢弃，连同 `draftedInt`）。`GenSpawn.Spawn` 新建了一个 `Pawn_DraftController`，`draftedInt` 默认 `false`。**所以征召状态在 DeSpawn/Spawn 这一步就丢了，不是天然保持。** `drafter` 不是"持久组件"，而是"despawn 时移除的组件"。
-- **修复**：`TryTransferPawn` 在 `DeSpawn` 前保存 `wasDrafted`/`wasFireAtWill`，在 `Spawn` 后通过 setter 恢复（`pawn.drafter.Drafted = true`）。恢复在续程 `StartJob` 之前完成（`Drafted` setter 会 `EndCurrentJob` 清队列，若在续程后恢复会打断刚下发的 Goto）。
+- **坑 1（drafter 销毁重建）**：`Pawn.DeSpawn()` 调用 `RemoveComponentsOnDespawned`，把 `pawn.drafter = null`（整个 `Pawn_DraftController` 实例被丢弃，连同 `draftedInt`）。`GenSpawn.Spawn` 新建了一个 `Pawn_DraftController`，`draftedInt` 默认 `false`。`drafter` 是"despawn 时移除的组件"，不是持久组件。
+- **坑 2（lord 悬空）**：`Pawn.DeSpawn` **不清 `pawn.lord` 字段**。跨图后 pawn 仍指向旧地图的 lord。`Pawn.GetGizmos` 的 `GetLord()?.AllowsDrafting(this)` 会走旧 lord 判定，若旧 lord 禁止征召则征召 gizmo 被禁用（UI 误报"征召丢失"）。旧 lord 残留也干扰 think tree。
+- **坑 3（mindState.Reset 时序）**：原代码在 `Drafted=true` 恢复之后调 `mindState.Reset`，清掉 duty/priorityWork——多余且有害，已删除。
+- **修复（TryTransferPawn 唯一标准实现）**：`TryTransferPawn` 是所有跨图转移（A→B、B→A、B→C）的唯一入口，征召/lord 状态保存恢复全部内聚于此：
+  - 转移前：保存 `wasDrafted`/`wasFireAtWill`；`prevLord.Notify_PawnLost(pawn, Vanished)` detach 旧 lord。
+  - 转移：`DeSpawn()` → `Spawn()`（drafter 销毁重建）。
+  - 转移后：`pawn.lord = null`（确保字段干净）；`pawn.drafter.Drafted = true` 恢复征召（setter 清队列，须在续程 StartJob 之前）；恢复 fireAtWill。
+  - 删除了多余的 `EndCurrentJob`（DeSpawn 已 StopAll）和 `mindState.Reset`（时序错误）。
 
 ### 源码文件新增/大幅修改
 - 新增：`SeamlessTileGraph.cs`（邻居表统一查询入口）、`SeamlessCameraFocus.cs`（自动聚焦+无感相机）。
