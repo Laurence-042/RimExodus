@@ -62,8 +62,21 @@ namespace RimExodus
 
             var departureCell = pawn.Position;
             var rotation = pawn.Rotation;
+
+            // 保存征召状态：DeSpawn 会销毁整个 Pawn_DraftController（RemoveComponentsOnDespawned 把
+            // drafter 置 null），Spawn 会新建一个 draftedInt=false 的新实例。必须跨 DeSpawn/Spawn 保存。
+            var wasDrafted = pawn.drafter?.Drafted ?? false;
+            var wasFireAtWill = pawn.drafter?.FireAtWill ?? true;
+
             pawn.DeSpawn();
             GenSpawn.Spawn(pawn, arrivalCell, arrivalMap, rotation);
+
+            // 恢复征召状态。Drafted setter 会 EndCurrentJob（清队列），所以必须在续程 StartJob 之前恢复。
+            if (wasDrafted && pawn.drafter != null)
+            {
+                pawn.drafter.Drafted = true;
+                pawn.drafter.FireAtWill = wasFireAtWill;
+            }
 
             // 必须在目标地图本 tick 扫描入口前写入，避免同 tick 立即弹回。
             targetTrigger.RecordArrival(pawn, arrivalSpot);

@@ -210,8 +210,9 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - 保留清深度逻辑（重叠带覆盖本次接受"聚焦者覆盖"；完全对称留待连续地形阶段的归属裁剪——用户确认此策略：之后调整地形生成连续性时，让归属权不在当前地图的 tile 生成为透明虚空，无需渲染层处理重叠）。
 - `Patch_MapEdgeClipDrawer_DrawClippers` 改用 `GetNeighborFootprints(map)`，支持任意图块聚焦时为邻居开洞。
 
-### 征召状态（天然满足）
-- 调研确认：drafted 状态在 `DeSpawn/Spawn` 和 `mindState.Reset` 后天然保持（`draftedInt` 独立持久化，不受这两个操作影响）；drafted 移动的 Job 就是普通 `JobDefOf.Goto`，续程已用此 JobDef。无需额外代码。
+### 征召状态跨图保持（已修复）
+- **关键坑**：`Pawn.DeSpawn()` 调用 `RemoveComponentsOnDespawned`，把 `pawn.drafter = null`（整个 `Pawn_DraftController` 实例被丢弃，连同 `draftedInt`）。`GenSpawn.Spawn` 新建了一个 `Pawn_DraftController`，`draftedInt` 默认 `false`。**所以征召状态在 DeSpawn/Spawn 这一步就丢了，不是天然保持。** `drafter` 不是"持久组件"，而是"despawn 时移除的组件"。
+- **修复**：`TryTransferPawn` 在 `DeSpawn` 前保存 `wasDrafted`/`wasFireAtWill`，在 `Spawn` 后通过 setter 恢复（`pawn.drafter.Drafted = true`）。恢复在续程 `StartJob` 之前完成（`Drafted` setter 会 `EndCurrentJob` 清队列，若在续程后恢复会打断刚下发的 Goto）。
 
 ### 源码文件新增/大幅修改
 - 新增：`SeamlessTileGraph.cs`（邻居表统一查询入口）、`SeamlessCameraFocus.cs`（自动聚焦+无感相机）。
