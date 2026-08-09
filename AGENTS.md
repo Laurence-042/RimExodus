@@ -324,3 +324,89 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - 五边形地块（12 个特殊 tile）游戏内验证。
 - 未来：patch 禁止"地势开阔"等影响地块地图长宽的地标，注明与硬改地块地图生成的 mod 不兼容。
 - 连续地形（阶段4）依赖本阶段稳定的多边形边界几何。
+
+## 阶段4a：邻居预加载 + 多跳传送点（已完成，可编译，游戏内待验证）
+
+实现"pawn 接近边界可配置格数时预加载对应真实邻居地图"，并重构传送点为"预铺+延迟绑定"模式天然支持多跳。核心是**事件驱动**（非轮询）+ **凸多边形内缩算法**（构建边界带速查表）+ **传送点解耦**（铺设与绑定分离）。
+
+### 用户确认的关键设计决策
+- **阈值配置**：ModSettings 可调（`borderPreloadDistance` 默认 15 格 + `preloadAllNeighborsOnStart` 默认 false）。
+- **事件驱动**：Hook `Pawn_JobTracker.StartJob`，**仅 `playerForced==true` 的 Goto** 触发边界检测。避免动物级联加载（A 的动物触发 B，B 的动物又触发 C）。
+- **边界带构建算法**：**算法 C（凸多边形内缩 + 扫描线差集）**——原多边形减去内缩多边形 = 距边 ≤ 阈值的环形带。复用现成 `ScanlineFill`，正确性最强（精确几何定义），性能最优（比朴素逐格法快约 100 倍）。
+- **存储结构**：`Dictionary<IntVec3,int>`（边界带格 → 最近边对应的邻居 worldTile）。考虑未来高频查询（如撤退袭击者批量检查），O(1) 查询。
+- **传送点模式**：**预铺+延迟绑定**——地图生成时沿全部世界邻居边铺单端 spot（`CounterpartSpot=null` + `targetWorldTile` 标记），邻居加载后按 `targetWorldTile` 匹配 + 坐标平移校验互绑。
+- **防重入**：`generatingTiles` HashSet 记录生成中的 worldTile，生成中拒绝重复请求。
+
+### 传送点预铺+延迟绑定（核心架构转变）
+- **旧模式（阶段3）**：`PlaceEnterSpots` 在 `GenerateTileMap` 时只铺 `source↔new` 一对，硬编码 hostOffset。不支持多跳（新地块与其他已存在邻居不补铺）。
+- **新模式（阶段4a）**：
+  - `PlaceEnterSpotsAllNeighbors(map, worldTile)`：沿地图**全部世界邻居边**（5/6 条）铺单端 spot。每个 spot 记 `targetWorldTile = 该边对应的世界邻居 tile`（用 `GetTileNeighbors` 顺序与多边形顶点一致的不变量），`CounterpartSpot = null`。幂等（查重同位置同 def spot）。
+  - `BindNewTileWithExistingNeighbors(newMap, newWorldTile)`：新地块加载后，遍历其所有已存在邻居，对每个调 `SeamlessEnterSpotBinder.BindUnboundSpotsBetween`，按 `targetWorldTile` 匹配两端 spot 且坐标平移校验（`expectedCellB = cellA - offsetAtoB`，两端世界坐标重合契约）互绑 `CounterpartSpot`。
+  - **多跳天然支持**：新地块 C 加载后，`BindNewTileWithExistingNeighbors` 遍历 C 的所有已存在邻居（含 B），逐一绑定。世界网格上 B↔C 是邻居且 B 已加载时，加载 C 自动绑定 B↔C 传送点。
+- **Comp 扩展**：`CompSeamlessTileEnterSpot` 加 `public int targetWorldTile = -1`（持久化），作为延迟绑定的匹配标记。
+
+### 边界带速查表（算法 C：凸多边形内缩）
+- `SeamlessPolygonGeometry.InsetPolygon(verts, insetDist)`：凸多边形各边沿内法向（朝中心）平移 insetDist，求相邻内缩边交点得内缩多边形。凸性保证内缩后仍凸。insetDist ≥ apothem 时返回空（整图都是边界带）。
+- `SeamlessPolygonGeometry.ComputeEdgeBand(verts, mapSize, bandWidth, neighborWorldTiles, result)`：
+  1. `innerVerts = InsetPolygon(verts, bandWidth)`
+  2. 两次 `ScanlineFill`：原多边形每行 [a,b]，内缩多边形每行 [c,d]
+  3. 每行差集：边界带 = [a, c-1] ∪ [d+1, b]
+  4. 边界带内每个格：算到 6 条原边的最近距离（`DistanceToEdge`），取最近边对应的 `neighborWorldTiles[edgeIdx]`
+- `SeamlessPolygonGeometry.DistanceToEdge(p, v0, v1)`：点到线段距离（解析，投影 + Clamp01）。
+- **性能**：S=250,N=15 约 4000 次浮点运算 + 边界带格×6 距离计算（约 9 万次一次性构建），构建后查询 O(1)。
+
+### 事件驱动预加载流程
+1. 玩家右键 pawn 移动 → `FloatMenuOptionProvider_DraftedMove` 产生 Goto job（`playerForced=true`）
+2. `Pawn_JobTracker.StartJob` → `Patch_Pawn_JobTracker_StartJob.Prefix`
+3. `SeamlessBorderPreloader.CheckPawnGoto(pawn, targetCell)`：
+   - `map.GetComponent<SeamlessBorderLookup>().TryGetPreloadTarget(targetCell, out worldTile)`（O(1) 数组查）
+   - 若在边界带内且对应 worldTile 邻居未加载 → `SeamlessTilePreloader.TryPreload(map, worldTile)`
+4. `SeamlessTilePreloader.TryPreload` → `sourceMap.GetComponent<SeamlessTileManager>().TryPreloadNeighbor(worldTile)`（支持从口袋地块 B 发起，生成 C）
+5. `TryPreloadNeighbor`：防重入检查 → 去重检查 → `generatingTiles.Add` → `GenerateTileMap` → `generatingTiles.Remove`（try/finally）
+
+### 防递归与防级联
+- **动物级联加载规避**：仅 `playerForced==true` 的 Goto 触发。动物/自动寻路（巡逻/工作/放牧）的 Goto 不设 playerForced，不触发预加载。这是关键——若所有 Goto 都触发，A 地图边界附近的动物会触发 B 加载，B 的动物又触发 C 加载……
+- **防重入**：`generatingTiles` HashSet 在 `TryPreloadNeighbor` 入口检查，生成中拒绝同一 worldTile 的再次请求。try/finally 保证异常时也移除。
+- **去重**：`SeamlessTileGraph.TryGetNeighborLinkByWorldTile` 检查目标 worldTile 是否已是邻居（已加载则跳过）。
+- **MapGenerated 级联**：仅锚点地图 A 触发开档初始化（`if (map.IsPocketMap) return;`）。口袋地块的邻居生成由玩家指令或 Dev 命令驱动。
+
+### 开档行为
+- `TrySetupOnStart`（取代旧的 `TryAutoGenerateFirstNeighbor`）：
+  1. `PlaceEnterSpotsAllNeighbors(map, map.Tile)`：锚点 A 沿全部世界邻居边预铺单端 spot（对端 null）
+  2. 若 `RimExodusMod.Settings.preloadAllNeighborsOnStart`：遍历所有世界邻居调 `TryPreloadNeighbor`（高配玩家开档即加载全部，流畅体验）
+  3. 否则：不生成邻居，等 pawn 接近边界时事件驱动加载
+
+### Trigger null 保护
+- `SeamlessMapTransferTrigger.CheckLocalEnterSpots` 加 `if (comp.CounterpartSpot == null) continue;`：预铺未绑定的 spot（对端邻居尚未加载）被踩时不 NRE、不触发转移。待邻居加载绑定后自动生效。
+
+### RimExodusMod 改造
+- 从 `static class`（`[StaticConstructorOnStartup]`）改为继承 `Mod` 的实例类。
+- 持 `public static RimExodusSettings Settings`（`GetSettings<RimExodusSettings>()` 自动持久化）。
+- `SettingsCategory()` 返回 "RimExodus" 使其出现在游戏内 Mod 设置菜单。
+- Harmony PatchAll 移到 Mod 构造器（时序早于 StaticConstructorOnStartup，此时 Def 已加载）。
+
+### 新增源码文件
+- `Source/RimExodusSettings.cs` — ModSettings（`borderPreloadDistance` + `preloadAllNeighborsOnStart`）。
+- `Source/SeamlessBorderLookup.cs` — 边界带速查表 MapComponent（`Dictionary<IntVec3,int>`，O(1) 查询，延迟 1 tick 构建）。
+- `Source/SeamlessEnterSpotBinder.cs` — 延迟绑定工具（`BindUnboundSpotsBetween`，按 targetWorldTile + 坐标校验互绑）。
+- `Source/SeamlessTilePreloader.cs` — 预加载静态入口（屏蔽锚点/口袋差异，取源地图 Manager 调 TryPreloadNeighbor）。
+- `Source/SeamlessBorderPreloader.cs` — 边界检测器（`CheckPawnGoto`，被 Patches_Job 调用）。
+
+### 修改的源码文件
+- `RimExodusMod.cs` — static class → Mod 实例 + Settings。
+- `CompSeamlessTileEnterSpot.cs` — 加 `targetWorldTile` 字段（持久化）。
+- `SeamlessPolygonGeometry.cs` — 加 `InsetPolygon`/`ComputeEdgeBand`/`DistanceToEdge`/`LineLineIntersection`/`PolygonArea`/`AddBandRowCells`。
+- `SeamlessTileManager.cs` — 移除旧 `PlaceEnterSpots`，加 `PlaceEnterSpotsAllNeighbors`/`BindNewTileWithExistingNeighbors`/`TryPreloadNeighbor`/`generatingTiles`；`TryAutoGenerateFirstNeighbor`→`TrySetupOnStart`；`GenerateTileMap` 改用新铺点+绑定逻辑。
+- `Patches_Job.cs` — Prefix 追加 playerForced Goto 边界检测（不拦截 Job，仅触发副作用）。
+- `SeamlessMapTransferTrigger.cs` — `CheckLocalEnterSpots` 加 CounterpartSpot null 保护。
+
+### 关键不变量
+- **边 ↔ 邻居顺序**：`GetTileNeighbors(worldTile)` 返回顺序与多边形顶点环绕顺序一致（边 j ↔ 邻居 j ↔ 顶点 j→j+1）。这是 `PlaceEnterSpotsAllNeighbors`（边 j 铺 spot 标记 `neighbors[j].tileId`）和 `ComputeEdgeBand`（格最近边 j → `neighborWorldTiles[j]`）正确性的根基。
+- **offset 契约**：`BindUnboundSpotsBetween` 参数 `cellAMinusCellB`（= cellA - cellB）满足 `cellB = cellA - cellAMinusCellB`。`BindNewTileWithExistingNeighbors` 从 newMap 查邻居得 `info.offset`（满足 NeighborLink 契约 `cellNeighbor + info.offset = cellNew`），以 newMap 为 A、neighbor 为 B，`cellAMinusCellB = cellNew - cellNeighbor = info.offset` 正确。
+- **凸多边形内缩正确性**：算法 C 利用凸性，内缩后仍凸，扫描线差集天然正确。N=15 << apothem=125，无退化风险。
+
+### 待办
+- 游戏内验证：开档预铺 spot 数、玩家右键接近边界触发预加载、多跳绑定、动物不触发、存档读档保留。
+- offset 凑整对称性在多跳绑定的精确验证（`expectedCellB` 是否精确匹配）。
+- 未来：为撤退袭击者等 AI 场景加 patch（目前仅 playerForced 触发）。
+- 未来：边界带速查表在 ModSettings 阈值改变后的重建机制（当前仅开档构建一次）。

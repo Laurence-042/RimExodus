@@ -116,6 +116,13 @@ namespace RimExodus
                         continue;
                     }
 
+                    // 阶段4a：预铺未绑定的 spot（CounterpartSpot==null）不触发转移，
+                    // 等对应邻居加载后由 SeamlessEnterSpotBinder 绑定。
+                    if (comp.CounterpartSpot == null)
+                    {
+                        continue;
+                    }
+
                     Log.Message($"[RimExodus] Seamless trigger: pawn {pawn.LabelShort} at {thing.Position} "
                         + $"on map {map.uniqueID} targeting {DescribeTarget(comp.CounterpartSpot)}");
                     var arrivalMap = comp.CounterpartSpot.Map;
