@@ -96,6 +96,12 @@ namespace RimExodus
                     TrySetupOnStart();
                 }
             }
+            // 消费异步预加载队列（仅锚点地图消费，避免多张地图重复消费同一队列）。
+            // 队列是全局静态的，任意图块的 tick 都能触发消费；这里用锚点门控避免每帧多次消费。
+            if (!map.IsPocketMap)
+            {
+                SeamlessTilePreloader.ConsumeQueued();
+            }
         }
 
         public override void MapGenerated()
@@ -179,7 +185,8 @@ namespace RimExodus
                 return false;
             }
 
-            // 去重：该 worldTile 已是本地图邻居（已加载）则跳过。
+            // 去重：该 worldTile 已是本地图直接邻居（已加载且已连接）则跳过。
+            // 注：非直接邻居的已存在地图（如 A 与 C 隔着 B）由 GenerateTileMap 内的全局检查 + EnsureNeighborRegistered 处理。
             if (SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, targetWorldTile, out _))
             {
                 return false;
@@ -196,21 +203,25 @@ namespace RimExodus
             }
 
             generatingTiles.Add(targetWorldTile);
-            try
+            var mapSize = new IntVec3(map.Size.x, 1, map.Size.z);
+            // 异步生成：用 LongEventHandler 在独立线程跑 GenerateTileMap（含 genSteps，最耗时）。
+            // generatingTiles 在整个异步生成期间保持锁定，在回调末尾由 ClearGeneratingTile 清理。
+            LongEventHandler.QueueLongEvent(() =>
             {
-                var mapSize = new IntVec3(map.Size.x, 1, map.Size.z);
-                var parent = GenerateTileMap(sourceWorldTile, targetWorldTile, mapSize);
-                if (parent != null)
-                {
-                    Log.Message($"[RimExodus] Preloaded seamless tile map for world tile {targetWorldTile} " +
-                        $"(source={sourceWorldTile}, hostOffset={parent.hostOffset}).");
-                    return true;
-                }
-                return false;
-            }
-            finally
+                GenerateTileMap(sourceWorldTile, targetWorldTile, mapSize);
+                ClearGeneratingTile(targetWorldTile);
+            }, "GeneratingMap", doAsynchronously: true, null);
+            Log.Message($"[RimExodus] Queued async preload for world tile {targetWorldTile} " +
+                $"(source={sourceWorldTile}).");
+            return true;
+        }
+
+        /// <summary>异步生成完成后清理防重入锁。</summary>
+        private static void ClearGeneratingTile(int worldTile)
+        {
+            foreach (var m in Find.Maps)
             {
-                generatingTiles.Remove(targetWorldTile);
+                m.GetComponent<SeamlessTileManager>()?.generatingTiles?.Remove(worldTile);
             }
         }
 
@@ -226,11 +237,13 @@ namespace RimExodus
                 return null;
             }
 
-            // 防递归：该世界邻居已有地块则跳过。
-            // 用 SeamlessTileGraph 屏蔽存储位置差异（口袋地块邻居表在 MapParent_SeamlessTile，非 Manager.neighbors）。
-            if (SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, newWorldTile, out _))
+            // 防递归：该 worldTile 已有任意地图（含非直接邻居，如 A 与 C 隔着 B）则跳过。
+            // 仅查直接邻居表会漏掉间接连接的已存在地图，导致重复生成。
+            if (SeamlessTileGraph.TryGetMapByWorldTile(newWorldTile, out var existingMap))
             {
-                Log.Message($"[RimExodus] World tile {newWorldTile} already has a neighbor on map {map.uniqueID}, skip generation.");
+                Log.Message($"[RimExodus] World tile {newWorldTile} already has a map {existingMap.uniqueID}, skip generation.");
+                // 已有地图但可能尚未与本图建立直接邻居关系（多跳间隙），补登记邻居 + 绑定传送点。
+                EnsureNeighborRegistered(map, sourceWorldTile, existingMap, newWorldTile);
                 return null;
             }
 
@@ -253,8 +266,12 @@ namespace RimExodus
             // hostOffset：新地块相对生成源地块（调用者 map）的偏移。
             mapParent.hostOffset = ComputeNeighborOffset(sourceWorldTile, newWorldTile, map);
 
+            // 用 extraInitBeforeContentGen 回调在 genSteps 跑之前注入真实 worldTile 的 TileInfo，
+            // 使原版地形 GenStep（ElevationFertility/Terrain/RocksFromGrid/Plants）按真实 biome/hilliness/elevation 生成。
+            // 本方法可能被 LongEventHandler 包裹在独立线程执行（TryPreloadNeighbor 路径），
+            // FinalizeInit 内的 mapDrawer.RegenerateEverythingNow（Unity Mesh）已由原版用 ExecuteWhenFinished 推迟到主线程。
             var interiorMap = MapGenerator.GenerateMap(mapSize, mapParent, mapParent.MapGeneratorDef,
-                mapParent.ExtraGenStepDefs, isPocketMap: true);
+                mapParent.ExtraGenStepDefs, generatedMap => InjectRealTileInfo(generatedMap, newWorldTile), isPocketMap: true);
 
             Find.World.pocketMaps.Add(mapParent);
 
@@ -271,20 +288,103 @@ namespace RimExodus
             // 双向登记邻居表。
             RegisterNeighborBidirectional(map, mapParent, sourceWorldTile, newWorldTile, mapParent.hostOffset);
 
-            // 邻居登记后，刷新源地块的 void 铺设（此时源地块知道新邻居存在，重叠区会被判非 void）。
-            // 锚点 A 和口袋源地块都需要刷新。
+            // 邻居登记后，刷新源地块的 void 铺设。
             RefreshMapVoid(map);
 
-            // 新地块沿全部世界邻居边预铺单端传送点（对端 null，targetWorldTile 标记对端世界地块）。
+            // 新地块沿全部世界邻居边预铺单端传送点。
             PlaceEnterSpotsAllNeighbors(interiorMap, newWorldTile);
 
-            // 源地块也补铺（若之前未铺该边）。幂等。
+            // 源地块也补铺（幂等）。
             PlaceEnterSpotsAllNeighbors(map, sourceWorldTile);
 
-            // 延迟绑定：新地块与所有已存在的邻居之间，按 targetWorldTile + 坐标校验互绑传送点。
+            // 延迟绑定：新地块与所有已存在的邻居之间互绑传送点。
             BindNewTileWithExistingNeighbors(interiorMap, newWorldTile);
 
             return mapParent;
+        }
+
+        /// <summary>
+        /// 当目标 worldTile 已有地图但尚未与 sourceMap 建立直接邻居关系时（多跳间隙，如 C↔A 隔着 B），
+        /// 补登记双向邻居表 + 补铺两端传送点 + 互绑。使 C 可以直接走到 A 而非生成 A 的副本。
+        /// 若已是直接邻居则跳过（幂等）。
+        /// </summary>
+        private static void EnsureNeighborRegistered(Map sourceMap, int sourceWorldTile, Map existingMap, int existingWorldTile)
+        {
+            if (sourceMap == null || existingMap == null || sourceMap == existingMap) return;
+
+            // 若已是直接邻居则无需补登记。
+            if (SeamlessTileGraph.TryGetNeighborLinkByWorldTile(sourceMap, existingWorldTile, out _))
+            {
+                return;
+            }
+
+            Log.Message($"[RimExodus] EnsureNeighborRegistered: linking source map {sourceMap.uniqueID}(wt={sourceWorldTile}) " +
+                $"with existing map {existingMap.uniqueID}(wt={existingWorldTile}) as direct neighbors.");
+
+            // 计算 offset（existing 相对 source）。两端须在世界网格上互为邻居。
+            var offset = ComputeNeighborOffsetStatic(sourceWorldTile, existingWorldTile, sourceMap);
+            var existingParent = existingMap.info.parent;
+
+            // 双向登记邻居表（复用 RegisterNeighborBidirectional 逻辑）。
+            RegisterNeighborBidirectional(sourceMap, existingParent, sourceWorldTile, existingWorldTile, offset);
+
+            // 补铺两端传送点（幂等）。
+            PlaceEnterSpotsAllNeighbors(sourceMap, sourceWorldTile);
+            PlaceEnterSpotsAllNeighbors(existingMap, existingWorldTile);
+
+            // 刷新两端 void（邻居关系变化后，虽然 void 只看自己多边形，但保险刷新）。
+            RefreshMapVoid(sourceMap);
+            RefreshMapVoid(existingMap);
+
+            // 互绑两端传送点。
+            SeamlessEnterSpotBinder.BindUnboundSpotsBetween(sourceMap, sourceWorldTile, existingMap, existingWorldTile, offset);
+        }
+
+        /// <summary>
+        /// 把真实 worldTile 的 TileInfo（biome/hilliness/elevation/rainfall/temperature/swampiness/pollution）
+        /// 注入到口袋地图的 pocketTileInfo，使原版地形 GenStep 按真实地块特性生成地形。
+        /// 在 MapGenerator.GenerateMap 的 extraInitBeforeContentGen 回调中调用（genSteps 执行前，pocketTileInfo 已构造）。
+        /// </summary>
+        private static void InjectRealTileInfo(Map generatedMap, int worldTile)
+        {
+            if (generatedMap == null || !generatedMap.IsPocketMap) return;
+            if (worldTile < 0) return;
+
+            var grid = Find.WorldGrid;
+            if (grid == null) return;
+
+            var realTile = grid[worldTile];
+            var pocketTile = generatedMap.pocketTileInfo;
+            if (pocketTile == null) return;
+
+            // 注入真实地块特性。PrimaryBiome 已由 MapGenerator 从 pocketMapProperties 设为 BorealForest（占位），这里覆盖为真实 biome。
+            pocketTile.PrimaryBiome = realTile.PrimaryBiome;
+            pocketTile.hilliness = realTile.hilliness;
+            pocketTile.elevation = realTile.elevation;
+            pocketTile.rainfall = realTile.rainfall;
+            pocketTile.temperature = realTile.temperature;
+            pocketTile.swampiness = realTile.swampiness;
+            pocketTile.pollution = realTile.pollution;
+
+            Log.Message($"[RimExodus] InjectRealTileInfo worldTile={worldTile}: biome={pocketTile.PrimaryBiome?.defName}, " +
+                $"hilliness={pocketTile.hilliness}, elevation={pocketTile.elevation}, rainfall={pocketTile.rainfall}.");
+        }
+
+        /// <summary>ComputeNeighborOffset 的静态包装（供 EnsureNeighborRegistered 等静态方法复用）。</summary>
+        private static IntVec3 ComputeNeighborOffsetStatic(int sourceWorldTile, int newWorldTile, Map sourceMap)
+        {
+            var sourceSize = sourceMap.Size;
+            var verts = SeamlessPolygonGeometry.BuildPolygonVertices(sourceWorldTile, sourceSize.x);
+            if (verts.Count == 0) return IntVec3.Zero;
+
+            var edgeIdx = WorldTileGeometry.FindNeighborIndex(sourceWorldTile, newWorldTile);
+            if (edgeIdx < 0) return IntVec3.Zero;
+
+            var n = verts.Count;
+            var center = new Vector2(sourceSize.x * 0.5f, sourceSize.z * 0.5f);
+            var mid = (verts[edgeIdx] + verts[(edgeIdx + 1) % n]) * 0.5f;
+            var offsetVec = 2f * (mid - center);
+            return new IntVec3(Mathf.RoundToInt(offsetVec.x), 0, Mathf.RoundToInt(offsetVec.y));
         }
 
         /// <summary>
@@ -315,29 +415,41 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 双向登记源地块与新地块的邻居关系。
+        /// 双向登记两个地块的邻居关系（支持任意组合：锚点-口袋、口袋-口袋、口袋-锚点）。
         /// 源地块 → 新地块：用源地块多边形上指向 newWorldTile 的边角度。
         /// 新地块 → 源地块：用新地块多边形上指向 sourceWorldTile 的边角度，偏移 = -offset。
+        /// 存储位置由 SetNeighborOnMap 统一屏蔽（锚点存 Manager.neighbors，口袋存 MapParent_SeamlessTile.neighbors）。
         /// </summary>
-        private static void RegisterNeighborBidirectional(Map sourceMap, MapParent_SeamlessTile newParent,
+        private static void RegisterNeighborBidirectional(Map sourceMap, MapParent newParent,
             int sourceWorldTile, int newWorldTile, IntVec3 offset)
         {
             var sourceParent = sourceMap.info.parent;
+            var newMap = newParent.Map;
 
             // 源地块 → 新地块：边角度取自源地块。
             var sourceEdgeAngle = GetEdgeAngle(sourceWorldTile, newWorldTile);
-            if (sourceParent is MapParent_SeamlessTile sourceTileParent)
-            {
-                sourceTileParent.SetNeighbor(newWorldTile, sourceEdgeAngle, newParent, offset);
-            }
-            else
-            {
-                sourceMap.GetComponent<SeamlessTileManager>()?.SetNeighbor(newWorldTile, sourceEdgeAngle, newParent, offset);
-            }
+            SetNeighborOnMap(sourceMap, newWorldTile, sourceEdgeAngle, newParent, offset);
 
             // 新地块 → 源地块：边角度取自新地块，偏移取反。
             var newEdgeAngle = GetEdgeAngle(newWorldTile, sourceWorldTile);
-            newParent.SetNeighbor(sourceWorldTile, newEdgeAngle, sourceParent, -offset);
+            if (newMap != null)
+            {
+                SetNeighborOnMap(newMap, sourceWorldTile, newEdgeAngle, sourceParent, -offset);
+            }
+        }
+
+        /// <summary>在 map 上登记一条邻居连接（锚点存 Manager.neighbors，口袋存 MapParent_SeamlessTile.neighbors）。</summary>
+        private static void SetNeighborOnMap(Map map, int worldTile, float edgeAngle, MapParent neighbor, IntVec3 offset)
+        {
+            if (map == null || neighbor == null) return;
+            if (map.Parent is MapParent_SeamlessTile tileParent)
+            {
+                tileParent.SetNeighbor(worldTile, edgeAngle, neighbor, offset);
+            }
+            else
+            {
+                map.GetComponent<SeamlessTileManager>()?.SetNeighbor(worldTile, edgeAngle, neighbor, offset);
+            }
         }
 
         /// <summary>获取 fromWorldTile 指向 toWorldTile 的边方向角（弧度，atan2(dir.x, dir.y)）。</summary>

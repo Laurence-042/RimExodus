@@ -410,3 +410,86 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - offset 凑整对称性在多跳绑定的精确验证（`expectedCellB` 是否精确匹配）。
 - 未来：为撤退袭击者等 AI 场景加 patch（目前仅 playerForced 触发）。
 - 未来：边界带速查表在 ModSettings 阈值改变后的重建机制（当前仅开档构建一次）。
+
+## 阶段4a 游戏内验证后的五项修复（已完成，可编译）
+
+游戏内测试暴露 5 个问题，全部修复。编译通过（0 错误 0 警告）。
+
+### 修复1：锚点 A 的 void 铺设丢失（最严重，阶段4a 初始 bug）
+- **根因**：阶段3 锚点 A 的 void 依赖 `GenerateTileMap` 内的 `RefreshMapVoid(map)` 顺带触发（生成第一个邻居时）。阶段4a 把开档逻辑改成 `TrySetupOnStart`（默认不生成邻居），导致 `RefreshMapVoid(map)` 从未对锚点 A 调用 → A 没 void → 看起来是完整原版地图。
+- **修复**：`TrySetupOnStart` 开头加 `RefreshMapVoid(map)`（独立于邻居生成）。
+
+### 修复2：邻接地图用真实地形（而非写死 Soil）
+- **根因**：`GenStep_SeamlessTile` 先全铺 Soil 再挖 void；`MapGeneratorDef` 只有这一个 genStep，没有原版地形 genStep（ElevationFertility/Terrain/RocksFromGrid/Plants）。口袋地图无真实地形。
+- **修复**：
+  - `SeamlessTileGenerator.xml` 的 `genSteps` 加入原版地形序列（ElevationFertility/RocksFromGrid/Terrain/Plants/Animals/Fog 等）；`RimExodus_SeamlessTile` 的 order 调到 1000（在 Terrain 之后挖 void）。
+  - `GenStep_SeamlessTile` 移除全铺 Soil 逻辑（原版 Terrain genStep 已铺真实地形），只保留 `ApplyPolygonTerrain`。
+  - `GenerateTileMap` 用 `MapGenerator.GenerateMap` 的 `extraInitBeforeContentGen` 回调调 `InjectRealTileInfo(generatedMap, newWorldTile)`，从 `Find.WorldGrid[worldTile]` 读真实 biome/hilliness/elevation/rainfall/temperature/swampiness/pollution 注入到 `map.pocketTileInfo`（pocket 地图的 TileInfo 来源，`Map.cs:386-398` pocket 直接返回 pocketTileInfo，不读 parent.Tile）。
+  - **关键**：`pocketMapProperties` 只有 biome/temperature/tileMutators 字段（无 hilliness），不能写死；必须用回调注入 pocketTileInfo 的全部字段。
+
+### 修复3：void 渲染红色（BadGraphic）
+- **根因**：`dontRender=true` 时 `SectionLayer_Terrain` 用 ShadowMask（透明），但某些边/材质路径可能读 `terrainDef.graphic`（默认 BadGraphic=粉色）。
+- **修复**：`VoidTerrain.xml` 给 `RimExodus_Void` 显式提供 `texturePath=Misc/ShadowMask` + `edgeType=Hard`，使 graphic 被加载为透明贴图（即使某路径绕过 dontRender 读 graphic 也只画透明）。
+
+### 修复4：重复生成同一 worldTile 的地图（多跳间隙）
+- **根因**：`TryPreloadNeighbor`/`GenerateTileMap` 的去重只查"直接邻居表"（`TryGetNeighborLinkByWorldTile`）。但 worldTile 63290（A）的地图已存在（map 0），从 C（map 2）发起预加载时，C 的邻居表里没有 A（A 和 C 隔了 B），查不到 → 重复生成 map 3。
+- **修复**：
+  - `SeamlessTileGraph.TryGetMapByWorldTile(worldTile, out Map)`：全局遍历 `Find.Maps`（含锚点 + 所有口袋）查某 worldTile 是否已有任意地图。用 `SeamlessTileRegistry.GetMapWorldTile` 统一取 worldTile（锚点 map.Tile，口袋 MapParent_SeamlessTile.worldTile）。
+  - `GenerateTileMap` 去重检查改用 `TryGetMapByWorldTile`（全局），发现已有地图则调 `EnsureNeighborRegistered` 补登记直接邻居关系（多跳间隙场景：C↔A 隔着 B，A 已存在但与 C 无直接邻居关系）。
+  - `EnsureNeighborRegistered`：若已是直接邻居则跳过；否则算 offset + `RegisterNeighborBidirectional` + 补铺两端传送点 + `RefreshMapVoid` + `BindUnboundSpotsBetween`。
+  - `RegisterNeighborBidirectional` 泛化为接受 `MapParent` 基类（不限 `MapParent_SeamlessTile`），支持任意组合（锚点-口袋、口袋-口袋、口袋-锚点）。新增 `SetNeighborOnMap` 统一存储位置（锚点存 Manager.neighbors，口袋存 MapParent_SeamlessTile.neighbors）。
+  - `ComputeNeighborOffsetStatic`：静态包装，供 `EnsureNeighborRegistered` 复用。
+
+### 修复5：void 寻路表现（以 void 为目标可寻路到最近可达格）
+- **根因**：`SeamlessTileRegistry.TryGetOwnerNeighbor` 把"落在已加载邻居多边形内的 void 格"判为该邻居领地（void 在六边形外，几何上可能落在邻居多边形内）。导致右键这类 void 格被 `Patches_FloatMenuMakerMap` 当作跨地图指令，绕过原版"移动到最近可达格"逻辑。
+- **修复**：`TryGetOwnerNeighbor` 开头加 void 短路——`currentCell` 上的地形是 `RimExodus_Void` 时直接返回 false（归当前地图）。原版 `FloatMenuOptionProvider_DraftedMove` 的 `StandableCellNear` + `BestOrderedGotoDestNear`（30 格半径找可达格）自然生效，void 表现得像不可通行建筑。
+
+### 异步加载（延迟队列）
+- **问题**：`MapGenerator.GenerateMap` 是同步重操作，在 `StartJob` Prefix 内直接调用会阻塞当前 tick 数百毫秒（游戏卡顿）。
+- **修复**：`SeamlessBorderPreloader.CheckPawnGoto` 不再同步调 `TryPreload`，改为 `SeamlessTilePreloader.QueuePreload(map, worldTile)` 登记到队列。`SeamlessTileManager.MapComponentTick`（锚点地图）每 tick 调 `SeamlessTilePreloader.ConsumeQueued()` 消费队列。生成在下一 tick 执行，不阻塞玩家输入响应。队列幂等（同 (sourceMap, targetWorldTile) 重复入队只保留一条）。
+
+### 诊断日志（临时，用于验证）
+- `Patches_Job`：每次 `playerForced==true` 的 Goto 记录 `[RimExodus] StartJob Goto playerForced by {pawn} -> {cell}`。
+- `SeamlessBorderPreloader.CheckPawnGoto`：not in border band / already loaded / queuing preload 三种情况分别记录。
+- `InjectRealTileInfo`：记录注入的 biome/hilliness/elevation/rainfall。
+
+### 关键文件变更
+- `SeamlessTileGraph.cs` — 加 `TryGetMapByWorldTile`（全局 worldTile 查询）。
+- `SeamlessTileManager.cs` — `EnsureNeighborRegistered`/`InjectRealTileInfo`/`ComputeNeighborOffsetStatic`/`SetNeighborOnMap`；`RegisterNeighborBidirectional` 泛化；`GenerateTileMap` 去重改全局 + 调 EnsureNeighborRegistered + extraInitBeforeContentGen；`TrySetupOnStart` 加 RefreshMapVoid；MapComponentTick 消费预加载队列。
+- `GenStep_SeamlessTile.cs` — 移除全铺 Soil，只保留 ApplyPolygonTerrain。
+- `SeamlessTileGenerator.xml` — genSteps 加原版地形序列，RimExodus_SeamlessTile order=1000。
+- `VoidTerrain.xml` — 加 texturePath/edgeType。
+- `SeamlessTilePreloader.cs` — 加 QueuePreload/ConsumeQueued 延迟队列。
+- `SeamlessBorderPreloader.cs` — CheckPawnGoto 改用 QueuePreload + 诊断日志。
+- `Patches_Job.cs` — 诊断日志。
+- `SeamlessTileRegistry.cs` — TryGetOwnerNeighbor 加 void 短路。
+
+## 阶段4a 第二轮游戏内验证后的修复（已完成，可编译）
+
+第二轮测试暴露 4 个问题 + 1 个额外问题，全部修复。
+
+### 修复1（回退+重做）：void 残影叠加红色
+- **原错误修复**：给 VoidTerrain.xml 加 texturePath（误判为 BadGraphic）→ 已回退。
+- **真实根因**：`SeamlessTileRenderer` 的 CommandBuffer 开头不清色缓冲（`clearColor=false`）。void 格用 ShadowMask 材质（半透明乘法，不写不透明色），移动相机时上一帧的正常地形像素残留在色缓冲，多次叠加压暗成红色。
+- **修复**：CommandBuffer 开头加 `ClearRenderTarget(true, true, Color.clear, 1f)`（清色+深度），邻居 mesh 画在干净背景上，void 区域变透明黑，当前地图随后覆盖。
+
+### 修复3（异步加载）：分阶段异步线程生成地图
+- **原错误修复**：延迟到下一 tick → 仍卡那一 tick。
+- **深入分析**：`MapGenerator.GenerateMap` 的耗时部分（genSteps）是纯数据计算，不碰 Unity API。`FinalizeInit` 内的 `mapDrawer.RegenerateEverythingNow`（Unity Mesh）已由原版用 `LongEventHandler.ExecuteWhenFinished` 推迟到主线程。所以异步可行。
+- **修复**：`TryPreloadNeighbor` 用 `LongEventHandler.QueueLongEvent(action, "GeneratingMap", doAsynchronously: true, null)` 把整个 `GenerateTileMap` 放到独立线程。`doAsynchronously=true` 时原版 `new Thread` 跑 action（`LongEventHandler.cs:368`），显示"Generating map"进度画面。`FinalizeInit` 注册的 Mesh 重建在线程结束后的主线程执行（`ExecuteToExecuteWhenFinished`）。`generatingTiles` 锁跨 tick 保持，在回调末尾 `ClearGeneratingTile` 清理。
+
+### 修复5（回退+重做）：跨地图寻路失败
+- **原错误修复**：`TryGetOwnerNeighbor` 加 void 短路 → 破坏了正常的跨地图点击归属 → 已回退。
+- **真实根因**：聚焦 A 时命令 A 的 pawn 前往 A 显示的 B 区域，原版 `FloatMenuOptionProvider_DraftedMove.PawnCanGoto` 用 `pawn.CanReach`（`pawn.Map`=A）对 B 的 cell 做可达性检查，必然失败（目标在另一张地图），菜单选项被禁用（action=null）。
+- **修复**：`Patches_FloatMenuMakerMap.InjectCrossMapGotoOption`——在原版 provider 生成选项后，检测跨图 pawn，移除被禁用的 Goto 选项，注入自定义 Goto 选项（action 直接 `TryTakeOrderedJob(Goto)`，由 `Patches_Job.TryInterceptJob` 桥接到传送点，绕过原版 CanReach）。
+
+### 额外问题修复：地图缝隙和 tile 缺失
+- **根因**：`ApplyPolygonTerrain` 用 `ContainsPoint`（叉积）逐格判定 void，而区域填充用 `ScanlineFill`（扫描线），两者在边附近/顶点行的边界判定语义不一致（±1 格差异），产生孤立 void 格切碎可通行区域（`numDistrict=0`）。
+- **修复**：`ApplyPolygonTerrain` 改用 `ScanlineFill` 的区间结果决定非 void（`innerCells` HashSet），保证铺设与填充用同一套判定。边格（`EnumerateEdgeCells` Bresenham）仍强制非 void。
+
+### 关键文件变更（第二轮）
+- `SeamlessTileRenderer.cs` — CommandBuffer 开头加 ClearRenderTarget(clearColor=true)。
+- `SeamlessTileManager.cs` — `TryPreloadNeighbor` 改用 `LongEventHandler.QueueLongEvent(doAsynchronously:true)`；加 `ClearGeneratingTile`。
+- `Patches_FloatMenuMakerMap.cs` — 加 `InjectCrossMapGotoOption`（跨图 Goto 选项注入）；加 `using Verse.AI`。
+- `SeamlessTerrainFill.cs` — `ApplyPolygonTerrain` 改用 `ScanlineFill` 替代 `ContainsPoint`。
+- `VoidTerrain.xml` — 回退 texturePath/edgeType（仅注释更新）。

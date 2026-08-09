@@ -3,7 +3,7 @@
 
 	<!--
 		六边形/五边形裁切用的"虚空"地形。放在多边形可活动区域之外的格子。
-		不继承 NaturalTerrainBase，避免带入太空边框贴图等无关默认值（参考 VMF_ImpassableFloor 的独立顶级定义）。
+		不继承 NaturalTerrainBase，避免带入太空边框贴图等无关默认值（参考 VMF ImpassableFloor 的独立顶级定义）。
 
 		不可通行保证（经源码调研确认，无需额外 Harmony patch）：
 		- passability=Impassable：PathGrid 返回 10000，寻路/Region/JumpUtility.ValidJumpTarget 全部拒绝。
@@ -14,7 +14,13 @@
 		- holdSnowOrSand=false：不积雪沙。
 		- filthAcceptanceMask=None：不生污物。
 		- avoidWander=true：wander AI 不选此格（额外保险）。
-		- dontRender=true：透明，不绘制（两地图重叠带由透明性消除视觉冲突）。
+		- dontRender=true：主地形层不绘制（用 ShadowMask 材质，透明/暗影）。
+
+		渲染说明（阶段4a 游戏内确认）：
+		- dontRender=true 时 SectionLayer_Terrain 用 ShadowMask（透明），不画 BadGraphic。
+		- 但移动相机时，之前显示正常地形的位置若变为 void，因没有新内容写入颜色缓冲，
+		  会保留上一帧的残影（正常地形像素），多次叠加后呈现红色。这是渲染管线未清色缓冲的问题，
+		  需在 SeamlessTileRenderer/Patch_MapEdgeClipDrawer 处理，不能靠 TerrainDef 改动解决。
 	-->
 	<TerrainDef>
 		<defName>RimExodus_Void</defName>

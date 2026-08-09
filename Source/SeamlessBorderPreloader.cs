@@ -47,8 +47,10 @@ namespace RimExodus
             }
 
             Log.Message($"[RimExodus] CheckPawnGoto: pawn {pawn.LabelShort} target {targetCell} in border band, " +
-                $"preloading neighbor worldTile {worldTile}.");
-            SeamlessTilePreloader.TryPreload(map, worldTile);
+                $"queuing preload for neighbor worldTile {worldTile}.");
+            // 不在 StartJob 调用栈内同步生成（会阻塞当前 tick 数百毫秒），登记到延迟队列，
+            // 由 SeamlessTileManager.MapComponentTick 在下一 tick 消费。
+            SeamlessTilePreloader.QueuePreload(map, worldTile);
         }
     }
 }

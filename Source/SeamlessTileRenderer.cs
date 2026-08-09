@@ -66,6 +66,11 @@ namespace RimExodus
             drawCommands.Clear();
             nextSequence = 0;
 
+            // 开头清除色缓冲和深度缓冲：邻居 mesh 画在干净背景上，避免移动相机时上一帧残留
+            // 在 void 区域（ShadowMask 半透明不写不透明色）累积成红色残影。
+            // 当前地图随后在 ForwardOpaque 阶段正常覆盖它该出现的像素。
+            commandBuffer.ClearRenderTarget(true, true, Color.clear, 1f);
+
             foreach (var neighbor in cachedNeighbors)
             {
                 CollectNeighborLayers(neighbor.map, neighbor.offset.ToVector3());

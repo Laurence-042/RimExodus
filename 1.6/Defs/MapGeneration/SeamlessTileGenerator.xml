@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Defs>
 
+  <!--
+    无缝地块口袋地图生成器（阶段4a：真实地形 + 多边形 void 裁切）。
+    genSteps 复用原版 MapCommonBase 的地形/岩石/植物/动物序列，使口袋地图按真实 worldTile 特性生成原版地形。
+    RimExodus_SeamlessTile（多边形 void 裁切）order 设为 1000，在 Terrain(210)/RocksFromGrid(200) 之后执行，
+    确保先有真实地形再挖 void。
+
+    biome/hilliness/elevation 等 TileInfo 字段不能在 Def 里写死（每个地块不同），
+    由 GenerateTileMap 通过 extraInitBeforeContentGen 回调从真实 worldTile 动态注入 pocketTileInfo。
+    pocketMapProperties.biome 这里留一个占位（会被回调覆盖）。
+  -->
   <MapGeneratorDef>
     <defName>RimExodus_SeamlessTileGenerator</defName>
     <label>seamless tile generator</label>
@@ -10,13 +20,27 @@
     </pocketMapProperties>
     <disableShadows>true</disableShadows>
     <genSteps>
+      <li>ElevationFertility</li>
+      <li>MutatorPostElevationFertility</li>
+      <li>RocksFromGrid</li>
+      <li>Terrain</li>
+      <li>MutatorPostTerrain</li>
+      <li>Roads</li>
+      <li>RockChunks</li>
+      <li>ScatterRuinsSimple</li>
+      <li>SteamGeysers</li>
+      <li>FindPlayerStartSpot</li>
+      <li>Plants</li>
+      <li>Snow</li>
+      <li>Animals</li>
       <li>RimExodus_SeamlessTile</li>
+      <li>Fog</li>
     </genSteps>
   </MapGeneratorDef>
 
   <GenStepDef>
     <defName>RimExodus_SeamlessTile</defName>
-    <order>10</order>
+    <order>1000</order>
     <genStep Class="RimExodus.GenStep_SeamlessTile"/>
   </GenStepDef>
 

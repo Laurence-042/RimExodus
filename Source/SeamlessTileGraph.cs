@@ -124,5 +124,25 @@ namespace RimExodus
             if (map.Parent is PocketMapParent pocketParent) return pocketParent.sourceMap;
             return null;
         }
+
+        /// <summary>
+        /// 全局查询：指定 worldTile 是否已有任意已加载的地图（含锚点和所有口袋），不限于直接邻居。
+        /// 遍历 Find.Maps（含所有已加载地图），用 SeamlessTileRegistry.GetMapWorldTile 统一取 worldTile。
+        /// 用于预加载去重：A 和 C 虽非直接邻居（隔了 B），但 A 的地图已存在，从 C 预加载 A 的 worldTile 时应复用而非重复生成。
+        /// </summary>
+        public static bool TryGetMapByWorldTile(int worldTile, out Map existing)
+        {
+            existing = null;
+            if (worldTile < 0) return false;
+            foreach (var map in Find.Maps)
+            {
+                if (SeamlessTileRegistry.GetMapWorldTile(map) == worldTile)
+                {
+                    existing = map;
+                    return true;
+                }
+            }
+            return false;
+        }
     }
 }

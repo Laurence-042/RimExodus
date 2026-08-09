@@ -1,13 +1,13 @@
-using RimWorld;
 using Verse;
 
 namespace RimExodus
 {
     /// <summary>
-    /// 生成无缝地块口袋地图的地形（阶段3：多边形裁切）。
-    /// 先全图铺可通行地形（Soil），再按六边形把外部挖成虚空（RimExodus_Void）。
+    /// 无缝地块口袋地图的多边形 void 裁切（阶段4a：真实地形 + void 裁切）。
+    /// 真实地形（Soil/岩石/植物/水体等）由 MapGeneratorDef 中的原版 GenStep（ElevationFertility/Terrain/RocksFromGrid/Plants）生成。
+    /// 本 GenStep 只负责按六边形把多边形外部挖成虚空（RimExodus_Void）。
     /// 六边形 = 内切圆顶点模型（顶点 = center + 0.5S × 世界地块顶点方向）。
-    /// 锚点家园 A 是原生地图，不走本 GenStep，由 SeamlessTileManager.RefreshMapVoid 补铺。
+    /// order=1000，在 Terrain(210)/RocksFromGrid(200)/Plants(900) 之后执行，确保先有真实地形再挖 void。
     /// </summary>
     public class GenStep_SeamlessTile : GenStep
     {
@@ -15,23 +15,6 @@ namespace RimExodus
 
         public override void Generate(Map map, GenStepParams parms)
         {
-            var size = map.Size;
-            var grass = DefDatabase<TerrainDef>.GetNamedSilentFail("Soil");
-            if (grass == null)
-            {
-                grass = TerrainDefOf.Soil;
-            }
-
-            // 1. 全图先铺可通行地形。
-            for (var x = 0; x < size.x; x++)
-            {
-                for (var z = 0; z < size.z; z++)
-                {
-                    map.terrainGrid.SetTerrain(new IntVec3(x, 0, z), grass);
-                }
-            }
-
-            // 2. 取地块 worldTile，按六边形挖虚空（六边形外 = void）。
             var worldTile = -1;
             if (map.Parent is MapParent_SeamlessTile parent)
             {
@@ -43,6 +26,7 @@ namespace RimExodus
                 return;
             }
 
+            // 按六边形挖虚空（六边形外 = void）。真实地形已由前置原版 GenStep 铺好。
             SeamlessTerrainFill.ApplyPolygonTerrain(map, worldTile);
         }
     }
