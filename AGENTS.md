@@ -712,3 +712,28 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 ## 存档兼容性说明（重要）
 **mod 未发布，当前一切测试在新建存档中进行，无需考虑旧存档兼容。** 几何/传送点/字段变更后重开档即可，不做读档迁移。此原则适用于阶段3 direction 字段移除、阶段4b 传送机制重构等所有破坏性变更。
 
+## 阶段4b 补充修复：跨图菜单可达性语义 + 选中状态保持（已完成，可编译，游戏内待验证）
+
+### 修复1：跨图菜单"弹 vs 不弹"被 A 上对应坐标影响（底层设计缺陷）
+- **根因**：`Patches_FloatMenuMakerMap` Prefix 把 `context.map = B`，但原版 `FloatMenuOptionProvider_DraftedMove.PawnCanGoto` 调 `pawn.CanReach(gotoLoc)`，而 `ReachabilityUtility.CanReach` 内部用 `pawn.Map`（A）的 reachability，从不看 context.map。gotoLoc 是 B 坐标，同尺寸地图下落在 A bounds 内 → 在 A 上对"A 上对应坐标"做寻路。A 对应位置可通行 → CanReach 成功 → 产出可达 GoHere（autoTakeable）不弹菜单；A 对应位置不可通行（山脉/void）→ CanReach 失败 → 产出禁用选项 → 旧 InjectCrossMapGotoOption 注入新选项但**没设 autoTakeable** → 弹菜单。这是设计缺陷：导航到 B 不该被 A 上对应坐标影响。
+- **修复**（`InjectCrossMapGotoOption` 重构）：跨图场景下**完全不让原版 DraftedMove 的可达性检查参与决定**。移除原版全部 GoHere 产出（可达 `isGoto=true` + 禁用 CannotGo），改用桥接可达性（`SeamlessCrossMapOrders.CanBridgeTo` = 本图是否有 pawn 可到达的桥接传送点）：
+  - 桥接可达 → 注入 `autoTakeable=true; autoTakeablePriority=10f; isGoto=true` 的跨图 GoHere（对齐原版可达语义）→ `GetAutoTakeOption` 直接执行不弹菜单。
+  - 桥接不可达 → 注入 `action=null` 的禁用"无法到达"（`CannotGoNoPath.Translate()`）→ 灰色显示。
+- **桥接可达性复用**：新增 `SeamlessCrossMapOrders.CanBridgeTo(pawn, toMap)` 公开方法（调 `TryFindNearestReachableBridgeSpot` 只查可达性，不 Record/不返回 spot），前端菜单和后端桥接共用同一判定。
+- **五边形 void 已考虑**：方案基于"本图桥接 spot 可达性"，不感知对端坐标在本图是 void 还是山壁。
+
+### 修复2：跨图后选中状态丢失
+- **根因**：`SeamlessMapTransfer.TryTransferPawn` 的 `pawn.DeSpawn()` 触发 `Thing.DeSpawn`（`Thing.cs:974-977`）**无条件** `Find.Selector.Deselect(this)`；`GenSpawn.Spawn` 不操作 Selector → 选中列表保持空。
+- **修复**（原版范式照搬，参照 `CameraJumper.TrySelectInternal` 和 Pawn 死亡生尸体 `Pawn.cs:2246-2248`）：
+  - `TryTransferPawn` 加 `out bool wasSelected`，DeSpawn 前记 `wasSelected = Find.Selector.IsSelected(pawn)`。
+  - `TryTriggerTransfer` 在 `TryAutoFocusOnArrival`（切图）之后、`ContinueCrossMapMove` 之前，若 `wasSelected` 调 `Find.Selector.Select(pawn, playSound:false, forceDesignatorDeselect:false)`。
+  - **必须切图后 Select**：此时 `CurrentMap==arrivalMap`，`SelectInternal` 第 379 行 `map!=CurrentMap` 为 false 不二次硬跳；`Patch_Selector_SelectInternal` 的无感偏移分支（`targetMap==currentMap`）也不触发。多 pawn 框选各自 wasSelected+Select，`SelectInternal` 段 C 不误删同 map 已选项。
+
+### 修复2补丁：多 pawn 跨图只有第一个保持选中
+- **根因（时序问题）**：多 pawn 跨图是逐个的（每个 pawn 各自踩传送点，跨多个 tick）。首个殖民者跨图时 `TryAutoFocusOnArrival` 切图到 arrivalMap，触发 `MapInterface.Notify_SwitchedMap`（`MapInterface.cs:194`）→ `selector.ClearSelection()`，把**尚未跨图的其余 pawn** 从选中列表清掉。它们后续跨图时 `IsSelected` 返回 false，不被 re-Select。
+- **修复**（`SeamlessSelectionTracker`）：引入静态选中保持集，跨越切图清空的时序：
+  - 前端 `Patch_FloatMenuMakerMap` 在玩家下达跨图指令时，把所有选中且要跨图的 pawn `Register` 到保持集。
+  - `TryTriggerTransfer` 转移后用 `SeamlessSelectionTracker.Consume(pawn)`（在集合里就 re-Select 并移除），取代原来依赖 `wasSelected`（会被切图清空污染）。
+  - `MapComponentTick`（锚点地图）周期调 `PurgeInvalid` 清理死亡/未跨图残留。
+- 这样无论切图清空几次，保持集始终记得"这批 pawn 应选中"，逐个跨图后各自 re-Select。
+

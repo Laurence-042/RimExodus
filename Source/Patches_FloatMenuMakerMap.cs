@@ -93,6 +93,9 @@ namespace RimExodus
                 if (pawn.Map != context.map)
                 {
                     SeamlessCrossMapOrders.RecordPendingTarget(pawn, context.map, context.ClickedCell);
+                    // 登记到选中保持器：多 pawn 跨图是逐个的，首个 pawn 切图会 ClearSelection 清掉其余 pawn
+                    // 的选中状态，这里提前登记让转移后能统一 re-Select。
+                    SeamlessSelectionTracker.Register(pawn);
                     anyCrossMapPawn = true;
                 }
             }
@@ -109,9 +112,16 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 跨图场景下注入可用的 Goto 选项。
-        /// 原版 provider 对跨图 cell 做 CanReach 失败，生成禁用选项（action=null）。
-        /// 这里移除被禁用的 Goto 相关选项，注入一个 action 直接下发跨图 Goto Job 的选项（由 Patches_Job 桥接）。
+        /// 跨图场景下注入 Goto 选项，可达性由"本图桥接传送点"决定，而非原版 DraftedMove 的 CanReach。
+        ///
+        /// 设计原因：原版 <c>FloatMenuOptionProvider_DraftedMove.PawnCanGoto</c> 调 <c>pawn.CanReach</c>，
+        /// 而 <c>ReachabilityUtility.CanReach</c> 内部用 <c>pawn.Map</c>（pawn 真正所在的 A）的 reachability，
+        /// 从不看 context.map（B）。gotoLoc 是 B 的坐标，同尺寸地图下落在 A 的 bounds 内 →
+        /// 在 A 上对"A 上对应坐标"做寻路。这导致"导航到 B 的可达性"被 A 上对应坐标的可通行性影响
+        /// （A 对应位置是山脉/void 时误判不可达），是设计缺陷。
+        ///
+        /// 正确语义：跨图可达性 = pawn 能否到达本图的桥接传送点（<see cref="SeamlessCrossMapOrders.CanBridgeTo"/>）。
+        /// 本方法移除原版 DraftedMove 的全部 GoHere 产出（可达 isGoto + 禁用 CannotGo），统一按桥接可达性注入。
         /// </summary>
         private static void InjectCrossMapGotoOption(FloatMenuContext context, List<FloatMenuOption> result)
         {
@@ -121,41 +131,48 @@ namespace RimExodus
 
             var gotoLabel = "GoHere".Translate();
 
-            // 移除被禁用的 Goto 相关选项（原版 DraftedMove provider 在跨图 CanReach 失败时生成的灰色"无法到达"）。
-            // opt.Label 是已本地化文本，必须同样用 .Translate() 得到本地化文本去匹配，
-            // 用未翻译的英文键字面量（如 "CannotGo"）永远匹配不上（这是之前双选项 bug 的根因）。
-            // 原版 DraftedMove.PawnCanGoto 的失败理由只有两种：
-            //   "CannotGoNoPath"      —— 普通跨图不可达（中文"无法到达（没有路径）"）
-            //   "CannotGoOutOfRange"  —— 机制族超指挥范围（仅 Biotech，中文"不可达"）
+            // 移除原版 DraftedMove 的全部 GoHere 相关产出：
+            //   - 可达 GoHere：isGoto == true（provider 第 70 行设置）。
+            //   - 禁用"无法到达"：action == null 且 label 含 CannotGo 本地化文本（跨图 CanReach 失败时生成）。
+            // 两者都不让参与最终结果——跨图可达性改由桥接点决定。
             var cannotGoNoPath = "CannotGoNoPath".Translate();
             var cannotGoOutOfRange = "CannotGoOutOfRange".Translate();
             for (var i = result.Count - 1; i >= 0; i--)
             {
                 var opt = result[i];
-                if (opt.action == null && (opt.Label.Contains(gotoLabel) || opt.Label.Contains(cannotGoNoPath) || opt.Label.Contains(cannotGoOutOfRange)))
+                if (opt.isGoto
+                    || (opt.action == null && (opt.Label.Contains(cannotGoNoPath) || opt.Label.Contains(cannotGoOutOfRange))))
                 {
                     result.RemoveAt(i);
                 }
             }
 
-            // 若已存在可用的 Goto 选项（action != null 且 label 匹配），不重复注入。
-            foreach (var opt in result)
-            {
-                if (opt.action != null && opt.Label.Contains(gotoLabel))
-                {
-                    return;
-                }
-            }
+            // 桥接可达性：pawn 能否从本图到达某个对端指向 context.map 的桥接传送点。
+            // 不感知对端坐标在本图是 void 还是山壁——只要本图有可达桥接 spot 就放行。
+            var canBridge = SeamlessCrossMapOrders.CanBridgeTo(pawn, context.map);
 
-            // 注入跨图 Goto 选项。action 下发 Goto Job（targetA = 目标 cell），
-            // Patches_Job.TryInterceptJob 检测到 pending 跨图目标后会桥接到传送点。
-            var gotoOption = new FloatMenuOption(gotoLabel, () =>
+            if (canBridge)
             {
-                var job = JobMaker.MakeJob(JobDefOf.Goto, context.ClickedCell);
-                job.playerForced = true;
-                pawn.jobs.TryTakeOrderedJob(job, JobTag.Misc);
-            }, MenuOptionPriority.High);
-            result.Add(gotoOption);
+                // 桥接可达：注入 autoTakeable 的跨图 GoHere，对齐原版可达 GoHere 语义，
+                // 使 GetAutoTakeOption 直接执行（不弹菜单，自动寻路到桥接点）。
+                // action 下发 Goto Job（targetA = 目标 cell），Patches_Job.TryInterceptJob 桥接到传送点。
+                var gotoOption = new FloatMenuOption(gotoLabel, () =>
+                {
+                    var job = JobMaker.MakeJob(JobDefOf.Goto, context.ClickedCell);
+                    job.playerForced = true;
+                    pawn.jobs.TryTakeOrderedJob(job, JobTag.Misc);
+                }, MenuOptionPriority.GoHere);
+                gotoOption.isGoto = true;
+                gotoOption.autoTakeable = true;
+                gotoOption.autoTakeablePriority = 10f;
+                result.Add(gotoOption);
+            }
+            else
+            {
+                // 桥接不可达（pawn 被围死，无法到任何桥接点）：注入禁用"无法到达"，对齐原版不可达表现。
+                var disabledOption = new FloatMenuOption("CannotGoNoPath".Translate(), null);
+                result.Add(disabledOption);
+            }
         }
 
         /// <summary>

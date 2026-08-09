@@ -46,6 +46,13 @@ namespace RimExodus
             // 每帧刷新锁：Pawn 一离开接缝带（不再站在任何传送点上）就解除锁。
             // arrivalLocks 为空时快速返回（O(1)）。
             PurgeInvalidArrivalLocks();
+
+            // 选中保持集的失效清理（pawn 死亡/销毁/未跨图残留）。仅在锚点地图跑，避免每张地图重复。
+            // 集合通常为空（跨图完成即消费），清理开销可忽略。
+            if (!map.IsPocketMap)
+            {
+                SeamlessSelectionTracker.PurgeInvalid();
+            }
         }
 
         /// <summary>在目标地图上登记 Pawn 的跨图到达锁状态（直到 Pawn 离开接缝带）。</summary>
@@ -95,9 +102,18 @@ namespace RimExodus
 
                 Log.Message($"[RimExodus] Seamless trigger: pawn {pawn.LabelShort} at {cell} "
                     + $"on map {map.uniqueID} targeting {comp.cachedArrivalCell} on map {arrivalMap.uniqueID}");
-                if (SeamlessMapTransfer.TryTransferPawn(pawn, thing, arrivalMap, comp.cachedArrivalCell))
+                if (SeamlessMapTransfer.TryTransferPawn(pawn, thing, arrivalMap, comp.cachedArrivalCell, out _))
                 {
                     SeamlessCameraFocus.TryAutoFocusOnArrival(pawn, arrivalMap);
+                    // 切图后恢复选中状态：若 pawn 在选中保持集里（玩家下达跨图指令时登记）则 re-Select。
+                    // 用保持集而非 wasSelected：多 pawn 跨图是逐个的，首个 pawn 切图会 ClearSelection 清掉
+                    // 其余 pawn 的选中，导致它们跨图时 IsSelected 返回 false。保持集跨越该时序记住"这批
+                    // pawn 应选中"。必须在切图之后 re-Select：此时 CurrentMap==arrivalMap，SelectInternal
+                    // 不会二次硬跳，Patch_Selector_SelectInternal 的无感偏移分支也不触发（targetMap==currentMap）。
+                    if (SeamlessSelectionTracker.Consume(pawn) && Find.Selector != null)
+                    {
+                        Find.Selector.Select(pawn, playSound: false, forceDesignatorDeselect: false);
+                    }
                     ContinueCrossMapMove(pawn, arrivalMap);
                 }
                 return;

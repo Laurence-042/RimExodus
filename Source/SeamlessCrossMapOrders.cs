@@ -82,6 +82,16 @@ namespace RimExodus
         }
 
         /// <summary>
+        /// 检查 pawn 是否能从本图桥接到 toMap（是否本图存在 pawn 可到达的、对端指向 toMap 的传送点）。
+        /// 仅供前端菜单判断"跨图移动是否可行"用——不 Record pending、不返回 spot、不触发桥接。
+        /// 与 <see cref="TryFindNearestReachableBridgeSpot"/> 共用同一可达性判定逻辑。
+        /// </summary>
+        public static bool CanBridgeTo(Pawn pawn, Map toMap)
+        {
+            return TryFindNearestReachableBridgeSpot(pawn, toMap, out _);
+        }
+
+        /// <summary>
         /// 在 fromMap 上找到所有能桥接到 toMap 的传送点，按到 pawn 的距离排序，
         /// 返回第一个 pawn 能到达的。满铺接缝后候选很多，最近的通常可达即返回。
         /// 候选判定：传送点的 <see cref="CompSeamlessTileEnterSpot.hasArrival"/> 且
