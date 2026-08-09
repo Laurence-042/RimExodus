@@ -11,13 +11,7 @@ namespace RimExodus
     /// </summary>
     public class SeamlessMapTransferTrigger : MapComponent
     {
-        // 每 tick 扫描传送点：消除"pawn 走到传送点上后停顿等待轮询"的卡顿。
-        // 开销可控：ThingsOfDef 是 O(1) 取 list，pawn × spot 位置比较在接缝满铺（~96 spot）× 少量 pawn 下很低。
-        private const int ScanIntervalTicks = 1;
-
-        private int tickCounter;
-
-        // 缓存传送点 Def，避免每 tick 调 DefDatabase.GetNamedSilentFail。
+        // 缓存传送点 Def，避免每 tick 调 DefDatabase.GetNamedSilentFail（PurgeInvalidArrivalLocks 用）。
         private ThingDef cachedEnterSpotDef;
 
         /// <summary>
@@ -28,9 +22,7 @@ namespace RimExodus
         /// </summary>
         private HashSet<Pawn> arrivalLocks = new HashSet<Pawn>();
 
-        // 复用的临时列表（实例字段，避免多地图 static 共享污染），避免每 tick new List 产生 GC。
-        private readonly List<Thing> spotSnapshot = new List<Thing>();
-        private readonly List<Pawn> pawnSnapshot = new List<Pawn>();
+        // PurgeInvalidArrivalLocks 复用的接缝位置集合（实例字段，避免多地图 static 共享污染）。
         private readonly HashSet<IntVec3> seamPositions = new HashSet<IntVec3>();
 
         public SeamlessMapTransferTrigger(Map map) : base(map)
@@ -40,7 +32,6 @@ namespace RimExodus
         public override void ExposeData()
         {
             base.ExposeData();
-            Scribe_Values.Look(ref tickCounter, "tickCounter");
             Scribe_Collections.Look(ref arrivalLocks, "arrivalLocks", LookMode.Reference);
 
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
@@ -53,16 +44,8 @@ namespace RimExodus
         public override void MapComponentTick()
         {
             // 每帧刷新锁：Pawn 一离开接缝带（不再站在任何传送点上）就解除锁。
+            // arrivalLocks 为空时快速返回（O(1)）。
             PurgeInvalidArrivalLocks();
-
-            tickCounter++;
-            if (tickCounter < ScanIntervalTicks)
-            {
-                return;
-            }
-            tickCounter = 0;
-
-            CheckLocalEnterSpots();
         }
 
         /// <summary>在目标地图上登记 Pawn 的跨图到达锁状态（直到 Pawn 离开接缝带）。</summary>
@@ -77,52 +60,33 @@ namespace RimExodus
             arrivalLocks.Add(pawn);
         }
 
-        private void CheckLocalEnterSpots()
+        /// <summary>
+        /// 事件驱动的传送检测：由 <see cref="Patch_Pawn_PathFollower_TryEnterNextPathCell"/> 在 pawn 跨格时调用。
+        /// 检查 pawn 当前位置是否有已绑定的传送点，若有则触发跨地图转移。
+        /// </summary>
+        internal static void TryTriggerTransfer(Pawn pawn, IntVec3 cell, Map map)
         {
-            cachedEnterSpotDef ??= DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
-            if (cachedEnterSpotDef == null)
+            if (pawn == null || map == null) return;
+            if (pawn.Downed || pawn.Dead) return;
+
+            // 用 thingGrid 直接查该格上的传送点（O(1)）。
+            var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
+            if (enterSpotDef == null) return;
+
+            var things = map.thingGrid.ThingsListAt(cell);
+            for (var i = 0; i < things.Count; i++)
             {
-                return;
-            }
-
-            // 用 def 索引查询传送点（O(1)）。
-            var enterSpots = map.listerThings.ThingsOfDef(cachedEnterSpotDef);
-            if (enterSpots.Count == 0)
-            {
-                return;
-            }
-
-            // 构建 位置→传送点Thing 的索引（O(spots)），后续按 pawn 位置 O(1) 查找。
-            // 比之前的 spot×pawn 双层遍历（O(spots×pawns)）大幅减少——传送点 ~600 个，pawn 通常 <10。
-            spotByPosition.Clear();
-            foreach (var thing in enterSpots)
-            {
-                spotByPosition[thing.Position] = thing;
-            }
-
-            // 遍历 pawn（O(pawns)），查其位置是否有传送点。
-            pawnSnapshot.Clear();
-            pawnSnapshot.AddRange(map.mapPawns.AllPawnsSpawned);
-
-            foreach (var pawn in pawnSnapshot)
-            {
-                if (!pawn.Spawned || pawn.Map != map || pawn.Downed || pawn.Dead || IsArrivalLocked(pawn))
-                {
-                    continue;
-                }
-
-                if (!spotByPosition.TryGetValue(pawn.Position, out var thing))
-                {
-                    continue;
-                }
+                var thing = things[i];
+                if (thing.def != enterSpotDef) continue;
 
                 var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
-                if (comp == null || comp.CounterpartSpot == null)
-                {
-                    continue;
-                }
+                if (comp == null || comp.CounterpartSpot == null) continue;
 
-                Log.Message($"[RimExodus] Seamless trigger: pawn {pawn.LabelShort} at {thing.Position} "
+                // 检查 pawn 是否被到达锁锁住（防回弹）。
+                var trigger = map.GetComponent<SeamlessMapTransferTrigger>();
+                if (trigger != null && trigger.IsArrivalLocked(pawn)) return;
+
+                Log.Message($"[RimExodus] Seamless trigger: pawn {pawn.LabelShort} at {cell} "
                     + $"on map {map.uniqueID} targeting {DescribeTarget(comp.CounterpartSpot)}");
                 var arrivalMap = comp.CounterpartSpot.Map;
                 if (SeamlessMapTransfer.TryTransferPawn(pawn, thing, comp.CounterpartSpot))
@@ -130,8 +94,8 @@ namespace RimExodus
                     SeamlessCameraFocus.TryAutoFocusOnArrival(pawn, arrivalMap);
                     ContinueCrossMapMove(pawn, arrivalMap);
                 }
+                return;
             }
-        }
         }
 
         /// <summary>转移完成后，如果这次移动指令登记了跨图续程目的地，则在到达的地图上续发 Goto。</summary>

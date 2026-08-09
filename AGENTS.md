@@ -639,21 +639,31 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `RimExodusSettings.cs` — 加 verboseLogging。
 - 全局 Log.Message 包 verboseLogging 开关。
 
-## 阶段4a 第五轮：拆分式异步验证 + 弹跳诊断（进行中）
+## 阶段4a 后续修复记录（最终状态）
 
-### 问题3（进度画面）—— 已在源码移除 LongEventHandler
-- **验证**：第四轮已把 `TryPreloadNeighbor` 改用 `BeginTileMapGeneration`（纯 `new Thread`，无 LongEventHandler）。
-- **用户日志显示旧 DLL**：第五轮测试日志堆栈仍含 `LongEventHandler:RunEventFromAnotherThread` → `TryPreloadNeighbor>b__0`（lambda），但新源码的 `TryPreloadNeighbor` 不含 lambda（调 `BeginTileMapGeneration`）。
-- **确认**：重新编译后 `strings RimExodus.dll` 验证不含 `LongEventHandler`/`QueueLongEvent`，含 `BeginTileMapGeneration`/`Phase2WorkerProc`/`FinalizePendingTileMap`。**用户需重启游戏加载新编译的 DLL**（`1.6/Assemblies/RimExodus.dll`，时间戳 15:47+）。
-- 预期：重启后生成邻居地图不再显示进度画面，主线程不阻塞。
+### 异步地图生成方案（最终：LongEventHandler）
+- 纯 Thread（无进度画面）和拆分式异步（AddMap→工作线程 genSteps→主线程 FinalizeInit）均不可行：
+  - 纯 Thread：`List<Map>.Add` 与主线程 foreach `Find.Maps` 的 `_version` 竞争（Alert/ColonistBar 每帧枚举）。
+  - 拆分式异步：genSteps 期间 map 已 AddMap 但未 FinalizeInit（region/pathing 未初始化），主线程 tick 海量 "RegionAndRoomUpdater is disabled" 警告 + 寻路失效。
+- **最终方案**：`LongEventHandler.QueueLongEvent(doAsynchronously:true)`，显示进度画面几秒。`AddMap→genSteps→FinalizeInit` 必须在主线程恢复 tick 前连续完成（引擎硬约束）。
 
-### 偶现问题（三地图交点弹跳）—— 加诊断日志
-- **现象**：A↔B↔C 三地图接缝交点附近，pawn 在 map 0 ↔ map 2 之间反复 transfer（日志显示 map 2(183,235)→map 0(181,16)→map 2(179,235)→map 0(181,16) 循环）。防反弹锁（pawn 级，离开整条接缝带才解锁）应在 map 0 上锁住 pawn 阻止再次 transfer，但实际 transfer 发生了。
-- **诊断**：`CheckLocalEnterSpots` 的 trigger 日志加锁状态标注（`was-locked`/`not-locked`）。若弹跳时显示 `was-locked`，说明锁存在但仍 transfer（锁检查逻辑 bug）；若 `not-locked`，说明锁被过早清除（`PurgeInvalidArrivalLocks` 误清）。
-- **待用户复现并提供带锁状态的日志**。
+### void 孤岛修复（最终：格角检测）
+- 多套边界判定不一致（ContainsPoint 叉积 + Bresenham RoundToInt 圆整）导致 void 孤岛切断 region（numDistrict=0）。
+- **最终方案**：`IsCellInPolygon` 格角检测——格中心或 4 角任一在凸多边形内 → 非 void。凸性保证外部格 4 角都不在内，内部格至少一个角在内，消除孤岛。`ApplyPolygonTerrain` 移除 edgeCells 补丁，一套判定。
 
-### 新额外问题（C 自动显示 A）—— 已解决
-- 第四轮的 `AutoConnectWorldNeighbors` 生效，C 加载时自动与间接邻居 A 建立关系。
+### 传送检测性能优化（事件驱动替代轮询）
+- **原方案**：`SeamlessMapTransferTrigger.MapComponentTick` 每 tick 轮询所有传送点（~600 个），O(spots+pawns)，profiler 显示为核心性能瓶颈。
+- **最终方案**：Harmony Postfix `Pawn_PathFollower.TryEnterNextPathCell`（pawn 跨格瞬间），O(1) 查 `thingGrid` 该格是否有传送点。pawn 不动时零开销。
+- **新文件**：`Patches_PawnPathFollower.cs`。`SeamlessMapTransferTrigger` 的 `CheckLocalEnterSpots` 改为 static `TryTriggerTransfer(Pawn, IntVec3, Map)`，`MapComponentTick` 只保留 `PurgeInvalidArrivalLocks`（arrivalLocks 为空时 O(1) 返回）。
+- 覆盖性：征召移动/撤退敌人/续程 Goto 走 pather 跨格→触发；跨图落地（GenSpawn.Spawn）不走 pather→不触发（pawn 在 arrivalLocks 防回弹，后续迈步走 pather 时触发）。
 
-### 已知偶现问题（待复现）
-- pawn 卡在两地图夹缝、所有目标不可达：偶现，日志丢失。可能因异步生成期间传送点/邻居关系时序竞争。待下次复现时通过日志定位。
+### 已解决的历史问题
+- C 自动显示间接邻居 A：`AutoConnectWorldNeighbors`（新地块加载时遍历世界邻居，对已加载的调 EnsureNeighborRegistered）。
+- 多跳间隙重复生成：`TryGetMapByWorldTile` 全局查询 + `EnsureNeighborRegistered` 补登记。
+- void 渲染残影红色：`SeamlessTileRenderer` CommandBuffer 开头 `ClearRenderTarget(true, true)` 清色缓冲。
+- 跨地图寻路失败：`InjectCrossMapGotoOption` 自注入跨图 Goto 选项绕过原版 CanReach。
+
+### 待办（低优先级）
+- SeamlesslessTileManager 拆分（588行→Generator/NeighborRegistry/EnterSpotPlacer），纯重构待功能稳定后做。
+- 偶现弹跳（A↔C 反复 transfer）待复现后定位根因。
+- 地图生成进度画面优化（分帧 genStep 执行，工作量极大且无先例）。
