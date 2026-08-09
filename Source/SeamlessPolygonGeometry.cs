@@ -114,14 +114,18 @@ namespace RimExodus
         /// </summary>
         public static bool ContainsPoint(List<Vector2> verts, int mapSize, IntVec3 cell)
         {
+            return ContainsPointAt(verts, cell.x + 0.5f, cell.z + 0.5f);
+        }
+
+        /// <summary>
+        /// 判定点 (px, py) 是否在凸多边形内（含边界）。用叉积符号一致性。
+        /// 供格中心/格角检测复用。
+        /// </summary>
+        public static bool ContainsPointAt(List<Vector2> verts, float px, float py)
+        {
             var n = verts.Count;
             if (n < 3) return false;
 
-            var px = cell.x + 0.5f;
-            var py = cell.z + 0.5f;
-
-            // 凸多边形：点在所有边的内侧（与顶点环绕方向一致的同一侧）。
-            // 用叉积符号一致性判定。
             var sign = 0;
             for (var j = 0; j < n; j++)
             {
@@ -137,31 +141,20 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 判定格是否在多边形内（用于 void 铺设，保证连续性）。
-        /// 比 <see cref="ContainsPoint"/> 更宽松：格中心在多边形内（含边），
-        /// **或** 格中心到最近边的距离 < 0.71 格（对角线半径，确保格面积有部分在多边形内）。
-        /// 这避免边附近的格因浮点误差被判为外，形成 void 孤岛（不连续 void）。
+        /// 判定格是否在多边形内（用于 void 铺设，保证连续性，消除孤岛）。
+        /// 格中心在多边形内，**或** 格的 4 个角中任一在多边形内 → 非 void。
+        /// 凸性保证：外部格的 4 角都不在多边形内，内部格（含边附近）至少一个角在内。
+        /// 这消除了"格中心恰好在边外侧但格面积大部分在内"的边界判定问题（RoundToInt/Bresenham 圆整误差根源）。
         /// </summary>
         public static bool IsCellInPolygon(List<Vector2> verts, int mapSize, IntVec3 cell)
         {
-            var n = verts.Count;
-            if (n < 3) return false;
-
-            var px = cell.x + 0.5f;
-            var py = cell.z + 0.5f;
-
-            // 先用 ContainsPoint 精确判定。
-            if (ContainsPoint(verts, mapSize, cell)) return true;
-
-            // 格中心不在多边形内：检查是否离任意一条边足够近（格面积部分在内）。
-            // 阈值 0.71 ≈ sqrt(0.5²) = 格的对角线半长，确保格有部分面积在边内。
-            var p = new Vector2(px, py);
-            for (var j = 0; j < n; j++)
-            {
-                var v0 = verts[j];
-                var v1 = verts[(j + 1) % n];
-                if (DistanceToEdge(p, v0, v1) < 0.71f) return true;
-            }
+            // 格中心。
+            if (ContainsPointAt(verts, cell.x + 0.5f, cell.z + 0.5f)) return true;
+            // 4 个角。
+            if (ContainsPointAt(verts, cell.x, cell.z)) return true;
+            if (ContainsPointAt(verts, cell.x + 1f, cell.z)) return true;
+            if (ContainsPointAt(verts, cell.x, cell.z + 1f)) return true;
+            if (ContainsPointAt(verts, cell.x + 1f, cell.z + 1f)) return true;
             return false;
         }
 

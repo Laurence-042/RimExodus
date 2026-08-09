@@ -33,7 +33,7 @@ namespace RimExodus
 
             if (!lookup.TryGetPreloadTarget(targetCell, out int worldTile))
             {
-                // 诊断：目标格不在边界带内（距边 > 阈值），不预加载。仅玩家强制 Goto 才到这里。
+                // 诊断：目标格不在边界带内。
                 Log.Message($"[RimExodus] CheckPawnGoto: pawn {pawn.LabelShort} target {targetCell} not in border band, skip.");
                 return;
             }

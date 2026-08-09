@@ -21,14 +21,8 @@ namespace RimExodus
         /// <summary>该地块在世界地图上的 tile 索引。</summary>
         public int worldTile = -1;
 
-        /// <summary>该地块地图相对生成源地块的固定平移偏移（源地块坐标系）。</summary>
-        public IntVec3 hostOffset;
-
-        /// <summary>该地块的六个世界邻居 tile（按方向索引 0-5）。</summary>
-        public List<int> neighborTiles = new List<int>();
-
         /// <summary>
-        /// 直接邻居表。每槽存邻居引用 + 该邻居相对本地块的偏移 + 对应世界邻居 tile + 边角度。
+        /// 直接邻居表。每槽存邻居引用 + 该邻居相对本地块的偏移 + 对应世界邻居 tile。
         /// 偏移 = 邻居本地坐标 → 本地块坐标的平移（绘制邻居时用）。
         /// worldTile 作为主键查询（稳定，无角度歧义）。
         /// </summary>
@@ -43,24 +37,25 @@ namespace RimExodus
         {
             base.ExposeData();
             Scribe_Values.Look(ref worldTile, "worldTile", -1);
-            Scribe_Values.Look(ref hostOffset, "hostOffset");
-            Scribe_Collections.Look(ref neighborTiles, "neighborTiles", LookMode.Value);
             Scribe_Values.Look(ref autoFocused, "autoFocused", false);
 
             // 邻居表序列化：用 IExposable 的 NeighborLink 列表。
-            // Scribe_Collections 对 IExposable 元素用 LookMode.Deep，会调用每个元素的 ExposeData。
             if (Scribe.mode == LoadSaveMode.Saving)
             {
-                // 存档前剔除空槽，只存有效邻居。
-                neighbors.RemoveAll(n => n == null || n.neighbor == null);
+                PruneInvalidNeighbors();
             }
             Scribe_Collections.Look(ref neighbors, "neighbors", LookMode.Deep);
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
             {
                 neighbors ??= new List<NeighborLink>();
-                // 清理加载后可能残留的空引用。
-                neighbors.RemoveAll(n => n == null || n.neighbor == null);
+                PruneInvalidNeighbors();
             }
+        }
+
+        /// <summary>清理邻居表中的空引用（null NeighborLink 或 neighbor 字段为 null）。</summary>
+        public void PruneInvalidNeighbors()
+        {
+            neighbors?.RemoveAll(n => n == null || n.neighbor == null);
         }
 
         /// <summary>获取指向指定世界 tile 的邻居连接（null 表示无此邻居）。</summary>
@@ -77,7 +72,7 @@ namespace RimExodus
         }
 
         /// <summary>设置指向 worldTile 的邻居连接（覆盖或新增）。neighbor 可为锚点 MapParent 或 MapParent_SeamlessTile。</summary>
-        public void SetNeighbor(int worldTile, float edgeAngle, MapParent neighbor, IntVec3 offset)
+        public void SetNeighbor(int worldTile, MapParent neighbor, IntVec3 offset)
         {
             neighbors.RemoveAll(n => n != null && n.worldTile == worldTile);
             if (neighbor == null)
@@ -87,7 +82,6 @@ namespace RimExodus
             neighbors.Add(new NeighborLink
             {
                 worldTile = worldTile,
-                edgeAngle = edgeAngle,
                 neighbor = neighbor,
                 offset = offset
             });
@@ -95,20 +89,15 @@ namespace RimExodus
     }
 
     /// <summary>
-    /// 一条直接邻居连接：邻居地块引用 + 该邻居相对本地块的偏移 + 对应世界邻居 tile + 边角度。
+    /// 一条直接邻居连接：邻居地块引用 + 该邻居相对本地块的偏移 + 对应世界邻居 tile。
     /// 偏移语义：邻居本地坐标 + offset = 本地块坐标系的坐标（绘制邻居内容时平移用）。
     /// neighbor 类型为 MapParent 基类，可容纳锚点地图（如 Settlement）和无缝地块 MapParent_SeamlessTile。
     /// worldTile 是该邻居在世界地图上的 tile id，作为邻居表主键（稳定，无角度歧义）。
-    /// edgeAngle 是该邻居相对本地块的边方向角（弧度，atan2(dir.x, dir.y)，0=局部上，顺时针），
-    /// 用于归属判定与方向重建。
     /// </summary>
     public class NeighborLink : IExposable
     {
         /// <summary>该邻居在世界地图上的 tile id（主键）。</summary>
         public int worldTile;
-
-        /// <summary>该邻居相对本地块的边方向角（弧度，atan2(dir.x, dir.y)）。</summary>
-        public float edgeAngle;
 
         /// <summary>邻居地块的 MapParent 引用（锚点或无缝地块）。</summary>
         public MapParent neighbor;
@@ -118,10 +107,9 @@ namespace RimExodus
 
         public NeighborLink() { }
 
-        public NeighborLink(int worldTile, float edgeAngle, MapParent neighbor, IntVec3 offset)
+        public NeighborLink(int worldTile, MapParent neighbor, IntVec3 offset)
         {
             this.worldTile = worldTile;
-            this.edgeAngle = edgeAngle;
             this.neighbor = neighbor;
             this.offset = offset;
         }
@@ -129,7 +117,6 @@ namespace RimExodus
         public void ExposeData()
         {
             Scribe_Values.Look(ref worldTile, "worldTile", -1);
-            Scribe_Values.Look(ref edgeAngle, "edgeAngle", 0f);
             Scribe_References.Look(ref neighbor, "neighbor");
             Scribe_Values.Look(ref offset, "offset");
         }

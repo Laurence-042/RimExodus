@@ -117,8 +117,9 @@ namespace RimExodus
             SeamlessPolygonGeometry.ComputeEdgeBand(verts, map.Size.x, bandWidth, neighborWorldTiles, borderCells);
             built = true;
 
-            Log.Message($"[RimExodus] SeamlessBorderLookup built for map {map.uniqueID} (worldTile={worldTile}, " +
-                $"bandWidth={bandWidth}, borderCells={borderCells.Count}).");
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] SeamlessBorderLookup built for map {map.uniqueID} (worldTile={worldTile}, " +
+                    $"bandWidth={bandWidth}, borderCells={borderCells.Count}).");
         }
     }
 }

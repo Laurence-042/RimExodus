@@ -71,7 +71,8 @@ namespace RimExodus
         {
             if (!TryFindNearestReachableBridgeSpot(pawn, targetMap, out var exitSpot))
             {
-                Log.Message($"[RimExodus] Cross-map move rejected: no reachable seamless enter spot bridges map {pawn.Map.uniqueID} to map {targetMap.uniqueID}.");
+                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    Log.Message($"[RimExodus] Cross-map move rejected: no reachable seamless enter spot bridges map {pawn.Map.uniqueID} to map {targetMap.uniqueID}.");
                 return false;
             }
 

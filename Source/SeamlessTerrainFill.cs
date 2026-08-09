@@ -34,22 +34,10 @@ namespace RimExodus
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, size.x);
             if (verts.Count == 0) return;
 
-            // 收集六边形所有边经过的格（Bresenham 沿每条边）。
-            // 这些"边格"是非 void（传送点铺在这里，且两端边格通过 offset 对齐重合）。
-            var edgeCells = new HashSet<IntVec3>();
-            for (var j = 0; j < verts.Count; j++)
-            {
-                foreach (var cell in SeamlessPolygonGeometry.EnumerateEdgeCells(verts, j, size.x))
-                {
-                    if (cell.InBounds(map)) edgeCells.Add(cell);
-                }
-            }
-
-            // 逐格判定：六边形内（ContainsPoint）或边格上 → 非 void；否则 void。
-            // ContainsPoint 用格中心采样，对凸多边形判定精确（叉积符号一致性）。
-            // 边格（Bresenham 沿多边形顶点连线）强制非 void，保证传送点可站立 + 弥补 ContainsPoint 在边附近的 ±1 格差异。
-            // 不查邻居——void 只取决于自己的六边形。两个地图各自独立铺 void，
-            // A 的 void 区域在 B 地图上恰好是 B 的非 void 区域（被 B 六边形覆盖）。
+            // 逐格判定：格中心或 4 角任一在多边形内 → 非 void；否则 void。
+            // 格角检测保证：格面积与多边形有交集 → 非 void，消除边界附近的 void 孤岛（切断 region）。
+            // 不需要单独的 Bresenham 边格补丁——格角检测覆盖了边附近的格。
+            // 不查邻居——void 只取决于自己的六边形。
             var voidCells = new List<IntVec3>();
 
             for (var x = 0; x < size.x; x++)
@@ -57,13 +45,12 @@ namespace RimExodus
                 for (var z = 0; z < size.z; z++)
                 {
                     var cell = new IntVec3(x, 0, z);
-                    if (edgeCells.Contains(cell)) continue; // 边格：非 void
-                    if (SeamlessPolygonGeometry.IsCellInPolygon(verts, size.x, cell)) continue; // 六边形内（含边附近）：非 void
+                    if (SeamlessPolygonGeometry.IsCellInPolygon(verts, size.x, cell)) continue; // 多边形内（含边附近）：非 void
                     voidCells.Add(cell);
                 }
             }
 
-            Log.Message($"[RimExodus] ApplyPolygonTerrain worldTile={worldTile} map={map.uniqueID} size={size.x} voidCells={voidCells.Count}");
+            Log.Message($"[RimExodus] ApplyPolygonTerrain worldTile={worldTile} map={map.uniqueID} size={size.x} voidCells={voidCells.Count} nonVoid={size.x*size.z - voidCells.Count}");
 
             // 先清除虚空格上的实体（建筑/岩石/植物/物品等），再铺虚空地形。
             ClearThingsOnCells(map, voidCells);

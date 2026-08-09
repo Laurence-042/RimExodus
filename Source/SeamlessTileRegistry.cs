@@ -40,7 +40,7 @@ namespace RimExodus
             ownerLocalCell = default;
             if (currentMap == null) return false;
 
-            var currentWorldTile = GetCurrentWorldTile(currentMap);
+            var currentWorldTile = GetMapWorldTile(currentMap);
             if (currentWorldTile < 0) return false;
 
             // 当前地块多边形：cell 在内则归属当前地块。
@@ -68,12 +68,6 @@ namespace RimExodus
             }
 
             return false;
-        }
-
-        /// <summary>获取地图对应的世界 tile id（锚点用 map.Tile，口袋用 MapParent_SeamlessTile.worldTile）。</summary>
-        private static int GetCurrentWorldTile(Map map)
-        {
-            return GetMapWorldTile(map);
         }
 
         /// <summary>获取地图对应的世界 tile id。</summary>

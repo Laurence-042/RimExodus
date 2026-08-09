@@ -26,7 +26,8 @@ namespace RimExodus
                 // 诊断：记录所有 Goto 的 playerForced 状态，确认事件驱动链路。
                 if (newJob.playerForced)
                 {
-                    Log.Message($"[RimExodus] StartJob Goto playerForced by {___pawn?.LabelShort} -> {newJob.targetA.Cell}");
+                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                        Log.Message($"[RimExodus] StartJob Goto playerForced by {___pawn?.LabelShort} -> {newJob.targetA.Cell}");
                     SeamlessBorderPreloader.CheckPawnGoto(___pawn, newJob.targetA.Cell);
                 }
             }

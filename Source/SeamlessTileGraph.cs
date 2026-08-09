@@ -20,7 +20,6 @@ namespace RimExodus
             public Map map;
             public IntVec3 offset;
             public int worldTile;
-            public float edgeAngle;
         }
 
         /// <summary>获取 map 上指向 worldTile 的邻居连接信息。返回 false 表示无此邻居。</summary>
@@ -49,8 +48,7 @@ namespace RimExodus
             {
                 map = neighborMap,
                 offset = link.offset,
-                worldTile = link.worldTile,
-                edgeAngle = link.edgeAngle
+                worldTile = link.worldTile
             };
             return true;
         }
@@ -90,8 +88,7 @@ namespace RimExodus
                 {
                     map = neighborMap,
                     offset = link.offset,
-                    worldTile = link.worldTile,
-                    edgeAngle = link.edgeAngle
+                    worldTile = link.worldTile
                 });
             }
         }

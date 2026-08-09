@@ -20,10 +20,18 @@ namespace RimExodus
         /// </summary>
         public bool preloadAllNeighborsOnStart = false;
 
+        /// <summary>
+        /// 详细诊断日志开关（默认 false）。
+        /// 开启后打印所有 [RimExodus] Log.Message 诊断信息（每 tick/每次玩家操作的高频日志），
+        /// 关闭时只保留 Log.Warning / Log.Error 等真正的问题日志。
+        /// </summary>
+        public bool verboseLogging = false;
+
         public override void ExposeData()
         {
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
             Scribe_Values.Look(ref preloadAllNeighborsOnStart, "preloadAllNeighborsOnStart", false);
+            Scribe_Values.Look(ref verboseLogging, "verboseLogging", false);
             base.ExposeData();
         }
     }

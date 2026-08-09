@@ -93,8 +93,9 @@ namespace RimExodus
             // 锁状态是 pawn 级的：pawn 只要还在接缝带上就不会再被任何接缝传送点触发传送。
             targetTrigger.RecordArrival(pawn);
 
-            Log.Message($"[RimExodus] Seamless transfer: {pawn.LabelShort} "
-                + $"map {departureMap.uniqueID} {departureCell} -> map {arrivalMap.uniqueID} {arrivalCell}");
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] Seamless transfer: {pawn.LabelShort} "
+                    + $"map {departureMap.uniqueID} {departureCell} -> map {arrivalMap.uniqueID} {arrivalCell}");
             return true;
         }
     }

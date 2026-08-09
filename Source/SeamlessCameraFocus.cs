@@ -42,7 +42,8 @@ namespace RimExodus
             var offset = FindNeighborOffset(currentMap, arrivalMap);
             if (!offset.HasValue)
             {
-                Log.Message($"[RimExodus] Auto-focus skipped: arrival map {arrivalMap.uniqueID} is not a direct neighbor of current map {currentMap.uniqueID}.");
+                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    Log.Message($"[RimExodus] Auto-focus skipped: arrival map {arrivalMap.uniqueID} is not a direct neighbor of current map {currentMap.uniqueID}.");
                 return;
             }
 
@@ -64,7 +65,8 @@ namespace RimExodus
             Find.CameraDriver.SetRootPosAndSize(new Vector3(targetPos.x, 0f, targetPos.z), camSize);
 
             parent.autoFocused = true;
-            Log.Message($"[RimExodus] Auto-focused to map {arrivalMap.uniqueID}, camera offset by {-offset.Value}.");
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] Auto-focused to map {arrivalMap.uniqueID}, camera offset by {-offset.Value}.");
         }
 
         /// <summary>在 currentMap 的邻居表中查找 neighborMap 的相对偏移（neighborMap 本地 → currentMap）。</summary>

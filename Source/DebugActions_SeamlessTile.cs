@@ -58,7 +58,7 @@ namespace RimExodus
             var parent = manager.GenerateTileMap(currentWorldTile, neighborWorldTile, mapSize);
             if (parent != null)
             {
-                Log.Message($"[RimExodus] Generated seamless tile map for world tile {neighborWorldTile} (hostOffset={parent.hostOffset}).");
+                Log.Message($"[RimExodus] Generated seamless tile map for world tile {neighborWorldTile}.");
             }
         }
 

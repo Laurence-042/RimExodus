@@ -73,8 +73,9 @@ namespace RimExodus
 
             if (bound > 0)
             {
-                Log.Message($"[RimExodus] BindUnboundSpotsBetween mapA={mapA.uniqueID}(wt={worldTileA}) <-> " +
-                    $"mapB={mapB.uniqueID}(wt={worldTileB}), bound {bound} pairs (cellA-cellB={cellAMinusCellB}).");
+                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    Log.Message($"[RimExodus] BindUnboundSpotsBetween mapA={mapA.uniqueID}(wt={worldTileA}) <-> " +
+                        $"mapB={mapB.uniqueID}(wt={worldTileB}), bound {bound} pairs (cellA-cellB={cellAMinusCellB}).");
             }
 
             return bound;
