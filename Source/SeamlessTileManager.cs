@@ -17,6 +17,15 @@ namespace RimExodus
     public class SeamlessTileManager : MapComponent
     {
         /// <summary>
+        /// 接缝重叠带宽度（格）。邻居多边形相对当前地图多叠这么多格。
+        /// 目的：容纳投影扭曲——相邻 tile 各自用自己中心的切平面基投影多边形，
+        /// 共享边在两端局部坐标系有旋转偏差（赤道→北极累积约 30°），2 格重叠带吸收此偏差，
+        /// 保证接缝处两端都有非 void 可站立格，传送落点安全、不漏 void 缝隙。
+        /// 传送点铺在各端自己的多边形边上，pawn 踩端 spot 经 offset 映射到对端时落在重叠带内。
+        /// </summary>
+        public const int SeamOverlap = 2;
+
+        /// <summary>
         /// 锚点地图（家园 A）的直接邻居表。口袋地图的邻居表存于自身的 MapParent_SeamlessTile。
         /// 通过 <see cref="SeamlessTileGraph"/> 统一查询，屏蔽存储位置差异。
         /// </summary>
@@ -278,7 +287,10 @@ namespace RimExodus
             RefreshMapVoid(map);
             PlaceEnterSpotsAllNeighbors(interiorMap, newWorldTile);
             PlaceEnterSpotsAllNeighbors(map, sourceWorldTile);
-            BindNewTileWithExistingNeighbors(interiorMap, newWorldTile);
+            // 新地块的传送点刚铺好，刷新它们的对端坐标缓存（RegisterNeighborBidirectional 已刷新两端，
+            // 但新铺的 spot 在其之后，需再刷一次覆盖到这些新 spot）。
+            RefreshEnterSpotArrivals(map);
+            RefreshEnterSpotArrivals(interiorMap);
             AutoConnectWorldNeighbors(interiorMap, newWorldTile);
             return mapParent;
         }
@@ -340,8 +352,10 @@ namespace RimExodus
             RefreshMapVoid(sourceMap);
             RefreshMapVoid(existingMap);
 
-            // 互绑两端传送点。
-            SeamlessEnterSpotBinder.BindUnboundSpotsBetween(sourceMap, sourceWorldTile, existingMap, existingWorldTile, offset);
+            // 新铺的传送点需刷新对端坐标缓存（RegisterNeighborBidirectional 内已刷一次，
+            // 但补铺的 spot 在其之后，需再刷一次覆盖到它们）。
+            RefreshEnterSpotArrivals(sourceMap);
+            RefreshEnterSpotArrivals(existingMap);
         }
 
         /// <summary>
@@ -377,8 +391,10 @@ namespace RimExodus
 
         /// <summary>
         /// 计算从 sourceWorldTile 到 newWorldTile，新地块相对源地块的偏移。
-        /// offset = round(2 × (边中点 - 中心))，边中点取自源地块多边形（内切圆模型）。
+        /// offset = round(2 × (边中点 - 中心) - SeamOverlap × 方向单位向量)，边中点取自源地块多边形（内切圆模型）。
         /// 边由 newWorldTile 在源地块邻居表中的位置确定。
+        /// 沿 offset 方向收缩 <see cref="SeamOverlap"/> 格，使邻居多边形相对源地图多叠 2 格（接缝重叠带），
+        /// 容纳投影扭曲。
         /// </summary>
         private static IntVec3 ComputeNeighborOffset(int sourceWorldTile, int newWorldTile, Map sourceMap)
         {
@@ -393,6 +409,12 @@ namespace RimExodus
             var center = new Vector2(sourceSize.x * 0.5f, sourceSize.z * 0.5f);
             var mid = (verts[edgeIdx] + verts[(edgeIdx + 1) % n]) * 0.5f;
             var offsetVec = 2f * (mid - center);
+            // 沿 offset 方向收缩 SeamOverlap 格，形成接缝重叠带（容纳投影扭曲）。
+            var mag = offsetVec.magnitude;
+            if (mag > 1e-6f)
+            {
+                offsetVec -= offsetVec / mag * SeamOverlap;
+            }
             return new IntVec3(Mathf.RoundToInt(offsetVec.x), 0, Mathf.RoundToInt(offsetVec.y));
         }
 
@@ -412,6 +434,31 @@ namespace RimExodus
             if (newMap != null)
             {
                 SetNeighborOnMap(newMap, sourceWorldTile, sourceParent, -offset);
+            }
+
+            // offset 在此确定且不再变：刷新两端所有传送点的对端坐标缓存，供传送/寻路 O(1) 读取。
+            RefreshEnterSpotArrivals(sourceMap);
+            if (newMap != null)
+            {
+                RefreshEnterSpotArrivals(newMap);
+            }
+        }
+
+        /// <summary>
+        /// 遍历 map 上所有无缝传送点，按各自的 targetWorldTile 查邻居表得 offset，算出并缓存对端坐标。
+        /// 在邻居关系建立（<see cref="RegisterNeighborBidirectional"/>）后调用一次。
+        /// 幂等：可重复调用（每次重新查 offset 并覆盖缓存）。
+        /// </summary>
+        public static void RefreshEnterSpotArrivals(Map map)
+        {
+            if (map == null) return;
+            var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
+            if (enterSpotDef == null) return;
+
+            foreach (var thing in map.listerThings.ThingsOfDef(enterSpotDef))
+            {
+                var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
+                comp?.ComputeAndCacheArrival(map);
             }
         }
 
@@ -486,7 +533,8 @@ namespace RimExodus
                     if (spawned != null && comp != null)
                     {
                         comp.targetWorldTile = neighborWorldTile;
-                        comp.CounterpartSpot = null; // 预铺：对端留空，待邻居加载后绑定。
+                        // hasArrival 默认 false：预铺时不缓存对端坐标，待邻居加载、
+                        // RegisterNeighborBidirectional → RefreshEnterSpotArrivals 时算出。
                         placed++;
                     }
                     else if (spawned != null)
@@ -498,24 +546,6 @@ namespace RimExodus
 
             if (RimExodusMod.Settings?.verboseLogging ?? false)
                 Log.Message($"[RimExodus] PlaceEnterSpotsAllNeighbors map={targetMap.uniqueID}(wt={worldTile}) placed {placed} single-end spots.");
-        }
-
-        /// <summary>
-        /// 将新加载的地块与其所有已存在的邻居之间的未绑定传送点互相绑定（多跳支持）。
-        /// 遍历新地块的邻居表，对每个已加载邻居调用 <see cref="SeamlessEnterSpotBinder.BindUnboundSpotsBetween"/>。
-        /// </summary>
-        private static void BindNewTileWithExistingNeighbors(Map newMap, int newWorldTile)
-        {
-            if (newMap == null) return;
-            var neighbors = SeamlessTileGraph.GetAllNeighbors(newMap);
-            foreach (var info in neighbors)
-            {
-                if (info.map == null || info.map.Disposed) continue;
-                // info.offset 满足 NeighborLink 契约：cellNeighbor + info.offset = cellNew（从 newMap 查邻居）。
-                // 故 cellNew - cellNeighbor = info.offset。以 newMap 为 A、neighbor 为 B，
-                // cellAMinusCellB = cellA - cellB = cellNew - cellNeighbor = info.offset。
-                SeamlessEnterSpotBinder.BindUnboundSpotsBetween(newMap, newWorldTile, info.map, info.worldTile, info.offset);
-            }
         }
 
         /// <summary>卸载一个无缝地块口袋地图，并清理邻居表中的双向引用。</summary>

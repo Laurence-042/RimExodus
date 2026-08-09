@@ -80,16 +80,22 @@ namespace RimExodus
                 if (thing.def != enterSpotDef) continue;
 
                 var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
-                if (comp == null || comp.CounterpartSpot == null) continue;
+                if (comp == null || !comp.hasArrival) continue;
 
                 // 检查 pawn 是否被到达锁锁住（防回弹）。
                 var trigger = map.GetComponent<SeamlessMapTransferTrigger>();
                 if (trigger != null && trigger.IsArrivalLocked(pawn)) return;
 
+                // 读缓存的对端坐标（O(1)），按 targetWorldTile 解析对端 Map。
+                if (!SeamlessTileGraph.TryGetMapByWorldTile(comp.targetWorldTile, out var arrivalMap))
+                {
+                    // 对端邻居已卸载：跳过（不应发生，传送点缓存已失效）。
+                    return;
+                }
+
                 Log.Message($"[RimExodus] Seamless trigger: pawn {pawn.LabelShort} at {cell} "
-                    + $"on map {map.uniqueID} targeting {DescribeTarget(comp.CounterpartSpot)}");
-                var arrivalMap = comp.CounterpartSpot.Map;
-                if (SeamlessMapTransfer.TryTransferPawn(pawn, thing, comp.CounterpartSpot))
+                    + $"on map {map.uniqueID} targeting {comp.cachedArrivalCell} on map {arrivalMap.uniqueID}");
+                if (SeamlessMapTransfer.TryTransferPawn(pawn, thing, arrivalMap, comp.cachedArrivalCell))
                 {
                     SeamlessCameraFocus.TryAutoFocusOnArrival(pawn, arrivalMap);
                     ContinueCrossMapMove(pawn, arrivalMap);
@@ -180,13 +186,6 @@ namespace RimExodus
             {
                 arrivalLocks.Remove(pawn);
             }
-        }
-
-        private static string DescribeTarget(Thing targetSpot)
-        {
-            return targetSpot?.Spawned == true
-                ? $"{targetSpot.Position} on map {targetSpot.Map.uniqueID}"
-                : "an invalid endpoint";
         }
     }
 }

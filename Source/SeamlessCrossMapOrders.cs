@@ -84,6 +84,8 @@ namespace RimExodus
         /// <summary>
         /// 在 fromMap 上找到所有能桥接到 toMap 的传送点，按到 pawn 的距离排序，
         /// 返回第一个 pawn 能到达的。满铺接缝后候选很多，最近的通常可达即返回。
+        /// 候选判定：传送点的 <see cref="CompSeamlessTileEnterSpot.hasArrival"/> 且
+        /// <see cref="CompSeamlessTileEnterSpot.targetWorldTile"/> 等于 toMap 的 worldTile（O(1) 读缓存/字段）。
         /// </summary>
         private static bool TryFindNearestReachableBridgeSpot(Pawn pawn, Map toMap, out Thing exitSpot)
         {
@@ -95,12 +97,15 @@ namespace RimExodus
                 return false;
             }
 
+            var toMapWorldTile = SeamlessTileRegistry.GetMapWorldTile(toMap);
+
             // 用 def 索引查询（O(1)），避免全量遍历 AllThings。
             var candidates = new List<(Thing spot, int distSq)>();
             foreach (var thing in fromMap.listerThings.ThingsOfDef(enterSpotDef))
             {
                 var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
-                if (comp?.CounterpartSpot == null || comp.CounterpartSpot.Map != toMap)
+                // 对端已缓存可用坐标 + targetWorldTile 指向 toMap。
+                if (comp == null || !comp.hasArrival || comp.targetWorldTile != toMapWorldTile)
                 {
                     continue;
                 }

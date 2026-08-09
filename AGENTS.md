@@ -667,3 +667,48 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - SeamlesslessTileManager 拆分（588行→Generator/NeighborRegistry/EnterSpotPlacer），纯重构待功能稳定后做。
 - 偶现弹跳（A↔C 反复 transfer）待复现后定位根因。
 - 地图生成进度画面优化（分帧 genStep 执行，工作量极大且无先例）。
+
+## 阶段4b：传送机制重构——容纳投影扭曲（已完成，可编译，游戏内待验证）
+
+### 核心思想（重要，理解后续所有改动的前提）
+RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼成），无缝大地图本质是其在局部地图上的**投影**。**投影必然扭曲**：相邻 tile 各自用自己地块中心的切平面基（`WorldRendererUtility.GetTangentsToPlanet(center)`）投影多边形顶点（`WorldTileGeometry.PopulateVertexDirections`）。相邻 tile 中心不同 → 切平面基方向不同（有旋转）→ 世界网格上的同一条共享边在两端局部坐标系里的 2D 方向旋转了（赤道→北极累积约 30°）。
+
+旧机制（阶段3/4a）试图用"传送点双向精确互绑"对抗这个扭曲：两端各自 `EnumerateEdgeCells` Bresenham 划线铺 spot，`BindUnboundSpotsBetween` 按 `expectedCellB = cellA - offset` 精确坐标校验互绑。但投影旋转导致两端 Bresenham 格不一致，精确校验失败 → 绑定数 0 → 传送点未绑定 → `TryFindNearestReachableBridgeSpot` 找不到对端 → `TryInterceptJob` 不拦截 → pawn 在本图走到目标坐标（完全不跨图）。
+
+**新机制容纳扭曲而非消除它**：加宽接缝重叠带到 2 格吸收偏移；传送改为 offset 算对端坐标并缓存到 spot（废弃互绑）。每个 tile 保留自己的切平面基（几何底层不动），扭曲被重叠带吸收。
+
+### 接缝重叠带（`SeamlessTileManager.SeamOverlap = 2`）
+- `ComputeNeighborOffset` 算出 `offsetVec = 2*(边中点 - 中心)` 后，沿其自身方向收缩 `SeamOverlap=2` 格：`offsetVec -= offsetVec/mag * SeamOverlap`，再 round。
+- 效果：邻居多边形相对当前地图多叠 2 格。这 2 格在两端都落在各自多边形内（非 void、可站立），吸收投影偏移。
+- **所有 offset 消费者自动跟随**（渲染/归属/边界带/void 都读同一个 `NeighborLink.offset`），无需逐个改。
+- 从赤道到北极旋转累积 30° 的过程中，2 格重叠带覆盖逐渐累积的偏移（0-124 部分重合在西北方 2 格内，东北方不漏 void）。
+
+### 传送点缓存对端坐标（核心架构，替代互绑）
+- `CompSeamlessTileEnterSpot`：**移除** `CounterpartSpot` 字段。**新增** `cachedArrivalCell`(IntVec3) + `hasArrival`(bool)，不序列化。保留 `targetWorldTile`。
+- `ComputeAndCacheArrival(Map ownerMap)`：用 `SeamlessTileGraph.TryGetNeighborLinkByWorldTile(ownerMap, targetWorldTile, out info)` 拿 offset，算 `cachedArrivalCell = parent.Position - info.offset`（NeighborLink 契约 `cellNeighbor + offset = cellMy` 的逆），置 `hasArrival=true`。邻居未加载时 `hasArrival=false`。
+- `SeamlessTileManager.RefreshEnterSpotArrivals(Map)`：遍历该 map 所有 spot 调 `ComputeAndCacheArrival`。在 `RegisterNeighborBidirectional` 末尾刷新两端（offset 在此确定且不再变，缓存一次即可）；`GenerateTileMap`/`EnsureNeighborRegistered` 在补铺 spot 后再刷一次覆盖新 spot。
+
+### 传送/寻路查询（O(1) 读缓存）
+- **传送触发**（`SeamlessMapTransferTrigger.TryTriggerTransfer`）：踩 spot → `if(!comp.hasArrival) continue` → `SeamlessTileGraph.TryGetMapByWorldTile(comp.targetWorldTile, out arrivalMap)`（少量 Map 查询）→ 读 `comp.cachedArrivalCell`（O(1)）→ `TryTransferPawn(pawn, spot, arrivalMap, cachedArrivalCell)`。
+- **转移**（`SeamlessMapTransfer.TryTransferPawn`）：签名改为 `(Pawn, Thing departureSpot, Map arrivalMap, IntVec3 arrivalCell)`，移除 `CounterpartSpot` 互引校验。`arrivalCell` 不可通行时记 Warning 不兜底（按设计，重叠带保证可通行；若不可通行说明寻路本就该不可达）。
+- **桥接查找**（`SeamlessCrossMapOrders.TryFindNearestReachableBridgeSpot`）：候选过滤改用 `comp.hasArrival && comp.targetWorldTile == toMapWorldTile`（O(1) 读字段/缓存 + worldTile 比对），不再查 `CounterpartSpot.Map`。
+- **未来跨图 A* 寻路**：扩展节点时读 `hasArrival`/`cachedArrivalCell` 判断"有对端 + 对端坐标"，O(1)，无需现算 offset/查邻居表/遍历。Map 解析推迟到实际传送时。
+
+### 删除/废弃
+- **删除文件 `Source/SeamlessEnterSpotBinder.cs`**（互绑工具，整个废弃）。
+- 删除 `SeamlessTileManager.BindNewTileWithExistingNeighbors` 方法 + `GenerateTileMap`/`EnsureNeighborRegistered` 对绑定方法的调用。
+
+### 不改的部分
+- 几何底层（`WorldTileGeometry`/`SeamlessPolygonGeometry`/切平面基）：每 tile 保留自己的基。
+- void 铺设（`ApplyPolygonTerrain`）、渲染、归属判定（`TryGetOwnerNeighbor`）、边界带（`ComputeEdgeBand`）、预加载：经 `NeighborLink.offset` 自动跟随。
+- 传送点铺设（`PlaceEnterSpotsAllNeighbors`）：仍沿边 Bresenham 铺单端 spot 记 `targetWorldTile`，不铺两层（2 格重叠由 offset 提供）。预铺时 `hasArrival` 默认 false，待邻居加载后刷新。
+
+### 待游戏内验证
+- 命令 pawn 前往首个邻居 B（旧机制下必然异常的方向）→ 应正常跨图。
+- 赤道→北极方向跨图（旋转累积最大），确认 2 格重叠带吸收偏移、无 void 缝隙。
+- 防反弹锁：跨图后续程沿接缝前进不被传回。
+- offset 偏移幅度评估（verbose 日志观察 `cellA → cellB` 落点）。
+
+## 存档兼容性说明（重要）
+**mod 未发布，当前一切测试在新建存档中进行，无需考虑旧存档兼容。** 几何/传送点/字段变更后重开档即可，不做读档迁移。此原则适用于阶段3 direction 字段移除、阶段4b 传送机制重构等所有破坏性变更。
+

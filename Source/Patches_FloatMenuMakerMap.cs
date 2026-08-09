@@ -121,11 +121,18 @@ namespace RimExodus
 
             var gotoLabel = "GoHere".Translate();
 
-            // 移除被禁用的 Goto 相关选项（action 为 null 且 label 含 Goto 关键词或拒绝理由）。
+            // 移除被禁用的 Goto 相关选项（原版 DraftedMove provider 在跨图 CanReach 失败时生成的灰色"无法到达"）。
+            // opt.Label 是已本地化文本，必须同样用 .Translate() 得到本地化文本去匹配，
+            // 用未翻译的英文键字面量（如 "CannotGo"）永远匹配不上（这是之前双选项 bug 的根因）。
+            // 原版 DraftedMove.PawnCanGoto 的失败理由只有两种：
+            //   "CannotGoNoPath"      —— 普通跨图不可达（中文"无法到达（没有路径）"）
+            //   "CannotGoOutOfRange"  —— 机制族超指挥范围（仅 Biotech，中文"不可达"）
+            var cannotGoNoPath = "CannotGoNoPath".Translate();
+            var cannotGoOutOfRange = "CannotGoOutOfRange".Translate();
             for (var i = result.Count - 1; i >= 0; i--)
             {
                 var opt = result[i];
-                if (opt.action == null && (opt.Label.Contains(gotoLabel) || opt.Label.Contains("CannotGo")))
+                if (opt.action == null && (opt.Label.Contains(gotoLabel) || opt.Label.Contains(cannotGoNoPath) || opt.Label.Contains(cannotGoOutOfRange)))
                 {
                     result.RemoveAt(i);
                 }

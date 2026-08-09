@@ -4,36 +4,59 @@ namespace RimExodus
 {
     /// <summary>
     /// 无缝地块入口端点。
-    /// 每个端点持有对端入口引用（双方地位完全相同，不感知宿主或口袋地图身份）。
     ///
-    /// 阶段4a：预铺 + 延迟绑定。spot 在地图生成时沿多边形边预铺（单端），
-    /// 此时 <see cref="CounterpartSpot"/> 为 null，<see cref="targetWorldTile"/> 记录对端世界地块。
-    /// 对应邻居加载后，由 <see cref="SeamlessEnterSpotBinder"/> 按 targetWorldTile + 坐标校验互绑。
+    /// 架构（容纳投影扭曲）：传送点不再与对端 spot 双向互绑。每个 spot 记录指向的对端世界地块
+    /// <see cref="targetWorldTile"/>；邻居关系建立后，由 <see cref="SeamlessTileManager.RefreshEnterSpotArrivals"/>
+    /// 按 offset 算出"本格在对端地图的对应坐标"并缓存到 <see cref="cachedArrivalCell"/>。
+    /// 之后传送触发与寻路查询都 O(1) 读缓存，不再现算 offset、不依赖对端 spot 是否存在。
+    ///
+    /// 投影扭曲（相邻 tile 各自切平面基旋转）导致的共享边偏差，由接缝 2 格重叠带
+    /// （<see cref="SeamlessTileManager.SeamOverlap"/>）吸收。
     /// </summary>
     public class CompSeamlessTileEnterSpot : ThingComp
     {
-        private Thing counterpartSpot;
-
-        /// <summary>
-        /// 与本端点配对的另一端入口。预铺未绑定时为 null；绑定后双方互指。
-        /// </summary>
-        public Thing CounterpartSpot
-        {
-            get => counterpartSpot;
-            set => counterpartSpot = value;
-        }
-
         /// <summary>
         /// 本端点指向的对端世界地块 tile id（预铺时由世界邻居序号确定）。
-        /// -1 表示未设置。用于延迟绑定：邻居加载后扫描两端的 spot 按 targetWorldTile 匹配。
+        /// -1 表示未设置。用于运行时解析对端 Map + 寻路过滤。
         /// </summary>
         public int targetWorldTile = -1;
+
+        /// <summary>
+        /// 本格在对端地图的对应坐标（缓存）。由 <see cref="ComputeAndCacheArrival"/> 算出：
+        /// <c>cachedArrivalCell = Position - offset</c>（NeighborLink 契约 cellNeighbor + offset = cellMy 的逆）。
+        /// 邻居关系建立后由 <see cref="SeamlessTileManager"/> 刷新一次，之后只读。
+        /// 不序列化：邻居关系重建时可重算。
+        /// </summary>
+        public IntVec3 cachedArrivalCell;
+
+        /// <summary>是否已缓存有效对端坐标（对端邻居已加载且 offset 已确定）。</summary>
+        public bool hasArrival;
 
         public override void PostExposeData()
         {
             base.PostExposeData();
-            Scribe_References.Look(ref counterpartSpot, "counterpartSpot");
             Scribe_Values.Look(ref targetWorldTile, "targetWorldTile", -1);
+            // cachedArrivalCell/hasArrival 不序列化：邻居关系建立后刷新即可。
+        }
+
+        /// <summary>
+        /// 按 targetWorldTile 查邻居表得 offset，算出本格在对端地图的对应坐标并缓存。
+        /// 邻居未加载或邻居关系未建立时，<see cref="hasArrival"/> 置 false（传送/寻路时跳过）。
+        /// </summary>
+        public void ComputeAndCacheArrival(Map ownerMap)
+        {
+            hasArrival = false;
+            if (ownerMap == null || targetWorldTile < 0) return;
+
+            if (!SeamlessTileGraph.TryGetNeighborLinkByWorldTile(ownerMap, targetWorldTile, out var info))
+            {
+                // 对端邻居尚未加载/未登记：暂不可用。
+                return;
+            }
+
+            // NeighborLink 契约：cellNeighbor + offset = cellMy，故 cellNeighbor(对端) = cellMy - offset。
+            cachedArrivalCell = parent.Position - info.offset;
+            hasArrival = true;
         }
     }
 

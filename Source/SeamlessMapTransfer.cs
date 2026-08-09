@@ -4,53 +4,51 @@ using Verse.AI.Group;
 
 namespace RimExodus
 {
-    /// <summary>在两个地位对等的无缝入口端点之间转移 Pawn。</summary>
+    /// <summary>
+    /// 在无缝接缝处把 Pawn 从本图转移到对端地图的指定坐标。
+    /// 目标坐标由传送点的缓存对端坐标（offset 算出）提供，不依赖对端 spot 绑定。
+    /// </summary>
     public static class SeamlessMapTransfer
     {
-        public static bool TryTransferPawn(Pawn pawn, Thing departureSpot, Thing arrivalSpot)
+        /// <summary>
+        /// 把 pawn 从 departureSpot 所在地图转移到 arrivalMap 的 arrivalCell。
+        /// arrivalCell 由调用方（trigger）从传送点的缓存对端坐标读取（容纳投影扭曲的 offset 映射）。
+        /// </summary>
+        public static bool TryTransferPawn(Pawn pawn, Thing departureSpot, Map arrivalMap, IntVec3 arrivalCell)
         {
-            if (pawn == null || departureSpot == null || arrivalSpot == null)
+            if (pawn == null || departureSpot == null || arrivalMap == null)
             {
-                Log.Warning("[RimExodus] Seamless transfer rejected: pawn or endpoint is null.");
+                Log.Warning("[RimExodus] Seamless transfer rejected: pawn, departure spot, or arrival map is null.");
                 return false;
             }
-            if (!pawn.Spawned || !departureSpot.Spawned || !arrivalSpot.Spawned)
+            if (!pawn.Spawned || !departureSpot.Spawned)
             {
-                Log.Warning("[RimExodus] Seamless transfer rejected: pawn or endpoint is not spawned.");
-                return false;
-            }
-            if (departureSpot == arrivalSpot)
-            {
-                Log.Warning("[RimExodus] Seamless transfer rejected: both endpoints are the same Thing.");
+                Log.Warning("[RimExodus] Seamless transfer rejected: pawn or departure spot is not spawned.");
                 return false;
             }
 
             var departureMap = departureSpot.Map;
-            var arrivalMap = arrivalSpot.Map;
-            if (departureMap == null || arrivalMap == null || departureMap.Disposed || arrivalMap.Disposed
-                || departureMap == arrivalMap)
+            if (departureMap == null || departureMap.Disposed || departureMap == arrivalMap)
             {
-                Log.Warning("[RimExodus] Seamless transfer rejected: endpoint maps are invalid or identical.");
+                Log.Warning("[RimExodus] Seamless transfer rejected: departure map invalid or same as arrival map.");
                 return false;
             }
             if (pawn.Map != departureMap || pawn.Position != departureSpot.Position)
             {
-                Log.Warning("[RimExodus] Seamless transfer rejected: pawn is not on the departure endpoint.");
+                Log.Warning("[RimExodus] Seamless transfer rejected: pawn is not on the departure spot.");
                 return false;
             }
 
-            var departureComp = departureSpot.TryGetComp<CompSeamlessTileEnterSpot>();
-            var arrivalComp = arrivalSpot.TryGetComp<CompSeamlessTileEnterSpot>();
-            if (departureComp?.CounterpartSpot != arrivalSpot || arrivalComp?.CounterpartSpot != departureSpot)
+            if (!arrivalCell.InBounds(arrivalMap))
             {
-                Log.Warning("[RimExodus] Seamless transfer rejected: endpoint references are not reciprocal.");
+                Log.Warning($"[RimExodus] Seamless transfer rejected: arrival cell {arrivalCell} out of bounds on map {arrivalMap.uniqueID}.");
                 return false;
             }
-
-            var arrivalCell = arrivalSpot.Position;
-            if (!arrivalCell.InBounds(arrivalMap) || !arrivalCell.Walkable(arrivalMap))
+            // 按"容纳扭曲"设计，重叠带保证 arrivalCell 可通行。若不可通行，说明寻路本就该不可达——
+            // 不做兜底，记录警告以暴露几何问题，仍拒绝转移。
+            if (!arrivalCell.Walkable(arrivalMap))
             {
-                Log.Warning($"[RimExodus] Seamless transfer rejected: target cell {arrivalCell} is not walkable.");
+                Log.Warning($"[RimExodus] Seamless transfer rejected: arrival cell {arrivalCell} on map {arrivalMap.uniqueID} is not walkable (overlap band should guarantee walkability).");
                 return false;
             }
 
