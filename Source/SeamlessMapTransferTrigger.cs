@@ -123,7 +123,9 @@ namespace RimExodus
                         continue;
                     }
 
-                    Log.Message($"[RimExodus] Seamless trigger: pawn {pawn.LabelShort} at {thing.Position} "
+                    // 诊断：记录 transfer 前的锁状态，排查三地图交点弹跳。
+                    var lockInfo = arrivalLocks.ContainsKey(pawn) ? "was-locked" : "not-locked";
+                    Log.Message($"[RimExodus] Seamless trigger ({lockInfo}): pawn {pawn.LabelShort} at {thing.Position} "
                         + $"on map {map.uniqueID} targeting {DescribeTarget(comp.CounterpartSpot)}");
                     var arrivalMap = comp.CounterpartSpot.Map;
                     if (SeamlessMapTransfer.TryTransferPawn(pawn, thing, comp.CounterpartSpot))

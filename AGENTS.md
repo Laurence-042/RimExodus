@@ -493,3 +493,117 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `Patches_FloatMenuMakerMap.cs` — 加 `InjectCrossMapGotoOption`（跨图 Goto 选项注入）；加 `using Verse.AI`。
 - `SeamlessTerrainFill.cs` — `ApplyPolygonTerrain` 改用 `ScanlineFill` 替代 `ContainsPoint`。
 - `VoidTerrain.xml` — 回退 texturePath/edgeType（仅注释更新）。
+
+## 阶段4a 第三轮游戏内验证后的修复（已完成，可编译）
+
+第三轮测试暴露 2 个问题，全部修复。
+
+### 修复（问题3重做）：纯 Thread 异步，不中断玩家操作
+- **原方案缺陷**：`LongEventHandler.QueueLongEvent(doAsynchronously:true)` 仍会 `ForcePause` + 显示进度画面，中断玩家操作。
+- **修复尝试**：改用纯 `System.Threading.Thread` + `Patch_Game_AddMap` 推迟工作线程的 AddMap 到主线程。
+- **回退（致命）**：`MapGenerator.GenerateMap` 内部顺序是 `AddMap`（:146）→ genSteps（:186）。推迟 AddMap 后，工作线程的 genSteps（如 `GenStep_RockChunks`）执行时 map 尚未 AddMap（`map.Index == -1`），`Thing.SpawnSetup` 检查 `map.Index < 0` 报 "map does not exist"，所有 Thing 生成失败（`Filth_RubbleRock`/`ChunkSandstone` 等海量错误）。**genSteps 依赖 map 已 AddMap**，不能推迟。
+- **最终方案**：回退到 `LongEventHandler.QueueLongEvent(doAsynchronously:true)`，接受进度画面（`ForcePause`）。这是 RimWorld 原生安全机制（VMF 同类做法），生成只需几秒。纯后台异步不可行（AddMap/genSteps 时序依赖）。
+
+### 修复（新额外问题）：C 加载后自动显示间接已加载邻居（如西方的 A）
+- **根因**：从 A→B→C 路径生成 C 时，C 只与直接生成源 B 建立邻居关系。C↔A（世界网格上相邻但 A 通过 B 间接连接）的邻居关系只在 pawn 接近 C 的 A 方向边界时（`CheckPawnGoto`→`EnsureNeighborRegistered`）才建立，导致 C 加载后看不到已存在的 A，需 pawn 走过去才触发。
+- **修复**：`GenerateTileMap` 末尾新增 `AutoConnectWorldNeighbors(interiorMap, newWorldTile)`——遍历新地块的世界邻居列表（`GetTileNeighbors`），对每个已加载（`TryGetMapByWorldTile` 命中）但未建立直接邻居关系的地图调 `EnsureNeighborRegistered`。使新地块加载时自动与所有相邻已加载地块连接，渲染/寻路即用。
+- **幂等**：`EnsureNeighborRegistered` 检查已是直接邻居则跳过。
+
+### 关键文件变更（第三轮）
+- `SeamlessTileManager.cs` — `TryPreloadNeighbor` 用 `LongEventHandler.QueueLongEvent(doAsynchronously:true)` 异步生成；加 `AutoConnectWorldNeighbors`（新地块加载时自动连接所有已加载世界邻居）；`ClearGeneratingTile`（回调清理锁）。
+- `Patch_Game_AddMap.cs` — **已删除**（纯 Thread 推迟 AddMap 方案回退，genSteps 依赖 map.Index）。
+
+## 阶段4a 第四轮：拆分式异步（不阻塞主线程，已完成，可编译）
+
+第三轮的 LongEventHandler 方案虽安全但会显示进度画面中断操作。第四轮实现真正的拆分式异步。
+
+### 拆分 MapGenerator.GenerateMap 流程
+`MapGenerator.GenerateMap` 内部顺序：`:146 AddMap` → `:186 genSteps` → `:190 FinalizeInit`。
+- **约束1**：AddMap 必须在主线程（`List<Map>.Add` 与主线程 foreach `Find.Maps` 的 `_version` 校验冲突，Alert/ColonistBar 每帧 foreach）。
+- **约束2**：AddMap 必须在 genSteps 之前（genSteps 的 `GenSpawn.Spawn` → `Thing.SpawnSetup` 检查 `map.Index`，由 AddMap 设置；推迟 AddMap 导致 "map does not exist"）。
+- **结论（后被推翻）**：尝试拆分为"主线程 AddMap（快）→ 工作线程 genSteps（慢）→ 主线程 FinalizeInit（快）"。
+
+### 三阶段实现（已回退，见第六轮）
+- 阶段1（主线程）：创建 Map + AddMap。
+- 阶段2（工作线程）：genSteps。map 已在 Find.Maps 但未 FinalizeInit。
+- 阶段3（主线程）：FinalizeInit + 配置。
+
+### 反射访问 private 成员（已回退）
+- `MapGenerator.ClearWorkingData`（private static）→ 反射调用。
+- `Find.Scenario.parts`（private）→ `Find.Scenario.AllParts`（public）。
+
+## 阶段4a 第五轮：拆分式异步验证 + 弹跳诊断（进行中）
+
+### 问题3（进度画面）—— 已在源码移除 LongEventHandler（后被第六轮回退）
+第四轮已把 `TryPreloadNeighbor` 改用 `BeginTileMapGeneration`（纯 `new Thread`，无 LongEventHandler）。
+用户日志显示旧 DLL（堆栈含 LongEventHandler lambda）。确认新 DLL 不含 LongEventHandler。
+**用户需重启游戏加载新编译的 DLL。**
+
+### 偶现问题（三地图交点弹跳）—— 加诊断日志
+现象：A↔B↔C 三地图接缝交点附近，pawn 在 map 0 ↔ map 2 之间反复 transfer。
+诊断：`CheckLocalEnterSpots` 的 trigger 日志加锁状态标注（`was-locked`/`not-locked`）。
+**待用户复现并提供带锁状态的日志。**
+
+### 新额外问题（C 自动显示 A）—— 已解决
+第四轮的 `AutoConnectWorldNeighbors` 生效。
+
+## 阶段4a 第六轮：回退拆分式异步（RegionAndRoomUpdater 致命缺陷，已完成，可编译）
+
+### 回退原因：RegionAndRoomUpdater 缺失
+拆分式异步（阶段1 AddMap → 阶段2 工作线程 genSteps → 阶段3 主线程 FinalizeInit）在阶段2 期间，map 已在 `Find.Maps` 但 `FinalizeInit`（含 `regionAndRoomUpdater.Enabled = true` + `RebuildAllRegionsAndRooms`）尚未执行。主线程每帧 tick 这个 map（`TempTerrainManager.Tick` → `GetRoom` → `RegionGrid.GetValidRegionAt`），但 region 网格全空（`RegionAndRoomUpdater` disabled），导致：
+- 海量 `Trying to get valid region at (...) but RegionAndRoomUpdater is disabled` 警告（每帧每个水格）。
+- 寻路失效（pawn 卡接缝，`RandomAnimalSpawnCell_MapGen: numDistrict=0`）。
+- 这不是"中间状态可接受"的小问题，而是让 map 的 tick/寻路完全崩溃。
+
+### 根本结论：拆分式异步在当前引擎架构下不可行
+`AddMap → genSteps → FinalizeInit` 必须在主线程恢复 tick 前连续完成：
+- AddMap 让 map 进入 `Find.Maps`（主线程开始 tick 它）。
+- genSteps 依赖 `map.Index`（AddMap 设置）。
+- FinalizeInit 初始化 region/pathing/powerNet（主线程 tick 依赖）。
+- 三者之间不能有"主线程 tick 半成品 map"的窗口。
+
+### 最终方案：LongEventHandler（doAsynchronously）
+`TryPreloadNeighbor` 用 `LongEventHandler.QueueLongEvent(action, "GeneratingMap", doAsynchronously: true, null)`。整个 `GenerateTileMap`（AddMap+genSteps+FinalizeInit+配置）在 LongEventHandler 的独立线程连续完成，主线程期间显示进度画面（ForcePause 几秒）。
+- **接受进度画面**：这是 RimWorld 原生安全机制（VMF 同类做法）。地图生成的时序依赖（AddMap→genSteps→FinalizeInit）决定了无法做到完全不中断主线程。
+- 纯后台异步（不中断操作）需要分帧执行 genSteps 或重写 MapGenerator，工作量极大且无先例，当前阶段不做。
+
+### 清理
+- 删除拆分式异步全部代码：`BeginTileMapGeneration`/`GenerateMapPhase1`/`Phase2WorkerProc`/`FinalizePendingTileMap`/`ClearMapGeneratorWorkingData`/`IsValidBiomeGenStep`/`GetGenStepParms`/跨阶段 static 槽/`MapComponentTick` 的 phase2Completed 检测。
+- 移除 `using System.Linq/System.Reflection/HarmonyLib`（不再需要）。
+- 保留 `AutoConnectWorldNeighbors`（C 自动显示 A）和 `ClearGeneratingTile`（回调清理锁）。
+
+### 关键文件变更（第六轮）
+- `SeamlessTileManager.cs` — `TryPreloadNeighbor` 回退用 `LongEventHandler.QueueLongEvent(doAsynchronously:true)`；删除全部拆分式代码；移除多余 using。
+
+## 阶段4a 第七轮：不连续 void 修复（已完成，可编译）
+
+### 问题：void 孤岛（edge 内部出现 void 格）
+- **现象**：`numDistrict=0`（六边形内可通行区域被切碎，无法形成 region），`RandomAnimalSpawnCell_MapGen failed`，`BindUnboundSpotsBetween` 绑定数偏低（28 vs 正常 56-80）。
+- **根因**：第六轮（及之前第二轮）的 `ApplyPolygonTerrain` 用 `ScanlineFill` 区间判定非 void，但 `ScanlineFill` 的浮点交点离散化（`CeilToInt`/`FloorToInt`）与 `EnumerateEdgeCells` 的 Bresenham 整数顶点划线**不一致**——两套边界表示在边附近产生缝隙（既不在 ScanlineFill 区间、也不在 Bresenham 边格上的格 → void 孤岛）。
+- **修复**：
+  - `ApplyPolygonTerrain` 回退用逐格 `ContainsPoint`（精确叉积判定）+ 边格补丁（Bresenham 强制非 void）。
+  - 新增 `SeamlessPolygonGeometry.IsCellInPolygon`：`ContainsPoint` 判定在内 **或** 格中心到最近边距离 < 0.71 格（对角线半长，确保格面积有部分在内）。这覆盖了"格中心恰好在边外侧但格面积大部分在内"的边界格，消除 void 孤岛。
+  - `ApplyPolygonTerrain` 用 `IsCellInPolygon` 替代 `ContainsPoint`。
+
+### 关键文件变更（第七轮）
+- `SeamlessPolygonGeometry.cs` — 新增 `IsCellInPolygon`（ContainsPoint + 点到边距离膨胀判定）。
+- `SeamlessTerrainFill.cs` — `ApplyPolygonTerrain` 回退逐格判定，用 `IsCellInPolygon`。
+
+## 阶段4a 第五轮：拆分式异步验证 + 弹跳诊断（进行中）
+
+### 问题3（进度画面）—— 已在源码移除 LongEventHandler
+- **验证**：第四轮已把 `TryPreloadNeighbor` 改用 `BeginTileMapGeneration`（纯 `new Thread`，无 LongEventHandler）。
+- **用户日志显示旧 DLL**：第五轮测试日志堆栈仍含 `LongEventHandler:RunEventFromAnotherThread` → `TryPreloadNeighbor>b__0`（lambda），但新源码的 `TryPreloadNeighbor` 不含 lambda（调 `BeginTileMapGeneration`）。
+- **确认**：重新编译后 `strings RimExodus.dll` 验证不含 `LongEventHandler`/`QueueLongEvent`，含 `BeginTileMapGeneration`/`Phase2WorkerProc`/`FinalizePendingTileMap`。**用户需重启游戏加载新编译的 DLL**（`1.6/Assemblies/RimExodus.dll`，时间戳 15:47+）。
+- 预期：重启后生成邻居地图不再显示进度画面，主线程不阻塞。
+
+### 偶现问题（三地图交点弹跳）—— 加诊断日志
+- **现象**：A↔B↔C 三地图接缝交点附近，pawn 在 map 0 ↔ map 2 之间反复 transfer（日志显示 map 2(183,235)→map 0(181,16)→map 2(179,235)→map 0(181,16) 循环）。防反弹锁（pawn 级，离开整条接缝带才解锁）应在 map 0 上锁住 pawn 阻止再次 transfer，但实际 transfer 发生了。
+- **诊断**：`CheckLocalEnterSpots` 的 trigger 日志加锁状态标注（`was-locked`/`not-locked`）。若弹跳时显示 `was-locked`，说明锁存在但仍 transfer（锁检查逻辑 bug）；若 `not-locked`，说明锁被过早清除（`PurgeInvalidArrivalLocks` 误清）。
+- **待用户复现并提供带锁状态的日志**。
+
+### 新额外问题（C 自动显示 A）—— 已解决
+- 第四轮的 `AutoConnectWorldNeighbors` 生效，C 加载时自动与间接邻居 A 建立关系。
+
+### 已知偶现问题（待复现）
+- pawn 卡在两地图夹缝、所有目标不可达：偶现，日志丢失。可能因异步生成期间传送点/邻居关系时序竞争。待下次复现时通过日志定位。

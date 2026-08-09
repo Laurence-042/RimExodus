@@ -137,6 +137,35 @@ namespace RimExodus
         }
 
         /// <summary>
+        /// 判定格是否在多边形内（用于 void 铺设，保证连续性）。
+        /// 比 <see cref="ContainsPoint"/> 更宽松：格中心在多边形内（含边），
+        /// **或** 格中心到最近边的距离 < 0.71 格（对角线半径，确保格面积有部分在多边形内）。
+        /// 这避免边附近的格因浮点误差被判为外，形成 void 孤岛（不连续 void）。
+        /// </summary>
+        public static bool IsCellInPolygon(List<Vector2> verts, int mapSize, IntVec3 cell)
+        {
+            var n = verts.Count;
+            if (n < 3) return false;
+
+            var px = cell.x + 0.5f;
+            var py = cell.z + 0.5f;
+
+            // 先用 ContainsPoint 精确判定。
+            if (ContainsPoint(verts, mapSize, cell)) return true;
+
+            // 格中心不在多边形内：检查是否离任意一条边足够近（格面积部分在内）。
+            // 阈值 0.71 ≈ sqrt(0.5²) = 格的对角线半长，确保格有部分面积在边内。
+            var p = new Vector2(px, py);
+            for (var j = 0; j < n; j++)
+            {
+                var v0 = verts[j];
+                var v1 = verts[(j + 1) % n];
+                if (DistanceToEdge(p, v0, v1) < 0.71f) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// 沿多边形边 j（连接顶点 j 与顶点 j+1）用 Bresenham 枚举线经过的格子。
         /// 用于传送点划线满铺接缝。
         /// 四格交点补偿：线恰好经过整数格交点时，向内侧（多边形内部方向）补一格，防斜向空缺。

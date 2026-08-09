@@ -97,7 +97,6 @@ namespace RimExodus
                 }
             }
             // 消费异步预加载队列（仅锚点地图消费，避免多张地图重复消费同一队列）。
-            // 队列是全局静态的，任意图块的 tick 都能触发消费；这里用锚点门控避免每帧多次消费。
             if (!map.IsPocketMap)
             {
                 SeamlessTilePreloader.ConsumeQueued();
@@ -186,7 +185,6 @@ namespace RimExodus
             }
 
             // 去重：该 worldTile 已是本地图直接邻居（已加载且已连接）则跳过。
-            // 注：非直接邻居的已存在地图（如 A 与 C 隔着 B）由 GenerateTileMap 内的全局检查 + EnsureNeighborRegistered 处理。
             if (SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, targetWorldTile, out _))
             {
                 return false;
@@ -195,7 +193,7 @@ namespace RimExodus
             var sourceWorldTile = SeamlessTileRegistry.GetMapWorldTile(map);
             if (sourceWorldTile < 0) return false;
 
-            // 防递归守卫（与 GenerateTileMap 内部一致，提前检查避免无谓日志）。
+            // 防递归守卫。
             if (MapGenerator.mapBeingGenerated != null)
             {
                 Log.Warning("[RimExodus] Cannot preload seamless tile map during map generation.");
@@ -204,15 +202,16 @@ namespace RimExodus
 
             generatingTiles.Add(targetWorldTile);
             var mapSize = new IntVec3(map.Size.x, 1, map.Size.z);
-            // 异步生成：用 LongEventHandler 在独立线程跑 GenerateTileMap（含 genSteps，最耗时）。
-            // generatingTiles 在整个异步生成期间保持锁定，在回调末尾由 ClearGeneratingTile 清理。
+            // 异步生成：LongEventHandler 在独立线程跑 GenerateTileMap（含 genSteps + FinalizeInit，整体完成）。
+            // 显示"Generating map"进度画面（ForcePause 几秒）。这是必要的——拆分式异步（AddMap 后 genSteps 前让主线程 tick）
+            // 会导致 RegionAndRoomUpdater 未初始化时主线程 tick 访问 map，海量 "RegionAndRoomUpdater is disabled" 警告 +
+            // 寻路失效（pawn 卡接缝）。AddMap→genSteps→FinalizeInit 必须在主线程恢复前连续完成，LongEventHandler 保证这一点。
             LongEventHandler.QueueLongEvent(() =>
             {
                 GenerateTileMap(sourceWorldTile, targetWorldTile, mapSize);
                 ClearGeneratingTile(targetWorldTile);
             }, "GeneratingMap", doAsynchronously: true, null);
-            Log.Message($"[RimExodus] Queued async preload for world tile {targetWorldTile} " +
-                $"(source={sourceWorldTile}).");
+            Log.Message($"[RimExodus] Queued async preload for world tile {targetWorldTile} (source={sourceWorldTile}).");
             return true;
         }
 
@@ -226,9 +225,9 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// <param name="sourceWorldTile">源地块的世界 tile id</param>
-        /// <param name="newWorldTile">新地块的世界 tile id</param>
-        /// <param name="mapSize">口袋地图尺寸</param>
+        /// 同步生成无缝地块口袋地图（供 Dev 命令 / 开档加载全部邻居使用）。
+        /// 预加载路径（TryPreloadNeighbor）用 LongEventHandler 在独立线程调本方法。
+        /// </summary>
         public MapParent_SeamlessTile GenerateTileMap(int sourceWorldTile, int newWorldTile, IntVec3 mapSize)
         {
             if (MapGenerator.mapBeingGenerated != null)
@@ -237,12 +236,10 @@ namespace RimExodus
                 return null;
             }
 
-            // 防递归：该 worldTile 已有任意地图（含非直接邻居，如 A 与 C 隔着 B）则跳过。
-            // 仅查直接邻居表会漏掉间接连接的已存在地图，导致重复生成。
+            // 防递归：该 worldTile 已有任意地图（含非直接邻居）则跳过，补登记邻居。
             if (SeamlessTileGraph.TryGetMapByWorldTile(newWorldTile, out var existingMap))
             {
                 Log.Message($"[RimExodus] World tile {newWorldTile} already has a map {existingMap.uniqueID}, skip generation.");
-                // 已有地图但可能尚未与本图建立直接邻居关系（多跳间隙），补登记邻居 + 绑定传送点。
                 EnsureNeighborRegistered(map, sourceWorldTile, existingMap, newWorldTile);
                 return null;
             }
@@ -258,49 +255,51 @@ namespace RimExodus
             mapParent.mapGenerator = def.mapGenerator;
             mapParent.worldTile = newWorldTile;
             mapParent.Tile = 0;
-
-            // sourceMap 扁平化：始终指向锚点地图（家园 A）。
             var anchorMap = SeamlessTileGraph.GetAnchorMap(map) ?? map;
             mapParent.sourceMap = anchorMap;
-
-            // hostOffset：新地块相对生成源地块（调用者 map）的偏移。
             mapParent.hostOffset = ComputeNeighborOffset(sourceWorldTile, newWorldTile, map);
 
-            // 用 extraInitBeforeContentGen 回调在 genSteps 跑之前注入真实 worldTile 的 TileInfo，
-            // 使原版地形 GenStep（ElevationFertility/Terrain/RocksFromGrid/Plants）按真实 biome/hilliness/elevation 生成。
-            // 本方法可能被 LongEventHandler 包裹在独立线程执行（TryPreloadNeighbor 路径），
-            // FinalizeInit 内的 mapDrawer.RegenerateEverythingNow（Unity Mesh）已由原版用 ExecuteWhenFinished 推迟到主线程。
             var interiorMap = MapGenerator.GenerateMap(mapSize, mapParent, mapParent.MapGeneratorDef,
                 mapParent.ExtraGenStepDefs, generatedMap => InjectRealTileInfo(generatedMap, newWorldTile), isPocketMap: true);
 
             Find.World.pocketMaps.Add(mapParent);
-
             if (!Find.World.worldObjects.Contains(interiorMap.Parent))
             {
                 Find.World.worldObjects.Add(interiorMap.Parent);
             }
-
-            // 共享锚点地图的天空/天气。
             interiorMap.skyManager = anchorMap.skyManager;
             interiorMap.weatherDecider = anchorMap.weatherDecider;
             interiorMap.weatherManager = anchorMap.weatherManager;
-
-            // 双向登记邻居表。
             RegisterNeighborBidirectional(map, mapParent, sourceWorldTile, newWorldTile, mapParent.hostOffset);
-
-            // 邻居登记后，刷新源地块的 void 铺设。
             RefreshMapVoid(map);
-
-            // 新地块沿全部世界邻居边预铺单端传送点。
             PlaceEnterSpotsAllNeighbors(interiorMap, newWorldTile);
-
-            // 源地块也补铺（幂等）。
             PlaceEnterSpotsAllNeighbors(map, sourceWorldTile);
-
-            // 延迟绑定：新地块与所有已存在的邻居之间互绑传送点。
             BindNewTileWithExistingNeighbors(interiorMap, newWorldTile);
-
+            AutoConnectWorldNeighbors(interiorMap, newWorldTile);
             return mapParent;
+        }
+
+        /// <summary>
+        /// 遍历 map 对应 worldTile 的世界邻居列表，对每个已加载（TryGetMapByWorldTile 命中）但尚未与 map 建立直接邻居关系的地图，
+        /// 调 EnsureNeighborRegistered 补登记。使新地块加载时自动与所有相邻的已加载地块连接（渲染/寻路即用）。
+        /// </summary>
+        private static void AutoConnectWorldNeighbors(Map map, int worldTile)
+        {
+            if (map == null || worldTile < 0) return;
+            var worldNeighbors = new List<PlanetTile>();
+            Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
+            foreach (var neighborTile in worldNeighbors)
+            {
+                var neighborWorldTile = neighborTile.tileId;
+                if (neighborWorldTile == worldTile) continue;
+                // 已是直接邻居则跳过。
+                if (SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, neighborWorldTile, out _)) continue;
+                // 该世界邻居已有加载的地图则补登记。
+                if (SeamlessTileGraph.TryGetMapByWorldTile(neighborWorldTile, out var existingMap))
+                {
+                    EnsureNeighborRegistered(map, worldTile, existingMap, neighborWorldTile);
+                }
+            }
         }
 
         /// <summary>

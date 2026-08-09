@@ -45,30 +45,20 @@ namespace RimExodus
                 }
             }
 
-            // 用 ScanlineFill 算出每行多边形内的可通行区间 [xLeft, xRight]。
-            // 与逐格 ContainsPoint 相比，ScanlineFill 基于扫描线求交 + Ceil/Floor 离散化，
-            // 边界判定更一致（避免 ContainsPoint 的叉积容差在边附近产生 ±1 格的孤立 void）。
-            // 区间内的格为非 void；区间外且非边格的格为 void。
-            var innerCells = new HashSet<IntVec3>();
-            SeamlessPolygonGeometry.ScanlineFill(verts, size.x, (z, xLeft, xRight) =>
-            {
-                if (xLeft > xRight) return; // 该行多边形无内容。
-                for (var x = xLeft; x <= xRight; x++)
-                {
-                    innerCells.Add(new IntVec3(x, 0, z));
-                }
-            });
-
+            // 逐格判定：六边形内（ContainsPoint）或边格上 → 非 void；否则 void。
+            // ContainsPoint 用格中心采样，对凸多边形判定精确（叉积符号一致性）。
+            // 边格（Bresenham 沿多边形顶点连线）强制非 void，保证传送点可站立 + 弥补 ContainsPoint 在边附近的 ±1 格差异。
+            // 不查邻居——void 只取决于自己的六边形。两个地图各自独立铺 void，
+            // A 的 void 区域在 B 地图上恰好是 B 的非 void 区域（被 B 六边形覆盖）。
             var voidCells = new List<IntVec3>();
 
-            // 逐格判定：在 ScanlineFill 区间内或边格上 → 非 void；否则 void。
             for (var x = 0; x < size.x; x++)
             {
                 for (var z = 0; z < size.z; z++)
                 {
                     var cell = new IntVec3(x, 0, z);
-                    if (innerCells.Contains(cell)) continue; // 多边形内：非 void
-                    if (edgeCells.Contains(cell)) continue;  // 边格：非 void
+                    if (edgeCells.Contains(cell)) continue; // 边格：非 void
+                    if (SeamlessPolygonGeometry.IsCellInPolygon(verts, size.x, cell)) continue; // 六边形内（含边附近）：非 void
                     voidCells.Add(cell);
                 }
             }
