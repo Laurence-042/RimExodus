@@ -55,20 +55,21 @@ namespace RimExodus
             // 先清除虚空格上的实体（建筑/岩石/植物/物品等），再铺虚空地形。
             ClearThingsOnCells(map, voidCells);
 
-            // 铺虚空地形：直接写 topGrid/underGrid/colorGrid（公开字段），跳过 SetTerrain 的 DoTerrainChangedEffects。
-            // void 地形 dontRender=true、passability=Impassable、不发光、不是水、layerable=false，
-            // 所以 glowGrid/waterCells 分支都不走，DoTerrainChangedEffects 的 pathGrid/regionDirtyer 等副作用
-            // 会被 FinalizeInit 的 RecalculateAllPerceivedPathCosts 全量重算覆盖。
-            // 直接写字段避免 21000 次 DoTerrainChangedEffects（实测 SetTerrain 路径 5.7 秒 → 直接写 <100ms）。
+            // 铺虚空地形：直接写 topGrid（公开字段 TerrainGrid.cs:13）跳过 SetTerrain 的重计算副作用，
+            // 只保留渲染必需的 mesh 脏标记。void 地形 dontRender=true、passability=Impassable、不发光、
+            // 不是水、layerable=false。SetTerrain 的 DoTerrainChangedEffects 把 mesh 标记（必需）和
+            // pathGrid/waterBodyTracker 重算（非必需且耗时）混在一起，21000 次 × 副作用 = 5.7 秒。
+            // 这里只做 mesh 标记 + drawer SetDirty（渲染必需），pathGrid 由 FinalizeInit 全量重算覆盖。
             var terrainGrid = map.terrainGrid;
             var cellIndices = map.cellIndices;
             var topGrid = terrainGrid.topGrid; // public TerrainDef[]（TerrainGrid.cs:13）
+            var mapDrawer = map.mapDrawer;
             foreach (var cell in voidCells)
             {
                 var idx = cellIndices.CellToIndex(cell);
                 topGrid[idx] = voidDef;
-                // underGrid/colorGrid 不需清（layerable=false 的 void 不设 underGrid，colorGrid 在 SetTerrain 里清但渲染用 dontRender 跳过）。
-                // 若后续渲染异常再补 terrainGrid 的 colorGrid 清理。
+                // 只标记 mesh 脏（渲染必需），跳过 DoTerrainChangedEffects 的其余副作用。
+                mapDrawer.MapMeshDirty(cell, MapMeshFlagDefOf.Terrain, regenAdjacentCells: true, regenAdjacentSections: false);
             }
 
             // 清除生成在虚空格上的 Pawn。
