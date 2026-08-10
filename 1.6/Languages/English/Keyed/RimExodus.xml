@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <!-- Seamless tile border zone: player cannot build within N cells of the polygon edge to prevent seam-stranding exploits. -->
+  <RimExodus_BorderNoBuild>Cannot build in the seamless tile border zone.</RimExodus_BorderNoBuild>
+</LanguageData>

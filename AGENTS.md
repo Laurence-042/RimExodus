@@ -738,3 +738,51 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
   - `MapComponentTick`（锚点地图）周期调 `PurgeInvalid` 清理死亡/未跨图残留。
 - 这样无论切图清空几次，保持集始终记得"这批 pawn 应选中"，逐个跨图后各自 re-Select。
 
+## 阶段4：连续地形调研 + 边界带不可建造约束 + 共因 bug 修复（已完成，可编译）
+
+阶段4 原定义是"连续地形原型"。本轮聚焦**调研 + 两个可直接落地的实现项**，连续地形四项分轮推进。完整调研结论见 `doc/第四阶段-连续地形.md`。
+
+### 边界带不可建造约束（noBuild，阶段3→4 安全前提）
+- **动机**：玩家可在接缝重叠带及其内侧建造建筑，用建筑改变寻路把 pawn 困在 void 一侧——一旦 pawn 站上指向"已被建筑封死对端"的传送点就会卡死。故多边形边内侧必须禁止建造。
+- **数据源**：`SeamlessBorderLookup` 新增独立的 `noBuildBandCells`（`HashSet<IntVec3>`，只存格坐标不需 worldTile 值），带宽由新字段 `borderNoBuildDistance`（默认 `SeamOverlap+1=3`）控制，与预加载带 `borderCells`（`borderPreloadDistance=15`）分离。`BuildBorderLookup` 同时构建两张表（各自带宽独立）。
+- **查询接口**：`SeamlessBorderLookup.IsInNoBuildBand(cell)`（O(1)）；`IsBuilt` 属性供 patch 判断速查表是否就绪（未就绪放行避免误拒）。
+- **patch 点**：`Patch_GenConstruct_CanPlaceBlueprintAt`（Prefix `GenConstruct.CanPlaceBlueprintAt`，所有玩家建造路径的唯一汇聚点）。遍历 `GenAdj.OccupiedRect(center, rot, entDef.Size)`，任一格在禁建带 → `__result = "RimExodus_BorderNoBuild".Translate()` + return false。godMode 放行（开发模式可建）。
+- **不处理原版 InNoBuildEdgeArea**：对 pocket map 它本就返回 false；用户明确不处理，避免六边形边角顶边缘时反而能在原版禁建带建造。
+- **本地化**：新建 `1.6/Languages/English/Keyed/RimExodus.xml`（仓库此前无 Languages 目录）。
+
+### 共因 bug 修复（map.Tile=0 导致岩石类型读 tile 0）
+- **根因**：`GenerateTileMap:269` 设 `mapParent.Tile = 0`（口袋地图惯例，VMF 也如此）。`map.Tile` 读 `MapParent.Tile`（`Map.cs:384` → `MapInfo.Tile` → `MapParent.Tile`），**不读 `pocketTileInfo.tile`**。所以改 `pocketTileInfo.tile` 无效。且不能改 `mapParent.Tile` 为真实 worldTile——`WorldObject.Tile` setter（`WorldObject.cs:99-116`）有副作用（`FastTileFinder.DirtyTile` + `PositionChanged`），会把口袋 MapParent 当真实世界地块处理，破坏口袋语义。
+- **后果**：`RockNoises.Init`（`Verse/RockNoises.cs:22`）用 `map.Tile` 调 `NaturalRockTypesIn(map.Tile)`（以 `tile.GetHashCode()` 为 seed 选岩石类型集合）→ 所有口袋地图读到 tile 0 的岩石类型。`GenStep_Roads` 同样读不到真实道路数据。
+- **修复**：`Patch_RockNoises_Init`（Prefix `RockNoises.Init`），对 RimExodus 口袋地图（`map.Parent is MapParent_SeamlessTile`）用 `new PlanetTile(seamlessParent.worldTile)` 查 `NaturalRockTypesIn`。复制原方法逻辑，只改 tile 来源；Perlin seed（`Rand.Range`）不动（属连续地形阶段的岩石连续化范围）。非 RimExodus 口袋地图放行原方法。
+- **范围限定**：本轮只修"岩石类型读对 tile"。河流/道路数据的完整注入属连续地形阶段。
+
+### 异步加载可行性结论（本轮调研，未实现）
+- **子类化方案不可行**：`Map` 是 `sealed`（`Verse/Map.cs:13`），C# 编译期禁止继承。
+- **新方向——延迟 AddMap 方案理论上可行**（4 核心 patch）：根因是 map 一旦 AddMap 进 `Find.Maps`，主线程每帧 foreach `Find.Maps` 的系统会访问半成品 map 崩。genSteps + FinalizeInit 内部已确认无其他 `Find.Maps` 依赖（唯一阻断是 `Thing.SpawnSetup:819` IndexOf 检查 + `TickManager.RegisterAllTickAbilityFor` 全局 TickList 登记）。4 patch：①Prefix SpawnSetup 跳过 IndexOf 检查；②Prefix RegisterAllTickAbilityFor 不登记半成品 thing；③Prefix Game.AddMap 延迟；④生成完成后反射修正 mapIndexOrState + 补登记。
+- **剩余雷区**：`SignalManager.RegisterReceiver`（全局副作用）、`Pawn.SpawnSetup` override、部分 Comp 的 `this.Map` 读取——实现前必须验证。
+- **判断**：比"接受进度画面"工程复杂度高，但唯一能实现"无进度画面"的方向。RimWorld 原生自己都做不到（`SettleInEmptyTileUtility` 同样用进度画面）。建议独立实验分支，不阻塞主线。
+
+### 连续地形四项可行性分级（本轮调研，未实现）
+| 项 | 可行性 | 核心 patch 策略 |
+|---|---|---|
+| 高度/地形 | 完全可做 | `extraInitBeforeContentGen` 预填 Elevation/Fertility grid + Prefix 跳过 `GenStep_ElevationFertility`。Perlin seed 只是哈希系数（`Utils.cs:176`），`GetValue` 是纯函数 |
+| 岩石类型 | 完全可做 | Prefix `RockNoises.Init` 确定 seed + 世界坐标采样（本轮已修 tile 来源） |
+| 河流 | 部分能做 | Prefix `TileMutatorWorker_River.GenerateRiverGraph` 接缝锚点；接缝处视觉可接上，远离接缝各自弯曲。先决：pocket map 无 River mutator |
+| 道路 | 基本不能做 | A* 寻路强依赖整图地形，两端独立寻路不可能接缝重合。降级为穿越点对齐 |
+
+### 源码文件新增
+- `Source/Patches_RockNoises.cs` — 共因 bug 修复（Prefix `RockNoises.Init` 用真实 worldTile）。
+- `Source/Patches_GenConstruct.cs` — 边界带不可建造约束（Prefix `CanPlaceBlueprintAt`）。
+- `1.6/Languages/English/Keyed/RimExodus.xml` — noBuild 提示文案（仓库首个 Languages 文件）。
+
+### 修改的源码文件
+- `RimExodusSettings.cs` — 加 `borderNoBuildDistance`（默认 3）。
+- `SeamlessBorderLookup.cs` — 加 `noBuildBandCells`（HashSet）+ `IsInNoBuildBand` + `IsBuilt`；`BuildBorderLookup` 重构为同时构建预加载带和禁建带（各自带宽独立）。
+
+### 编译
+`dotnet build Source/RimExodus.csproj -c Debug` 通过（0 错误 0 警告）。
+
+### 待办
+- 连续地形四项分轮实现（高度/地形优先，岩石次之，河流再次，道路最后或砍）。
+- 异步加载"延迟 AddMap"方案实现（独立实验分支，需先验证剩余雷区）。
+- 游戏内验证：noBuild（边内侧 3 格禁建、godMode 可建、外侧可建）、共因 bug（邻居岩石类型随 biome 变化）。

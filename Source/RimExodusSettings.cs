@@ -27,11 +27,22 @@ namespace RimExodus
         /// </summary>
         public bool verboseLogging = false;
 
+        /// <summary>
+        /// 多边形边内侧 N 格禁建（阶段4 安全约束，防接缝卡死）。
+        /// 玩家可在接缝重叠带及其内侧建造建筑，用建筑改变寻路把 pawn 困在 void 一侧——
+        /// 一旦 pawn 站上指向"已被建筑封死对端"的传送点，就会卡死。
+        /// 故多边形边内侧必须禁止建造，从根上杜绝这种滥用。
+        /// 默认 <see cref="SeamlessTileManager.SeamOverlap"/>(2) + 1 = 3，与预加载触发距离（borderPreloadDistance=15）语义不同、独立配置。
+        /// 0 表示禁用此约束。
+        /// </summary>
+        public int borderNoBuildDistance = 3;
+
         public override void ExposeData()
         {
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
             Scribe_Values.Look(ref preloadAllNeighborsOnStart, "preloadAllNeighborsOnStart", false);
             Scribe_Values.Look(ref verboseLogging, "verboseLogging", false);
+            Scribe_Values.Look(ref borderNoBuildDistance, "borderNoBuildDistance", 3);
             base.ExposeData();
         }
     }

@@ -17,13 +17,23 @@ namespace RimExodus
     /// </summary>
     public class SeamlessBorderLookup : MapComponent
     {
-        /// <summary>边界带格 → 最近边对应的邻居 worldTile（不在表 = 非边界带）。</summary>
+        /// <summary>边界带格 → 最近边对应的邻居 worldTile（不在表 = 非边界带，不触发预加载）。</summary>
         private Dictionary<IntVec3, int> borderCells;
+
+        /// <summary>
+        /// 不可建造带格集合（阶段4 安全约束）。
+        /// 多边形边内侧 <see cref="RimExodusSettings.borderNoBuildDistance"/> 格的环形带，禁止玩家建造（防接缝卡死）。
+        /// 只存格坐标（不需要 neighbor worldTile 值），故用 HashSet 而非 Dictionary。
+        /// 不持久化，读档后由几何重建（同 borderCells）。
+        /// </summary>
+        private HashSet<IntVec3> noBuildBandCells;
 
         /// <summary>延迟构建的 tick 计数（MapGenerated 时 mapBeingGenerated 仍非空，需延迟到下一 tick）。</summary>
         private int pendingBuildTicks = -1;
 
-        /// <summary>是否已完成构建（避免重复构建）。</summary>
+        /// <summary>是否已完成构建（避免重复构建）。供外部（如 CanPlaceBlueprintAt patch）判断速查表是否就绪。</summary>
+        public bool IsBuilt => built;
+
         private bool built;
 
         public SeamlessBorderLookup(Map map) : base(map)
@@ -76,8 +86,19 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 构建边界带速查表。读档/新地图首次 tick 或 MapGenerated 延迟后调用。
+        /// 查询某格是否在不可建造带内（多边形边内侧 borderNoBuildDistance 格）。
+        /// 供 <see cref="Patch_GenConstruct_CanPlaceBlueprintAt"/> 拦截玩家建造。
+        /// 速查表未就绪（built=false）时返回 false（放行，避免误拒）。
+        /// </summary>
+        public bool IsInNoBuildBand(IntVec3 cell)
+        {
+            return built && noBuildBandCells != null && noBuildBandCells.Contains(cell);
+        }
+
+        /// <summary>
+        /// 构建边界带速查表（预加载带 + 不可建造带）。读档/新地图首次 tick 或 MapGenerated 延迟后调用。
         /// 幂等：已构建则跳过（除非 force=true）。
+        /// 两张表独立构建，各自带宽独立（预加载带=borderPreloadDistance，禁建带=borderNoBuildDistance）。
         /// </summary>
         public void BuildBorderLookup(bool force = false)
         {
@@ -89,13 +110,8 @@ namespace RimExodus
                 return;
             }
 
-            var bandWidth = RimExodusMod.Settings?.borderPreloadDistance ?? 15;
-            if (bandWidth <= 0)
-            {
-                built = true;
-                borderCells = new Dictionary<IntVec3, int>();
-                return;
-            }
+            var preloadBandWidth = RimExodusMod.Settings?.borderPreloadDistance ?? 15;
+            var noBuildBandWidth = RimExodusMod.Settings?.borderNoBuildDistance ?? 3;
 
             // 取世界邻居列表（顺序与多边形顶点环绕一致）。
             var worldNeighbors = new List<PlanetTile>();
@@ -113,13 +129,32 @@ namespace RimExodus
                 return;
             }
 
+            // 构建预加载带（borderCells：格 → 最近边对应的邻居 worldTile）。
             borderCells = new Dictionary<IntVec3, int>();
-            SeamlessPolygonGeometry.ComputeEdgeBand(verts, map.Size.x, bandWidth, neighborWorldTiles, borderCells);
+            if (preloadBandWidth > 0)
+            {
+                SeamlessPolygonGeometry.ComputeEdgeBand(verts, map.Size.x, preloadBandWidth, neighborWorldTiles, borderCells);
+            }
+
+            // 构建不可建造带（noBuildBandCells：只需格集合，不需 worldTile 值）。
+            noBuildBandCells = new HashSet<IntVec3>();
+            if (noBuildBandWidth > 0)
+            {
+                // ComputeEdgeBand 输出 Dictionary<IntVec3,int>，这里只需 key，用临时字典接收后取 key。
+                var tmpDict = new Dictionary<IntVec3, int>();
+                SeamlessPolygonGeometry.ComputeEdgeBand(verts, map.Size.x, noBuildBandWidth, neighborWorldTiles, tmpDict);
+                foreach (var kv in tmpDict)
+                {
+                    noBuildBandCells.Add(kv.Key);
+                }
+            }
+
             built = true;
 
             if (RimExodusMod.Settings?.verboseLogging ?? false)
                 Log.Message($"[RimExodus] SeamlessBorderLookup built for map {map.uniqueID} (worldTile={worldTile}, " +
-                    $"bandWidth={bandWidth}, borderCells={borderCells.Count}).");
+                    $"preloadBand={preloadBandWidth} cells={borderCells.Count}, " +
+                    $"noBuildBand={noBuildBandWidth} cells={noBuildBandCells.Count}).");
         }
     }
 }
