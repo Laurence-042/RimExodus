@@ -33,7 +33,8 @@ namespace RimExodus
 
         /// <summary>
         /// 把当前地图坐标解析成实际应操作的 Map + 局部坐标。
-        /// 用最近中心所有权规则（六边形方案）在当前地图 + 直接邻居间裁决归属。
+        /// 用点在凸多边形内判定（ContainsPoint，阶段3）在当前地图 + 直接邻居间裁决归属：
+        /// cell 在当前地块多边形内 → 归当前地图；否则查是否在某已生成邻居多边形（按 offset 平移到当前坐标）内 → 归该邻居。
         /// 命中邻居则返回该邻居 Map + 其局部坐标；否则归属当前地图自身。
         /// </summary>
         public static bool TryResolveMapPosition(Vector3 mouseMapPosition, Map currentMap, out Map targetMap, out IntVec3 targetLocalCell)

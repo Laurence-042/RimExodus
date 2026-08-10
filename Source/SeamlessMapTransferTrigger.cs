@@ -7,7 +7,8 @@ namespace RimExodus
 {
     /// <summary>
     /// 当前地图上的无缝入口触发器。
-    /// 每张地图只扫描自己的入口；入口通过 CounterpartSpot 直接指向目标端点。
+    /// 每张地图只扫描自己的入口；入口通过 CompSeamlessTileEnterSpot.cachedArrivalCell + targetWorldTile
+    /// 解析对端（阶段4b 传送机制重构：废弃互绑，改用 offset 算对端坐标并缓存到 spot）。
     /// </summary>
     public class SeamlessMapTransferTrigger : MapComponent
     {

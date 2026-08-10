@@ -96,7 +96,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ### 源码文件（`Source/`）
 - `RimExodusMod.cs` — `[StaticConstructorOnStartup]`，`new Harmony("RimExodus.SeamlessWorld").PatchAll()`。
-- `MapParent_SeamlessTile.cs` — `PocketMapParent` 子类。字段：`worldTile`、`hostOffset`（宿主坐标平移）、`neighborTiles`（`List<int>`）、`neighbors`（`List<NeighborLink>`，含 `worldTile`/`edgeAngle`/`neighbor`/`offset`）。阶段3已移除旧的 `direction` 字段（固定 0-5 编号），改用基于世界地块真实顶点角度的动态方向。`ExposeData` 存全部字段。
+- `MapParent_SeamlessTile.cs` — `PocketMapParent` 子类。字段：`worldTile`、`neighbors`（`List<NeighborLink>`，含 `worldTile`/`neighbor`/`offset`；阶段4a 全面重构后无 `direction`/`edgeAngle`/`hostOffset`/`neighborTiles` 字段，offset 隐式编码方向）。`ExposeData` 存全部字段。
 - `SeamlessMapUtility.cs` — 坐标转换：基于显式 offset 的 `ToMapCoord`/`FromMapCoord`/`ToMapDrawPos`/`TryResolveMapPosition`（泛化所有权解析）。
 - `SeamlessTileManager.cs` — `MapComponent`。`GenerateTileMap(direction, mapSize, overlapBand)`：`WorldObjectMaker.MakeWorldObject` → 设 `sourceMap`/`Tile=0`/`direction`/`hostOffset` → `MapGenerator.GenerateMap(..., isPocketMap: true)` → 加入 `Find.World.pocketMaps` + `Find.World.worldObjects` → 共享宿主 skyManager/weather。`ComputeHostOffset` 把口袋地图放宿主边界外并留重叠带。`GetTileMapInDirection`/`RemoveTileMap`。
 - `SeamlessTileRenderer.cs` — `MapComponent`，维护绑定到主相机 `CameraEvent.BeforeForwardOpaque` 的专属 `CommandBuffer`。对称渲染：遍历 `SeamlessTileGraph.PopulateNeighbors(map)`（复用缓存列表），对每个邻居提交 `SectionLayer_Terrain` + `SectionLayer_ThingsGeneral`（精确类型）+ 手动绘制 Pawn。绘制后只清深度，由原版当前地图覆盖重叠带。
@@ -277,22 +277,22 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ### 数据模型重构（direction → 动态方向）
 - **`MapParent_SeamlessTile.direction` 字段移除**。旧固定 0-5 编号（北/东北/...）完全废弃。
-- **`NeighborLink` 结构变更**：`direction`(int) → `edgeAngle`(float 弧度) + `worldTile`(int)。`worldTile` 作为邻居表主键（稳定无歧义）。
+- **`NeighborLink` 结构变更**：`direction`(int) → `edgeAngle`(float 弧度) + `worldTile`(int)。`worldTile` 作为邻居表主键（稳定无歧义）。（注：阶段4a 全面重构已进一步移除 `edgeAngle`，当前为 `worldTile` + `neighbor` + `offset` 三字段，offset 隐式编码方向。）
 - **查询方法**：`GetNeighborInDirection(int)` → `GetNeighborByWorldTile(int)`；`SetNeighbor(int,...)` → `SetNeighbor(int worldTile, float edgeAngle, MapParent, IntVec3 offset)`。
 - **`SeamlessTileGraph.OppositeDirection` 移除**（双向登记保证反向关系）。`TryGetNeighborLink` → `TryGetNeighborLinkByWorldTile`。
 - **存档不兼容**：旧存档（含 direction）无法加载，原型阶段接受。
 
 ### 新增源码文件
 - `Source/WorldTileGeometry.cs` — 世界地块真实几何读取。`ComputeVertexDirections`/`ComputeEdgeDirections`（顶点/边方向）、`FindNeighborIndex`（邻居序号反查）。用 Odyssey 版 `WorldGrid` API（`GetTileVertices`/`GetTileNeighbors`/`GetTileCenter`/`GetMaxTileNeighborCountEver`）。
-- `Source/SeamlessPolygonGeometry.cs` — 多边形几何工具。`BuildPolygonVertices`（内切圆顶点）、`BuildNeighborCenterOffsets`（邻居中心偏移，纯几何）、`ContainsPoint`/`ContainsPointTranslated`（点在凸多边形内）、`ScanlineFill`（凸多边形扫描线填充）、`EnumerateEdgeCells`（边 Bresenham 划线）。
+- `Source/SeamlessPolygonGeometry.cs` — 多边形几何工具。`BuildPolygonVertices`（内切圆顶点，阶段3 收尾加了进程级缓存）、`ContainsPoint`/`IsCellInPolygon`（点在凸多边形内 / 格角检测消除 void 孤岛）、`ScanlineFill`（凸多边形扫描线填充）、`EnumerateEdgeCells`（边 Bresenham 划线）。（注：阶段3 设计的 `BuildNeighborCenterOffsets`/`ContainsPointTranslated` 实际内联到 `SeamlessTileManager.ComputeNeighborOffset` / `SeamlessTileRegistry.TryGetOwnerNeighbor`，未作独立方法保留。）
 - `Source/SeamlessTerrainFill.cs` — 多边形地形铺设。`ApplyPolygonTerrain`（自己六边形内+边格→非void，六边形外→铺 RimExodus_Void 并清除实体/Pawn）。
 - `1.6/Defs/TerrainDefs/VoidTerrain.xml` — `RimExodus_Void` 虚空地形 Def。
 
 ### 重写的源码文件
 - `MapParent_SeamlessTile.cs` — NeighborLink/MapParent 数据模型（direction→edgeAngle+worldTile）。
 - `SeamlessTileGraph.cs` — 邻居查询（worldTile 主键，移除 OppositeDirection）。
-- `SeamlessTileManager.cs` — `ComputeNeighborOffset`（内切圆边中点）、`GenerateTileMap(sourceWorldTile, newWorldTile, mapSize)`、`PlaceEnterSpots`（Bresenham 划线）、`RefreshMapVoid`（可重复铺 void，锚点+口袋都适用）、`TryAutoGenerateFirstNeighbor`。
-- `GenStep_SeamlessTile.cs` — 全铺 Soil 后调 `ApplyPolygonTerrain` 挖虚空。
+- `SeamlessTileManager.cs` — `ComputeNeighborOffset`（内切圆边中点 + `SeamOverlap` 收缩）、`GenerateTileMap(sourceWorldTile, newWorldTile, mapSize)`、`PlaceEnterSpotsAllNeighbors`（阶段4a：沿全部世界邻居边 Bresenham 划线预铺单端 spot）、`RefreshMapVoid`（可重复铺 void，锚点+口袋都适用）、`TrySetupOnStart`（阶段4a 取代 `TryAutoGenerateFirstNeighbor`）、`EnsureNeighborRegistered`/`AutoConnectWorldNeighbors`（多跳间隙补登记）。
+- `GenStep_SeamlessTile.cs` — 调 `ApplyPolygonTerrain` 挖虚空（阶段4a 修复2 已移除全铺 Soil，真实地形由原版 Terrain genStep 铺）。
 - `SeamlessTileRegistry.cs` — `TryGetOwnerNeighbor` 改为点在凸多边形内判定（`ContainsPoint`）。
 - `DebugActions_SeamlessTile.cs` — Dev 命令改为"Generate All Seamless Neighbors"/"Remove All Tile Maps"。
 
@@ -324,6 +324,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - 五边形地块（12 个特殊 tile）游戏内验证。
 - 未来：patch 禁止"地势开阔"等影响地块地图长宽的地标，注明与硬改地块地图生成的 mod 不兼容。
 - 连续地形（阶段4）依赖本阶段稳定的多边形边界几何。
+- **阶段4 必须实现边界带不可建造约束**：patch `GenConstruct.CanPlaceBlueprintAt`（Prefix），禁止玩家在多边形边内侧 `SeamOverlap+1`(=3) 格内建造。**这是阶段3"卡 void 不会发生"论证的前提**——传送点只在对侧可达时才被 goto 激活，但玩家可用建筑改变寻路打破此前提，把 pawn 困在 void 一侧。详细设计见主文档阶段4"边界带不可建造约束"节。
 
 ## 阶段4a：邻居预加载 + 多跳传送点（已完成，可编译，游戏内待验证）
 
@@ -427,9 +428,9 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
   - `GenerateTileMap` 用 `MapGenerator.GenerateMap` 的 `extraInitBeforeContentGen` 回调调 `InjectRealTileInfo(generatedMap, newWorldTile)`，从 `Find.WorldGrid[worldTile]` 读真实 biome/hilliness/elevation/rainfall/temperature/swampiness/pollution 注入到 `map.pocketTileInfo`（pocket 地图的 TileInfo 来源，`Map.cs:386-398` pocket 直接返回 pocketTileInfo，不读 parent.Tile）。
   - **关键**：`pocketMapProperties` 只有 biome/temperature/tileMutators 字段（无 hilliness），不能写死；必须用回调注入 pocketTileInfo 的全部字段。
 
-### 修复3：void 渲染红色（BadGraphic）
+### 修复3：void 渲染红色（BadGraphic）—— 已回退（见第二轮修复1）
 - **根因**：`dontRender=true` 时 `SectionLayer_Terrain` 用 ShadowMask（透明），但某些边/材质路径可能读 `terrainDef.graphic`（默认 BadGraphic=粉色）。
-- **修复**：`VoidTerrain.xml` 给 `RimExodus_Void` 显式提供 `texturePath=Misc/ShadowMask` + `edgeType=Hard`，使 graphic 被加载为透明贴图（即使某路径绕过 dontRender 读 graphic 也只画透明）。
+- **原修复（已回退）**：曾给 `VoidTerrain.xml` 加 `texturePath=Misc/ShadowMask` + `edgeType=Hard`。第二轮验证发现红色残影的真正根因是 `SeamlessTileRenderer` CommandBuffer 未清色缓冲（移动相机时上一帧像素残留叠加），与 TerrainDef 无关。texturePath/edgeType 已回退（当前 `VoidTerrain.xml` 无此字段），红色残影改由 `SeamlessTileRenderer` 的 `ClearRenderTarget(true, true)` 解决（见第二轮修复1）。
 
 ### 修复4：重复生成同一 worldTile 的地图（多跳间隙）
 - **根因**：`TryPreloadNeighbor`/`GenerateTileMap` 的去重只查"直接邻居表"（`TryGetNeighborLinkByWorldTile`）。但 worldTile 63290（A）的地图已存在（map 0），从 C（map 2）发起预加载时，C 的邻居表里没有 A（A 和 C 隔了 B），查不到 → 重复生成 map 3。

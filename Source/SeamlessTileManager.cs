@@ -10,9 +10,8 @@ namespace RimExodus
     /// 宿主地图上的无缝地块管理器。
     /// 负责生成/卸载无缝地块口袋地图，并维护接缝关系。
     ///
-    /// 阶段3：邻居方向基于世界地块真实顶点角度（动态），不再用固定 0-5 编号。
+    /// 邻居表以 worldTile 为主键，offset 隐式编码方向（阶段4a 全面重构后无 direction/edgeAngle 字段）。
     /// 多边形裁切用内切圆顶点模型（顶点 = center + 0.5S × 方向）。
-    /// 详见阶段3计划。
     /// </summary>
     public class SeamlessTileManager : MapComponent
     {
@@ -31,7 +30,7 @@ namespace RimExodus
         /// </summary>
         public List<NeighborLink> neighbors = new List<NeighborLink>();
 
-        /// <summary>是否已自动生成首个邻居地块（原型阶段：开档即生成北侧，便于测试）。</summary>
+        /// <summary>是否已完成开档初始化（铺 void + 预铺传送点；阶段4a 后默认不自动生成邻居，除非 preloadAllNeighborsOnStart=true）。</summary>
         private bool setupOnStartDone;
 
         /// <summary>延迟生成首个邻居地块的 tick 计数（MapGenerated 时 mapBeingGenerated 仍非空，需延迟到下一 tick）。</summary>
@@ -477,10 +476,11 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 沿地图全部世界邻居边预铺单端传送点（阶段4a：预铺 + 延迟绑定）。
+        /// 沿地图全部世界邻居边预铺单端传送点（阶段4a 预铺 + 阶段4b 传送机制重构）。
         /// 每条边 j 用 Bresenham 划线枚举格，对可站立且无同 def spot 的格铺一个单端 spot：
-        /// <see cref="CompSeamlessTileEnterSpot.targetWorldTile"/> = 该边对应的世界邻居 tile，<see cref="CompSeamlessTileEnterSpot.CounterpartSpot"/> = null。
-        /// 邻居加载后由 <see cref="SeamlessEnterSpotBinder"/> 按 targetWorldTile + 坐标校验互绑。
+        /// <see cref="CompSeamlessTileEnterSpot.targetWorldTile"/> = 该边对应的世界邻居 tile。
+        /// spot 预铺时 hasArrival 默认 false；邻居加载后由 <see cref="RefreshEnterSpotArrivals"/>
+        /// 用 offset 算对端坐标并缓存到 spot（cachedArrivalCell），废弃了旧的互绑模式。
         ///
         /// 幂等：已存在同位置 spot 不重复铺。锚点和口袋都适用（不依赖 MapParent 类型）。
         ///
@@ -563,11 +563,15 @@ namespace RimExodus
             }
         }
 
-        /// <summary>移除 parent 与其所有邻居之间的双向邻居表引用。</summary>
+        /// <summary>移除 parent 与其所有邻居之间的双向邻居表引用，并刷新受影响剩余邻居的传送点缓存。</summary>
         private static void CleanupNeighborLinks(MapParent_SeamlessTile parent)
         {
             var linksToRemove = new List<NeighborLink>(parent.neighbors);
             parent.neighbors.Clear();
+
+            // 收集受影响的剩余邻居 Map（去重），清理后需刷新其传送点缓存，
+            // 否则指向被卸载地块的 spot 仍保留陈旧的 hasArrival/cachedArrivalCell。
+            var affectedMaps = new HashSet<Map>();
 
             foreach (var link in linksToRemove)
             {
@@ -581,6 +585,18 @@ namespace RimExodus
                     link.neighbor.Map.GetComponent<SeamlessTileManager>()?.neighbors
                         .RemoveAll(n => n != null && n.neighbor == parent);
                 }
+
+                // 记录受影响的邻居 Map（neighbor.Map 在口袋被卸载场景下可能为 null，跳过）。
+                if (link.neighbor.Map != null)
+                {
+                    affectedMaps.Add(link.neighbor.Map);
+                }
+            }
+
+            // 刷新剩余邻居的传送点缓存：指向已卸载地块的 spot 会重算 hasArrival=false，缓存自然失效。
+            foreach (var affectedMap in affectedMaps)
+            {
+                RefreshEnterSpotArrivals(affectedMap);
             }
         }
     }

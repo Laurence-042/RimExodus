@@ -18,18 +18,42 @@ namespace RimExodus
     public static class SeamlessPolygonGeometry
     {
         /// <summary>
+        /// 多边形顶点进程级缓存。worldTile 的世界网格几何（顶点/邻居/中心）在单局游戏内不变，
+        /// 开新档是新进程，故缓存无需主动失效。键 = (worldTile, mapSize)。
+        /// 消除 TryGetOwnerNeighbor/GenStep/ComputeNeighborOffset 等重复的世界网格查询 + 切平面基计算。
+        /// </summary>
+        private static readonly Dictionary<(int worldTile, int mapSize), List<Vector2>> polygonCache = new();
+
+        /// <summary>
         /// 构造地块 worldTile 在 mapSize 地图内的多边形顶点（局部坐标，Vector2：x=东向格，y=北向格）。
         /// 顶点 = center + 0.5S × 顶点方向（内切圆模型）。
         /// 顺序与 WorldTileGeometry.ComputeVertexDirections 一致。
+        /// 结果经进程级缓存，单局内重复调用零重算。
         /// </summary>
         public static List<Vector2> BuildPolygonVertices(int worldTile, int mapSize)
         {
             var result = new List<Vector2>();
-            PopulatePolygonVertices(worldTile, mapSize, result);
+            PopulatePolygonVerticesCached(worldTile, mapSize, result);
             return result;
         }
 
-        /// <summary>填入版。调用方负责 Clear。</summary>
+        /// <summary>填入版（带缓存）。调用方负责 Clear。命中缓存直接填充，未命中计算后存拷贝。</summary>
+        public static void PopulatePolygonVerticesCached(int worldTile, int mapSize, List<Vector2> result)
+        {
+            if (result == null) return;
+            var key = (worldTile, mapSize);
+            if (polygonCache.TryGetValue(key, out var cached))
+            {
+                result.Clear();
+                result.AddRange(cached);
+                return;
+            }
+            PopulatePolygonVertices(worldTile, mapSize, result);
+            // 存一份拷贝，防调用方修改污染缓存。
+            polygonCache[key] = new List<Vector2>(result);
+        }
+
+        /// <summary>填入版（无缓存，实际计算）。调用方负责 Clear。</summary>
         public static void PopulatePolygonVertices(int worldTile, int mapSize, List<Vector2> result)
         {
             if (result == null) return;
@@ -160,8 +184,9 @@ namespace RimExodus
 
         /// <summary>
         /// 沿多边形边 j（连接顶点 j 与顶点 j+1）用 Bresenham 枚举线经过的格子。
-        /// 用于传送点划线满铺接缝。
-        /// 四格交点补偿：线恰好经过整数格交点时，向内侧（多边形内部方向）补一格，防斜向空缺。
+        /// 用于传送点划线满铺接缝。浮点顶点先 RoundToInt 成整数端点，再走标准整数 Bresenham。
+        /// 注：void 判定已改用 IsCellInPolygon 格角检测（不依赖此划线），故不做边格补偿——
+        /// 边附近的 void 孤岛由格角检测消除，传送点只需覆盖边线经过的主体格。
         /// </summary>
         public static IEnumerable<IntVec3> EnumerateEdgeCells(List<Vector2> verts, int edgeIdx, int mapSize)
         {
