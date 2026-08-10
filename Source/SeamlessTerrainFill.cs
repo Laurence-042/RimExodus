@@ -52,8 +52,14 @@ namespace RimExodus
 
             Log.Message($"[RimExodus] ApplyPolygonTerrain worldTile={worldTile} map={map.uniqueID} size={size.x} voidCells={voidCells.Count} nonVoid={size.x*size.z - voidCells.Count}");
 
+            var verbose = RimExodusMod.Settings?.verboseLogging ?? false;
+            var sw = verbose ? System.Diagnostics.Stopwatch.StartNew() : null;
+            long tClear = 0, tTerrain = 0, tEvac = 0, tClassify = 0;
+            if (sw != null) { tClassify = sw.ElapsedMilliseconds; }
+
             // 先清除虚空格上的实体（建筑/岩石/植物/物品等），再铺虚空地形。
             ClearThingsOnCells(map, voidCells);
+            if (sw != null) { tClear = sw.ElapsedMilliseconds - tClassify; }
 
             // 铺虚空地形：直接写 topGrid（公开字段 TerrainGrid.cs:13）跳过 SetTerrain 的重计算副作用，
             // 只保留渲染必需的 mesh 脏标记。void 地形 dontRender=true、passability=Impassable、不发光、
@@ -72,9 +78,16 @@ namespace RimExodus
                 topGrid[idx] = voidDef;
                 mapDrawer.MapMeshDirty(cell, MapMeshFlagDefOf.Terrain, regenAdjacentCells: false, regenAdjacentSections: false);
             }
+            if (sw != null) { tTerrain = sw.ElapsedMilliseconds - tClear - tClassify; }
 
             // 清除生成在虚空格上的 Pawn。
             EvacuatePawnsOnCells(map, voidCells);
+            if (sw != null)
+            {
+                tEvac = sw.ElapsedMilliseconds - tTerrain - tClear - tClassify;
+                sw.Stop();
+                Log.Message($"[RimExodus] ApplyPolygonTerrain timings: classify={tClassify}ms clear={tClear}ms terrain={tTerrain}ms evac={tEvac}ms");
+            }
         }
 
         /// <summary>清除指定格集合上的所有实体（建筑/岩石/植物/物品/草丛等），保留 Pawn（Pawn 单独处理）。</summary>
