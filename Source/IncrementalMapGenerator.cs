@@ -108,18 +108,17 @@ namespace RimExodus
                 // 跨帧保持的 PushState 会被清掉导致 FinishGeneration 的 PopState 弹空栈。
                 // 每个 genStep 用 Rand.PushState/Seed/PopState 独立配对（RunOneGenStep），不依赖外层栈。
                 int seed = Gen.HashCombineInt(Find.World.info.Seed, mapParent.ID);
+                ClearWorkingDataStatic();
+                // 准备阶段同步完成（不跨帧），PushState/Seed/PopState 配对安全：
+                // Rand.Seed setter 要求 stateStack.Count > 0，PushState 保证；PopState 恢复原状态。
+                Rand.PushState();
                 try
                 {
-                    ClearWorkingDataStatic();
-                    // 准备阶段同步完成（不跨帧），PushState/Seed/PopState 配对安全：
-                    // Rand.Seed setter 要求 stateStack.Count > 0，PushState 保证；PopState 恢复原状态。
-                    Rand.PushState();
                     Rand.Seed = seed;
-                    Rand.PopState();
                 }
-                catch
+                finally
                 {
-                    throw;
+                    Rand.PopState();
                 }
 
                 var newMap = new Map();

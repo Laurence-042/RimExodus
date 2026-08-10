@@ -33,7 +33,7 @@ namespace RimExodus
         /// <summary>是否已完成开档初始化（铺 void + 预铺传送点；阶段4a 后默认不自动生成邻居，除非 preloadAllNeighborsOnStart=true）。</summary>
         private bool setupOnStartDone;
 
-        /// <summary>延迟生成首个邻居地块的 tick 计数（MapGenerated 时 mapBeingGenerated 仍非空，需延迟到下一 tick）。</summary>
+        /// <summary>延迟开档初始化的 tick 计数（MapGenerated 时 mapBeingGenerated 可能仍非空，需延迟到下一 tick 调 TrySetupOnStart）。</summary>
         private int pendingAutoGenerateTicks = -1;
 
         /// <summary>
@@ -216,21 +216,14 @@ namespace RimExodus
                 ClearGeneratingTile(targetWorldTile);
                 return false;
             }
-            // generatingTiles 在 FinishGeneration 完成后由 ClearGeneratingTile 清理（需延迟到最后帧）。
-            // 暂用 MapComponentTick 检测生成完成——IncrementalMapGenerator.current == null 时清理。
-            // （简化：下面注册一个一次性清理，挂在 sourceMap 的 tick 上。）
-            // 实际上 generatingTiles 用于防重入，分帧期间保持 true 即可；完成后清理。
-            Log.Message($"[RimExodus] Started incremental generation for world tile {targetWorldTile} (source={sourceWorldTile}).");
+            // generatingTiles 防重入锁在分帧生成期间保持 true，由 GenerateTileMap 的 onComplete
+            // 回调（FinishGeneration 完成后）调 ClearGeneratingTile 清理。
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] Started incremental generation for world tile {targetWorldTile} (source={sourceWorldTile}).");
             return true;
         }
 
-        /// <summary>检查分帧生成是否完成，完成后清理 generatingTiles 防重入锁。</summary>
-        public static bool IsGenerationDone()
-        {
-            return !IncrementalMapGenerator.IsAnyGenerating;
-        }
-
-        /// <summary>异步生成完成后清理防重入锁。</summary>
+        /// <summary>分帧生成完成后清理防重入锁（被 GenerateTileMap 的 onComplete 回调调用）。</summary>
         private static void ClearGeneratingTile(int worldTile)
         {
             foreach (var m in Find.Maps)
@@ -240,8 +233,10 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 同步生成无缝地块口袋地图（供 Dev 命令 / 开档加载全部邻居使用）。
-        /// 预加载路径（TryPreloadNeighbor）用 LongEventHandler 在独立线程调本方法。
+        /// 生成无缝地块口袋地图（分帧增量生成，主线程每帧跑 1 genStep，不暂停 tick）。
+        /// 准备阶段（ConstructComponents→AddMap→组装 genSteps）同步完成，genStep 链分帧执行，
+        /// FinalizeInit + 后续配置（邻居登记/传送点铺设/void 刷新）在最后帧的 onComplete 回调执行。
+        /// 调用者：TryPreloadNeighbor（事件驱动预加载）、TrySetupOnStart（开档加载全部邻居）。
         /// </summary>
         public MapParent_SeamlessTile GenerateTileMap(int sourceWorldTile, int newWorldTile, IntVec3 mapSize)
         {

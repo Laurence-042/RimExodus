@@ -792,5 +792,33 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 
 ### 待办
 - 连续地形四项分轮实现（高度/地形优先，岩石次之，河流再次，道路最后或砍）。
-- 异步加载"延迟 AddMap"方案实现（独立实验分支，需先验证剩余雷区）。
 - 游戏内验证：noBuild（边内侧 3 格禁建、godMode 可建、外侧可建）、共因 bug（邻居岩石类型随 biome 变化）。
+
+## 阶段4 分帧增量生成最终实现（已完成，可编译，游戏内已验证）
+
+实验分支 `experiment/deferred-addmap-async` 实现并验证了**分帧增量地图生成**：主线程每帧跑 1+ genStep，不暂停 tick、无进度画面、无红字 NRE、性能良好。玩家在生成期间可继续操作其他地图。取代了此前的 LongEventHandler（进度画面）/ forceHideUI / 延迟 AddMap / 纯 Thread 等方案。详细调研与最终状态见 `doc/第四阶段-连续地形.md` 的"更优方案：分帧增量生成"和"最终实现状态"节。
+
+### 文件清单
+- `Source/IncrementalMapGenerator.cs` — 分帧生成器 MapComponent（准备阶段同步 + genStep 分帧 + FinishGeneration 单帧）。
+- `Source/Patches_IncrementalMapGen.cs` — patch `Map.MapPreTick`/`MapPostTick`/`MapUpdate`，generating map 早退（不 tick、不渲染）。
+- `Source/Patches_GenStepRocksFromGrid.cs` — Postfix 清 void 格岩石 + 屋顶（order~200，RocksFromGrid 之后立即）。
+- `Source/SeamlessTerrainFill.cs` — `ApplyPolygonTerrain` 改为直接写 `terrainGrid.topGrid` + `MapMeshDirty(regenAdjacentCells:false)`，跳过 SetTerrain 副作用。
+- `Source/SeamlessTileManager.cs` — `GenerateTileMap` 改用 `IncrementalMapGenerator.Start`，后续配置放 `onComplete` 回调。
+- `1.6/Defs/MapGeneration/SeamlessTileGenerator.xml` — `RimExodus_SeamlessTile` genStep `order=211`（Terrain 之后、Plants 之前）。
+
+### 关键实现要点
+- **Plants 分帧**：最重的 genStep（~8000ms 单帧），拆成每批 2000 cells，每帧跑到 `TimeBudgetMs=8ms` 预算耗尽；每批独立 `Rand.Seed`（`HashCombineInt(state.randSeed, batchIndex)`）保证跨帧 Rand 独立、可复现。
+- **ApplyPolygonTerrain 直接写 topGrid**：跳过 `SetTerrain` 的 `DoTerrainChangedEffects`（pathGrid/waterBodyTracker 重算，21000 次 × 副作用 = 5.7 秒）。pathGrid 由 FinalizeInit 全量重算覆盖。
+- **ProgramState 翻转**：`RunOneGenStep` genStep 执行期间临时设 `MapInitializing`，结束恢复 `Playing`。修复 `WaterBodyTracker.Notify_TerrainChanged` 在生成期间触发 NRE（bodies 未初始化）。
+- **Rand.Seed PushState/PopState 保护**：每个 seed 设置都配对，不保持外层 Rand 栈帧（`Root.Update` 每帧 `EnsureStateStackEmpty` 会清空跨帧栈）。消除 "Modifying initial rand seed" 红字。
+- **void 内嵌 Terrain genStep**：order=211 在 Terrain(210) 之后覆写多边形外格为 void，后续 Plants/RockChunks/Animals 读 terrainGrid 自然不 spawn。
+- **RocksFromGrid Postfix**：清 void 格岩石+屋顶，使 RimExodus_SeamlessTile 的 ClearThingsOnCells 在口袋 genStep 路径变空操作（锚点 RefreshMapVoid 路径仍需它）。
+- **移除 FinishGeneration 对锚点 map 的冗余 RefreshMapVoid**：原每次生成邻居都重铺锚点 void（清玩家游戏期间生长物，耗时 12-23 秒）。改为 void 只看自己多边形，TrySetupOnStart 开档铺一次。
+
+### 性能数据
+- RimExodus_SeamlessTile（void 裁切）：5762ms → 30ms。
+- Plants genStep：8000ms（单帧卡顿）→ 分帧每帧 <50ms。
+- 总生成无单帧卡顿，玩家全程可操作。
+
+### 最终结论
+纯后台异步（不中断操作 + 工作线程并发）受 Rand/MapGenerator static 非 ThreadStatic 限制不可行（需 fork 级工作量）。分帧方案在主线程顺序执行天然避免 static 竞争，是当前能实现"无进度画面、不暂停 tick、无红字 NRE"的最优方案。

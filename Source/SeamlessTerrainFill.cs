@@ -50,9 +50,9 @@ namespace RimExodus
                 }
             }
 
-            Log.Message($"[RimExodus] ApplyPolygonTerrain worldTile={worldTile} map={map.uniqueID} size={size.x} voidCells={voidCells.Count} nonVoid={size.x*size.z - voidCells.Count}");
-
             var verbose = RimExodusMod.Settings?.verboseLogging ?? false;
+            if (verbose)
+                Log.Message($"[RimExodus] ApplyPolygonTerrain worldTile={worldTile} map={map.uniqueID} size={size.x} voidCells={voidCells.Count} nonVoid={size.x*size.z - voidCells.Count}");
             var sw = verbose ? System.Diagnostics.Stopwatch.StartNew() : null;
             long tClear = 0, tTerrain = 0, tEvac = 0, tClassify = 0;
             if (sw != null) { tClassify = sw.ElapsedMilliseconds; }
@@ -90,7 +90,15 @@ namespace RimExodus
             }
         }
 
-        /// <summary>清除指定格集合上的所有实体（建筑/岩石/植物/物品/草丛等），保留 Pawn（Pawn 单独处理）。</summary>
+        /// <summary>
+        /// 清除指定格集合上的所有实体（建筑/岩石/植物/物品/草丛等），保留 Pawn（Pawn 单独处理）。
+        ///
+        /// **口袋地图 genStep 路径上的空操作**：口袋地图生成时，Patch_GenStep_RocksFromGrid（Postfix，
+        /// order~200，RocksFromGrid 之后立即）已清掉 void 格上的岩石/屋顶，等 RimExodus_SeamlessTile
+        /// （order=211）跑 ApplyPolygonTerrain 调本方法时已无 Thing 可清。
+        /// **锚点地图路径仍需本方法**：锚点 A 是原生 Map 不走 genStep，RefreshMapVoid 在游戏运行期间调用，
+        /// 此时玩家游戏期间生长的植物/掉落物/建筑会出现在 void 格上，必须由本方法清除。
+        /// </summary>
         private static void ClearThingsOnCells(Map map, List<IntVec3> cells)
         {
             if (cells.Count == 0) return;
