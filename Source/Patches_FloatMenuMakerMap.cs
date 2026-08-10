@@ -25,6 +25,15 @@ namespace RimExodus
         private static readonly MethodInfo GetProviderOptionsMethod =
             AccessTools.Method(typeof(FloatMenuMakerMap), "GetProviderOptions");
 
+        // FloatMenuContext 的 cachedClickedThings/cachedClickedPawns 是 private 字段，构造时从
+        // Find.CurrentMap 收集（GenUI.ThingsUnderMouse 硬编码 CurrentMap）。跨图场景下这两个集合
+        // 装的是"A 上同坐标格的对象"，与玩家点的 B 无关，会让 52 个 Thing/Pawn provider 产出错误选项
+        // 甚至触发 Reachability.CanReach 的跨图 Log.Error。用反射在跨图场景清空它们，从源头切断。
+        private static readonly AccessTools.FieldRef<FloatMenuContext, List<Thing>> ClickedThingsField =
+            AccessTools.FieldRefAccess<FloatMenuContext, List<Thing>>("cachedClickedThings");
+        private static readonly AccessTools.FieldRef<FloatMenuContext, List<Pawn>> ClickedPawnsField =
+            AccessTools.FieldRefAccess<FloatMenuContext, List<Pawn>>("cachedClickedPawns");
+
         public static bool Prefix(List<Pawn> selectedPawns, Vector3 clickPos, ref List<FloatMenuOption> __result, ref FloatMenuContext context)
         {
             var hostMap = Find.CurrentMap;
@@ -55,6 +64,14 @@ namespace RimExodus
             {
                 return false;
             }
+
+            // 跨图场景下清空 ClickedThings/ClickedPawns：它们在构造时从 Find.CurrentMap 收集，
+            // 装的是"A 上同坐标格的对象"，与玩家真正点的地图无关。让所有 Thing/Pawn provider
+            //（攻击/拾取/治疗/haul 等 52 个）的 GetOptionsFor 循环不执行，从源头切断错误选项
+            // 和 Reachability.CanReach 的跨图 Log.Error。跨图右键任何位置统一收敛为"走到这里"。
+            // （未来支持跨图射击/交互时，在此处按需注入专门的跨图选项。）
+            ClickedThingsField(context)?.Clear();
+            ClickedPawnsField(context)?.Clear();
 
             if (!context.IsMultiselect)
             {
@@ -112,16 +129,15 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 跨图场景下注入 Goto 选项，可达性由"本图桥接传送点"决定，而非原版 DraftedMove 的 CanReach。
+        /// 跨图场景下统一收敛为唯一选项（"走到这里"或灰色"无法到达"）。
         ///
-        /// 设计原因：原版 <c>FloatMenuOptionProvider_DraftedMove.PawnCanGoto</c> 调 <c>pawn.CanReach</c>，
-        /// 而 <c>ReachabilityUtility.CanReach</c> 内部用 <c>pawn.Map</c>（pawn 真正所在的 A）的 reachability，
-        /// 从不看 context.map（B）。gotoLoc 是 B 的坐标，同尺寸地图下落在 A 的 bounds 内 →
-        /// 在 A 上对"A 上对应坐标"做寻路。这导致"导航到 B 的可达性"被 A 上对应坐标的可通行性影响
-        /// （A 对应位置是山脉/void 时误判不可达），是设计缺陷。
+        /// 上游 Prefix 已清空 ClickedThings/ClickedPawns（从源头切断了 52 个 Thing/Pawn provider 的产出），
+        /// 但 cell 级 provider（DraftedMove 的 GoHere、WorkGivers 的 cell 分支、ExtinguishFires 等）仍会用
+        /// <c>pawn.CanReach(B cell)</c> 产出可达/禁用选项。这些产出基于错误的可达性检查（用 pawn.Map=A 的
+        /// reachability 查 B 坐标），不能采用。本方法清空全部原版产出，按桥接可达性注入唯一选项。
         ///
-        /// 正确语义：跨图可达性 = pawn 能否到达本图的桥接传送点（<see cref="SeamlessCrossMapOrders.CanBridgeTo"/>）。
-        /// 本方法移除原版 DraftedMove 的全部 GoHere 产出（可达 isGoto + 禁用 CannotGo），统一按桥接可达性注入。
+        /// 桥接可达性 = pawn 能否到达本图的桥接传送点（<see cref="SeamlessCrossMapOrders.CanBridgeTo"/>），
+        /// 不感知对端坐标在本图是 void 还是山壁——只要本图有可达桥接 spot 就放行。
         /// </summary>
         private static void InjectCrossMapGotoOption(FloatMenuContext context, List<FloatMenuOption> result)
         {
@@ -129,26 +145,10 @@ namespace RimExodus
             if (pawn == null || pawn.Downed) return;
             if (!context.ClickedCell.IsValid) return;
 
-            var gotoLabel = "GoHere".Translate();
-
-            // 移除原版 DraftedMove 的全部 GoHere 相关产出：
-            //   - 可达 GoHere：isGoto == true（provider 第 70 行设置）。
-            //   - 禁用"无法到达"：action == null 且 label 含 CannotGo 本地化文本（跨图 CanReach 失败时生成）。
-            // 两者都不让参与最终结果——跨图可达性改由桥接点决定。
-            var cannotGoNoPath = "CannotGoNoPath".Translate();
-            var cannotGoOutOfRange = "CannotGoOutOfRange".Translate();
-            for (var i = result.Count - 1; i >= 0; i--)
-            {
-                var opt = result[i];
-                if (opt.isGoto
-                    || (opt.action == null && (opt.Label.Contains(cannotGoNoPath) || opt.Label.Contains(cannotGoOutOfRange))))
-                {
-                    result.RemoveAt(i);
-                }
-            }
+            // 清空全部原版产出（cell 级 provider 的错误可达性判定结果）。
+            result.Clear();
 
             // 桥接可达性：pawn 能否从本图到达某个对端指向 context.map 的桥接传送点。
-            // 不感知对端坐标在本图是 void 还是山壁——只要本图有可达桥接 spot 就放行。
             var canBridge = SeamlessCrossMapOrders.CanBridgeTo(pawn, context.map);
 
             if (canBridge)
@@ -156,7 +156,7 @@ namespace RimExodus
                 // 桥接可达：注入 autoTakeable 的跨图 GoHere，对齐原版可达 GoHere 语义，
                 // 使 GetAutoTakeOption 直接执行（不弹菜单，自动寻路到桥接点）。
                 // action 下发 Goto Job（targetA = 目标 cell），Patches_Job.TryInterceptJob 桥接到传送点。
-                var gotoOption = new FloatMenuOption(gotoLabel, () =>
+                var gotoOption = new FloatMenuOption("GoHere".Translate(), () =>
                 {
                     var job = JobMaker.MakeJob(JobDefOf.Goto, context.ClickedCell);
                     job.playerForced = true;
@@ -170,8 +170,7 @@ namespace RimExodus
             else
             {
                 // 桥接不可达（pawn 被围死，无法到任何桥接点）：注入禁用"无法到达"，对齐原版不可达表现。
-                var disabledOption = new FloatMenuOption("CannotGoNoPath".Translate(), null);
-                result.Add(disabledOption);
+                result.Add(new FloatMenuOption("CannotGoNoPath".Translate(), null));
             }
         }
 

@@ -723,6 +723,14 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 - **桥接可达性复用**：新增 `SeamlessCrossMapOrders.CanBridgeTo(pawn, toMap)` 公开方法（调 `TryFindNearestReachableBridgeSpot` 只查可达性，不 Record/不返回 spot），前端菜单和后端桥接共用同一判定。
 - **五边形 void 已考虑**：方案基于"本图桥接 spot 可达性"，不感知对端坐标在本图是 void 还是山壁。
 
+### 修复1扩展：跨图右键 Thing/Pawn 选项的一致性收敛（系统性）
+- **根因（系统性）**：`FloatMenuContext.cachedClickedThings/cachedClickedPawns` 在构造时从 `Find.CurrentMap`(A) 收集（`GenUI.ThingsUnderMouse` 硬编码 CurrentMap），不从 `context.map`(B)。所以跨图点击 B 上的物品/敌人/Pawn 时，`ClickedThings` 装的是 **A 上同坐标格的对象**，根本不是玩家视觉上点的 B 的对象。所有 52 个 Thing/Pawn provider（攻击/拾取/治疗/修理/haul 等）对这些"A 的错误对象"用 `pawn.Map`(A) 的 reachability 检查，产出错误选项，甚至触发 `Reachability.CanReach`（Reachability.cs:115-117）的跨图 `Log.Error` 红字。修复1只处理了 DraftedMove(GoHere)，其余 51 个 provider 全部错误产出。
+- **修复（一致收敛）**：跨图场景下跨图右键**任何东西**（cell/Thing/Pawn）统一收敛为"走到这里"：
+  - **Prefix 清空 `ClickedThings`/`ClickedPawns`**：构造 context 后用反射（`AccessTools.FieldRefAccess` 缓存 private 字段 `cachedClickedThings`/`cachedClickedPawns`）清空 → `GetProviderOptions` 的 Thing/Pawn foreach 不执行 → 52 个 Thing/Pawn provider 从源头不产出，避免错误选项和跨图红字。
+  - **`InjectCrossMapGotoOption` 清空 result**：cell 级 provider（WorkGivers cell 分支、ExtinguishFires 等）仍会用 `pawn.CanReach(B cell)` 产 NoPath，本方法清空全部原版产出，按桥接可达性注入唯一选项（可达 GoHere 或灰色无法到达）。
+- **语义**：当前阶段（跨图移动已实现，跨图射击/交互未实现），跨图右键任何位置 = "走到这里"（桥接过去）。同图场景完全不受影响（Prefix `return true` 放行原版）。未来跨图射击/交互实现时，在清空 ClickedThings 后按需注入专门跨图选项。
+- **为什么是一致的**：单一改动点（Prefix 清空 + InjectCrossMapGotoOption 清空注入）覆盖全部 52 个 provider，从源头切断而非逐个过滤，避免 `Reachability.CanReach` 跨图红字。
+
 ### 修复2：跨图后选中状态丢失
 - **根因**：`SeamlessMapTransfer.TryTransferPawn` 的 `pawn.DeSpawn()` 触发 `Thing.DeSpawn`（`Thing.cs:974-977`）**无条件** `Find.Selector.Deselect(this)`；`GenSpawn.Spawn` 不操作 Selector → 选中列表保持空。
 - **修复**（原版范式照搬，参照 `CameraJumper.TrySelectInternal` 和 Pawn 死亡生尸体 `Pawn.cs:2246-2248`）：
