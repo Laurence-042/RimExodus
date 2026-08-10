@@ -352,6 +352,12 @@ namespace RimExodus
             var sw = RimExodusMod.Settings?.verboseLogging ?? false
                 ? System.Diagnostics.Stopwatch.StartNew() : null;
 
+            // 临时设 ProgramState=MapInitializing（原版 GenerateMap:82 行为）：
+            // WaterBodyTracker.Notify_TerrainChanged(:175) 检查 ProgramState==Playing 才执行，
+            // 生成期间 ProgramState=Playing 会导致它进入 TryCreateBodyOrAddToExisting → NRE（bodies 未初始化）。
+            // genStep 结束后恢复 Playing（主线程 tick 在 genStep 之间发生，那时 ProgramState 已恢复）。
+            var savedState = Current.ProgramState;
+            Current.ProgramState = ProgramState.MapInitializing;
             Rand.PushState();
             try
             {
@@ -375,6 +381,7 @@ namespace RimExodus
             finally
             {
                 Rand.PopState();
+                Current.ProgramState = savedState; // 恢复 Playing（主线程 tick 在 genStep 之间发生）。
             }
             sw?.Stop();
             if (sw != null)

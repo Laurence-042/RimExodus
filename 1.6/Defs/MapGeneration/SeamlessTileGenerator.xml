@@ -5,10 +5,10 @@
     无缝地块口袋地图生成器（阶段4a：真实地形 + 多边形 void 裁切）。
     genSteps 复用原版 MapCommonBase 的地形/岩石/植物/动物序列，使口袋地图按真实 worldTile 特性生成原版地形。
 
-    void 裁切不再用独立 genStep（原 RimExodus_SeamlessTile order=1000），改为 Postfix patch GenStep_Terrain：
-    在原版 Terrain 逐格设地形后立即把多边形外的格覆写为 void。这样后续 genStep（Plants/RockChunks/Animals，
-    order 都比 Terrain 高）读 terrainGrid 发现 void 格 Impassable 自然不 spawn，ClearThingsOnCells 只需清
-    RocksFromGrid（order 比 Terrain 低）的岩石，Thing 量大幅减少，性能从 5000-9000ms 降到预期 <500ms。
+    void 裁切用 RimExodus_SeamlessTile genStep（order=211，Terrain 之后立即、Plants 之前）：
+    Terrain(order=210) 跑完后 void genStep 把多边形外格覆写为 void，后续 genStep（Plants/RockChunks/Animals）
+    读 terrainGrid 发现 void Impassable 自然不 spawn，ClearThingsOnCells 只需清 RocksFromGrid 的岩石。
+    不能用 Postfix patch GenStep_Terrain——原方法内部 WaterBodyTracker NRE 会导致 Postfix 被跳过。
 
     biome/hilliness/elevation 等 TileInfo 字段不能在 Def 里写死（每个地块不同），
     由 GenerateTileMap 通过 extraInitBeforeContentGen 回调从真实 worldTile 动态注入 pocketTileInfo。
@@ -27,6 +27,7 @@
       <li>MutatorPostElevationFertility</li>
       <li>RocksFromGrid</li>
       <li>Terrain</li>
+      <li>RimExodus_SeamlessTile</li>
       <li>MutatorPostTerrain</li>
       <li>Roads</li>
       <li>RockChunks</li>
@@ -42,7 +43,7 @@
 
   <GenStepDef>
     <defName>RimExodus_SeamlessTile</defName>
-    <order>1000</order>
+    <order>211</order>
     <genStep Class="RimExodus.GenStep_SeamlessTile"/>
   </GenStepDef>
 
