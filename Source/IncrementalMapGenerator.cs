@@ -37,6 +37,20 @@ namespace RimExodus
         private Action<Map> onComplete;
         private bool finalizing;
 
+        // ===== 可分帧 genStep 状态（Plants 等重 genStep 跨帧执行）=====
+        /// <summary>当前 genStep 是否正在进行中（跨帧），null=未在进行。</summary>
+        private SubStepState subStepState;
+
+        private class SubStepState
+        {
+            public int stepIndex;
+            public int cellIndex; // 已处理的 cell 数（cellsInRandomOrder 索引）。
+            public int totalCells;
+            public float densityFactor;
+            public float desiredPlants;
+            public int randSeed; // 该 genStep 的 Rand.Seed（每帧恢复，保证可复现）。
+        }
+
         // ===== 反射缓存（MapGenerator private static 访问）=====
         private static readonly FieldInfo tmpGenStepsField = AccessTools.Field(typeof(MapGenerator), "tmpGenSteps");
         private static readonly MethodInfo getSeedPartMethod = AccessTools.Method(typeof(MapGenerator), "GetSeedPart");
@@ -208,8 +222,7 @@ namespace RimExodus
 
         /// <summary>
         /// 每帧推进 genStep。用时间预算：每帧跑多个 genStep 直到累计时间接近 TimeBudgetMs。
-        /// 单个重 genStep（RocksFromGrid/Plants）内部无法中断，仍会单帧超时——
-        /// 时间预算主要让轻 genStep 合并到同一帧，减少总帧数。
+        /// Plants 等重 genStep 支持跨帧执行（SubStepState），避免单帧卡顿。
         /// </summary>
         private const float TimeBudgetMs = 8f; // 每帧 genStep 时间预算（ms），留给 tick/渲染约 8ms。
 
@@ -223,11 +236,28 @@ namespace RimExodus
                 // 每帧循环跑 genStep，直到时间预算耗尽或全部完成。
                 while (currentStepIndex < genSteps.Count)
                 {
-                    RunOneGenStep();
+                    // 检查是否是可分帧的重 genStep（Plants），若是则跨帧执行。
+                    if (IsSplittableGenStep(genSteps[currentStepIndex]) && subStepState == null)
+                    {
+                        StartSubStepState(currentStepIndex);
+                    }
+
+                    if (subStepState != null)
+                    {
+                        // 跨帧执行 Plants 的 cell 循环。
+                        var done = RunSubStepChunk(frameStart);
+                        if (!done) return; // 本帧预算耗尽，下一帧继续。
+                        // Plants 全部完成。
+                        subStepState = null;
+                    }
+                    else
+                    {
+                        RunOneGenStep();
+                    }
                     currentStepIndex++;
-                    // 检查时间预算（仅在跑完至少 1 个 genStep 后检查，保证每帧至少推进 1 步）。
+                    // 检查时间预算。
                     var elapsedMs = (UnityEngine.Time.realtimeSinceStartup - frameStart) * 1000f;
-                    if (elapsedMs >= TimeBudgetMs) break; // 预算耗尽，下一帧继续。
+                    if (elapsedMs >= TimeBudgetMs) break;
                 }
 
                 if (currentStepIndex < genSteps.Count) return; // 还有 genStep，下一帧继续。
@@ -241,6 +271,78 @@ namespace RimExodus
                 CleanupFailedGeneration(generatingMap);
                 current = null;
             }
+        }
+
+        /// <summary>判断 genStep 是否可分帧（重 genStep 跨帧执行，避免单帧卡顿）。</summary>
+        private static bool IsSplittableGenStep(GenStepWithParams step)
+        {
+            return step.def.defName == "Plants";
+        }
+
+        /// <summary>初始化可分帧 genStep 的状态。</summary>
+        private void StartSubStepState(int stepIndex)
+        {
+            var spawner = generatingMap.wildPlantSpawner;
+            subStepState = new SubStepState
+            {
+                stepIndex = stepIndex,
+                cellIndex = 0,
+                totalCells = generatingMap.cellIndices.NumGridCells,
+                densityFactor = spawner.CurrentPlantDensityFactor,
+                desiredPlants = spawner.CurrentWholeMapNumDesiredPlants,
+                randSeed = Gen.HashCombineInt(baseSeed, GetSeedPartFor(stepIndex)),
+            };
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] Plants genStep: starting split-frame execution (totalCells={subStepState.totalCells}, density={subStepState.densityFactor}).");
+        }
+
+        /// <summary>
+        /// 跨帧执行 Plants 的 cell 循环。每帧跑一批 cell 直到时间预算耗尽。
+        /// 返回 true 表示全部完成，false 表示本帧未完成（下一帧继续）。
+        /// 每 batch 用独立 Rand seed（stepSeed + batchIndex），保证跨帧 Rand 独立。
+        /// </summary>
+        private bool RunSubStepChunk(float frameStart)
+        {
+            var map = generatingMap;
+            var spawner = map.wildPlantSpawner;
+            var state = subStepState;
+            const int batchSize = 2000; // 每批 cell 数（每批用独立 Rand seed）。
+
+            while (state.cellIndex < state.totalCells)
+            {
+                // 时间预算检查。
+                var elapsedMs = (UnityEngine.Time.realtimeSinceStartup - frameStart) * 1000f;
+                if (elapsedMs >= TimeBudgetMs) return false;
+
+                // 计算本批范围。
+                var batchEnd = System.Math.Min(state.cellIndex + batchSize, state.totalCells);
+                var batchIndex = state.cellIndex / batchSize;
+
+                // 每批用独立 Rand seed（保证跨帧 Rand 独立，每批可复现）。
+                Rand.PushState();
+                try
+                {
+                    Rand.Seed = Gen.HashCombineInt(state.randSeed, batchIndex);
+                    for (var i = state.cellIndex; i < batchEnd; i++)
+                    {
+                        var cell = map.cellsInRandomOrder.Get(i);
+                        // ChanceToSkip=0.001f（99.9% 不跳过），这里直接处理所有格（跳过 Rand.Chance 优化）。
+                        spawner.CheckSpawnWildPlantAt(cell, state.densityFactor, state.desiredPlants, setRandomGrowth: true);
+                    }
+                }
+                finally
+                {
+                    Rand.PopState();
+                }
+                state.cellIndex = batchEnd;
+
+                if (RimExodusMod.Settings?.verboseLogging ?? false && state.cellIndex % 10000 == 0)
+                    Log.Message($"[RimExodus] Plants genStep: {state.cellIndex}/{state.totalCells} cells processed.");
+            }
+
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] Plants genStep: done ({state.totalCells} cells).");
+            return true;
         }
 
         /// <summary>跑一个 genStep（复刻 GenerateContentsIntoMap:319-344）。</summary>
