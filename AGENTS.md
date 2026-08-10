@@ -898,5 +898,6 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 
 ### 仍待办（阶段4 本体：连续地形）
 - **地形连续化**（噪声坐标代理层、Perlin seed 确定化）——这是阶段4的真正目标，本轮只是前置准备。基础地图转变后原生 Coast/River mutator 已自然生效（每个地块独立正确），连续化是让相邻地块地形在接缝处对齐。
+- **sky/weather 共享的 tick 重复隐患**：当前 `GenerateTileMap` 把新地块的 `skyManager`/`weatherManager`/`weatherDecider` 覆写为锚点 A 的实例。但 `Map.MapPostTick`（:1077/:1093）和 `MapUpdate`（:1155/:1193）会按各自 map 调用 `weatherManager.WeatherManagerTick` 等——共享实例会被每个地图各 tick 一次，导致天气推进速度翻倍、状态错乱。短期未观察到明显问题，但长期运行有微妙异常风险。待决策：共享（需 patch 跳过非主地图的 manager tick）还是独立（接受天气不连续）。
 - sky/weather 共享的存档重载验证。
 - 远行队进入出生点按来源方向精确推断（当前用任一可站立传送点）。

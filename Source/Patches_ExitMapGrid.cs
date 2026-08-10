@@ -5,7 +5,7 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// 阶段5原型：把无缝地块的传送点格标记为出口格（exit cell），使原生远行队组建流程生效。
+    /// 阶段4前置：把无缝地块的传送点格标记为出口格（exit cell），使原生远行队组建流程生效。
     ///
     /// 背景：六边形裁切把地块地图的边缘格（含原生撤离区）都切成了 void（不可通行），
     /// 原版 <see cref="ExitMapGrid.Rebuild"/> 只标"距地图边缘 ≤2 格且可达"的格，这些格在六边形外全是 void。

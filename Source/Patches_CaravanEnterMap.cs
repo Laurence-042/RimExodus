@@ -6,7 +6,7 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// 阶段5原型：远行队进入 RimExodus 地块地图时，从传送点出生（而非随机边缘）。
+    /// 阶段4前置：远行队进入 RimExodus 地块地图时，从传送点出生（而非随机边缘）。
     ///
     /// 背景：原版 <see cref="CaravanEnterMapUtility.Enter(Caravan, Map, CaravanEnterMode, ...)"/>
     /// 用 <c>FindNearEdgeCell</c> 随机选地图边缘格出生。对六边形裁切的地块地图，

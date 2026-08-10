@@ -113,7 +113,7 @@ namespace RimExodus
             base.MapGenerated();
             // 仅锚点地图（家园 A）触发开档初始化，便于原型测试。
             // 地块地图（MapParent_SeamlessTile）的邻居生成不通过 MapGenerated 自动级联（避免生成风暴）。
-            // 阶段5原型：基础地图后 IsPocketMap 恒 false，改用 Parent 类型判断是否为地块地图。
+            // 阶段4前置：基础地图后 IsPocketMap 恒 false，改用 Parent 类型判断是否为地块地图。
             if (map.Parent is MapParent_SeamlessTile) return;
             if (!setupOnStartDone)
             {
@@ -265,7 +265,7 @@ namespace RimExodus
 
             var mapParent = (MapParent_SeamlessTile)WorldObjectMaker.MakeWorldObject(def);
             mapParent.worldTile = newWorldTile;
-            // 阶段5原型：基础地图。mapParent.Tile 必须设为真实 PlanetTile，
+            // 阶段4前置：基础地图。mapParent.Tile 必须设为真实 PlanetTile，
             // 这样 map.TileInfo 自动读 Find.WorldGrid[Tile]（含真实 biome/hilliness/mutators/rivers），
             // 原生 Coast/River/Delta 等 TileMutator 自然生效，无需 InjectRealTileInfo。
             mapParent.Tile = new PlanetTile(newWorldTile);
@@ -277,14 +277,15 @@ namespace RimExodus
             // 【实验分支】分帧增量生成：每帧跑 1 genStep，不暂停 tick（generating map 被 patch 跳过）。
             // 准备阶段（ConstructComponents→AddMap→组装 genSteps）同步完成，
             // genStep 链分帧执行，FinalizeInit + 后续配置在最后帧的 onComplete 执行。
-            // 阶段5原型：基础地图不需要 InjectRealTileInfo（TileInfo 自动正确），extraInitBeforeContentGen 传 null。
+            // 阶段4前置：基础地图的 TileInfo 自动读真实 WorldGrid 数据（含 mutators/rivers），
+            // 无需 extraInitBeforeContentGen 注入，传 null。
             var started = IncrementalMapGenerator.Start(
                 mapParent, mapSize, mapParent.MapGeneratorDef, mapParent.ExtraGenStepDefs,
                 null,
                 interiorMap =>
                 {
                     // ===== 生成后配置（FinalizeInit 之后，主线程）=====
-                    // 阶段5原型：基础地图，不加入 pocketMaps（那是口袋地图列表）。
+                    // 阶段4前置：基础地图，不加入 pocketMaps（那是口袋地图列表）。
                     // 基础地图由 Current.Game.AddMap（IncrementalMapGenerator 内部）加入 Find.Maps，
                     // 且 WorldObject 由 worldObjects.Add 注册到世界视图。
                     if (!Find.World.worldObjects.Contains(interiorMap.Parent))
@@ -554,7 +555,7 @@ namespace RimExodus
             if (interiorMap != null)
             {
                 CleanupNeighborLinks(parent);
-                // 阶段5原型：基础地图无 sourceMap，不在 pocketMaps 列表。
+                // 阶段4前置：基础地图无 sourceMap，不在 pocketMaps 列表。
                 // WorldObject 由 DeinitAndRemoveMap 触发 MapParent 销毁时清理。
                 Current.Game.DeinitAndRemoveMap(interiorMap, false);
             }

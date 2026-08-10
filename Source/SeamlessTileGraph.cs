@@ -106,7 +106,7 @@ namespace RimExodus
 
         /// <summary>
         /// 判断 map 是否为锚点地图（玩家家园，IsPlayerHome）。
-        /// 阶段5原型：改基础地图后 IsPocketMap 恒 false，改用 IsPlayerHome 区分家园与地块。
+        /// 阶段4前置：改基础地图后 IsPocketMap 恒 false，改用 IsPlayerHome 区分家园与地块。
         /// 地块地图（MapParent_SeamlessTile）不是锚点；原生家园地图是锚点。
         /// </summary>
         public static bool IsAnchorMap(Map map)
@@ -117,7 +117,7 @@ namespace RimExodus
         /// <summary>
         /// 获取 map 用于 skyManager/weatherManager 共享的锚点地图（玩家家园）。
         /// 家园地图自身返回自身；地块地图返回当前玩家家园地图（用于天气连续性共享）。
-        /// 阶段5原型：不再依赖 sourceMap（基础地图无此字段），改用 Find.CurrentMap 的家园查找。
+        /// 阶段4前置：不再依赖 sourceMap（基础地图无此字段），改用 Find.CurrentMap 的家园查找。
         /// </summary>
         public static Map GetAnchorMap(Map map)
         {

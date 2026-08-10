@@ -5,7 +5,7 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// 无缝世界地块的 MapParent（阶段5原型：基础地图而非口袋地图）。
+    /// 无缝世界地块的 MapParent（阶段4前置：基础地图而非口袋地图）。
     /// 继承原生 <see cref="MapParent"/>（非 PocketMapParent），作为独立基础地图存在，
     /// 无 sourceMap 父子关系，所有地块对等。
     ///
@@ -33,7 +33,7 @@ namespace RimExodus
         public override string Label => "Seamless Tile Map";
 
         /// <summary>
-        /// 阶段5原型：基础地图的 WorldObject 会进入世界视图静态绘制层（useDynamicDrawer=false）。
+        /// 阶段4前置：基础地图的 WorldObject 会进入世界视图静态绘制层（useDynamicDrawer=false）。
         /// override Print 为空操作，让地块在世界地图上不显示图标。
         /// 地块通过地图内叠加渲染呈现，不需世界视图图标。
         /// </summary>

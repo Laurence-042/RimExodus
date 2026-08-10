@@ -26,7 +26,7 @@ namespace RimExodus
             {
                 return;
             }
-            // 仅口袋地块（MapParent_SeamlessTile）触发，且每个地块仅一次。
+            // 仅地块地图（MapParent_SeamlessTile）触发，且每个地块仅一次。
             if (arrivalMap.Parent is not MapParent_SeamlessTile parent || parent.autoFocused)
             {
                 return;

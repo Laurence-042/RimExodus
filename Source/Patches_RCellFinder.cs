@@ -6,7 +6,7 @@ using Verse.AI;
 namespace RimExodus
 {
     /// <summary>
-    /// 阶段5原型：让远行队组建流程的出口目标指向传送点（而非地图边缘，边缘被六边形 void 封死）。
+    /// 阶段4前置：让远行队组建流程的出口目标指向传送点（而非地图边缘，边缘被六边形 void 封死）。
     ///
     /// 背景：六边形裁切把地块地图的矩形边缘格都切成了 void（不可站立）。
     /// 原版 <see cref="RCellFinder.TryFindBestExitSpot"/>/<see cref="RCellFinder.TryFindRandomExitSpot"/>
