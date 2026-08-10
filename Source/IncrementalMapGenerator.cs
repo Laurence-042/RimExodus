@@ -90,18 +90,17 @@ namespace RimExodus
                 // ===== 准备阶段（复刻 MapGenerator.GenerateMap :82-185 的前半段）=====
                 // 注意：不翻转 ProgramState（原版设 MapInitializing，但分帧期间主线程继续 tick，
                 // 翻转会导致 20+ 处守卫逻辑错乱）。genStep 通常不读 ProgramState，保持 Playing 更安全。
-                // 若实测有 genStep 依赖 MapInitializing，再按需 patch。
-                Rand.PushState();
-                int seed;
+                // 不保持外层 Rand.PushState 栈帧——Root.Update 每帧调 EnsureStateStackEmpty 会清空栈，
+                // 跨帧保持的 PushState 会被清掉导致 FinishGeneration 的 PopState 弹空栈。
+                // 每个 genStep 用 Rand.PushState/Seed/PopState 独立配对（RunOneGenStep），不依赖外层栈。
+                int seed = Gen.HashCombineInt(Find.World.info.Seed, mapParent.ID);
                 try
                 {
                     ClearWorkingDataStatic();
-                    seed = Gen.HashCombineInt(Find.World.info.Seed, mapParent.ID);
                     Rand.Seed = seed;
                 }
                 catch
                 {
-                    Rand.PopState();
                     throw;
                 }
 
@@ -115,6 +114,8 @@ namespace RimExodus
                 {
                     newMap.info.Size = mapSize;
                     newMap.info.parent = mapParent;
+                    newMap.generatorDef = mapGeneratorDef; // 关键：OutdoorTemp/Biome 等依赖此字段，原版 :126。
+                    newMap.info.disableSunShadows = mapGeneratorDef.disableShadows;
                     if (mapGeneratorDef.pocketMapProperties != null)
                     {
                         newMap.info.isPocketMap = true;
@@ -205,19 +206,31 @@ namespace RimExodus
             }
         }
 
-        /// <summary>每帧推进 genStep。</summary>
+        /// <summary>
+        /// 每帧推进 genStep。用时间预算：每帧跑多个 genStep 直到累计时间接近 TimeBudgetMs。
+        /// 单个重 genStep（RocksFromGrid/Plants）内部无法中断，仍会单帧超时——
+        /// 时间预算主要让轻 genStep 合并到同一帧，减少总帧数。
+        /// </summary>
+        private const float TimeBudgetMs = 8f; // 每帧 genStep 时间预算（ms），留给 tick/渲染约 8ms。
+
         private void TickGeneration()
         {
             if (generatingMap == null || genSteps == null) return;
 
             try
             {
-                if (currentStepIndex < genSteps.Count)
+                var frameStart = UnityEngine.Time.realtimeSinceStartup;
+                // 每帧循环跑 genStep，直到时间预算耗尽或全部完成。
+                while (currentStepIndex < genSteps.Count)
                 {
                     RunOneGenStep();
                     currentStepIndex++;
-                    if (currentStepIndex < genSteps.Count) return; // 还有 genStep，下一帧继续。
+                    // 检查时间预算（仅在跑完至少 1 个 genStep 后检查，保证每帧至少推进 1 步）。
+                    var elapsedMs = (UnityEngine.Time.realtimeSinceStartup - frameStart) * 1000f;
+                    if (elapsedMs >= TimeBudgetMs) break; // 预算耗尽，下一帧继续。
                 }
+
+                if (currentStepIndex < genSteps.Count) return; // 还有 genStep，下一帧继续。
 
                 // 所有 genStep 完成，进入 finalize。
                 FinishGeneration();
@@ -234,8 +247,8 @@ namespace RimExodus
         private void RunOneGenStep()
         {
             var step = genSteps[currentStepIndex];
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
-                Log.Message($"[RimExodus] GenStep [{currentStepIndex}/{genSteps.Count}] {step.def.defName}");
+            var sw = RimExodusMod.Settings?.verboseLogging ?? false
+                ? System.Diagnostics.Stopwatch.StartNew() : null;
 
             Rand.PushState();
             try
@@ -261,6 +274,9 @@ namespace RimExodus
             {
                 Rand.PopState();
             }
+            sw?.Stop();
+            if (sw != null)
+                Log.Message($"[RimExodus] GenStep [{currentStepIndex}/{genSteps.Count}] {step.def.defName} {sw.ElapsedMilliseconds}ms");
         }
 
         /// <summary>完成阶段：FinalizeInit + 清理 + onComplete（复刻 GenerateMap:188-223）。</summary>
@@ -288,11 +304,11 @@ namespace RimExodus
             finally
             {
                 // 清理 MapGenerator static（复刻 GenerateMap finally :215-222，但不恢复 ProgramState——未翻转）。
+                // 不 PopState——准备阶段未保持外层 Rand 栈帧（EnsureStateStackEmpty 会清空跨帧的栈）。
                 ClearWorkingDataStatic();
                 MapGenerator.mapBeingGenerated = null;
                 gravshipField.SetValue(null, null);
                 RockNoises.Reset();
-                Rand.PopState(); // 弹出准备阶段 PushState 的外层栈帧。
                 current = null;
                 generatingMap = null;
             }
@@ -348,17 +364,25 @@ namespace RimExodus
             try
             {
                 ClearWorkingDataStatic();
-                MapGenerator.mapBeingGenerated = null;
-                gravshipField.SetValue(null, null);
-                RockNoises.Reset();
+            }
+            catch { }
+            try { MapGenerator.mapBeingGenerated = null; } catch { }
+            try { gravshipField.SetValue(null, null); } catch { }
+            try { RockNoises.Reset(); } catch { }
+            try
+            {
                 if (map != null && Find.Maps.Contains(map))
                 {
+                    // 半成品 map 的组件可能未完全初始化，DeinitAndRemoveMap 内部 dispose 可能 NRE。
+                    // 先从 Find.Maps 移除，再尝试清理；逐项 try/catch 容忍部分失败。
                     Current.Game.DeinitAndRemoveMap(map, false);
                 }
             }
             catch (Exception ex)
             {
-                Log.Error($"[RimExodus] CleanupFailedGeneration error: {ex}");
+                Log.Error($"[RimExodus] CleanupFailedGeneration DeinitAndRemoveMap error (map may leak): {ex}");
+                // 兜底：至少从 Find.Maps 移除，避免主线程继续 tick 半成品 map。
+                try { if (map != null) Find.Maps.Remove(map); } catch { }
             }
         }
     }
