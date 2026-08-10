@@ -207,10 +207,14 @@ namespace RimExodus
 
             generatingTiles.Add(targetWorldTile);
             var mapSize = new IntVec3(map.Size.x, 1, map.Size.z);
-            // 异步生成：LongEventHandler 在独立线程跑 GenerateTileMap（含 genSteps + FinalizeInit，整体完成）。
-            // 显示"Generating map"进度画面（ForcePause 几秒）。这是必要的——拆分式异步（AddMap 后 genSteps 前让主线程 tick）
-            // 会导致 RegionAndRoomUpdater 未初始化时主线程 tick 访问 map，海量 "RegionAndRoomUpdater is disabled" 警告 +
-            // 寻路失效（pawn 卡接缝）。AddMap→genSteps→FinalizeInit 必须在主线程恢复前连续完成，LongEventHandler 保证这一点。
+            // 【实验分支】无进度画面异步生成：LongEventHandler doAsynchronously:true 在独立线程跑 GenerateTileMap，
+            // forceHideUI=true 跳过进度画面 UI（LongEventHandler.cs:200-203），玩家看到当前游戏画面。
+            // ForcePause=true（队列非空）暂停主线程 tick（TickManager.cs:321 if(Paused) return），
+            // 同时 ShouldWaitForEvent=true（异步事件）让 Root_Play.Update 跳过 UpdatePlay（含 MapUpdate）。
+            // 因此主线程既不 tick（不碰 Rand/MapGenerator static）也不 MapUpdate（不渲染半成品 map），
+            // 工作线程独占跑 GenerateMap，无竞争、无崩溃。
+            // 这比"纯 Thread + 延迟 AddMap"（需 sentinel + ConditionalWeakTable + 5 patch）简单得多，
+            // 且是原版为"隐藏 UI 的 long event"设计的标准开关。
             LongEventHandler.QueueLongEvent(() =>
             {
                 try
@@ -221,8 +225,9 @@ namespace RimExodus
                 {
                     ClearGeneratingTile(targetWorldTile);
                 }
-            }, "GeneratingMap", doAsynchronously: true, ex => ClearGeneratingTile(targetWorldTile));
-            Log.Message($"[RimExodus] Queued async preload for world tile {targetWorldTile} (source={sourceWorldTile}).");
+            }, null, doAsynchronously: true, ex => ClearGeneratingTile(targetWorldTile),
+            showExtraUIInfo: false, forceHideUI: true);
+            Log.Message($"[RimExodus] Queued hidden-UI async preload for world tile {targetWorldTile} (source={sourceWorldTile}).");
             return true;
         }
 
@@ -271,9 +276,12 @@ namespace RimExodus
             mapParent.sourceMap = anchorMap;
             var hostOffset = ComputeNeighborOffset(sourceWorldTile, newWorldTile, map);
 
+            // MapGenerator.GenerateMap 在工作线程跑（LongEventHandler doAsynchronously:true + forceHideUI:true）。
+            // 主线程 tick 暂停（ForcePause）+ UpdatePlay 跳过（ShouldWaitForEvent），无竞争。
             var interiorMap = MapGenerator.GenerateMap(mapSize, mapParent, mapParent.MapGeneratorDef,
                 mapParent.ExtraGenStepDefs, generatedMap => InjectRealTileInfo(generatedMap, newWorldTile), isPocketMap: true);
 
+            // 生成后配置：tick 暂停期间主线程不碰 map，工作线程可直接安全操作。
             Find.World.pocketMaps.Add(mapParent);
             if (!Find.World.worldObjects.Contains(interiorMap.Parent))
             {
