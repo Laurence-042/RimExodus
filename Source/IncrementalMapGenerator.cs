@@ -111,7 +111,11 @@ namespace RimExodus
                 try
                 {
                     ClearWorkingDataStatic();
+                    // 准备阶段同步完成（不跨帧），PushState/Seed/PopState 配对安全：
+                    // Rand.Seed setter 要求 stateStack.Count > 0，PushState 保证；PopState 恢复原状态。
+                    Rand.PushState();
                     Rand.Seed = seed;
+                    Rand.PopState();
                 }
                 catch
                 {
@@ -170,8 +174,16 @@ namespace RimExodus
                         .OrderBy(x => x.def.order).ThenBy(x => x.def.index).ToList();
 
                     // RockNoises.Init + 填充 MapGenerator.tmpGenSteps（供 GetSeedPart 反射用）。
-                    Rand.Seed = seed;
-                    RockNoises.Init(newMap);
+                    Rand.PushState();
+                    try
+                    {
+                        Rand.Seed = seed;
+                        RockNoises.Init(newMap);
+                    }
+                    finally
+                    {
+                        Rand.PopState();
+                    }
                     var tmpGenSteps = (List<GenStepWithParams>)tmpGenStepsField.GetValue(null);
                     tmpGenSteps.Clear();
                     tmpGenSteps.AddRange(orderedSteps);
