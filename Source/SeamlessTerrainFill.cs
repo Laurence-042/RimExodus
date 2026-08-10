@@ -59,7 +59,9 @@ namespace RimExodus
             // 只保留渲染必需的 mesh 脏标记。void 地形 dontRender=true、passability=Impassable、不发光、
             // 不是水、layerable=false。SetTerrain 的 DoTerrainChangedEffects 把 mesh 标记（必需）和
             // pathGrid/waterBodyTracker 重算（非必需且耗时）混在一起，21000 次 × 副作用 = 5.7 秒。
-            // 这里只做 mesh 标记 + drawer SetDirty（渲染必需），pathGrid 由 FinalizeInit 全量重算覆盖。
+            // 这里只做 mesh 标记，pathGrid 由 FinalizeInit 全量重算覆盖。
+            // regenAdjacentCells=false：void 格大面积连续，邻格也是 void 或边格，不需逐格扩散 dirty 标记，
+            // FinalizeInit 的 RegenerateEverythingNow 会全量重建 mesh。
             var terrainGrid = map.terrainGrid;
             var cellIndices = map.cellIndices;
             var topGrid = terrainGrid.topGrid; // public TerrainDef[]（TerrainGrid.cs:13）
@@ -68,8 +70,7 @@ namespace RimExodus
             {
                 var idx = cellIndices.CellToIndex(cell);
                 topGrid[idx] = voidDef;
-                // 只标记 mesh 脏（渲染必需），跳过 DoTerrainChangedEffects 的其余副作用。
-                mapDrawer.MapMeshDirty(cell, MapMeshFlagDefOf.Terrain, regenAdjacentCells: true, regenAdjacentSections: false);
+                mapDrawer.MapMeshDirty(cell, MapMeshFlagDefOf.Terrain, regenAdjacentCells: false, regenAdjacentSections: false);
             }
 
             // 清除生成在虚空格上的 Pawn。
