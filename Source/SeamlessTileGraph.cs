@@ -104,21 +104,31 @@ namespace RimExodus
             return false;
         }
 
-        /// <summary>判断 map 是否为锚点地图（非口袋地图，即家园 A 或未来的旅行宿主）。</summary>
+        /// <summary>
+        /// 判断 map 是否为锚点地图（玩家家园，IsPlayerHome）。
+        /// 阶段4前置：改基础地图后 IsPocketMap 恒 false，改用 IsPlayerHome 区分家园与地块。
+        /// 地块地图（MapParent_SeamlessTile）不是锚点；原生家园地图是锚点。
+        /// </summary>
         public static bool IsAnchorMap(Map map)
         {
-            return map != null && !map.IsPocketMap;
+            return map != null && map.IsPlayerHome && !(map.Parent is MapParent_SeamlessTile);
         }
 
         /// <summary>
-        /// 获取 map 用于 sourceMap/skyManager 共享的锚点地图。
-        /// 锚点地图自身返回自身；口袋地图返回其 sourceMap（扁平化：始终指向锚点）。
+        /// 获取 map 用于 skyManager/weatherManager 共享的锚点地图（玩家家园）。
+        /// 家园地图自身返回自身；地块地图返回当前玩家家园地图（用于天气连续性共享）。
+        /// 阶段4前置：不再依赖 sourceMap（基础地图无此字段），改用 Find.CurrentMap 的家园查找。
         /// </summary>
         public static Map GetAnchorMap(Map map)
         {
             if (map == null) return null;
-            if (!map.IsPocketMap) return map;
-            if (map.Parent is PocketMapParent pocketParent) return pocketParent.sourceMap;
+            // 家园地图自身即锚点。
+            if (map.IsPlayerHome && !(map.Parent is MapParent_SeamlessTile)) return map;
+            // 地块地图：找当前玩家家园（任一 PlayerHome 且非地块）。
+            foreach (var m in Find.Maps)
+            {
+                if (m.IsPlayerHome && !(m.Parent is MapParent_SeamlessTile)) return m;
+            }
             return null;
         }
 

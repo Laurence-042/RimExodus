@@ -5,18 +5,17 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// 无缝世界地块的 MapParent。
-    /// 继承原生 PocketMapParent，通过 sourceMap 字段指向锚点地图（家园 A）。
-    /// 与 VMF 的 MapParent_Vehicle 不同，本类不依赖车辆实体，
-    /// 而是把"锚点"抽象为静态宿主（基地地图或旅行 Pocket Map）。
+    /// 无缝世界地块的 MapParent（阶段4前置：基础地图而非口袋地图）。
+    /// 继承原生 <see cref="MapParent"/>（非 PocketMapParent），作为独立基础地图存在，
+    /// 无 sourceMap 父子关系，所有地块对等。
     ///
-    /// 地块间邻接关系由 <see cref="neighbors"/> 直接邻居表维护，
-    /// 不依赖 sourceMap/IsPocketMap（对称架构：A→B、B→A、B→C 同等处理）。
+    /// 基础地图的 <c>map.Tile</c> = 真实 PlanetTile，原生 Coast/River/Delta 等 TileMutator
+    /// 在口袋地图上无法生效的问题自然消失（mutator.Init 读 map.Tile 拿到真实邻居数据）。
     ///
+    /// 地块间邻接关系由 <see cref="neighbors"/> 直接邻居表维护，不依赖 sourceMap/IsPocketMap。
     /// 邻居方向基于世界地块真实顶点角度（动态），不再用固定 0-5 编号。
-    /// 详见阶段3计划"数据模型重构"。
     /// </summary>
-    public class MapParent_SeamlessTile : PocketMapParent
+    public class MapParent_SeamlessTile : MapParent
     {
         /// <summary>该地块在世界地图上的 tile 索引。</summary>
         public int worldTile = -1;
@@ -32,6 +31,16 @@ namespace RimExodus
         public bool autoFocused;
 
         public override string Label => "Seamless Tile Map";
+
+        /// <summary>
+        /// 阶段4前置：基础地图的 WorldObject 会进入世界视图静态绘制层（useDynamicDrawer=false）。
+        /// override Print 为空操作，让地块在世界地图上不显示图标。
+        /// 地块通过地图内叠加渲染呈现，不需世界视图图标。
+        /// </summary>
+        public override void Print(LayerSubMesh subMesh)
+        {
+            // 不在世界视图画图标。
+        }
 
         public override void ExposeData()
         {

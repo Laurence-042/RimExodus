@@ -74,9 +74,10 @@ namespace RimExodus
         internal static int GetMapWorldTile(Map map)
         {
             if (map == null) return -1;
+            // 阶段4前置：地块地图（MapParent_SeamlessTile）优先用 worldTile 字段（int 主键，稳定）。
+            // 基础地图的 map.Tile 是真实 PlanetTile（隐式转 int == worldTile），两者一致。
             if (map.Parent is MapParent_SeamlessTile tileParent) return tileParent.worldTile;
-            if (!map.IsPocketMap) return map.Tile;
-            return -1;
+            return map.Tile; // 家园地图等非地块地图：读原生 PlanetTile（隐式转 int）。
         }
 
         /// <summary>判断 a 与 b 是否为直接邻居（对称关系）。</summary>

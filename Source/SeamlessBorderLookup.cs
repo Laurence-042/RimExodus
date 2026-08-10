@@ -134,6 +134,25 @@ namespace RimExodus
             if (preloadBandWidth > 0)
             {
                 SeamlessPolygonGeometry.ComputeEdgeBand(verts, map.Size.x, preloadBandWidth, neighborWorldTiles, borderCells);
+
+                // 兜底：把所有传送点格也加入预加载带（传送点在接缝上，应触发预加载）。
+                // ComputeEdgeBand 的扫描线差集可能在边附近有 ±1 格误差漏掉某些接缝格，
+                // 传送点格必在接缝上，用它们的 targetWorldTile 补全 borderCells。
+                var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
+                if (enterSpotDef != null)
+                {
+                    foreach (var thing in map.listerThings.ThingsOfDef(enterSpotDef))
+                    {
+                        if (thing == null) continue;
+                        var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
+                        if (comp == null) continue;
+                        var cell = thing.Position;
+                        if (!borderCells.ContainsKey(cell))
+                        {
+                            borderCells[cell] = comp.targetWorldTile;
+                        }
+                    }
+                }
             }
 
             // 构建不可建造带（noBuildBandCells：只需格集合，不需 worldTile 值）。

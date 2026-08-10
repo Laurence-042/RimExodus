@@ -50,7 +50,8 @@ namespace RimExodus
 
             // 选中保持集的失效清理（pawn 死亡/销毁/未跨图残留）。仅在锚点地图跑，避免每张地图重复。
             // 集合通常为空（跨图完成即消费），清理开销可忽略。
-            if (!map.IsPocketMap)
+            // 阶段4前置：基础地图后 IsPocketMap 恒 false，改用 SeamlessTileGraph.IsAnchorMap 判断家园。
+            if (SeamlessTileGraph.IsAnchorMap(map))
             {
                 SeamlessSelectionTracker.PurgeInvalid();
             }
@@ -76,6 +77,19 @@ namespace RimExodus
         {
             if (pawn == null || map == null) return;
             if (pawn.Downed || pawn.Dead) return;
+
+            // 阶段4前置：行为区分——远行队组建流程 vs 征召跨图。
+            // 若 pawn 当前 Job 的 exitMapOnArrival==true（远行队组建，原生 JobDriver_Goto 设），
+            // 则不做直接跨图传送，放行原生 ExitMap 流程（传送点被 ExitMapGrid patch 标为出口格，
+            // pawn 踩传送点 → 原生 ExitMap → 大地图远行队）。
+            // 否则（征召 playerForced Goto 或其他）走现有直接跨图传送逻辑。
+            var job = pawn.CurJob;
+            if (job != null && job.exitMapOnArrival)
+            {
+                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    Log.Message($"[RimExodus] TryTriggerTransfer: pawn {pawn.LabelShort} at {cell} has exitMapOnArrival job, deferring to native ExitMap.");
+                return;
+            }
 
             // 用 thingGrid 直接查该格上的传送点（O(1)）。
             var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");

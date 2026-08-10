@@ -33,7 +33,7 @@ namespace RimExodus
         /// <summary>是否已完成开档初始化（铺 void + 预铺传送点；阶段4a 后默认不自动生成邻居，除非 preloadAllNeighborsOnStart=true）。</summary>
         private bool setupOnStartDone;
 
-        /// <summary>延迟生成首个邻居地块的 tick 计数（MapGenerated 时 mapBeingGenerated 仍非空，需延迟到下一 tick）。</summary>
+        /// <summary>延迟开档初始化的 tick 计数（MapGenerated 时 mapBeingGenerated 可能仍非空，需延迟到下一 tick 调 TrySetupOnStart）。</summary>
         private int pendingAutoGenerateTicks = -1;
 
         /// <summary>
@@ -112,8 +112,9 @@ namespace RimExodus
         {
             base.MapGenerated();
             // 仅锚点地图（家园 A）触发开档初始化，便于原型测试。
-            // 口袋地块的邻居生成不通过 MapGenerated 自动级联（避免生成风暴）。
-            if (map.IsPocketMap) return;
+            // 地块地图（MapParent_SeamlessTile）的邻居生成不通过 MapGenerated 自动级联（避免生成风暴）。
+            // 阶段4前置：基础地图后 IsPocketMap 恒 false，改用 Parent 类型判断是否为地块地图。
+            if (map.Parent is MapParent_SeamlessTile) return;
             if (!setupOnStartDone)
             {
                 setupOnStartDone = true;
@@ -207,26 +208,23 @@ namespace RimExodus
 
             generatingTiles.Add(targetWorldTile);
             var mapSize = new IntVec3(map.Size.x, 1, map.Size.z);
-            // 异步生成：LongEventHandler 在独立线程跑 GenerateTileMap（含 genSteps + FinalizeInit，整体完成）。
-            // 显示"Generating map"进度画面（ForcePause 几秒）。这是必要的——拆分式异步（AddMap 后 genSteps 前让主线程 tick）
-            // 会导致 RegionAndRoomUpdater 未初始化时主线程 tick 访问 map，海量 "RegionAndRoomUpdater is disabled" 警告 +
-            // 寻路失效（pawn 卡接缝）。AddMap→genSteps→FinalizeInit 必须在主线程恢复前连续完成，LongEventHandler 保证这一点。
-            LongEventHandler.QueueLongEvent(() =>
+            // 【实验分支】分帧增量生成：主线程每帧跑 1 genStep，不暂停 tick、无进度画面。
+            // GenerateTileMap 内部启动 IncrementalMapGenerator（准备阶段同步，genStep 分帧，FinalizeInit 单帧）。
+            // generating map 被 patch 跳过 MapPreTick/MapPostTick/MapUpdate，玩家可继续操作其他 map。
+            var result = GenerateTileMap(sourceWorldTile, targetWorldTile, mapSize);
+            if (result == null)
             {
-                try
-                {
-                    GenerateTileMap(sourceWorldTile, targetWorldTile, mapSize);
-                }
-                finally
-                {
-                    ClearGeneratingTile(targetWorldTile);
-                }
-            }, "GeneratingMap", doAsynchronously: true, ex => ClearGeneratingTile(targetWorldTile));
-            Log.Message($"[RimExodus] Queued async preload for world tile {targetWorldTile} (source={sourceWorldTile}).");
+                ClearGeneratingTile(targetWorldTile);
+                return false;
+            }
+            // generatingTiles 防重入锁在分帧生成期间保持 true，由 GenerateTileMap 的 onComplete
+            // 回调（FinishGeneration 完成后）调 ClearGeneratingTile 清理。
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] Started incremental generation for world tile {targetWorldTile} (source={sourceWorldTile}).");
             return true;
         }
 
-        /// <summary>异步生成完成后清理防重入锁。</summary>
+        /// <summary>分帧生成完成后清理防重入锁（被 GenerateTileMap 的 onComplete 回调调用）。</summary>
         private static void ClearGeneratingTile(int worldTile)
         {
             foreach (var m in Find.Maps)
@@ -236,8 +234,10 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 同步生成无缝地块口袋地图（供 Dev 命令 / 开档加载全部邻居使用）。
-        /// 预加载路径（TryPreloadNeighbor）用 LongEventHandler 在独立线程调本方法。
+        /// 生成无缝地块口袋地图（分帧增量生成，主线程每帧跑 1 genStep，不暂停 tick）。
+        /// 准备阶段（ConstructComponents→AddMap→组装 genSteps）同步完成，genStep 链分帧执行，
+        /// FinalizeInit + 后续配置（邻居登记/传送点铺设/void 刷新）在最后帧的 onComplete 回调执行。
+        /// 调用者：TryPreloadNeighbor（事件驱动预加载）、TrySetupOnStart（开档加载全部邻居）。
         /// </summary>
         public MapParent_SeamlessTile GenerateTileMap(int sourceWorldTile, int newWorldTile, IntVec3 mapSize)
         {
@@ -264,33 +264,61 @@ namespace RimExodus
             }
 
             var mapParent = (MapParent_SeamlessTile)WorldObjectMaker.MakeWorldObject(def);
-            mapParent.mapGenerator = def.mapGenerator;
             mapParent.worldTile = newWorldTile;
-            mapParent.Tile = 0;
+            // 阶段4前置：基础地图。mapParent.Tile 必须设为真实 PlanetTile，
+            // 这样 map.TileInfo 自动读 Find.WorldGrid[Tile]（含真实 biome/hilliness/mutators/rivers），
+            // 原生 Coast/River/Delta 等 TileMutator 自然生效，无需 InjectRealTileInfo。
+            mapParent.Tile = new PlanetTile(newWorldTile);
             var anchorMap = SeamlessTileGraph.GetAnchorMap(map) ?? map;
-            mapParent.sourceMap = anchorMap;
             var hostOffset = ComputeNeighborOffset(sourceWorldTile, newWorldTile, map);
+            var sourceWorldTileCapture = sourceWorldTile;
+            var sourceMapCapture = map;
 
-            var interiorMap = MapGenerator.GenerateMap(mapSize, mapParent, mapParent.MapGeneratorDef,
-                mapParent.ExtraGenStepDefs, generatedMap => InjectRealTileInfo(generatedMap, newWorldTile), isPocketMap: true);
+            // 【实验分支】分帧增量生成：每帧跑 1 genStep，不暂停 tick（generating map 被 patch 跳过）。
+            // 准备阶段（ConstructComponents→AddMap→组装 genSteps）同步完成，
+            // genStep 链分帧执行，FinalizeInit + 后续配置在最后帧的 onComplete 执行。
+            // 阶段4前置：基础地图的 TileInfo 自动读真实 WorldGrid 数据（含 mutators/rivers），
+            // 无需 extraInitBeforeContentGen 注入，传 null。
+            var started = IncrementalMapGenerator.Start(
+                mapParent, mapSize, mapParent.MapGeneratorDef, mapParent.ExtraGenStepDefs,
+                null,
+                interiorMap =>
+                {
+                    // ===== 生成后配置（FinalizeInit 之后，主线程）=====
+                    // 阶段4前置：基础地图，不加入 pocketMaps（那是口袋地图列表）。
+                    // 基础地图由 Current.Game.AddMap（IncrementalMapGenerator 内部）加入 Find.Maps，
+                    // 且 WorldObject 由 worldObjects.Add 注册到世界视图。
+                    if (!Find.World.worldObjects.Contains(interiorMap.Parent))
+                    {
+                        Find.World.worldObjects.Add(interiorMap.Parent);
+                    }
+                    // sky/weather 共享：基础地图原生会自建独立 manager。
+                    // 原型阶段尝试共享锚点 manager（若运行时异常则注释掉，让各地块天气独立）。
+                    interiorMap.skyManager = anchorMap.skyManager;
+                    interiorMap.weatherDecider = anchorMap.weatherDecider;
+                    interiorMap.weatherManager = anchorMap.weatherManager;
+                    RegisterNeighborBidirectional(sourceMapCapture, mapParent, sourceWorldTileCapture, newWorldTile, hostOffset);
+                    // 不刷新 sourceMapCapture 的 void——锚点 map 的 void 在 TrySetupOnStart 时已铺好，
+                    // void 只看自己的多边形（不因邻居关系变化而变）。每次生成邻居都 RefreshMapVoid(锚点)
+                    // 会重新清锚点 void 格上玩家游戏期间生长的植物/掉落物（耗时 12-23 秒）。
+                    PlaceEnterSpotsAllNeighbors(interiorMap, newWorldTile);
+                    PlaceEnterSpotsAllNeighbors(sourceMapCapture, sourceWorldTileCapture);
+                    RefreshEnterSpotArrivals(sourceMapCapture);
+                    RefreshEnterSpotArrivals(interiorMap);
+                    AutoConnectWorldNeighbors(interiorMap, newWorldTile);
 
-            Find.World.pocketMaps.Add(mapParent);
-            if (!Find.World.worldObjects.Contains(interiorMap.Parent))
+                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                        Log.Message($"[RimExodus] Incremental generation post-config done for tile {newWorldTile} map {interiorMap.uniqueID}.");
+
+                    // 清理防重入锁（分帧生成完成）。
+                    ClearGeneratingTile(newWorldTile);
+                });
+
+            if (!started)
             {
-                Find.World.worldObjects.Add(interiorMap.Parent);
+                Log.Warning($"[RimExodus] IncrementalMapGenerator.Start failed for tile {newWorldTile}.");
+                return null;
             }
-            interiorMap.skyManager = anchorMap.skyManager;
-            interiorMap.weatherDecider = anchorMap.weatherDecider;
-            interiorMap.weatherManager = anchorMap.weatherManager;
-            RegisterNeighborBidirectional(map, mapParent, sourceWorldTile, newWorldTile, hostOffset);
-            RefreshMapVoid(map);
-            PlaceEnterSpotsAllNeighbors(interiorMap, newWorldTile);
-            PlaceEnterSpotsAllNeighbors(map, sourceWorldTile);
-            // 新地块的传送点刚铺好，刷新它们的对端坐标缓存（RegisterNeighborBidirectional 已刷新两端，
-            // 但新铺的 spot 在其之后，需再刷一次覆盖到这些新 spot）。
-            RefreshEnterSpotArrivals(map);
-            RefreshEnterSpotArrivals(interiorMap);
-            AutoConnectWorldNeighbors(interiorMap, newWorldTile);
             return mapParent;
         }
 
@@ -358,37 +386,6 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 把真实 worldTile 的 TileInfo（biome/hilliness/elevation/rainfall/temperature/swampiness/pollution）
-        /// 注入到口袋地图的 pocketTileInfo，使原版地形 GenStep 按真实地块特性生成地形。
-        /// 在 MapGenerator.GenerateMap 的 extraInitBeforeContentGen 回调中调用（genSteps 执行前，pocketTileInfo 已构造）。
-        /// </summary>
-        private static void InjectRealTileInfo(Map generatedMap, int worldTile)
-        {
-            if (generatedMap == null || !generatedMap.IsPocketMap) return;
-            if (worldTile < 0) return;
-
-            var grid = Find.WorldGrid;
-            if (grid == null) return;
-
-            var realTile = grid[worldTile];
-            var pocketTile = generatedMap.pocketTileInfo;
-            if (pocketTile == null) return;
-
-            // 注入真实地块特性。PrimaryBiome 已由 MapGenerator 从 pocketMapProperties 设为 BorealForest（占位），这里覆盖为真实 biome。
-            pocketTile.PrimaryBiome = realTile.PrimaryBiome;
-            pocketTile.hilliness = realTile.hilliness;
-            pocketTile.elevation = realTile.elevation;
-            pocketTile.rainfall = realTile.rainfall;
-            pocketTile.temperature = realTile.temperature;
-            pocketTile.swampiness = realTile.swampiness;
-            pocketTile.pollution = realTile.pollution;
-
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
-                Log.Message($"[RimExodus] InjectRealTileInfo worldTile={worldTile}: biome={pocketTile.PrimaryBiome?.defName}, " +
-                    $"hilliness={pocketTile.hilliness}, elevation={pocketTile.elevation}, rainfall={pocketTile.rainfall}.");
-        }
-
-        /// <summary>
         /// 计算从 sourceWorldTile 到 newWorldTile，新地块相对源地块的偏移。
         /// offset = round(2 × (边中点 - 中心) - SeamOverlap × 方向单位向量)，边中点取自源地块多边形（内切圆模型）。
         /// 边由 newWorldTile 在源地块邻居表中的位置确定。
@@ -414,6 +411,7 @@ namespace RimExodus
             {
                 offsetVec -= offsetVec / mag * SeamOverlap;
             }
+            // 方向校准已验证正确（heading 真值对比），诊断日志移除保持干净。
             return new IntVec3(Mathf.RoundToInt(offsetVec.x), 0, Mathf.RoundToInt(offsetVec.y));
         }
 
@@ -548,7 +546,7 @@ namespace RimExodus
                 Log.Message($"[RimExodus] PlaceEnterSpotsAllNeighbors map={targetMap.uniqueID}(wt={worldTile}) placed {placed} single-end spots.");
         }
 
-        /// <summary>卸载一个无缝地块口袋地图，并清理邻居表中的双向引用。</summary>
+        /// <summary>卸载一个无缝地块基础地图，并清理邻居表中的双向引用。</summary>
         public void RemoveTileMap(MapParent_SeamlessTile parent)
         {
             if (parent == null) return;
@@ -557,8 +555,8 @@ namespace RimExodus
             if (interiorMap != null)
             {
                 CleanupNeighborLinks(parent);
-                parent.sourceMap = null;
-                Find.World.pocketMaps.Remove(parent);
+                // 阶段4前置：基础地图无 sourceMap，不在 pocketMaps 列表。
+                // WorldObject 由 DeinitAndRemoveMap 触发 MapParent 销毁时清理。
                 Current.Game.DeinitAndRemoveMap(interiorMap, false);
             }
         }

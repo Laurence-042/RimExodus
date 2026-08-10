@@ -50,23 +50,55 @@ namespace RimExodus
                 }
             }
 
-            Log.Message($"[RimExodus] ApplyPolygonTerrain worldTile={worldTile} map={map.uniqueID} size={size.x} voidCells={voidCells.Count} nonVoid={size.x*size.z - voidCells.Count}");
+            var verbose = RimExodusMod.Settings?.verboseLogging ?? false;
+            if (verbose)
+                Log.Message($"[RimExodus] ApplyPolygonTerrain worldTile={worldTile} map={map.uniqueID} size={size.x} voidCells={voidCells.Count} nonVoid={size.x*size.z - voidCells.Count}");
+            var sw = verbose ? System.Diagnostics.Stopwatch.StartNew() : null;
+            long tClear = 0, tTerrain = 0, tEvac = 0, tClassify = 0;
+            if (sw != null) { tClassify = sw.ElapsedMilliseconds; }
 
             // 先清除虚空格上的实体（建筑/岩石/植物/物品等），再铺虚空地形。
             ClearThingsOnCells(map, voidCells);
+            if (sw != null) { tClear = sw.ElapsedMilliseconds - tClassify; }
 
-            // 铺虚空地形。
+            // 铺虚空地形：直接写 topGrid（公开字段 TerrainGrid.cs:13）跳过 SetTerrain 的重计算副作用，
+            // 只保留渲染必需的 mesh 脏标记。void 地形 dontRender=true、passability=Impassable、不发光、
+            // 不是水、layerable=false。SetTerrain 的 DoTerrainChangedEffects 把 mesh 标记（必需）和
+            // pathGrid/waterBodyTracker 重算（非必需且耗时）混在一起，21000 次 × 副作用 = 5.7 秒。
+            // 这里只做 mesh 标记，pathGrid 由 FinalizeInit 全量重算覆盖。
+            // regenAdjacentCells=false：void 格大面积连续，邻格也是 void 或边格，不需逐格扩散 dirty 标记，
+            // FinalizeInit 的 RegenerateEverythingNow 会全量重建 mesh。
             var terrainGrid = map.terrainGrid;
+            var cellIndices = map.cellIndices;
+            var topGrid = terrainGrid.topGrid; // public TerrainDef[]（TerrainGrid.cs:13）
+            var mapDrawer = map.mapDrawer;
             foreach (var cell in voidCells)
             {
-                terrainGrid.SetTerrain(cell, voidDef);
+                var idx = cellIndices.CellToIndex(cell);
+                topGrid[idx] = voidDef;
+                mapDrawer.MapMeshDirty(cell, MapMeshFlagDefOf.Terrain, regenAdjacentCells: false, regenAdjacentSections: false);
             }
+            if (sw != null) { tTerrain = sw.ElapsedMilliseconds - tClear - tClassify; }
 
             // 清除生成在虚空格上的 Pawn。
             EvacuatePawnsOnCells(map, voidCells);
+            if (sw != null)
+            {
+                tEvac = sw.ElapsedMilliseconds - tTerrain - tClear - tClassify;
+                sw.Stop();
+                Log.Message($"[RimExodus] ApplyPolygonTerrain timings: classify={tClassify}ms clear={tClear}ms terrain={tTerrain}ms evac={tEvac}ms");
+            }
         }
 
-        /// <summary>清除指定格集合上的所有实体（建筑/岩石/植物/物品/草丛等），保留 Pawn（Pawn 单独处理）。</summary>
+        /// <summary>
+        /// 清除指定格集合上的所有实体（建筑/岩石/植物/物品/草丛等），保留 Pawn（Pawn 单独处理）。
+        ///
+        /// **口袋地图 genStep 路径上的空操作**：口袋地图生成时，Patch_GenStep_RocksFromGrid（Postfix，
+        /// order~200，RocksFromGrid 之后立即）已清掉 void 格上的岩石/屋顶，等 RimExodus_SeamlessTile
+        /// （order=211）跑 ApplyPolygonTerrain 调本方法时已无 Thing 可清。
+        /// **锚点地图路径仍需本方法**：锚点 A 是原生 Map 不走 genStep，RefreshMapVoid 在游戏运行期间调用，
+        /// 此时玩家游戏期间生长的植物/掉落物/建筑会出现在 void 格上，必须由本方法清除。
+        /// </summary>
         private static void ClearThingsOnCells(Map map, List<IntVec3> cells)
         {
             if (cells.Count == 0) return;

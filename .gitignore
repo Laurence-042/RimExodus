@@ -8,3 +8,6 @@ references/
 # MSBuild 中间产物
 Source/obj/
 Source/bin/
+
+# ZCode 临时计划文件
+.zcode/plans/

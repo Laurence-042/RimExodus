@@ -1,4 +1,5 @@
 using HarmonyLib;
+using UnityEngine;
 using Verse;
 
 namespace RimExodus
@@ -30,6 +31,31 @@ namespace RimExodus
         public override string SettingsCategory()
         {
             return "RimExodus";
+        }
+
+        /// <summary>绘制 Mod 设置窗口内容。</summary>
+        public override void DoSettingsWindowContents(Rect inRect)
+        {
+            var listing = new Listing_Standard();
+            listing.Begin(inRect);
+
+            var s = Settings;
+            // borderPreloadDistance（0-50）
+            listing.Label($"Border preload distance: {s.borderPreloadDistance}");
+            s.borderPreloadDistance = (int)listing.Slider(s.borderPreloadDistance, 0, 50);
+            listing.Gap();
+
+            // borderNoBuildDistance（0-10）
+            listing.Label($"Border no-build distance: {s.borderNoBuildDistance}");
+            s.borderNoBuildDistance = (int)listing.Slider(s.borderNoBuildDistance, 0, 10);
+            listing.Gap();
+
+            listing.CheckboxLabeled("Preload all neighbors on start", ref s.preloadAllNeighborsOnStart);
+            listing.Gap();
+
+            listing.CheckboxLabeled("Verbose logging (diagnostics)", ref s.verboseLogging);
+
+            listing.End();
         }
     }
 }
