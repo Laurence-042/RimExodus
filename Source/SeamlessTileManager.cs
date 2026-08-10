@@ -207,28 +207,27 @@ namespace RimExodus
 
             generatingTiles.Add(targetWorldTile);
             var mapSize = new IntVec3(map.Size.x, 1, map.Size.z);
-            // 【实验分支】无进度画面异步生成：LongEventHandler doAsynchronously:true 在独立线程跑 GenerateTileMap，
-            // forceHideUI=true 跳过进度画面 UI（LongEventHandler.cs:200-203），玩家看到当前游戏画面。
-            // ForcePause=true（队列非空）暂停主线程 tick（TickManager.cs:321 if(Paused) return），
-            // 同时 ShouldWaitForEvent=true（异步事件）让 Root_Play.Update 跳过 UpdatePlay（含 MapUpdate）。
-            // 因此主线程既不 tick（不碰 Rand/MapGenerator static）也不 MapUpdate（不渲染半成品 map），
-            // 工作线程独占跑 GenerateMap，无竞争、无崩溃。
-            // 这比"纯 Thread + 延迟 AddMap"（需 sentinel + ConditionalWeakTable + 5 patch）简单得多，
-            // 且是原版为"隐藏 UI 的 long event"设计的标准开关。
-            LongEventHandler.QueueLongEvent(() =>
+            // 【实验分支】分帧增量生成：主线程每帧跑 1 genStep，不暂停 tick、无进度画面。
+            // GenerateTileMap 内部启动 IncrementalMapGenerator（准备阶段同步，genStep 分帧，FinalizeInit 单帧）。
+            // generating map 被 patch 跳过 MapPreTick/MapPostTick/MapUpdate，玩家可继续操作其他 map。
+            var result = GenerateTileMap(sourceWorldTile, targetWorldTile, mapSize);
+            if (result == null)
             {
-                try
-                {
-                    GenerateTileMap(sourceWorldTile, targetWorldTile, mapSize);
-                }
-                finally
-                {
-                    ClearGeneratingTile(targetWorldTile);
-                }
-            }, null, doAsynchronously: true, ex => ClearGeneratingTile(targetWorldTile),
-            showExtraUIInfo: false, forceHideUI: true);
-            Log.Message($"[RimExodus] Queued hidden-UI async preload for world tile {targetWorldTile} (source={sourceWorldTile}).");
+                ClearGeneratingTile(targetWorldTile);
+                return false;
+            }
+            // generatingTiles 在 FinishGeneration 完成后由 ClearGeneratingTile 清理（需延迟到最后帧）。
+            // 暂用 MapComponentTick 检测生成完成——IncrementalMapGenerator.current == null 时清理。
+            // （简化：下面注册一个一次性清理，挂在 sourceMap 的 tick 上。）
+            // 实际上 generatingTiles 用于防重入，分帧期间保持 true 即可；完成后清理。
+            Log.Message($"[RimExodus] Started incremental generation for world tile {targetWorldTile} (source={sourceWorldTile}).");
             return true;
+        }
+
+        /// <summary>检查分帧生成是否完成，完成后清理 generatingTiles 防重入锁。</summary>
+        public static bool IsGenerationDone()
+        {
+            return !IncrementalMapGenerator.IsAnyGenerating;
         }
 
         /// <summary>异步生成完成后清理防重入锁。</summary>
@@ -275,30 +274,46 @@ namespace RimExodus
             var anchorMap = SeamlessTileGraph.GetAnchorMap(map) ?? map;
             mapParent.sourceMap = anchorMap;
             var hostOffset = ComputeNeighborOffset(sourceWorldTile, newWorldTile, map);
+            var sourceWorldTileCapture = sourceWorldTile;
+            var sourceMapCapture = map;
 
-            // MapGenerator.GenerateMap 在工作线程跑（LongEventHandler doAsynchronously:true + forceHideUI:true）。
-            // 主线程 tick 暂停（ForcePause）+ UpdatePlay 跳过（ShouldWaitForEvent），无竞争。
-            var interiorMap = MapGenerator.GenerateMap(mapSize, mapParent, mapParent.MapGeneratorDef,
-                mapParent.ExtraGenStepDefs, generatedMap => InjectRealTileInfo(generatedMap, newWorldTile), isPocketMap: true);
+            // 【实验分支】分帧增量生成：每帧跑 1 genStep，不暂停 tick（generating map 被 patch 跳过）。
+            // 准备阶段（ConstructComponents→AddMap→组装 genSteps）同步完成，
+            // genStep 链分帧执行，FinalizeInit + 后续配置在最后帧的 onComplete 执行。
+            var started = IncrementalMapGenerator.Start(
+                mapParent, mapSize, mapParent.MapGeneratorDef, mapParent.ExtraGenStepDefs,
+                generatedMap => InjectRealTileInfo(generatedMap, newWorldTile),
+                interiorMap =>
+                {
+                    // ===== 生成后配置（FinalizeInit 之后，主线程）=====
+                    Find.World.pocketMaps.Add(mapParent);
+                    if (!Find.World.worldObjects.Contains(interiorMap.Parent))
+                    {
+                        Find.World.worldObjects.Add(interiorMap.Parent);
+                    }
+                    interiorMap.skyManager = anchorMap.skyManager;
+                    interiorMap.weatherDecider = anchorMap.weatherDecider;
+                    interiorMap.weatherManager = anchorMap.weatherManager;
+                    RegisterNeighborBidirectional(sourceMapCapture, mapParent, sourceWorldTileCapture, newWorldTile, hostOffset);
+                    RefreshMapVoid(sourceMapCapture);
+                    PlaceEnterSpotsAllNeighbors(interiorMap, newWorldTile);
+                    PlaceEnterSpotsAllNeighbors(sourceMapCapture, sourceWorldTileCapture);
+                    RefreshEnterSpotArrivals(sourceMapCapture);
+                    RefreshEnterSpotArrivals(interiorMap);
+                    AutoConnectWorldNeighbors(interiorMap, newWorldTile);
 
-            // 生成后配置：tick 暂停期间主线程不碰 map，工作线程可直接安全操作。
-            Find.World.pocketMaps.Add(mapParent);
-            if (!Find.World.worldObjects.Contains(interiorMap.Parent))
+                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                        Log.Message($"[RimExodus] Incremental generation post-config done for tile {newWorldTile} map {interiorMap.uniqueID}.");
+
+                    // 清理防重入锁（分帧生成完成）。
+                    ClearGeneratingTile(newWorldTile);
+                });
+
+            if (!started)
             {
-                Find.World.worldObjects.Add(interiorMap.Parent);
+                Log.Warning($"[RimExodus] IncrementalMapGenerator.Start failed for tile {newWorldTile}.");
+                return null;
             }
-            interiorMap.skyManager = anchorMap.skyManager;
-            interiorMap.weatherDecider = anchorMap.weatherDecider;
-            interiorMap.weatherManager = anchorMap.weatherManager;
-            RegisterNeighborBidirectional(map, mapParent, sourceWorldTile, newWorldTile, hostOffset);
-            RefreshMapVoid(map);
-            PlaceEnterSpotsAllNeighbors(interiorMap, newWorldTile);
-            PlaceEnterSpotsAllNeighbors(map, sourceWorldTile);
-            // 新地块的传送点刚铺好，刷新它们的对端坐标缓存（RegisterNeighborBidirectional 已刷新两端，
-            // 但新铺的 spot 在其之后，需再刷一次覆盖到这些新 spot）。
-            RefreshEnterSpotArrivals(map);
-            RefreshEnterSpotArrivals(interiorMap);
-            AutoConnectWorldNeighbors(interiorMap, newWorldTile);
             return mapParent;
         }
 
