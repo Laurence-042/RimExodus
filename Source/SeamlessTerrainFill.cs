@@ -97,28 +97,43 @@ namespace RimExodus
 
             var cellSet = new HashSet<IntVec3>(cells);
 
-            var toDestroy = new List<Thing>();
+            var toRemove = new List<Thing>();
             foreach (var thing in map.listerThings.AllThings)
             {
                 if (thing is Pawn) continue;
                 if (!thing.Spawned) continue;
                 if (cellSet.Contains(thing.Position))
                 {
-                    toDestroy.Add(thing);
+                    toRemove.Add(thing);
                 }
             }
 
-            foreach (var thing in toDestroy)
+            if (toRemove.Count == 0) return;
+
+            // 生成期间（genStep 或 FinalizeInit 前）批量移除：临时禁用 regionAndRoomUpdater，
+            // 避免 DeSpawn 逐 Thing 触发 regionDirtyer/pathGrid 增量重算（FinalizeInit 会全量重建）。
+            // 这是 5000ms → 预期 <500ms 的关键优化（实测 clear 占 RimExodus_SeamlessTile 95%+ 耗时）。
+            var prevRegionEnabled = map.regionAndRoomUpdater.Enabled;
+            map.regionAndRoomUpdater.Enabled = false;
+            try
             {
-                // 用 Destroy（Vanish）彻底移除；对 destroyable=false 的（如 SteamGeyser）改用 DeSpawn。
-                if (thing.def.destroyable)
+                using (map.pathing.DisableIncrementalScope())
                 {
-                    thing.Destroy(DestroyMode.Vanish);
+                    foreach (var thing in toRemove)
+                    {
+                        // 用 DeSpawn 代替 Destroy(Vanish)：生成期间无需 leavings/reservations/quest signals，
+                        // DeSpawn 只做 grid/listerThings 移除（必须），Thing 离开 spawn 状态后被 GC。
+                        // 对 destroyable=false 的（如 SteamGeyser）DeSpawn 同样有效（只是不标记 Destroyed）。
+                        if (thing.Spawned)
+                        {
+                            thing.DeSpawn();
+                        }
+                    }
                 }
-                else if (thing.Spawned)
-                {
-                    thing.DeSpawn();
-                }
+            }
+            finally
+            {
+                map.regionAndRoomUpdater.Enabled = prevRegionEnabled;
             }
         }
 
