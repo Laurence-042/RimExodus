@@ -295,7 +295,9 @@ namespace RimExodus
                     interiorMap.weatherDecider = anchorMap.weatherDecider;
                     interiorMap.weatherManager = anchorMap.weatherManager;
                     RegisterNeighborBidirectional(sourceMapCapture, mapParent, sourceWorldTileCapture, newWorldTile, hostOffset);
-                    RefreshMapVoid(sourceMapCapture);
+                    // 不刷新 sourceMapCapture 的 void——锚点 map 的 void 在 TrySetupOnStart 时已铺好，
+                    // void 只看自己的多边形（不因邻居关系变化而变）。每次生成邻居都 RefreshMapVoid(锚点)
+                    // 会重新清锚点 void 格上玩家游戏期间生长的植物/掉落物（耗时 12-23 秒）。
                     PlaceEnterSpotsAllNeighbors(interiorMap, newWorldTile);
                     PlaceEnterSpotsAllNeighbors(sourceMapCapture, sourceWorldTileCapture);
                     RefreshEnterSpotArrivals(sourceMapCapture);
