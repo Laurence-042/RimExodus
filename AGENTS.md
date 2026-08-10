@@ -822,3 +822,79 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 
 ### 最终结论
 纯后台异步（不中断操作 + 工作线程并发）受 Rand/MapGenerator static 非 ThreadStatic 限制不可行（需 fork 级工作量）。分帧方案在主线程顺序执行天然避免 static 竞争，是当前能实现"无进度画面、不暂停 tick、无红字 NRE"的最优方案。
+## 阶段5原型：口袋地图 → 基础地图（已完成，游戏内已验证核心闭环）
+
+**架构转变**：无缝地块从 `PocketMapParent`（口袋地图）改为 `MapParent`（基础地图）。所有地块（含锚点 A 的邻居 B/C/D）作为独立基础地图存在，无 sourceMap 父子关系，所有地块对等。锚点 A 本身仍是原生玩家家园 Settlement。
+
+### 核心收益（转基础地图后自然获得）
+- **`map.Tile` = 真实 PlanetTile** → 原生 Coast/River/Delta 等 TileMutator 自然生效（mutator.Init 读 map.Tile 拿到真实邻居数据）。这直接解决了阶段4b 调研发现的"海岸 mutator 在口袋地图上无法生效"问题——基础地图的 `map.TileInfo` 自动读 `Find.WorldGrid[parent.Tile]`（真实 SurfaceTile），含完整 biome/hilliness/mutators/rivers 数据，无需 InjectRealTileInfo、无需 patch CoastAngleAt。
+- 无 sourceMap 副作用、无口袋特殊语义、所有地块对等。
+- `map.TileInfo` 自动读真实 WorldGrid 数据（含 elevation/rivers/roads/mutators 全套）。
+
+### 关键改动
+- `MapParent_SeamlessTile` 基类 `PocketMapParent` → `MapParent`。worldTile 字段保留（int 主键，与 map.Tile 的 PlanetTile 值一致）。override `Print(LayerSubMesh)` 为空操作（不在世界视图画图标）。
+- `IncrementalMapGenerator.Start` 移除口袋分支（不设 isPocketMap/pocketTileInfo）。`mapParent.Tile = new PlanetTile(newWorldTile)`（真实 PlanetTile，非 0）。
+- `GenerateTileMap` 移除 sourceMap/pocketMaps.Add/InjectRealTileInfo 回调。
+- `SeamlessTileGraph.IsAnchorMap`/`GetAnchorMap` 改用 `IsPlayerHome` 判断家园（不再依赖 sourceMap/IsPocketMap）。GetAnchorMap 遍历 Find.Maps 找 IsPlayerHome 地图（用于 sky/weather 共享）。
+- `SeamlessTileRegistry.GetMapWorldTile` 简化（地块走 worldTile 字段，其他走 map.Tile）。
+- `MapGenerated` 守门：`IsPocketMap` → `Parent is MapParent_SeamlessTile`。
+- `RemoveTileMap` 移除 sourceMap/pocketMaps 清理。
+- `WorldObjects.xml`：`useDynamicDrawer=false` + `<texture>World/WorldObjects/RoutePlannerWaypoint</texture>`（避免静态绘制层 "returned null material" 错误）。
+
+### 远行队机制（重要，本轮新发现）
+**家园地图（IsPlayerHome）组建远行队的完整流程**（与临时据点 reform 模式不同）：
+1. `Dialog_FormCaravan.TryFormAndSendCaravan` → `RCellFinder.TryFindClosestEdgeCellTo(root, map, out exitSpot)` 找边缘出口格。
+2. 失败回退 `Dialog_FormCaravan.TryFindExitSpot`（private）→ `CellFinder.TryFindRandomEdgeCellWith` 找边缘格。
+3. exitSpot 传给 `LordJob_FormAndSendCaravan` → `LordToil_PrepareCaravan_Leave`（`DutyDefOf.TravelOrWait`，目标=exitSpot）。
+4. pawn 走到 exitSpot → `GatherAnimalsAndSlavesForCaravanUtility.CheckArrived` 触发 `ReadyToExitMap`。
+5. `CaravanFormingUtility.FormAndCreateCaravan` → 大地图远行队生成。
+
+**关键**：家园地图组建远行队**需要 pawn 走到边缘**（不像临时据点 reform 模式原地销毁地图）。`ExitMapGrid.MapUsesExitGridNow` 对 IsPlayerHome 返回 false（家园地图不构建 exit grid），但远行队走的是 `TryFindClosestEdgeCellTo`/`TryFindExitSpot`（找边缘格），不依赖 exit grid。
+
+**地块地图（非家园）组建远行队/敌人撤离**走另一条路径：
+- `JobGiver_ExitMap`（think tree）→ `TryFindGoodExitDest` → `RCellFinder.TryFindBestExitSpot`/`TryFindRandomExitSpot`。
+- 这两个方法也找地图边缘格。
+
+### 远行队衔接无缝地块（本轮实现，已验证）
+**问题**：六边形裁切把地块地图的矩形边缘格全切成 void（不可站立）。所有"找边缘出口格"的方法都失败 → 远行队 pawn 硬蹭 void 到地图边缘或卡住。
+
+**修复**：patch 三个找边缘格的方法，对有 RimExodus 传送点的地图返回最近可达传送点：
+- `Patch_RCellFinder_TryFindClosestEdgeCellTo`（家园远行队 exitSpot）
+- `Patch_RCellFinder_TryFindBestExitSpot`（地块远行队/敌人撤离）
+- `Patch_RCellFinder_TryFindRandomExitSpot`（地块远行队随机出口）
+- `Patch_ExitMapGrid_Rebuild` Postfix：把传送点格标为出口格（让原生 `JobDriver_Goto.TryExitMap` 在 pawn 踩传送点时触发）
+- `Patch_CaravanEnterMap_Enter` Prefix：远行队进入地块地图时从传送点出生（而非随机边缘落 void）
+- `SeamlessMapTransferTrigger.TryTriggerTransfer` 入口检查 `job.exitMapOnArrival`：远行队流程放行原生 ExitMap（不做跨图传送），征召跨图走现有传送逻辑
+
+**行为区分**（同一传送点，两种行为）：
+- 征召前往已加载邻居接缝 → 直接跨图传送（现有机制）
+- 远行队组建离开 → 踩传送点触发原生 ExitMap → 大地图远行队
+
+**判断"有 RimExodus 传送点的地图"**用 `SeamlessExitSpotFinder.HasRimExodusEnterSpots(map)`（不依赖 Parent 类型，锚点 A 是原生 Settlement 也含传送点）。
+
+### 坐标映射（本轮新发现，方向校准）
+**`GetTangentsToPlanet(center, out first, out second)` 的语义**（实测校准，非纯推理）：
+- `first = quaternion * Vector3.up`、`second = quaternion * Vector3.right`，其中 quaternion 由 `LookRotation(normalized, upwards)` 构造。
+- first/second 的绝对朝向难纯推理（依赖球面视角 + LookRotation），**经实测校准**：map 坐标系 x=东、z=南，正确的 3D→2D 投影是：
+  - `2D.x = -Dot(d, second)`（东，取负）
+  - `2D.y = Dot(d, first)`（南）
+- 校准方法：用 `WorldGrid.GetHeadingFromTo(srcTile, tgtTile)` 得世界角度真值（0°=北，顺时针），转成 (东=sin, 南=-cos) 分量，与计算的 edgeWorldDir 对比。
+- **之前的错误**：`(Dot(d,second), Dot(d,first))`（x/y 互换 + z 未取负）→ 方向旋转/镜像；`(Dot(d,first), Dot(d,second))` → 仍错；`(-Dot(second), Dot(first))` → 正确。
+
+### sky/weather 共享
+基础地图原生自建独立 sky/weather manager。当前代码尝试共享锚点 manager（`interiorMap.skyManager = anchorMap.skyManager` 等），运行时未观察到大问题。若后续异常，改为各地块独立。
+
+### 已删除的冗余代码
+- `InjectRealTileInfo` 方法（基础地图 TileInfo 自动正确，不再需要）
+- `Patches_RockNoises.cs`（基础地图 map.Tile 已是真实 PlanetTile，原生 RockNoises.Init 正确工作）
+- RimExodusMod 启动时的 RCellFinder patch 诊断日志
+
+### 源码文件新增
+- `Source/Patches_ExitMapGrid.cs` — 把传送点格标为出口格。
+- `Source/Patches_RCellFinder.cs` — 三个找边缘格方法重定向到传送点 + `SeamlessExitSpotFinder` 工具类。
+- `Source/Patches_CaravanEnterMap.cs` — 远行队进入地块从传送点出生。
+
+### 仍待办
+- 地形连续化（噪声坐标代理层、Perlin seed 确定化）——基础地图转变后，原生 Coast/River mutator 已自然生效，连续化是下一步。
+- sky/weather 共享的存档重载验证。
+- 远行队进入出生点按来源方向精确推断（当前用任一可站立传送点）。

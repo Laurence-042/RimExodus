@@ -133,11 +133,10 @@ namespace RimExodus
                     newMap.info.parent = mapParent;
                     newMap.generatorDef = mapGeneratorDef; // 关键：OutdoorTemp/Biome 等依赖此字段，原版 :126。
                     newMap.info.disableSunShadows = mapGeneratorDef.disableShadows;
-                    if (mapGeneratorDef.pocketMapProperties != null)
-                    {
-                        newMap.info.isPocketMap = true;
-                        newMap.pocketTileInfo = new Tile { PrimaryBiome = mapGeneratorDef.pocketMapProperties.biome };
-                    }
+                    // 阶段5原型：生成基础地图（非口袋）。mapParent.Tile 必须是真实 PlanetTile，
+                    // 这样 newMap.TileInfo 自动读 Find.WorldGrid[parent.Tile]（含真实 biome/hilliness/mutators/rivers），
+                    // 原生 Coast/River/Delta 等 TileMutator 自然生效。
+                    // 不再设 isPocketMap/pocketTileInfo。
                     newMap.ConstructComponents();
                     foreach (var mutator in newMap.TileInfo.Mutators)
                     {

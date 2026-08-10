@@ -112,8 +112,9 @@ namespace RimExodus
         {
             base.MapGenerated();
             // 仅锚点地图（家园 A）触发开档初始化，便于原型测试。
-            // 口袋地块的邻居生成不通过 MapGenerated 自动级联（避免生成风暴）。
-            if (map.IsPocketMap) return;
+            // 地块地图（MapParent_SeamlessTile）的邻居生成不通过 MapGenerated 自动级联（避免生成风暴）。
+            // 阶段5原型：基础地图后 IsPocketMap 恒 false，改用 Parent 类型判断是否为地块地图。
+            if (map.Parent is MapParent_SeamlessTile) return;
             if (!setupOnStartDone)
             {
                 setupOnStartDone = true;
@@ -263,11 +264,12 @@ namespace RimExodus
             }
 
             var mapParent = (MapParent_SeamlessTile)WorldObjectMaker.MakeWorldObject(def);
-            mapParent.mapGenerator = def.mapGenerator;
             mapParent.worldTile = newWorldTile;
-            mapParent.Tile = 0;
+            // 阶段5原型：基础地图。mapParent.Tile 必须设为真实 PlanetTile，
+            // 这样 map.TileInfo 自动读 Find.WorldGrid[Tile]（含真实 biome/hilliness/mutators/rivers），
+            // 原生 Coast/River/Delta 等 TileMutator 自然生效，无需 InjectRealTileInfo。
+            mapParent.Tile = new PlanetTile(newWorldTile);
             var anchorMap = SeamlessTileGraph.GetAnchorMap(map) ?? map;
-            mapParent.sourceMap = anchorMap;
             var hostOffset = ComputeNeighborOffset(sourceWorldTile, newWorldTile, map);
             var sourceWorldTileCapture = sourceWorldTile;
             var sourceMapCapture = map;
@@ -275,17 +277,22 @@ namespace RimExodus
             // 【实验分支】分帧增量生成：每帧跑 1 genStep，不暂停 tick（generating map 被 patch 跳过）。
             // 准备阶段（ConstructComponents→AddMap→组装 genSteps）同步完成，
             // genStep 链分帧执行，FinalizeInit + 后续配置在最后帧的 onComplete 执行。
+            // 阶段5原型：基础地图不需要 InjectRealTileInfo（TileInfo 自动正确），extraInitBeforeContentGen 传 null。
             var started = IncrementalMapGenerator.Start(
                 mapParent, mapSize, mapParent.MapGeneratorDef, mapParent.ExtraGenStepDefs,
-                generatedMap => InjectRealTileInfo(generatedMap, newWorldTile),
+                null,
                 interiorMap =>
                 {
                     // ===== 生成后配置（FinalizeInit 之后，主线程）=====
-                    Find.World.pocketMaps.Add(mapParent);
+                    // 阶段5原型：基础地图，不加入 pocketMaps（那是口袋地图列表）。
+                    // 基础地图由 Current.Game.AddMap（IncrementalMapGenerator 内部）加入 Find.Maps，
+                    // 且 WorldObject 由 worldObjects.Add 注册到世界视图。
                     if (!Find.World.worldObjects.Contains(interiorMap.Parent))
                     {
                         Find.World.worldObjects.Add(interiorMap.Parent);
                     }
+                    // sky/weather 共享：基础地图原生会自建独立 manager。
+                    // 原型阶段尝试共享锚点 manager（若运行时异常则注释掉，让各地块天气独立）。
                     interiorMap.skyManager = anchorMap.skyManager;
                     interiorMap.weatherDecider = anchorMap.weatherDecider;
                     interiorMap.weatherManager = anchorMap.weatherManager;
@@ -378,37 +385,6 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 把真实 worldTile 的 TileInfo（biome/hilliness/elevation/rainfall/temperature/swampiness/pollution）
-        /// 注入到口袋地图的 pocketTileInfo，使原版地形 GenStep 按真实地块特性生成地形。
-        /// 在 MapGenerator.GenerateMap 的 extraInitBeforeContentGen 回调中调用（genSteps 执行前，pocketTileInfo 已构造）。
-        /// </summary>
-        private static void InjectRealTileInfo(Map generatedMap, int worldTile)
-        {
-            if (generatedMap == null || !generatedMap.IsPocketMap) return;
-            if (worldTile < 0) return;
-
-            var grid = Find.WorldGrid;
-            if (grid == null) return;
-
-            var realTile = grid[worldTile];
-            var pocketTile = generatedMap.pocketTileInfo;
-            if (pocketTile == null) return;
-
-            // 注入真实地块特性。PrimaryBiome 已由 MapGenerator 从 pocketMapProperties 设为 BorealForest（占位），这里覆盖为真实 biome。
-            pocketTile.PrimaryBiome = realTile.PrimaryBiome;
-            pocketTile.hilliness = realTile.hilliness;
-            pocketTile.elevation = realTile.elevation;
-            pocketTile.rainfall = realTile.rainfall;
-            pocketTile.temperature = realTile.temperature;
-            pocketTile.swampiness = realTile.swampiness;
-            pocketTile.pollution = realTile.pollution;
-
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
-                Log.Message($"[RimExodus] InjectRealTileInfo worldTile={worldTile}: biome={pocketTile.PrimaryBiome?.defName}, " +
-                    $"hilliness={pocketTile.hilliness}, elevation={pocketTile.elevation}, rainfall={pocketTile.rainfall}.");
-        }
-
-        /// <summary>
         /// 计算从 sourceWorldTile 到 newWorldTile，新地块相对源地块的偏移。
         /// offset = round(2 × (边中点 - 中心) - SeamOverlap × 方向单位向量)，边中点取自源地块多边形（内切圆模型）。
         /// 边由 newWorldTile 在源地块邻居表中的位置确定。
@@ -434,6 +410,7 @@ namespace RimExodus
             {
                 offsetVec -= offsetVec / mag * SeamOverlap;
             }
+            // 方向校准已验证正确（heading 真值对比），诊断日志移除保持干净。
             return new IntVec3(Mathf.RoundToInt(offsetVec.x), 0, Mathf.RoundToInt(offsetVec.y));
         }
 
@@ -568,7 +545,7 @@ namespace RimExodus
                 Log.Message($"[RimExodus] PlaceEnterSpotsAllNeighbors map={targetMap.uniqueID}(wt={worldTile}) placed {placed} single-end spots.");
         }
 
-        /// <summary>卸载一个无缝地块口袋地图，并清理邻居表中的双向引用。</summary>
+        /// <summary>卸载一个无缝地块基础地图，并清理邻居表中的双向引用。</summary>
         public void RemoveTileMap(MapParent_SeamlessTile parent)
         {
             if (parent == null) return;
@@ -577,8 +554,8 @@ namespace RimExodus
             if (interiorMap != null)
             {
                 CleanupNeighborLinks(parent);
-                parent.sourceMap = null;
-                Find.World.pocketMaps.Remove(parent);
+                // 阶段5原型：基础地图无 sourceMap，不在 pocketMaps 列表。
+                // WorldObject 由 DeinitAndRemoveMap 触发 MapParent 销毁时清理。
                 Current.Game.DeinitAndRemoveMap(interiorMap, false);
             }
         }

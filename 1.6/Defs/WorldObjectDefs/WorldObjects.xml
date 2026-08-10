@@ -6,7 +6,11 @@
     <label>seamless tile map</label>
     <worldObjectClass>RimExodus.MapParent_SeamlessTile</worldObjectClass>
     <mapGenerator>RimExodus_SeamlessTileGenerator</mapGenerator>
+    <!-- useDynamicDrawer=false：不进动态绘制器。MapParent_SeamlessTile.Print override 为空操作，
+         不在世界视图静态层画图标。Material override 返回 BaseContent.WhiteMat 避免 null。
+         texture 用 RoutePlannerWaypoint（存在的贴图，作为 Material fallback）。 -->
     <useDynamicDrawer>false</useDynamicDrawer>
+    <texture>World/WorldObjects/RoutePlannerWaypoint</texture>
   </WorldObjectDef>
 
 </Defs>

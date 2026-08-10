@@ -51,11 +51,16 @@ namespace RimExodus
             // 只要同一地块所有顶点用同一组基投影，2D 方向就一致；绝对朝向不影响多边形形状。
             WorldRendererUtility.GetTangentsToPlanet(center, out var first, out var second);
 
+            // 地块中心的世界切平面基 first/second（GetTangentsToPlanet 返回）。
+            // first/second 的绝对朝向难纯推理（依赖 LookRotation + 球面视角），
+            // 此处用 -Dot(second) / Dot(first) 校准（实测 180 度旋转 bug 后的经验值）。
+            // 若仍方向错，结合 ComputeNeighborOffset 的 heading 真值对比日志进一步校准。
             foreach (var vert in verts)
             {
-                // 顶点相对中心的方向（球面近似平面化，地块尺度远小于球半径，误差可忽略）。
                 var d = vert - center;
-                var dir = new Vector2(Vector3.Dot(d, second), Vector3.Dot(d, first));
+                var dx = -Vector3.Dot(d, second);
+                var dz = Vector3.Dot(d, first);
+                var dir = new Vector2(dx, dz);
                 dir.Normalize();
                 result.Add(dir);
             }
@@ -96,7 +101,10 @@ namespace RimExodus
                 var next = (j + 1) % n;
                 // 边中点 = 两端顶点平均。
                 var mid = (verts[j] + verts[next]) * 0.5f - center;
-                var dir = new Vector2(Vector3.Dot(mid, second), Vector3.Dot(mid, first));
+                // 2D 坐标约定见 PopulateVertexDirections：2D.x = 东(second)、2D.y = 南(-first)。
+                var dx = Vector3.Dot(mid, second);   // 东
+                var dz = -Vector3.Dot(mid, first);   // 南
+                var dir = new Vector2(dx, dz);
                 dir.Normalize();
                 result.Add(dir);
             }
