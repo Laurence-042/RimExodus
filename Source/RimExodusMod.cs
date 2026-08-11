@@ -59,9 +59,13 @@ namespace RimExodus
             // 噪声生成器类型选择
             listing.Label($"Terrain noise generator: {s.noiseGenType}");
             var noiseSlider = (float)s.noiseGenType;
-            noiseSlider = listing.Slider(noiseSlider, 0, 3);
+            noiseSlider = listing.Slider(noiseSlider, 0, 2);
             s.noiseGenType = (NoiseGenType)Mathf.RoundToInt(noiseSlider);
-            listing.Label("(0=Off/原版独立, 1=SphereNormal/球面法线, 2=LatLong/经纬网格, 3=DiagnosticRings/诊断同心圆)");
+            listing.Label("(0=Off/原版独立, 1=PlaneGlobal/全局平面坐标, 2=DiagnosticRings/诊断条纹)");
+            listing.Gap();
+
+            listing.CheckboxLabeled("Debug dirt/water mode (pure noise display: dirt vs water)", ref s.debugDirtWaterMode);
+            listing.Label("(debug 模式: 只跑噪声显示器 genStep, terrain noise slider 决定显示哪种噪声)");
 
             listing.End();
         }

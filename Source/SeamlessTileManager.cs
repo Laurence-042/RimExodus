@@ -274,8 +274,17 @@ namespace RimExodus
             var sourceWorldTileCapture = sourceWorldTile;
             var sourceMapCapture = map;
 
-            // 阶段4 连续地形：通知噪声生成器开始生成新地图（缓存 tile 基）。
-            SeamlessNoiseProvider.NotifyGenerationStarted(newWorldTile, mapSize.x);
+            // 计算 new tile 在全局平面坐标系的原点（用于噪声采样跨 tile 连续）。
+            // tileOrigin = 源 tile 的 tileOrigin + hostOffset（源→新的平面偏移）。
+            // 源是锚点 tile（非 MapParent_SeamlessTile）→ tileOrigin = (0,0)。
+            // 源是口袋 tile → 读 sourceMapParent.tileOrigin（沿邻居链累加）。
+            var sourceTileOrigin = (map.Parent is MapParent_SeamlessTile sourcePocket)
+                ? sourcePocket.tileOrigin
+                : UnityEngine.Vector2.zero;
+            mapParent.tileOrigin = sourceTileOrigin + new UnityEngine.Vector2(hostOffset.x, hostOffset.z);
+
+            // 阶段4 连续地形：通知噪声生成器开始生成新地图（缓存 tileOrigin）。
+            SeamlessNoiseProvider.NotifyGenerationStarted(newWorldTile, mapSize.x, mapParent.tileOrigin);
 
             // 【实验分支】分帧增量生成：每帧跑 1 genStep，不暂停 tick（generating map 被 patch 跳过）。
             // 准备阶段（ConstructComponents→AddMap→组装 genSteps）同步完成，

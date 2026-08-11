@@ -14,12 +14,14 @@ namespace RimExodus
     /// 多边形顶点 = 地图中心 + 0.5S × 顶点方向（内切圆模型，详见阶段3计划）。
     ///
     /// 所有方法统一遍历 N 个顶点（N=5 五边形 / N=6 六边形），不区分具体边数。
+    ///
+    /// 坐标投影统一委托 <see cref="TileProjection"/>（唯一的切平面基来源 + 缓存）。
     /// </summary>
     public static class WorldTileGeometry
     {
         /// <summary>
         /// 计算地块 worldTile 每个【顶点】的方向单位向量（2D，切平面投影）。
-        /// 返回值的 x 分量对应切平面 second 基（局部"右"），y 分量对应 first 基（局部"上"）。
+        /// 返回值的 x 分量对应切平面 second 基取负（局部"东"），y 分量对应 first 基（局部"北"）。
         /// 方向忠实于地块在世界球面上的真实朝向（含 flat-top / pointy-top 旋转）。
         /// 顺序与 <see cref="WorldGrid.GetTileVertices"/> 返回的顶点环绕顺序一致。
         /// </summary>
@@ -40,73 +42,16 @@ namespace RimExodus
             if (grid == null) return;
 
             // 取地块顶点（球面世界坐标，环绕顺序）。
-            var verts = new List<Vector3>();
+            var verts = new List<UnityEngine.Vector3>();
             grid.GetTileVertices(worldTile, verts);
             if (verts.Count == 0) return;
 
-            // 地块中心。
-            var center = grid.GetTileCenter(worldTile);
+            // 统一从 TileProjection 取切平面基（带缓存，全游戏唯一来源）。
+            var basis = TileProjection.GetBasis(worldTile);
 
-            // 建立地块中心的切平面基（first / second 是切平面的两个正交单位向量）。
-            // 只要同一地块所有顶点用同一组基投影，2D 方向就一致；绝对朝向不影响多边形形状。
-            WorldRendererUtility.GetTangentsToPlanet(center, out var first, out var second);
-
-            // 地块中心的世界切平面基 first/second（GetTangentsToPlanet 返回）。
-            // first/second 的绝对朝向难纯推理（依赖 LookRotation + 球面视角），
-            // 此处用 -Dot(second) / Dot(first) 校准（实测 180 度旋转 bug 后的经验值）。
-            // 若仍方向错，结合 ComputeNeighborOffset 的 heading 真值对比日志进一步校准。
             foreach (var vert in verts)
             {
-                var d = vert - center;
-                var dx = -Vector3.Dot(d, second);
-                var dz = Vector3.Dot(d, first);
-                var dir = new Vector2(dx, dz);
-                dir.Normalize();
-                result.Add(dir);
-            }
-        }
-
-        /// <summary>
-        /// 计算地块 worldTile 每条【边】（邻居）的方向单位向量。
-        /// 边 j 连接顶点 j 与顶点 (j+1)%N，其方向 = 边中点相对中心的方向。
-        /// 顺序与 <see cref="WorldGrid.GetTileNeighbors"/> 返回的邻居顺序一致
-        /// （邻居 j 对应顶点 j→(j+1)%N 的那条边）。
-        /// </summary>
-        public static List<Vector2> ComputeEdgeDirections(int worldTile)
-        {
-            var result = new List<Vector2>();
-            PopulateEdgeDirections(worldTile, result);
-            return result;
-        }
-
-        /// <summary>填入版。调用方负责 Clear。</summary>
-        public static void PopulateEdgeDirections(int worldTile, List<Vector2> result)
-        {
-            if (result == null) return;
-            result.Clear();
-
-            var grid = Find.WorldGrid;
-            if (grid == null) return;
-
-            var verts = new List<Vector3>();
-            grid.GetTileVertices(worldTile, verts);
-            var n = verts.Count;
-            if (n == 0) return;
-
-            var center = grid.GetTileCenter(worldTile);
-            WorldRendererUtility.GetTangentsToPlanet(center, out var first, out var second);
-
-            for (var j = 0; j < n; j++)
-            {
-                var next = (j + 1) % n;
-                // 边中点 = 两端顶点平均。
-                var mid = (verts[j] + verts[next]) * 0.5f - center;
-                // 2D 坐标约定见 PopulateVertexDirections：2D.x = 东(second)、2D.y = 南(-first)。
-                var dx = Vector3.Dot(mid, second);   // 东
-                var dz = -Vector3.Dot(mid, first);   // 南
-                var dir = new Vector2(dx, dz);
-                dir.Normalize();
-                result.Add(dir);
+                result.Add(TileProjection.VertexToDir2D(basis, vert));
             }
         }
 

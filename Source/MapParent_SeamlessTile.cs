@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using RimWorld;
 using RimWorld.Planet;
+using UnityEngine;
 using Verse;
 
 namespace RimExodus
@@ -30,7 +32,43 @@ namespace RimExodus
         /// <summary>该地块是否已被自动聚焦过（首个自有 pawn 入境时聚焦，仅一次）。</summary>
         public bool autoFocused;
 
+        /// <summary>
+        /// 该地块在全局平面坐标系里的原点（用于噪声采样的跨 tile 连续性）。
+        ///
+        /// 锚点 tile（玩家家园）的 tileOrigin 固定为 (0,0)。
+        /// 口袋 tile 的 tileOrigin = 源 tile 的 tileOrigin + ComputeNeighborOffset（生成时确定）。
+        /// 多跳场景（A→B→C）沿邻居链自然累加。
+        ///
+        /// 噪声采样坐标 = cellLocal - center + tileOrigin。
+        /// 相邻 tile 共享边 cell 的采样坐标接近（由 ComputeNeighborOffset 的接缝中点重合保证，
+        /// 误差 ≤ 重叠带），Perlin 在平面坐标连续 → 接缝噪声连续。
+        /// 这与 void 六边形的连续性保证完全同构（同一套坐标、同一套 offset）。
+        /// </summary>
+        public Vector2 tileOrigin = Vector2.zero;
+
         public override string Label => "Seamless Tile Map";
+
+        /// <summary>
+        /// 阶段4 连续地形诊断：debug dirt/water 模式下切换到专用 MapGeneratorDef。
+        ///
+        /// 正常模式返回 base.MapGeneratorDef（从 WorldObjectDef.mapGenerator 读 RimExodus_SeamlessTileGenerator）。
+        /// debug 模式返回 RimExodus_DebugDirtWaterGenerator（只跑噪声显示器 genStep + void 裁切 + Fog），
+        /// 绕开原版多层 genStep，输出纯粹的噪声二值图。
+        ///
+        /// 原生 MapParent.MapGeneratorDef 是 virtual（MapParent.cs:31），可 override。
+        /// </summary>
+        public override MapGeneratorDef MapGeneratorDef
+        {
+            get
+            {
+                if ((RimExodusMod.Settings?.debugDirtWaterMode ?? false)
+                    && DefDatabase<MapGeneratorDef>.GetNamedSilentFail("RimExodus_DebugDirtWaterGenerator") is { } debugDef)
+                {
+                    return debugDef;
+                }
+                return base.MapGeneratorDef;
+            }
+        }
 
         /// <summary>
         /// 阶段4前置：基础地图的 WorldObject 会进入世界视图静态绘制层（useDynamicDrawer=false）。
@@ -47,6 +85,7 @@ namespace RimExodus
             base.ExposeData();
             Scribe_Values.Look(ref worldTile, "worldTile", -1);
             Scribe_Values.Look(ref autoFocused, "autoFocused", false);
+            Scribe_Values.Look(ref tileOrigin, "tileOrigin", Vector2.zero);
 
             // 邻居表序列化：用 IExposable 的 NeighborLink 列表。
             if (Scribe.mode == LoadSaveMode.Saving)

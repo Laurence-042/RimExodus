@@ -1,56 +1,51 @@
-using System.Collections.Generic;
-using RimWorld.Planet;
 using UnityEngine;
 using Verse;
 
 namespace RimExodus
 {
     /// <summary>
-    /// 阶段4 连续地形：可切换的噪声生成器框架。
+    /// 阶段4 连续地形：全局平面坐标噪声采样器。
     ///
-    /// 根据 RimExodusSettings.noiseGenType 选择不同的噪声坐标变换方案。
-    /// 每个方案把 map-local 采样坐标 (x,z) 映射到世界坐标 (wx,wy,wz)，
-    /// 用相同 seed 的 Perlin 在世界坐标采样，使相邻地块接缝连续。
+    /// 【核心思想】噪声采样和 void 裁切用完全相同的坐标系——cell 的平面坐标。
+    /// void 已用平面坐标 + ComputeNeighborOffset 实现跨 tile 连续（接缝中点重合，误差 ≤ 重叠带）。
+    /// 噪声复用这套坐标：采样坐标 = cellLocal - center + tileOrigin。
+    /// 相邻 tile 共享边 cell 的采样坐标接近（同构于 void 的连续性）→ Perlin 连续。
     ///
-    /// 设计目的：
-    /// - 隔离测试不同方案（球面法线 / 经纬网格 / 诊断同心圆）。
-    /// - 后续调整互不干扰（改一个生成器不影响其他）。
+    /// 不用球面坐标。Perlin 在任何连续坐标系里都连续，不限于球面。
+    /// 球面坐标方案（CellToSphere/SphereToPerlinSpace/插值）已废弃——相邻 tile 切平面不对齐，
+    /// 任何"cell→球面"反向映射都产生 ~1.0 球面单位的系统性错位。
+    ///
+    /// tileOrigin 传播：锚点=(0,0)，口袋=源 tileOrigin + ComputeNeighborOffset（生成时确定）。
+    /// 固定 seed（FixedSeed）让所有 tile 共享同一 Perlin 场。
     /// </summary>
     public static class SeamlessNoiseProvider
     {
         public const int FixedSeed = 13579;
 
-        private static readonly Dictionary<int, TileBasis> basisCache = new();
-
-        private class TileBasis
-        {
-            public Vector3 anchor;
-            public Vector3 first;
-            public Vector3 second;
-            public Vector2 latLong; // 经纬度（弧度）
-        }
-
         private static int curTile = -1;
-        private static TileBasis curBasis;
         private static int curMapSize;
+        private static Vector2 curTileOrigin;
 
-        public static void NotifyGenerationStarted(int worldTile, int mapSize)
+        /// <summary>
+        /// 通知噪声生成器：开始为 worldTile 生成地图，缓存其 tileOrigin。
+        /// 在 GenerateTileMap 里调用（tileOrigin 已算出）。
+        /// </summary>
+        public static void NotifyGenerationStarted(int worldTile, int mapSize, Vector2 tileOrigin)
         {
             curTile = worldTile;
             curMapSize = mapSize;
-            curBasis = GetBasis(worldTile);
+            curTileOrigin = tileOrigin;
             if (RimExodusMod.Settings?.verboseLogging ?? false)
             {
-                var b = curBasis;
-                Log.Message($"[RimExodus] NotifyGen: tile={worldTile} anchor=({b.anchor.x:F3},{b.anchor.y:F3},{b.anchor.z:F3}) latLong=({b.latLong.x:F4},{b.latLong.y:F4}) type={RimExodusMod.Settings?.noiseGenType}");
+                Log.Message($"[RimExodus] NotifyGen: tile={worldTile} tileOrigin=({tileOrigin.x:F1},{tileOrigin.y:F1}) type={RimExodusMod.Settings?.noiseGenType}");
             }
         }
 
         public static void NotifyGenerationEnded() { curTile = -1; }
 
         /// <summary>
-        /// 根据 noiseGenType 把 map-local (x,z) 变换为世界坐标 (wx,wy,wz)。
-        /// 返回 true = 已变换坐标，调用方应用变换后继续原 Perlin。
+        /// 把 map-local 坐标 (x,z) 变换为全局平面采样坐标 (wx, wz)。
+        /// 返回 true = 已变换，调用方用新坐标继续原 Perlin。
         /// 返回 false = 不干预，调用方放行原版。
         /// </summary>
         public static bool TryWarp(double x, double z, int worldTile, int mapSize,
@@ -63,99 +58,51 @@ namespace RimExodus
                 return false;
             }
 
-            TileBasis basis;
-            if (worldTile == curTile && mapSize == curMapSize && curBasis != null)
-                basis = curBasis;
+            // 取当前 tile 的 tileOrigin（NotifyGenerationStarted 缓存）。
+            // 理论上 TryWarp 只在生成期间被 patch 调用，curTile 必匹配；防御性回退 (0,0)。
+            Vector2 origin;
+            if (worldTile == curTile && mapSize == curMapSize)
+                origin = curTileOrigin;
             else
-                basis = GetBasis(worldTile);
+                origin = Vector2.zero;
 
             var center = mapSize * 0.5f;
-            var offX = (float)x - center;
-            var offZ = (float)z - center;
-
-            switch (type)
-            {
-                case NoiseGenType.SphereNormal:
-                    // 球面法线投影：sample3D = anchor + offZ·first - offX·second
-                    wx = basis.anchor.x + basis.first.x * offZ - basis.second.x * offX;
-                    wy = basis.anchor.y + basis.first.y * offZ - basis.second.y * offX;
-                    wz = basis.anchor.z + basis.first.z * offZ - basis.second.z * offX;
-                    return true;
-
-                case NoiseGenType.LatLong:
-                    // 经纬网格：经纬度放大到 cell 尺度，加 cell 偏移。
-                    // 关键标定：相邻 tile 经纬差 ≈ avgTileSize/Radius ≈ 0.5/100 = 0.005 弧度。
-                    // 一个 tile 的 cell 跨度 = mapSize = 250 格。
-                    // 要让经纬差对应 cell 距离：scale = mapSize / 经纬差 = 250 / 0.005 = 50000。
-                    // 这样 A 东边 cell（offX=+125）和 B 西边 cell（offX=-125）的世界坐标相同。
-                    // 运行时用 AverageTileSize 精确标定。
-                    var llScale = mapSize / (Find.WorldGrid.AverageTileSize / 100f);
-                    wx = basis.latLong.y * llScale + offX; // 经度方向
-                    wy = 0;
-                    wz = basis.latLong.x * llScale + offZ; // 纬度方向
-                    return true;
-
-                case NoiseGenType.DiagnosticRings:
-                    // 同心圆模式由 patch 的 IsDiagnosticRings 分支直接调 DiagnosticValue 返回。
-                    // TryWarp 不会在此模式下被调用（patch 先检查 IsDiagnosticRings）。
-                    // 但以防万一，回退到 SphereNormal 坐标。
-                    wx = basis.anchor.x + basis.first.x * offZ - basis.second.x * offX;
-                    wy = basis.anchor.y + basis.first.y * offZ - basis.second.y * offX;
-                    wz = basis.anchor.z + basis.first.z * offZ - basis.second.z * offX;
-                    return true;
-
-                default:
-                    wx = x; wy = 0; wz = z;
-                    return false;
-            }
+            // 全局平面坐标：cell 相对 tile 中心的偏移 + tile 在全局平面的原点。
+            wx = (float)x - center + origin.x;
+            wy = 0;
+            wz = (float)z - center + origin.y;
+            return true;
         }
 
         /// <summary>
-        /// 诊断同心圆：直接计算输出值（不经过 Perlin）。
-        /// 用球面法线投影坐标（anchor + first·offZ - second·offX）做距离。
-        /// 这是之前验证过连续的坐标变换——圆弧跨接缝连续。
+        /// 诊断条纹：直接计算输出值（不经过 Perlin）。
+        /// 用全局平面坐标的 X 分量做周期条纹——与 PlaneGlobal 走相同的坐标路径。
+        /// 如果 tileOrigin 传播正确，相邻 tile 共享边的条纹会连续对齐（误差 ≤ 重叠带）。
         /// </summary>
         public static double DiagnosticValue(double x, double z, int worldTile, int mapSize)
         {
-            TileBasis basis;
-            if (worldTile == curTile && mapSize == curMapSize && curBasis != null)
-                basis = curBasis;
+            Vector2 origin;
+            if (worldTile == curTile && mapSize == curMapSize)
+                origin = curTileOrigin;
             else
-                basis = GetBasis(worldTile);
+                origin = Vector2.zero;
 
             var center = mapSize * 0.5f;
-            var offX = (float)x - center;
-            var offZ = (float)z - center;
+            // 全局平面坐标（与 TryWarp 相同）。
+            var gx = (float)x - center + origin.x;
 
-            // 球面法线投影坐标（与 SphereNormal 模式相同的坐标变换）
-            var sx = basis.anchor.x + basis.first.x * offZ - basis.second.x * offX;
-            var sy = basis.anchor.y + basis.first.y * offZ - basis.second.y * offX;
-            var sz = basis.anchor.z + basis.first.z * offZ - basis.second.z * offX;
-
-            // 以球心为圆心的距离（球面 3D 距离）
-            var dist = Mathf.Sqrt(sx * sx + sy * sy + sz * sz);
-            var period = 0.5f; // 球面单位周期（一个 tile ~0.5 单位）
-            var phase = (dist % period) / period;
-            var d = phase < 0.5f ? phase : 1f - phase;
-            return 1f - Mathf.SmoothStep(0f, 0.1f, d) * 2f; // [-1,1]
+            // 取 X 分量做条纹。period = mapSize（一个 tile 宽度一个周期）。
+            var period = (float)mapSize;
+            var phase = (gx % period) / period;
+            if (phase < 0) phase += 1f;
+            // 三角波 [0,1]：条纹边缘。
+            var tri = phase < 0.5f ? phase * 2f : (1f - phase) * 2f;
+            var v = Mathf.SmoothStep(0.35f, 0.65f, tri);
+            return v * 2f - 1f; // [-1,1]
         }
 
-        /// <summary>当前是否为诊断同心圆模式（patch 据此决定是否直接返回值）。</summary>
+        /// <summary>当前是否为诊断条纹模式（patch 据此决定是否直接返回值）。</summary>
         public static bool IsDiagnosticRings =>
             (RimExodusMod.Settings?.noiseGenType ?? NoiseGenType.Off) == NoiseGenType.DiagnosticRings;
-
-        private static TileBasis GetBasis(int worldTile)
-        {
-            if (!basisCache.TryGetValue(worldTile, out var basis))
-            {
-                basis = new TileBasis();
-                basis.anchor = Find.WorldGrid.GetTileCenter(worldTile);
-                WorldRendererUtility.GetTangentsToPlanet(basis.anchor, out basis.first, out basis.second);
-                var n = basis.anchor.normalized;
-                basis.latLong = new Vector2(Mathf.Asin(n.y), Mathf.Atan2(n.z, n.x));
-                basisCache[worldTile] = basis;
-            }
-            return basis;
-        }
     }
 }
