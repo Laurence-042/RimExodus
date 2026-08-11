@@ -947,7 +947,7 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 - `Source/SeamlessNoiseProvider.cs`：`TryWarp`（全局平面坐标 cellLocal - center + tileOrigin）+ `DiagnosticValue`（诊断条纹）。
 - `Source/MapParent_SeamlessTile.cs`：`tileOrigin` 字段（Vector2，序列化）。
 - `Source/SeamlessTileManager.cs`：`GenerateTileMap` 算新 tile 的 tileOrigin。
-- `Source/Patches_NoiseLeafWarp.cs`：patch Perlin/RidgedMultifractal GetValue，gate RimExodus 地块，`EnsureFixedSeed` 固定 seed=13579。
+- `Source/Patches_NoiseLeafWarp.cs`：patch Perlin/RidgedMultifractal GetValue，gate RimExodus 地块，`EnsureFixedSeed` 固定 seed 为 WorldSeed 派生值（`HashCombineInt(WorldSeed, 13579)`）——所有 tile 共享同一 Perlin 场（连续性要求），但不同世界种子生成不同 Perlin 场（保留 WorldSeed 影响）。
 - `Source/GenStep_DebugDirtWater.cs` + `Source/RimExodusDebug.cs`：噪声显示器 genStep + 诊断日志。
 - `NoiseGenType` 枚举：Off(0) / PlaneGlobal(1) / DiagnosticRings(2)。
 

@@ -16,11 +16,38 @@ namespace RimExodus
     /// 任何"cell→球面"反向映射都产生 ~1.0 球面单位的系统性错位。
     ///
     /// tileOrigin 传播：锚点=(0,0)，口袋=源 tileOrigin + ComputeNeighborOffset（生成时确定）。
-    /// 固定 seed（FixedSeed）让所有 tile 共享同一 Perlin 场。
+    ///
+    /// 【FixedSeed 语义】所有 tile 共享同一 Perlin 场（连续性要求），但 seed 不再是全局常量，
+    /// 而是 WorldSeed 派生值（HashCombineInt(WorldSeed, DefaultSeed)）。这样：
+    /// - 同一世界所有 tile 共享同一 Perlin 场（接缝连续）。
+    /// - 不同世界种子生成不同 Perlin 场（地形随世界种子变化，恢复原版语义）。
+    /// - 同一 tile 多次生成结果一致（确定性）。
     /// </summary>
     public static class SeamlessNoiseProvider
     {
-        public const int FixedSeed = 13579;
+        /// <summary>FixedSeed 的 salt 分量。保留原 13579 作为可识别标记。</summary>
+        private const int DefaultSeed = 13579;
+
+        /// <summary>
+        /// 当前世界的 Perlin seed。惰性计算：首次访问时从 WorldSeed + DefaultSeed 派生。
+        /// -1 表示未初始化（NotifyGenerationStarted/Ended 会重置成 -1，强制下次访问重算）。
+        /// 惰性计算不依赖 NotifyGenerationStarted 的调用时序（EnsureFixedSeed 可能在任意时机读 FixedSeed）。
+        /// </summary>
+        private static int curWorldPerlinSeed = -1;
+
+        /// <summary>
+        /// 所有 tile 共享的 Perlin seed（世界特定，tile 无关）。
+        /// = HashCombineInt(WorldSeed, DefaultSeed)。换世界种子 → Perlin 场不同。
+        /// </summary>
+        public static int FixedSeed
+        {
+            get
+            {
+                if (curWorldPerlinSeed < 0)
+                    curWorldPerlinSeed = Gen.HashCombineInt(Find.World.info.Seed, DefaultSeed);
+                return curWorldPerlinSeed;
+            }
+        }
 
         private static int curTile = -1;
         private static int curMapSize;
@@ -35,13 +62,20 @@ namespace RimExodus
             curTile = worldTile;
             curMapSize = mapSize;
             curTileOrigin = tileOrigin;
+            // 重置 worldPerlinSeed，确保换世界后重算（惰性 getter 下次访问时从新 WorldSeed 派生）。
+            curWorldPerlinSeed = -1;
             if (RimExodusMod.Settings?.verboseLogging ?? false)
             {
-                Log.Message($"[RimExodus] NotifyGen: tile={worldTile} tileOrigin=({tileOrigin.x:F1},{tileOrigin.y:F1}) type={RimExodusMod.Settings?.noiseGenType}");
+                Log.Message($"[RimExodus] NotifyGen: tile={worldTile} tileOrigin=({tileOrigin.x:F1},{tileOrigin.y:F1}) perlinSeed={FixedSeed} type={RimExodusMod.Settings?.noiseGenType}");
             }
         }
 
-        public static void NotifyGenerationEnded() { curTile = -1; }
+        public static void NotifyGenerationEnded()
+        {
+            curTile = -1;
+            // 生成结束，重置 worldPerlinSeed，下次生成惰性重算。
+            curWorldPerlinSeed = -1;
+        }
 
         /// <summary>
         /// 把 map-local 坐标 (x,z) 变换为全局平面采样坐标 (wx, wz)。
