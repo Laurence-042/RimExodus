@@ -274,6 +274,9 @@ namespace RimExodus
             var sourceWorldTileCapture = sourceWorldTile;
             var sourceMapCapture = map;
 
+            // 阶段4 连续地形：通知噪声生成器开始生成新地图（缓存 tile 基）。
+            SeamlessNoiseProvider.NotifyGenerationStarted(newWorldTile, mapSize.x);
+
             // 【实验分支】分帧增量生成：每帧跑 1 genStep，不暂停 tick（generating map 被 patch 跳过）。
             // 准备阶段（ConstructComponents→AddMap→组装 genSteps）同步完成，
             // genStep 链分帧执行，FinalizeInit + 后续配置在最后帧的 onComplete 执行。

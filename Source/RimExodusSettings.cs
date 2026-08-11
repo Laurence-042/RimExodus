@@ -3,6 +3,21 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
+    /// 噪声生成器类型（连续地形用）。通过 Mod 设置切换，便于隔离测试不同方案。
+    /// </summary>
+    public enum NoiseGenType
+    {
+        /// <summary>不干预噪声生成（原版独立 map-local Perlin，各地块不连续）。</summary>
+        Off = 0,
+        /// <summary>球面法线投影：cell 偏移通过切平面基映射到球面 3D。</summary>
+        SphereNormal = 1,
+        /// <summary>经纬网格：cell 偏移加到 tile 经纬度，2D Perlin 在经纬空间采样。</summary>
+        LatLong = 2,
+        /// <summary>诊断同心圆：以锚点为圆心的同心圆（用于目测接缝连续性）。</summary>
+        DiagnosticRings = 3,
+    }
+
+    /// <summary>
     /// RimExodus 的 Mod 设置（阶段4a：邻居预加载）。
     /// 持久化在 mod 自有存档文件中（GetSettings&lt;T&gt; 机制）。
     /// </summary>
@@ -10,32 +25,23 @@ namespace RimExodus
     {
         /// <summary>
         /// pawn 距多边形边界多少格内时触发对应邻居地块的预加载。
-        /// 阈值越大越早预加载（更流畅但更费内存），越小越懒（省内存但接近边界才加载）。
         /// </summary>
         public int borderPreloadDistance = 15;
 
-        /// <summary>
-        /// 开档时是否预加载锚点地块的全部世界邻居（默认 false：仅预铺传送点，等 pawn 接近边界再加载）。
-        /// 高配玩家可开启以获得更流畅体验。
-        /// </summary>
+        /// <summary>开档时是否预加载锚点地块的全部世界邻居。</summary>
         public bool preloadAllNeighborsOnStart = false;
 
-        /// <summary>
-        /// 详细诊断日志开关（默认 false）。
-        /// 开启后打印所有 [RimExodus] Log.Message 诊断信息（每 tick/每次玩家操作的高频日志），
-        /// 关闭时只保留 Log.Warning / Log.Error 等真正的问题日志。
-        /// </summary>
+        /// <summary>详细诊断日志开关。</summary>
         public bool verboseLogging = false;
 
-        /// <summary>
-        /// 多边形边内侧 N 格禁建（阶段4 安全约束，防接缝卡死）。
-        /// 玩家可在接缝重叠带及其内侧建造建筑，用建筑改变寻路把 pawn 困在 void 一侧——
-        /// 一旦 pawn 站上指向"已被建筑封死对端"的传送点，就会卡死。
-        /// 故多边形边内侧必须禁止建造，从根上杜绝这种滥用。
-        /// 默认 <see cref="SeamlessTileManager.SeamOverlap"/>(2) + 1 = 3，与预加载触发距离（borderPreloadDistance=15）语义不同、独立配置。
-        /// 0 表示禁用此约束。
-        /// </summary>
+        /// <summary>多边形边内侧 N 格禁建（阶段4 安全约束）。</summary>
         public int borderNoBuildDistance = 3;
+
+        /// <summary>
+        /// 连续地形噪声生成器类型。默认 SphereNormal。
+        /// 在 Mod 设置里切换以测试不同方案。
+        /// </summary>
+        public NoiseGenType noiseGenType = NoiseGenType.SphereNormal;
 
         public override void ExposeData()
         {
@@ -43,7 +49,9 @@ namespace RimExodus
             Scribe_Values.Look(ref preloadAllNeighborsOnStart, "preloadAllNeighborsOnStart", false);
             Scribe_Values.Look(ref verboseLogging, "verboseLogging", false);
             Scribe_Values.Look(ref borderNoBuildDistance, "borderNoBuildDistance", 3);
+            Scribe_Values.Look(ref noiseGenType, "noiseGenType", NoiseGenType.SphereNormal);
             base.ExposeData();
         }
     }
 }
+

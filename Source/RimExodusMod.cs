@@ -54,6 +54,14 @@ namespace RimExodus
             listing.Gap();
 
             listing.CheckboxLabeled("Verbose logging (diagnostics)", ref s.verboseLogging);
+            listing.Gap();
+
+            // 噪声生成器类型选择
+            listing.Label($"Terrain noise generator: {s.noiseGenType}");
+            var noiseSlider = (float)s.noiseGenType;
+            noiseSlider = listing.Slider(noiseSlider, 0, 3);
+            s.noiseGenType = (NoiseGenType)Mathf.RoundToInt(noiseSlider);
+            listing.Label("(0=Off/原版独立, 1=SphereNormal/球面法线, 2=LatLong/经纬网格, 3=DiagnosticRings/诊断同心圆)");
 
             listing.End();
         }

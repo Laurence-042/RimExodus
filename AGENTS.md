@@ -897,7 +897,67 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 - `Source/Patches_CaravanEnterMap.cs` — 远行队进入地块从传送点出生。
 
 ### 仍待办（阶段4 本体：连续地形）
-- **地形连续化**（噪声坐标代理层、Perlin seed 确定化）——这是阶段4的真正目标，本轮只是前置准备。基础地图转变后原生 Coast/River mutator 已自然生效（每个地块独立正确），连续化是让相邻地块地形在接缝处对齐。
+- **地形连续化**——已实现并游戏内验证几何对齐正确（见下"阶段4 连续地形：球面噪声+法线投影"）。诊断模式（条纹图案）确认噪声叶子采样跨接缝连续。
+- **锚点 A 与地块 B 的接缝不连续**（已知限制）：A 是原生家园地图，走原生 MapGenerator 生成（map-local Perlin），不触发 RimExodus patch。B 从 A 生成，走球面坐标采样。A-B 接缝处 A 用 map-local、B 用球面坐标，两者 Perlin 场不同，接缝不连续。B-C 及以后地块间完全连续（都用球面坐标）。后续若需解决，需扩展 gate 让 A 也参与球面坐标采样（侵入原生家园生成）。
+- **径向扭曲**（直线变弧线贴合六边形）：本轮暂未实现。地形被 void 裁切后视觉贴合六边形。后续若需要弧线效果，需设计接缝带 lerp 方案。
 - **sky/weather 共享的 tick 重复隐患**：当前 `GenerateTileMap` 把新地块的 `skyManager`/`weatherManager`/`weatherDecider` 覆写为锚点 A 的实例。但 `Map.MapPostTick`（:1077/:1093）和 `MapUpdate`（:1155/:1193）会按各自 map 调用 `weatherManager.WeatherManagerTick` 等——共享实例会被每个地图各 tick 一次，导致天气推进速度翻倍、状态错乱。短期未观察到明显问题，但长期运行有微妙异常风险。待决策：共享（需 patch 跳过非主地图的 manager tick）还是独立（接受天气不连续）。
 - sky/weather 共享的存档重载验证。
 - 远行队进入出生点按来源方向精确推断（当前用任一可站立传送点）。
+
+## 阶段4 连续地形：球面噪声+法线投影（已完成，几何对齐已游戏内验证）
+
+实现"相邻地块地图的地形噪声在接缝处自然过渡（连续）"。通过一个统一的采样层 patch 让所有地形噪声用"球面 3D 坐标"采样，避免逐个 patch genStep/mutator。
+
+### 方案演进（三个方案，前两个失败）
+1. **offset 累积（失败）**：用 NeighborLink.offset 沿邻居链 BFS 累积平面 2D 世界坐标。失败原因：offset 各自从 tile 局部多边形几何独立计算，**不满足三角形恒等式**（`offset_AB + offset_BC ≠ offset_AC`），多跳场景（中间填补 tile）接缝不对齐。
+2. **球面 anchor + map-local 偏移直接相加（失败）**：`sample = (anchor.x + cellOffset.x, anchor.y, anchor.z + cellOffset.z)`。失败原因：把 map-local x/z 直接当球面 x/z，**没用法线投影**。相邻 tile 切平面有旋转差，cell 偏移方向在球面上不一致。
+3. **球面噪声 + 法线投影（成功）**：`sample3D = anchor + scale·[(z-center)·first - (x-center)·second]`。通过切平面基（`GetTangentsToPlanet`）把 cell 偏移映射到球面 3D 方向。
+
+### 核心架构：两层分离（重要，理解后续所有改动的前提）
+- **几何叶子**（`DistFromAxis_Directional` 等）：**不 patch**，保持 map-local。它们的坐标变换链（`Rotate`/`Translate`/`Scale`）在 map-local 下定义地形特征边界形状（海岸线大方向、山脉轮廓等）。接缝处"大方向"由世界地块拓扑保证连续（`CoastAngleAt` 返回综合角度）。
+- **噪声叶子**（`Perlin`/`RidgedMultifractal`）：**patch**，球面 3D 坐标采样。它们提供随机纹理（高度起伏、海岸抖动、肥力分布、岩石分布）。球面采样让接缝两端噪声连续。
+
+### 球面噪声 + 法线投影（核心公式，务必正确理解）
+- **锚点**：`anchor = Find.WorldGrid.GetTileCenter(worldTile)`（球面 Vector3，全局唯一，不依赖累积路径）。
+- **切平面基**：`GetTangentsToPlanet(anchor, out first, out second)`。first≈切平面"北"，second≈切平面"东"。
+- **scale 标定**：`scale = (AverageTileSize / √3) / (mapSize / 2)`。运行时用 `Find.WorldGrid.AverageTileSize` 取真值（实测 ~0.5，取决于星球覆盖率）。让一个 tile 的 cell 跨度对应球面上一个 tile 的物理跨度。
+- **采样点**：`sample3D = anchor + scale·[(z-center)·first - (x-center)·second]`。符号遵循 `WorldTileGeometry.PopulateVertexDirections` 的逆映射（`dx = -Dot(d, second)`, `dz = Dot(d, first)` → 逆映射 `d = dz·first - dx·second`）。
+- **接缝对齐原理**：相邻 tile 切平面在接缝处近似重合（夹角 ~0.1°，averageTileSize=0.5/Radius=100 → 0.005 rad）。接缝两端 cell 各自通过切平面基映射到球面 3D，落在**同一个球面位置**（偏差 < 0.05 格，远小于 SeamOverlap=2 吸收带）。用 3D Perlin 在球面上采样，全局连续。
+
+### 关键技术决策
+- **Patch 点**：`Perlin.GetValue(double,double,double)` 和 `RidgedMultifractal.GetValue(double,double,double)` 的 override。**不 patch** `ModuleBase.GetValue(IntVec3)`（薄包装，`Displace` 内部递归走 `GetValue(double)` override 绕过它，覆盖不全）。**不 patch** `ModuleBase.GetValue(double)` 抽象声明（会拦截几何叶子破坏形状语义）。
+- **Gate**：`MapGenerator.mapBeingGenerated?.Parent is MapParent_SeamlessTile`。只在 RimExodus 地块地图生成期间生效。运行时（雪/闪电/龙卷风/世界生成）mapBeingGenerated 必为 null，gate 为 false，Prefix 直接放行，零误伤。
+- **Seed 固定**：原版 Perlin seed 由 `Rand.Range` 生成，不同 tile 不同 seed → 即使坐标对齐 Perlin 场也不同。固定 seed 为全局常量（`FixedSeed = 13579`），所有 tile 共享同一 Perlin 场。用 `ConditionalWeakTable` 记录已设 seed 的实例，避免每次 GetValue 调用都反射 SetValue。
+
+### 数学基础（已验证）
+- **Perlin/RidgedMultifractal.GetValue 是纯函数**，返回值 `[-1,1]` 与采样坐标无关。球面采样只改变空间连续性，不改变振幅。
+- **Displace 的坐标一致性成立**：`Displace.GetValue` 内部调 `modules[1].GetValue(x,y,z)`（位移 Perlin）得到位移量（`strength × [-1,1]`），这个位移量仍是 map-local 格数单位，加到 map-local 坐标上语义正确。球面采样只改变位移量的"空间相位"，不改变振幅。
+- 因此 `ScaleBias`/`Multiply` 等标量运算不受影响；整棵噪声树的最终值范围不变，只是空间分布改变。
+
+### 自动覆盖的地形连续化项（一个 patch 点覆盖全部）
+- **elevation/fertility**：`GenStep_ElevationFertility` 的 Perlin + 两层 Displacement Perlin。
+- **岩石类型**：`RockNoises` 每个岩石的 Perlin。
+- **海岸线抖动**：`Coast` coastNoise 两层 Displacement Perlin。
+- **湖岸/海湾/峡湾/冰山/沙丘/群岛抖动**：各海岸变体的 Displacement Perlin。
+- **河流宽度/河岸/浅化**：`River` 的 riverWidthNoise/riverbankNoise/shallowizer。
+- **湿地/岩浆流**：`RidgedMultifractal`。
+- **河流弯曲**（`riverBendNoise`）：参数空间采样（`num2 × widthFactor, 0, riverNode.seed`），被扭曲后返回有效噪声 [-1,1]，河流弯曲仍自然。接缝处弯曲不连续由抛物线包络 `4t(1-t)` 保证（t=0/1 处为 0）。
+
+### 新增源码文件
+- `Source/SeamlessRadialWarp.cs` — 球面噪声+法线投影核心。`WarpSampleCoord`（map-local → 球面 3D）、`GetBasis`（缓存 anchor+切平面基）、`ComputeScale`（AverageTileSize 标定）、`NotifyGenerationStarted/Ended`（快速路径槽位）。
+- `Source/Patches_NoiseLeafWarp.cs` — `Perlin.GetValue` + `RidgedMultifractal.GetValue` override 的 Prefix patch。共享 gate + 球面采样 + 固定 seed 逻辑。
+
+### 修改的源码文件
+- `SeamlessTileManager.cs` — `GenerateTileMap` 调 `NotifyGenerationStarted`；`RegisterNeighborBidirectional` 调 `InvalidateCache`（球面方案下空操作，保留接口兼容）。
+- `IncrementalMapGenerator.cs` — `FinishGeneration` finally 调 `NotifyGenerationEnded`。
+
+### 已游戏内验证
+- 诊断模式（同心圆/条纹图案）确认：**土地条纹跨接缝连续**，法线投影几何对齐正确。
+- `avgTileSize=0.4997`（实测），`scale=0.002308`（运行时标定）。
+- 海岸线（Coast mutator 的几何叶子 map-local + 位移 Perlin 球面）产生斜条纹（诊断模式预期行为）。
+- 岩石分布呈莫尔条纹（elevation 条纹 × RockNoises 条纹的不同周期叠加，诊断模式预期行为）。
+
+### 已知限制
+1. **锚点 A 与地块 B 接缝不连续**：A 是原生家园地图（map-local Perlin），不触发 patch。B 及以后地块间完全连续。
+2. **径向扭曲未实现**：噪声特征在球面上是"直线"（大圆弧），被 void 裁切后贴合六边形。
+3. **Perlin frequency 标定**：scale 让一个 tile 占球面 ~0.5 单位，原版 frequency（~0.018）在这个尺度下可能过低频（噪声接近常数）。后续可能需要调高 frequency 或在采样前乘 frequency boost。当前用 FixedSeed 固定场，frequency 由原版 Perlin 参数决定。

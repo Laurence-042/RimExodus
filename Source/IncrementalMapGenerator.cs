@@ -428,6 +428,7 @@ namespace RimExodus
                 MapGenerator.mapBeingGenerated = null;
                 gravshipField.SetValue(null, null);
                 RockNoises.Reset();
+                SeamlessNoiseProvider.NotifyGenerationEnded();
                 current = null;
                 generatingMap = null;
             }
