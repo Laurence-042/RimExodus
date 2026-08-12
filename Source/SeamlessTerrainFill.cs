@@ -18,6 +18,36 @@ namespace RimExodus
     public static class SeamlessTerrainFill
     {
         /// <summary>
+        /// 备份基础地形 snapshot（void 裁切前的完整矩形 topGrid）并按六边形铺 void。
+        ///
+        /// **两入口共用同一逻辑体**（归一点）：锚点家园 A 与邻接地块 B 的 void 铺设都走本方法。
+        /// 差异仅在入口：B 走 <c>RimExodus_SeamlessTile</c> genStep（order=211），A 走
+        /// <c>Patch_GenStepMutatorPostTerrain</c> Postfix（order=220，因 A 用原生 Base_Player
+        /// 无法加 RimExodus genStep）。snapshot 存储位置随载体类型自动选择（地块存 MapParent_SeamlessTile，
+        /// 锚点存 SeamlessTileManager），其余完全一致——避免两份重复的"备份+铺void"逻辑漂移。
+        ///
+        /// snapshot 用途：供 <see cref="SeamlessSeamOverride"/> 卷积混合读取对端真实地形。
+        /// </summary>
+        public static void BackupSnapshotAndApplyVoid(Map map, int worldTile)
+        {
+            if (map == null || worldTile < 0) return;
+
+            // 备份基础地形（void 裁切前的完整矩形 topGrid）。
+            if (map.Parent is MapParent_SeamlessTile pocket)
+            {
+                pocket.baseTerrainSnapshot = (TerrainDef[])map.terrainGrid.topGrid.Clone();
+            }
+            else
+            {
+                var manager = map.GetComponent<SeamlessTileManager>();
+                if (manager != null && manager.anchorBaseTerrainSnapshot == null)
+                    manager.anchorBaseTerrainSnapshot = (TerrainDef[])map.terrainGrid.topGrid.Clone();
+            }
+
+            ApplyPolygonTerrain(map, worldTile);
+        }
+
+        /// <summary>
         /// 按 worldTile 的六边形铺 void：六边形内（含边）非 void，六边形外 void。
         /// void 格铺 RimExodus_Void 并清除其上的实体与 Pawn。
         /// </summary>

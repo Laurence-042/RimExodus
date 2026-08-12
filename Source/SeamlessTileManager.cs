@@ -496,15 +496,29 @@ namespace RimExodus
 
         /// <summary>
         /// 沿地图全部世界邻居边预铺单端传送点（阶段4a 预铺 + 阶段4b 传送机制重构）。
-        /// 每条边 j 用 Bresenham 划线枚举格，对可站立且无同 def spot 的格铺一个单端 spot：
-        /// <see cref="CompSeamlessTileEnterSpot.targetWorldTile"/> = 该边对应的世界邻居 tile。
+        /// 枚举"接缝带"——到最近 void 格的切比雪夫距离 ∈ {1, 2} 的非 void 格（即紧贴 void 的
+        /// <see cref="SeamOverlap"/> 格宽环形带：最外圈 + 次外圈）。每个格按"最近多边形边 j"
+        /// 分组确定 <see cref="CompSeamlessTileEnterSpot.targetWorldTile"/>（= 该边对应的世界邻居 tile）。
         /// spot 预铺时 hasArrival 默认 false；邻居加载后由 <see cref="RefreshEnterSpotArrivals"/>
         /// 用 offset 算对端坐标并缓存到 spot（cachedArrivalCell），废弃了旧的互绑模式。
         ///
         /// 幂等：已存在同位置 spot 不重复铺。锚点和口袋都适用（不依赖 MapParent 类型）。
         ///
+        /// **接缝带宽度 = SeamOverlap（2）格（关键设计）**：两端各有 2 格宽的 spot 带，通过
+        /// <see cref="ComputeNeighborOffset"/> 的 offset 重叠时，实际接缝落在两端 2 格带的中线上——
+        /// 接缝上两端都有 spot。投影必然扭曲（相邻 tile 切平面基有旋转，赤道→北极累积约 30°），
+        /// 2 格宽的 spot 带互相覆盖吸收此偏移：即使两端 spot 因投影旋转错开 ≤2 格，落点仍能落在
+        /// 对端 spot 带内，不会漏到无 spot 的内部或 void。这正是"传送点带本身 SeamOverlap 格宽"
+        /// 的含义（旧的"沿边 Bresenham 单线 / 不铺两层"描述已废弃）。
+        ///
+        /// **几何一致性**：spot 带直接由 terrainGrid 里的 void 边界决定（平移法：把每个 void 格
+        /// 的 (2·SeamOverlap+1)² 邻域内的非 void 格标为带内，等价于"void 向外膨胀 SeamOverlap 格"，
+        /// 也等价于"本格非 void 且到 void 的切比雪夫距离 ∈ {1..SeamOverlap}"），与
+        /// <see cref="SeamlessTerrainFill.ApplyPolygonTerrain"/> 铺 void 用的是同一套格角检测几何，
+        /// 杜绝"spot 几何 vs void 边界"两套口径错配。复杂度 O(N² + void格数·(2r+1)²)。
+        ///
         /// **调用时机**：必须在 <see cref="SeamlessTerrainFill.ApplyPolygonTerrain"/> 之后调用——
-        /// 传送点铺在多边形边格上，边格须为非 void（Walkable）。ApplyPolygonTerrain 会清空 void 格上的实体，
+        /// 本方法直接读 terrainGrid 判定 void。ApplyPolygonTerrain 会清空 void 格上的实体，
         /// 若在它之前铺 spot，spot 会被清空逻辑销毁。GenerateTileMap 内部保证此顺序（GenStep 含 ApplyPolygonTerrain
         /// 在 MapGenerator.GenerateMap 内执行，之后才调本方法）。
         /// </summary>
@@ -519,6 +533,9 @@ namespace RimExodus
                 return;
             }
 
+            // void 地形 Def：从 terrainGrid 读本格/邻格是否 void。
+            var voidDef = DefDatabase<TerrainDef>.GetNamedSilentFail("RimExodus_Void");
+
             var mapSize = targetMap.Size;
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize.x);
             if (verts.Count == 0) return;
@@ -528,14 +545,68 @@ namespace RimExodus
             Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
             if (worldNeighbors.Count == 0) return;
 
-            var placed = 0;
-            for (var j = 0; j < verts.Count && j < worldNeighbors.Count; j++)
+            // 预解析每个边 j 对应的世界邻居 tileId（避免内层循环重复访问）。
+            var edgeNeighborTiles = new int[verts.Count];
+            for (var j = 0; j < verts.Count; j++)
             {
-                var neighborWorldTile = worldNeighbors[j].tileId;
-                foreach (var cell in SeamlessPolygonGeometry.EnumerateEdgeCells(verts, j, mapSize.x))
+                edgeNeighborTiles[j] = j < worldNeighbors.Count ? worldNeighbors[j].tileId : -1;
+            }
+
+            var terrainGrid = targetMap.terrainGrid.topGrid;
+            var cellIndices = targetMap.cellIndices;
+            var sx = mapSize.x;
+            var sz = mapSize.z;
+            var totalCells = sx * sz;
+            // 接缝带切比雪夫半径 = SeamOverlap（到 void 的切比雪夫距离 ∈ {1..SeamOverlap}）。
+            var bandRadius = SeamOverlap;
+
+            // ---- 平移法构建接缝带掩码（比每格扫 5×5 邻域高效且直观）----
+            // 第 1 遍：标记所有 void 格。
+            // 第 2 遍：对每个 void 格，把它 (2r+1)×(2r+1) 邻域内的非 void 格标为带内。
+            // 等价于"把 void 向外膨胀 bandRadius 格"，即边缘 void 上下左右平移 ≤bandRadius 格的并集。
+            var isVoid = new bool[totalCells];
+            if (voidDef != null)
+            {
+                for (var i = 0; i < totalCells; i++) isVoid[i] = terrainGrid[i] == voidDef;
+            }
+            var inBand = new bool[totalCells];
+            for (var z = 0; z < sz; z++)
+            {
+                for (var x = 0; x < sx; x++)
                 {
-                    if (!cell.InBounds(targetMap)) continue;
-                    if (!cell.Walkable(targetMap)) continue; // 虚空/自然地形阻挡：不铺（pawn 站不上去）。
+                    if (!isVoid[z * sx + x]) continue;
+                    var xMin = x - bandRadius; if (xMin < 0) xMin = 0;
+                    var xMax = x + bandRadius; if (xMax >= sx) xMax = sx - 1;
+                    var zMin = z - bandRadius; if (zMin < 0) zMin = 0;
+                    var zMax = z + bandRadius; if (zMax >= sz) zMax = sz - 1;
+                    for (var nz = zMin; nz <= zMax; nz++)
+                    {
+                        var rowBase = nz * sx;
+                        for (var nx = xMin; nx <= xMax; nx++)
+                        {
+                            var ni = rowBase + nx;
+                            // 只标非 void 格为带内（void 本身保持 false，不铺 spot）。
+                            if (!isVoid[ni]) inBand[ni] = true;
+                        }
+                    }
+                }
+            }
+
+            var placed = 0;
+
+            for (var x = 0; x < sx; x++)
+            {
+                for (var z = 0; z < sz; z++)
+                {
+                    var idx = z * sx + x;
+                    if (!inBand[idx]) continue;
+
+                    var cell = new IntVec3(x, 0, z);
+
+                    // 最近多边形边 j → 该边对应的世界邻居 tile（targetWorldTile）。
+                    var edgeIdx = SeamlessPolygonGeometry.FindClosestEdgeIndex(verts, cell.x + 0.5f, cell.z + 0.5f);
+                    var neighborWorldTile = edgeIdx >= 0 && edgeIdx < edgeNeighborTiles.Length ? edgeNeighborTiles[edgeIdx] : -1;
+                    if (neighborWorldTile < 0) continue;
 
                     // 幂等查重：该格已有同 def spot 则跳过。
                     var existing = targetMap.thingGrid.ThingsListAtFast(cell);

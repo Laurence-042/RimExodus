@@ -209,6 +209,31 @@ namespace RimExodus
         }
 
         /// <summary>
+        /// 找点 (px, py) 最近的多边形边索引（到边的垂直距离最小）。
+        /// 用于把一个格映射到它最接近的那条边对应的邻居（如传送点 targetWorldTile 分组）。
+        /// </summary>
+        public static int FindClosestEdgeIndex(List<Vector2> verts, float px, float py)
+        {
+            var n = verts.Count;
+            if (n == 0) return -1;
+            var bestEdge = 0;
+            var bestDist = float.MaxValue;
+            var p = new Vector2(px, py);
+            for (var j = 0; j < n; j++)
+            {
+                var v0 = verts[j];
+                var v1 = verts[(j + 1) % n];
+                var dist = DistanceToEdge(p, v0, v1);
+                if (dist < bestDist)
+                {
+                    bestDist = dist;
+                    bestEdge = j;
+                }
+            }
+            return bestEdge;
+        }
+
+        /// <summary>
         /// 计算点 p 到线段 (v0→v1) 的最短距离（解析）。
         /// 用于判定格子距多边形边的距离。
         /// </summary>

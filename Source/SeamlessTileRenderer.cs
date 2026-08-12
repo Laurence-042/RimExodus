@@ -71,10 +71,14 @@ namespace RimExodus
             // 当前地图随后在 ForwardOpaque 阶段正常覆盖它该出现的像素。
             commandBuffer.ClearRenderTarget(true, true, Color.clear, 1f);
 
+            // 宿主相机视区（cell 坐标，ExpandedBy(1) 镜像原版 MapDrawer.ViewRect，所有邻居共用）。
+            // 此处 Find.CurrentMap == map 已由方法开头守卫保证，CurrentViewRect 即宿主视区。
+            var hostViewRect = Find.CameraDriver.CurrentViewRect.ExpandedBy(1);
+
             foreach (var neighbor in cachedNeighbors)
             {
-                CollectNeighborLayers(neighbor.map, neighbor.offset.ToVector3());
-                DrawNeighborPawns(neighbor.map, neighbor.offset.ToVector3());
+                CollectNeighborLayers(neighbor.map, neighbor.offset, neighbor.offset.ToVector3(), hostViewRect);
+                DrawNeighborPawns(neighbor.map, neighbor.offset.ToVector3(), hostViewRect);
             }
 
             if (drawCommands.Count == 0)
@@ -98,14 +102,23 @@ namespace RimExodus
         /// 邻居地图上的 Pawn 不会被当前地图的 DynamicDrawManager 绘制，
         /// 因此需要手动以 offset 平移后的位置立即绘制一遍。
         /// Thing.DrawNowAt 接受显式坐标，绕开 DrawPos/Position。
+        /// 视区裁剪：只绘制平移后落在宿主相机视区内的 pawn。
         /// </summary>
-        private static void DrawNeighborPawns(Map neighborMap, Vector3 offset)
+        private static void DrawNeighborPawns(Map neighborMap, Vector3 offset, CellRect hostViewRect)
         {
             foreach (var pawn in neighborMap.mapPawns.AllPawnsSpawned)
             {
                 try
                 {
-                    pawn.DrawNowAt(pawn.DrawPos + offset);
+                    var drawPos = pawn.DrawPos + offset;
+                    // 宿主坐标系判定：pawn 平移后的世界坐标转 cell 坐标后是否在视区内。
+                    if (!hostViewRect.Contains(new IntVec3(
+                            Mathf.FloorToInt(drawPos.x), 0, Mathf.FloorToInt(drawPos.z))))
+                    {
+                        continue;
+                    }
+
+                    pawn.DrawNowAt(drawPos);
                 }
                 catch (Exception ex)
                 {
@@ -170,10 +183,12 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 收集邻居地图的地形层（SectionLayer_Terrain）和静态物层（SectionLayer_ThingsGeneral）。
-        /// 用 offset 平移矩阵提交到 CommandBuffer。
+        /// 收集邻居地图的地形层（SectionLayer_Terrain）、静态物层（SectionLayer_ThingsGeneral）
+        /// 和战雾层（SectionLayer_FogOfWar），用 offset 平移矩阵提交到 CommandBuffer。
+        /// 视区裁剪：只提交与当前相机视区相交的 section（镜像 MapDrawer.DrawMapMesh 的做法），
+        /// 邻居地图通常只有约一半可见，跳过不可见 section 显著减少 draw call。
         /// </summary>
-        private void CollectNeighborLayers(Map neighborMap, Vector3 offset)
+        private void CollectNeighborLayers(Map neighborMap, IntVec3 offsetInt, Vector3 offsetVec, CellRect hostViewRect)
         {
             var sections = sectionsRef(neighborMap.mapDrawer);
             if (sections == null)
@@ -183,7 +198,11 @@ namespace RimExodus
 
             EnsureSectionsGenerated(sections);
 
-            var matrix = Matrix4x4.TRS(offset, Quaternion.identity, Vector3.one);
+            // 把宿主视区平移到邻居坐标系：邻居本地坐标 + offset = 宿主坐标，
+            // 故邻居视区 = 宿主视区 - offset。ClipInsideMap 防越界误判。
+            var neighborView = hostViewRect.MovedBy(-offsetInt).ClipInsideMap(neighborMap);
+
+            var matrix = Matrix4x4.TRS(offsetVec, Quaternion.identity, Vector3.one);
 
             for (var x = 0; x < sections.GetLength(0); x++)
             {
@@ -195,8 +214,16 @@ namespace RimExodus
                         continue;
                     }
 
+                    // section 粒度裁剪。Bounds 含 fog 几何范围（fog 用标准 cell 网格建几何，不膨胀），
+                    // 一次判定覆盖 terrain/things/fog 三层。
+                    if (!neighborView.Overlaps(section.Bounds))
+                    {
+                        continue;
+                    }
+
                     CollectLayer(section, matrix, typeof(SectionLayer_Terrain));
                     CollectLayer(section, matrix, typeof(SectionLayer_ThingsGeneral));
+                    CollectLayer(section, matrix, typeof(SectionLayer_FogOfWar));
                 }
             }
         }
@@ -226,7 +253,9 @@ namespace RimExodus
         /// 收集指定精确类型的 SectionLayer 的 submesh。
         /// 必须用精确类型匹配：
         /// - SectionLayer_Watergen 继承自 SectionLayer_Terrain，但只能绘制到水深子相机，绝不能提交主相机。
-        /// - 排除 SunShadows/FogOfWar/Gas 等有 grid/shadow 依赖的层（不在本方法收集范围内）。
+        /// - SectionLayer_FogOfWar 现在收集：fog 层 mesh 顶点是绝对世界坐标（同 Terrain），可被 offset 矩阵正确平移；
+        ///   全探索 section 的 fog submesh 被 Regenerate 设 disabled，下方 disabled 检查会跳过，零开销。
+        /// - 仍不收集 SunShadows/Gas 等有 shadow/grid 依赖且不适合偏移绘制的层。
         /// </summary>
         private void CollectLayer(Section section, Matrix4x4 matrix, Type layerType)
         {

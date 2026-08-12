@@ -278,7 +278,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - **多边形顶点 = 地图中心 + 0.5S × 顶点方向单位向量**（S=地图边长）。顶点位于正方形地图内切圆上。
 - **顶点方向**：世界地块顶点（`grid.GetTileVertices`）相对中心投影到切平面（`WorldRendererUtility.GetTangentsToPlanet`）归一化，忠实于地块真实朝向（flat-top/pointy-top/旋转）。
 - **邻居 offset** = `round(2 × (边中点 - 中心))`，边中点取自多边形顶点。边由邻居 worldTile 在源地块邻居表中的位置确定。
-- **传送点**：沿多边形边（顶点 j→j+1）Bresenham 划线满铺，两端映射同一世界坐标。
+- **传送点**：铺**接缝带**——到最近 void 格的切比雪夫距离 ∈ {1, 2} 的非 void 格（`SeamOverlap`=2 格宽环形带），每格按最近多边形边分组确定 `targetWorldTile`。两端带经 offset 重叠，实际接缝落在两端中线，吸收投影角度偏移。
 
 ### 数据模型重构（direction → 动态方向）
 - **`MapParent_SeamlessTile.direction` 字段移除**。旧固定 0-5 编号（北/东北/...）完全废弃。
@@ -289,8 +289,8 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ### 新增源码文件
 - `Source/WorldTileGeometry.cs` — 世界地块真实几何读取。`ComputeVertexDirections`/`ComputeEdgeDirections`（顶点/边方向）、`FindNeighborIndex`（邻居序号反查）。用 Odyssey 版 `WorldGrid` API（`GetTileVertices`/`GetTileNeighbors`/`GetTileCenter`/`GetMaxTileNeighborCountEver`）。
-- `Source/SeamlessPolygonGeometry.cs` — 多边形几何工具。`BuildPolygonVertices`（内切圆顶点，阶段3 收尾加了进程级缓存）、`ContainsPoint`/`IsCellInPolygon`（点在凸多边形内 / 格角检测消除 void 孤岛）、`ScanlineFill`（凸多边形扫描线填充）、`EnumerateEdgeCells`（边 Bresenham 划线）。（注：阶段3 设计的 `BuildNeighborCenterOffsets`/`ContainsPointTranslated` 实际内联到 `SeamlessTileManager.ComputeNeighborOffset` / `SeamlessTileRegistry.TryGetOwnerNeighbor`，未作独立方法保留。）
-- `Source/SeamlessTerrainFill.cs` — 多边形地形铺设。`ApplyPolygonTerrain`（自己六边形内+边格→非void，六边形外→铺 RimExodus_Void 并清除实体/Pawn）。
+- `Source/SeamlessPolygonGeometry.cs` — 多边形几何工具。`BuildPolygonVertices`（内切圆顶点，阶段3 收尾加了进程级缓存）、`ContainsPoint`/`IsCellInPolygon`（点在凸多边形内 / 格角检测消除 void 孤岛）、`ScanlineFill`（凸多边形扫描线填充）、`InsetPolygon`/`ComputeEdgeBand`/`DistanceToEdge`（凸多边形内缩 + 边界带）、`FindClosestEdgeIndex`（点→最近多边形边索引）。**`EnumerateEdgeCells`（边 Bresenham 划线）已废弃**——传送点铺设改用平移法接缝带（见阶段4b 末"传送点铺设几何归一"），此方法当前无调用者，保留备用。
+- `Source/SeamlessTerrainFill.cs` — 多边形地形铺设。`ApplyPolygonTerrain`（自己六边形内+边格→非void，六边形外→铺 RimExodus_Void 并清除实体/Pawn）、`BackupSnapshotAndApplyVoid`（归一入口：备份 baseTerrainSnapshot + 调 ApplyPolygonTerrain，锚点与邻接地块共用）。
 - `1.6/Defs/TerrainDefs/VoidTerrain.xml` — `RimExodus_Void` 虚空地形 Def。
 
 ### 重写的源码文件
@@ -317,7 +317,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ### 关键实现要点
 - **offset 对称性**：A→B 与 B→A 各自从自己的多边形边中点算，理论上 = -(对端)，但凑整可能 ±1 误差（待游戏内验证）。
-- **传送点 Bresenham**：沿多边形边（顶点 j→j+1）整数 Bresenham 划线，线经过的每个格放一对传送点。源端+对端均须 Walkable（边格保证两端非 void）。少数边界格仍可能因自然地形不可通行被跳过（游戏内实测 103 候选 placed 94，9 个被自然地形/边角跳过）。
+- **传送点接缝带**：到最近 void 格的切比雪夫距离 ∈ {1, 2} 的非 void 格（`SeamOverlap`=2 格宽环形带，含最外圈+次外圈）。每格按最近多边形边分组确定 `targetWorldTile`。spot 直接由 terrainGrid 的 void 边界决定（与 `ApplyPolygonTerrain` 同一套格角检测几何），不用独立的 Bresenham 线——杜绝"spot 几何 vs void 边界"两套口径错配。两端带经 offset 重叠，实际接缝落在两端中线，吸收投影角度偏移。
 
 ### 已游戏内验证（阶段3核心闭环）
 - 自动生成首个世界邻居、多边形虚空裁切（void 出现在六边形外）、传送点满铺（94 对）。
@@ -707,7 +707,7 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 ### 不改的部分
 - 几何底层（`WorldTileGeometry`/`SeamlessPolygonGeometry`/切平面基）：每 tile 保留自己的基。
 - void 铺设（`ApplyPolygonTerrain`）、渲染、归属判定（`TryGetOwnerNeighbor`）、边界带（`ComputeEdgeBand`）、预加载：经 `NeighborLink.offset` 自动跟随。
-- 传送点铺设（`PlaceEnterSpotsAllNeighbors`）：仍沿边 Bresenham 铺单端 spot 记 `targetWorldTile`，不铺两层（2 格重叠由 offset 提供）。预铺时 `hasArrival` 默认 false，待邻居加载后刷新。
+- 传送点铺设（`PlaceEnterSpotsAllNeighbors`）：铺**接缝带**——到最近 void 格的切比雪夫距离 ∈ {1, 2} 的非 void 格（即紧贴 void 的 `SeamOverlap`=2 格宽环形带：最外圈 + 次外圈）。两端各有 2 格宽 spot 带，通过 offset 重叠时实际接缝落在两端带的中线上，接缝上两端都有 spot；投影旋转导致两端 spot 错开 ≤2 格时仍互相覆盖（吸收偏移）。每格按"最近多边形边 j"分组确定 `targetWorldTile`。spot 直接由 terrainGrid 的 void 边界决定（与 `ApplyPolygonTerrain` 同一套格角检测几何），不再用独立的 RoundToInt Bresenham 线。预铺时 `hasArrival` 默认 false，待邻居加载后刷新。
 
 ### 待游戏内验证
 - 命令 pawn 前往首个邻居 B（旧机制下必然异常的方向）→ 应正常跨图。
@@ -750,6 +750,47 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
   - `TryTriggerTransfer` 转移后用 `SeamlessSelectionTracker.Consume(pawn)`（在集合里就 re-Select 并移除），取代原来依赖 `wasSelected`（会被切图清空污染）。
   - `MapComponentTick`（锚点地图）周期调 `PurgeInvalid` 清理死亡/未跨图残留。
 - 这样无论切图清空几次，保持集始终记得"这批 pawn 应选中"，逐个跨图后各自 re-Select。
+
+## 阶段4b 后续修复：void 铺设归一 + 传送点铺设几何归一（已完成，可编译）
+
+游戏内验证暴露"对端传送点少一层"问题，定位到两处几何/逻辑缺陷，一并归一。
+
+### 修复1：void 铺设逻辑归一（消除两份重复代码）
+- **背景**：锚点家园 A 走原生 `Base_Player` genStep 链，邻接地块 B 走 `RimExodus_SeamlessTileGenerator`。两者 void 铺设的**逻辑体**（备份 baseTerrainSnapshot + `ApplyPolygonTerrain`）原本各写一份——`GenStep_SeamlessTile.Generate`（B，order=211）和 `Patch_GenStepMutatorPostTerrain.Postfix`（A，order=220）内联重复，易漂移。
+- **修复**：新增 `SeamlessTerrainFill.BackupSnapshotAndApplyVoid(map, worldTile)` 归一入口，snapshot 存储位置随载体自动选择（`MapParent_SeamlessTile.baseTerrainSnapshot` 或 `SeamlessTileManager.anchorBaseTerrainSnapshot`）。两个入口（genStep + Harmony Postfix）都调它，逻辑体唯一。入口结构无法消除（A 走 Base_Player 加不了 RimExodus genStep），但逻辑归一。
+
+### 修复2：传送点 spot 守门 bug（岩石 Building 误挡 spot）
+- **根因**：`PlaceEnterSpotsAllNeighbors` 旧用 `if (!cell.Walkable(targetMap)) continue;` 守门。岩石 Building `passability=Impassable` → pathGrid cost=10000 → `!Walkable` → spot 被跳过。这违背了 Ethereal 传送点的设计（`SeamlessEnterSpot.xml`: `passability=Standable`、不进 edificeGrid、可与岩山墙/任意地形共存）。
+- **表现**：对端 B 跑 SeamOverride 后边缘混合带被 `SyncRockBuilding` spawn 岩石 Building，挡住整圈 spot → "对端少一层"。源端 A 不跑 SeamOverride 不受影响。
+- **修复**：守门改为只跳过 void 格（`cell.GetTerrain == RimExodus_Void`），岩石 Building 格照铺。
+
+### 修复3：传送点铺设几何归一（平移法接缝带，废弃 Bresenham 线）——核心
+- **根因（几何错配，用户定位）**：旧 `EnumerateEdgeCells` 用 **RoundToInt(浮点顶点) → Bresenham 划线**铺 spot，而 void 判定用 **`IsCellInPolygon` 格角检测**。两套几何对"边格"口径不一致：Bresenham 线是 1 格宽折线（沿圆整顶点），格角检测让"多边形外但角沾边的擦边格"也算非 void。结果某些最外圈格 Bresenham 线没经过（无 spot），某些次外圈格反而被经过（有 spot）。游戏内实测 A 的 (243,0,157)【最外圈】无 spot、(238,0,134)【最外圈】有 spot。
+- **设计澄清（用户明确）**：传送点带应为 **`SeamOverlap`=2 格宽**（最外圈 + 次外圈），两端各有 2 格宽 spot 带，经 `ComputeNeighborOffset` 的 offset 重叠时实际接缝落在两端中线，**接缝上两端都有 spot**；投影角度偏移导致两端 spot 错开 ≤2 格时仍互相覆盖（吸收偏移）。旧描述"不铺两层（2 格重叠由 offset 提供）"是过时错误，已订正。
+- **修复（平移法）**：
+  - 接缝带定义：到最近 void 格的**切比雪夫距离 ∈ {1, 2}** 的非 void 格（即紧贴 void 的 `SeamOverlap`=2 格宽环形带）。
+  - 算法：①单遍扫 `terrainGrid` 标记 `isVoid[]`；②对每个 void 格，把它的 (2·SeamOverlap+1)² 邻域内的非 void 格标进 `inBand[]`（等价于"void 向外膨胀 SeamOverlap 格"/"边缘 void 上下左右含对角平移 ≤SeamOverlap 格的并集"）；③`inBand` 格铺 spot。复杂度 O(N² + void格数·(2r+1)²)。
+  - spot 几何直接由 terrainGrid 的 void 边界决定（与 `ApplyPolygonTerrain` 同一套格角检测几何），彻底消除两套口径错配。
+  - 每格调 `FindClosestEdgeIndex`（新增：到 6 条多边形边的浮点距离取最小）确定 `targetWorldTile`，与 `ComputeEdgeBand`/`AddBandRowCells` 的最近边逻辑一致。
+- **废弃**：`EnumerateEdgeCells`（RoundToInt Bresenham 单线）当前无调用者，保留备用。
+
+### 顺带：邻居渲染视区裁剪 + FogOfWar 层（SeamlessTileRenderer，会话前遗留工作）
+- `SeamlessTileRenderer` 给邻居地形/物/pawn 绘制加**视区裁剪**：宿主相机 `CurrentViewRect.ExpandedBy(1)` 平移到邻居坐标系（`-offset`），只提交/绘制与视区相交的 section 和 pawn，跳过不可见部分（邻居通常只有约一半可见），显著减少 draw call。
+- `CollectNeighborLayers` 增收 `SectionLayer_FogOfWar`（fog mesh 顶点是绝对世界坐标，可被 offset 矩阵正确平移；全探索 section 的 fog submesh 被 Regenerate 设 disabled，`CollectLayer` 的 disabled 检查零开销跳过）。
+
+### 关键文件变更（本轮）
+- `Source/SeamlessTerrainFill.cs` — 新增 `BackupSnapshotAndApplyVoid`（归一入口）。
+- `Source/GenStep_SeamlessTile.cs` — 改调 `BackupSnapshotAndApplyVoid`，删内联备份+铺void。
+- `Source/Patches_GenStepMutatorPostTerrain.cs` — 改调 `BackupSnapshotAndApplyVoid`，删内联重复。
+- `Source/SeamlessPolygonGeometry.cs` — 新增 `FindClosestEdgeIndex`。
+- `Source/SeamlessTileManager.cs` — `PlaceEnterSpotsAllNeighbors` 重写为平移法接缝带；spot 守门改 void-only。
+- `Source/SeamlessTileRenderer.cs` — 邻居渲染视区裁剪 + FogOfWar 层收集。
+- `AGENTS.md` — 订正 3 处过时描述（行 281/320/710 的"Bresenham 划线/不铺两层"→平移法接缝带；工具方法清单标注 EnumerateEdgeCells 废弃；GenStep_SeamlessTile 文件描述改 BackupSnapshotAndApplyVoid）。
+
+### 待游戏内验证
+- 两端 spot 带（2 格宽）对称、经 offset 重叠后接缝落中线。
+- 跨图转移落点稳定（投影偏移被 2 格带吸收）。
+- 邻居渲染视区裁剪不漏绘（pawn/建筑在视区边缘不闪烁）。
 
 ## 阶段4：连续地形调研 + 边界带不可建造约束 + 共因 bug 修复（已完成，可编译）
 
@@ -950,7 +991,7 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 ### 新增/修改源码文件
 - `Source/GenStep_SeamOverride.cs`（新）— genStep 壳，order=212。
 - `Source/SeamlessSeamOverride.cs`（新）— 卷积混合 + 单向覆写逻辑。
-- `Source/GenStep_SeamlessTile.cs`（改）— 开头备份 topGrid 到 baseTerrainSnapshot。
+- `Source/GenStep_SeamlessTile.cs`（改）— 取 worldTile 后调 `SeamlessTerrainFill.BackupSnapshotAndApplyVoid`（归一入口：备份 baseTerrainSnapshot + 铺 void，锚点家园的 `Patch_GenStep_MutatorPostTerrain` Postfix 也调同一方法）。
 - `Source/MapParent_SeamlessTile.cs`（改）— 加 `baseTerrainSnapshot` 字段（非序列化）。
 - `Source/SeamlessTileManager.cs`（改）— 加 `anchorBaseTerrainSnapshot`；`ComputeNeighborOffset` 改 internal static。（注：锚点 snapshot 备份点后移到 `Patch_GenStep_MutatorPostTerrain` Postfix，见下文"锚点家园 void 铺设"节。）
 - `Source/RimExodusSettings.cs`（改）— 加 `seamOverrideRatio`。

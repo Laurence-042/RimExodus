@@ -40,14 +40,10 @@ namespace RimExodus
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
             if (worldTile < 0) return;
 
-            // 备份基础地形（void 裁切前的完整矩形 topGrid），供接缝覆写卷积混合读取。
-            // 与 GenStep_SeamlessTile.Generate（邻接地块路径）的备份点对齐。
-            var manager = map.GetComponent<SeamlessTileManager>();
-            if (manager != null && manager.anchorBaseTerrainSnapshot == null)
-                manager.anchorBaseTerrainSnapshot = (TerrainDef[])map.terrainGrid.topGrid.Clone();
-
-            // 按六边形挖虚空（六边形外 = void）。真实地形已由前置原版 GenStep 铺好。
-            SeamlessTerrainFill.ApplyPolygonTerrain(map, worldTile);
+            // 备份基础地形（void 裁切前的完整矩形 topGrid）+ 按六边形挖虚空。
+            // 与 GenStep_SeamlessTile.Generate（邻接地块路径）共用同一逻辑体（归一），
+            // 差异仅在入口（本 Postfix vs genStep），避免两份重复逻辑漂移。
+            SeamlessTerrainFill.BackupSnapshotAndApplyVoid(map, worldTile);
         }
     }
 }
