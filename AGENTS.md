@@ -825,8 +825,25 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 - `Source/SeamlessBorderLookup.cs` — 预加载带/禁建带改 `ComputeVoidBand`；删传送点格兜底补全。
 - `AGENTS.md` / `doc/无缝世界地块探索.md` — 订正 ComputeEdgeBand → ComputeVoidBand 的当前状态描述（历史叙述节保留）。
 
-### 附：MapPreview 不显示邻接地块 B（非 bug，符合设计）
-MapPreview 靠玩家在世界地图界面选中地块触发预览。B（`MapParent_SeamlessTile`）的 `Print` 是空操作、`useDynamicDrawer=false`——B 在世界地图不可见/不可选，MapPreview 拿不到选中事件。与生成路径（IncrementalMapGenerator）、genSteps 过滤均无关。符合 B 的设计本意（无缝地块叠加在锚点地图，不在世界视图单独显示）。若需给 B 加预览是新功能。
+### 附：MapPreview 预览与实际地形对不上（已修复，见下文"阶段4b 后续修复：seed 对齐"）
+~~上一轮误判为"B 不可见/不可选所以无预览"。~~ 实际上 MapPreview 会为 B 跑预览（日志可见 `GenerateContentsIntoPreview` 为多个邻接 tile 执行），只是预览地形与 B 实际生成对不上（包括非混合带部分）。根因是 `IncrementalMapGenerator` 的 seed 公式偏离原版，已在下一轮修复。
+
+## 阶段4b 后续修复：IncrementalMapGenerator seed 对齐（已完成，可编译）
+
+游戏内发现 MapPreview 对邻接地块 B 的预览地形与 B 实际生成完全对不上（含非混合带部分），但 A 对得上。
+
+### 根因（一行 seed bug）
+- 原版 `MapGenerator.GenerateMap`（`MapGenerator.cs:90`）：`seed = World.info.Seed ⊕ parent.Tile.GetHashCode()`。
+- MapPreview（`SeedRerollData.GetOriginalMapSeed`）：`seed = World.info.Seed ⊕ tile.GetHashCode()`（与原版一致）。
+- `IncrementalMapGenerator.Start:110`（**错误**）：`seed = World.info.Seed ⊕ mapParent.ID`（WorldObject 自增 ID，≠ tile）。
+- B 走 IncrementalMapGenerator → seed 偏离 → `ElevationFertility`/`Terrain` 的 Perlin 种子不同 → 整个地形形状（含非混合带）与 MapPreview 预览完全不同。A 走原生 MapGenerator，seed 与 MapPreview 一致 → 预览对得上。
+- 注：`map.Tile` 本身是真实 worldTile（`GenerateTileMap` 已设 `mapParent.Tile = new PlanetTile(newWorldTile)`，岩石类型/TileInfo 都正确），但 elevation 噪声种子走的是 `baseSeed`，baseSeed 读错了来源——这是 `Patch_RockNoises` 没覆盖到的独立第二处 seed 偏差。
+
+### 修复
+`IncrementalMapGenerator.cs:110`：`mapParent.ID` → `mapParent.Tile.GetHashCode()`，与原版 MapGenerator + MapPreview 三者公式对齐。
+
+### 存档影响
+旧存档里已生成的 B 地形用旧 seed（mapParent.ID），改 seed 后不会自动变（地形已存档）。按存档兼容性原则（mod 未发布、测试在新档），重开档即可。
 
 ## 阶段4：连续地形调研 + 边界带不可建造约束 + 共因 bug 修复（已完成，可编译）
 

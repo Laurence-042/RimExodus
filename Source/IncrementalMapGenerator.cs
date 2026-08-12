@@ -107,7 +107,11 @@ namespace RimExodus
                 // 不保持外层 Rand.PushState 栈帧——Root.Update 每帧调 EnsureStateStackEmpty 会清空栈，
                 // 跨帧保持的 PushState 会被清掉导致 FinishGeneration 的 PopState 弹空栈。
                 // 每个 genStep 用 Rand.PushState/Seed/PopState 独立配对（RunOneGenStep），不依赖外层栈。
-                int seed = Gen.HashCombineInt(Find.World.info.Seed, mapParent.ID);
+                // seed 必须用 mapParent.Tile.GetHashCode()——与原版 MapGenerator.GenerateMap（MapGenerator.cs:90）
+                // 和 MapPreview（SeedRerollData.GetOriginalMapSeed = World.info.Seed ⊕ tile.GetHashCode()）一致。
+                // 早期错误地用了 mapParent.ID（WorldObject 自增 ID），导致 B 的 elevation Perlin 种子与 MapPreview
+                // 预览不同 → 预览地形和实际生成完全对不上（包括非混合带部分）。A 走原生 MapGenerator 不受影响。
+                int seed = Gen.HashCombineInt(Find.World.info.Seed, mapParent.Tile.GetHashCode());
                 ClearWorkingDataStatic();
                 // 外层 Rand 状态保护：Start 的同步段（ConstructComponents + 组装 genStep + RockNoises.Init）
                 // 不跨帧，用 PushState/Seed/PopState 包裹，复刻原版 GenerateMap 顶部的 seed 设置。
