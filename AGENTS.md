@@ -904,7 +904,7 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 - sky/weather 共享的存档重载验证。
 - 远行队进入出生点按来源方向精确推断（当前用任一可站立传送点）。
 
-## 阶段4 连续地形：接缝覆写 genStep 方向（连续 Perlin 方案已回退）
+## 阶段4 连续地形：接缝覆写 genStep — 卷积混合（已实现，游戏内验证通过）
 
 实现"相邻地块地图的地形在接缝处视觉/通行连续"。
 
@@ -920,13 +920,45 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 2. 叶子层 patch（Perlin.GetValue）只对裸 Perlin 有效；有组合器（Rotate/Scale/AddDisplacementNoise）包裹的 Perlin（如 elevation）叶子 patch 失效。
 3. genStep 数据来源分三类：读静态 grid（Terrain/RocksFromGrid 位置/Plants 间接）、自建噪声（ElevationFertility/RockNoises/TerrainPatchMaker）、纯随机（Roads/遗迹/间歇泉/动物）。详见 `doc/第四阶段-连续地形.md` E 节。
 
-**当前方向：接缝覆写 genStep**。
+**最终方案：接缝覆写 genStep — 卷积混合**。
 - 正常用原版噪声生成地形（各地块独立 Perlin 场，不试图全局连续）。
-- 只在接缝重叠带用自定义 genStep 做过渡覆写（混合两端地形/平滑海拔等），保证接缝处视觉/通行连续。
-- `tileOrigin` 字段保留（`MapParent_SeamlessTile`），接缝覆写 genStep 将用它确定接缝位置。
+- 在 void 裁切前备份完整 terrainGrid（baseTerrainSnapshot），void 裁切后用自定义 genStep 做接缝过渡。
+- 接缝覆写：对新生成 tile C 的混合带每个 cell，取 C 和邻居 A 的 baseTerrainSnapshot 做 3×3 卷积（邻域 terrainDef 分布），按距离权重加权混合（A 分布 × w + C 分布 × (1-w)，w 边界→1 中心→0），取众数。
+- **单向覆写**：只改 C，不改 A（已生成 tile 保持原样）。
+- **兼容性**：不碰 grid/Perlin/genStep 内部，纯 terrainDef snapshot 操作，兼容所有地形 mod。河流/海岸（mutator/TerrainPatchMaker 改的 terrainGrid）在备份时已含，卷积自然覆盖。
+
+### 核心实现
+
+**备份点**：`GenStep_SeamlessTile`(order=211) 开头。此时 Terrain(210) 已铺好 topGrid，void 未裁。
+- 口袋 tile：`parent.baseTerrainSnapshot = (TerrainDef[])map.terrainGrid.topGrid.Clone()`。
+- 锚点 tile（原生 Map，不走 RimExodus genStep）：`SeamlessTileManager.TrySetupOnStart` 的 RefreshMapVoid 之前备份到 `anchorBaseTerrainSnapshot`。
+
+**接缝覆写 genStep**：`RimExodus_SeamOverride`(order=212，void 裁切 211 之后、Plants 900 之前)。
+- 调 `SeamlessSeamOverride.ApplyOneWay(map, worldTile)`。
+- 混合带 = `ComputeEdgeBand(verts, mapSize, bandWidth=seamOverrideRatio×mapSize/2)`（默认 0.25 → ~31 格）。
+- 每个 cell：对面 cell = cell - offset（offset 用 `ComputeNeighborOffset` 重算，纯几何）。
+- 卷积：`Convolve3x3(snapshot, mapSize, cell)` 统计 3×3 邻域 terrainDef 占比（跳过 void/越界）。
+- 混合：`BlendDistributions(neighborDist, selfDist, w)` 加权 → `GetMode` 取众数 → 写入 topGrid + MapMeshDirty。
+
+**可配置**：`RimExodusSettings.seamOverrideRatio`（默认 0.25，slider 0-0.5，0=关闭）。
+
+### 新增/修改源码文件
+- `Source/GenStep_SeamOverride.cs`（新）— genStep 壳，order=212。
+- `Source/SeamlessSeamOverride.cs`（新）— 卷积混合 + 单向覆写逻辑。
+- `Source/GenStep_SeamlessTile.cs`（改）— 开头备份 topGrid 到 baseTerrainSnapshot。
+- `Source/MapParent_SeamlessTile.cs`（改）— 加 `baseTerrainSnapshot` 字段（非序列化）。
+- `Source/SeamlessTileManager.cs`（改）— 加 `anchorBaseTerrainSnapshot`；TrySetupOnStart 备份锚点；`ComputeNeighborOffset` 改 internal static。
+- `Source/RimExodusSettings.cs`（改）— 加 `seamOverrideRatio`。
+- `Source/RimExodusMod.cs`（改）— UI slider。
+- `1.6/Defs/MapGeneration/SeamlessTileGenerator.xml`（改）— RimExodus_SeamOverride GenStepDef(order=212) + genSteps 列表。
+
+### 已知限制
+1. **单向**：先生成的 tile 侧接缝带保持原样（未被覆写）。新生成 tile 侧向已生成邻居过渡。这是设计决策，不是 bug。
+2. **岩石 Thing/屋顶**：接缝覆写只改 terrainDef，不改 RocksFromGrid 生成的岩石 Building/屋顶。山体地形变成土壤但岩石 Thing 可能在（待游戏内观察决定是否清除）。
+3. **Roads**：类型3（世界邻接驱动 + 寻路），独立通道，接缝覆写不覆盖。
+4. **锚点 snapshot 近似**：锚点在 TrySetupOnStart 备份（开档后首 tick），此时 terrainGrid 可能有少量玩家改动。通常改动在中心区域，不影响边缘混合带。
 
 ### 当前状态
-
 - 连续 Perlin 相关代码已删除（TileProjection/SeamlessNoiseProvider/Patches_NoiseLeafWarp/GenStep_DebugDirtWater/RimExodusDebug/NoiseGenType/debugDirtWaterMode）。
-- 保留：tileOrigin 字段（预留）、void 体系（WorldTileGeometry 独立投影）、传送/邻居/预加载/边界带/分帧生成等所有已验证功能。
-- 下一步：设计接缝覆写 genStep。
+- 保留：tileOrigin 字段、void 体系（WorldTileGeometry 独立投影）、传送/邻居/预加载/边界带/分帧生成等所有已验证功能。
+- 接缝覆写卷积混合已实现并编译通过，游戏内验证通过（地形跨 tile 平滑过渡）。
