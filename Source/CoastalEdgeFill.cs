@@ -16,15 +16,24 @@ namespace RimExodus
     /// 方向衰减。本类按"多边形每条边 ↔ 世界邻居"的不变量，对每条海洋邻居边独立铺海——三面环海时
     /// 三条边都铺，西北/东北角不再漏。
     ///
-    /// **铺法**：对每个六边形内格，算到最近海洋边的浮点距离，加 Perlin 位移噪声抖动（海岸线自然），
-    /// 按阈值（深水/浅水）铺地形。参考 Coast mutator 的阈值语义，但用"到海洋边距离"（格）替代
+    /// **铺法**：对每个格，算到最近海洋边的浮点距离，加 Perlin 位移噪声抖动（海岸线自然），
+    /// 按阈值（深水/浅水/沙）铺地形。参考 Coast mutator 的阈值语义，但用"到海洋边距离"（格）替代
     /// "FalloffAtAngle 噪声值"。只改非 Stone 格（避免覆盖岩石山），用 MapGenUtility 取 biome 对应
     /// 水地形（兼容 mod 自定义水地形）。
     ///
-    /// **调用时机**：必须在 void 铺设（<see cref="SeamlessTerrainFill.ApplyPolygonTerrain"/>）之前——
-    /// 本类用 <see cref="SeamlessPolygonGeometry.IsCellInPolygon"/> 几何判定六边形内（void 未铺），
-    /// 铺的水在六边形外部分随后由 void 覆盖。原版 Coast mutator（MutatorPostTerrain, order=220）先跑，
-    /// 本类补铺 Coast 漏掉的海洋边；重叠区都是水，无冲突。
+    /// **必须铺全部格（含六边形外），不加 IsCellInPolygon 守卫**：snapshot 在 void 铺设（1802）之前
+    /// Clone，六边形外格的 snapshot 值会被邻居 SeamOverride（1803）读取做卷积混合。若只铺六边形内，
+    /// 六边形外保持原生 Coast mutator 的地形（离海岸远 → 土），snapshot 六边形外 = 土 → SeamOverride
+    /// 把土卷积进邻居接缝；且六边形边界处 CoastalEdgeFill 铺的水（内）与原生地形（外）不连续，
+    /// 产生断崖式突变（内深水 → 外泥土）。六边形外的水/沙会在 void 铺设时被 void 覆盖（topGrid 不受影响），
+    /// 但 snapshot 已记录连续的海岸地形。详见 AGENTS.md "CoastalEdgeFill 必须铺全部格" 节。
+    ///
+    /// **调用时机**（order=230）：紧随原版 Coast mutator（MutatorPostTerrain, order=220）之后、Plants(900) 之前。
+    /// 提前到 230（此前在 1801）是为了让补铺的水在 Plants(900) 之前就位——植物 spawn 时水格 fertility=0
+    /// 被 CheckSpawnWildPlantAt 跳过，避免"植物先 spawn 在土地上、随后被水覆盖导致浮在水上"。
+    /// 必须在 void 铺设（<see cref="SeamlessTerrainFill.ApplyPolygonTerrain"/>, 1802）之前——
+    /// 铺的水在六边形外部分随后由 void 覆盖（但 snapshot 在 1802 Clone 时已记录海岸地形）。
+    /// 本类补铺 Coast mutator 漏掉的海洋边；重叠区都是水，无冲突。
     /// </summary>
     public static class CoastalEdgeFill
     {
@@ -89,9 +98,11 @@ namespace RimExodus
                 for (var z = 0; z < size.z; z++)
                 {
                     var cell = new IntVec3(x, 0, z);
-                    // 只铺六边形内格（边外会被 void 覆盖，无需处理）。
-                    if (!SeamlessPolygonGeometry.IsCellInPolygon(verts, size.x, cell)) continue;
-
+                    // 铺全部格（含六边形外）。
+                    // 六边形外的格在 void 铺设（1802）时会被 void 覆盖，但 snapshot 在 void 之前 Clone，
+                    // 故六边形外的海岸地形（水/沙）会保留在 snapshot 里，供邻居 SeamOverride 卷积用。
+                    // 若只铺六边形内，六边形边界处 CoastalEdgeFill 铺的水与六边形外原生 Coast mutator
+                    // 铺的地形不连续，产生断崖式突变（内深水 → 外泥土）。
                     var cellCenter = new Vector2(x + 0.5f, z + 0.5f);
 
                     // 到最近海洋边的浮点距离。

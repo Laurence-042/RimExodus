@@ -5,7 +5,13 @@
     <defName>RimExodus_SeamlessTileMap</defName>
     <label>seamless tile map</label>
     <worldObjectClass>RimExodus.MapParent_SeamlessTile</worldObjectClass>
-    <mapGenerator>RimExodus_SeamlessTileGenerator</mapGenerator>
+    <!-- 复用原版 Base_Player MapGeneratorDef（与 Gravship 地表降落、远行队扎营定居共用同一条 genStep 链：
+         Settlement.MapGeneratorDef override 对玩家派系返回 Base_Player）。
+         MapParent_SeamlessTile : MapParent（非 PocketMapParent），IncrementalMapGenerator 走纯基础地图路径，
+         从不读 pocketMapProperties，故 Base_Player 无 pocketMapProperties 不影响生成。
+         三个 RimExodus genStep（CoastalEdgeFill/SeamlessTile/SeamOverride）由 Patches/MapGeneration.xml
+         注入到 Base_Player 链，邻居地块与锚点家园 A 走完全相同的链。 -->
+    <mapGenerator>Base_Player</mapGenerator>
     <!-- useDynamicDrawer=false：不进动态绘制器。MapParent_SeamlessTile.Print override 为空操作，
          不在世界视图静态层画图标。Material override 返回 BaseContent.WhiteMat 避免 null。
          texture 用 RoutePlannerWaypoint（存在的贴图，作为 Material fallback）。 -->

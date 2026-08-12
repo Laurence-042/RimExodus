@@ -12,7 +12,8 @@ namespace RimExodus
     /// 不看邻居——两个地图各自独立铺 void，重叠区的 void 在对方地图上恰好是非 void。
     /// 传送点铺在自己六边形的边经过的格子上（含边判定 → 非 void）。
     /// 供 GenStep_SeamlessTile（order=1802）调用，该 genStep 通过 XML patch 注入到所有
-    /// 玩家可进入的 MapGeneratorDef（Base_Player / Base_Faction / Encounter / RimExodus_SeamlessTileGenerator）。
+    /// 玩家可进入的 MapGeneratorDef（Base_Player / Base_Faction / Encounter）。邻居地块（MapParent_SeamlessTile）
+    /// 的 mapGenerator 也是 Base_Player，与锚点家园 A 同链。
     /// </summary>
     public static class SeamlessTerrainFill
     {
@@ -30,16 +31,34 @@ namespace RimExodus
             if (map == null || worldTile < 0) return;
 
             // 备份基础地形（void 裁切前的完整矩形 topGrid）。
+            // 探针：Clone 前记录六边形外格地形（snapshot 即将复制这些格，它们给邻居 SeamOverride 用）。
+            // 此时 void 未铺，LogBandTerrain（依赖 void）不可用，用 LogOutsidePolygonTerrain（不依赖 void）。
+            SeamTerrainProbe.LogOutsidePolygonTerrain(map, worldTile, "1802-pre-snapshot");
+
+            TerrainDef[] snapshotCopy = null;
             if (map.Parent is MapParent_SeamlessTile pocket)
             {
                 pocket.baseTerrainSnapshot = (TerrainDef[])map.terrainGrid.topGrid.Clone();
+                snapshotCopy = pocket.baseTerrainSnapshot;
             }
             else
             {
                 var manager = map.GetComponent<SeamlessTileManager>();
                 if (manager != null && manager.anchorBaseTerrainSnapshot == null)
+                {
                     manager.anchorBaseTerrainSnapshot = (TerrainDef[])map.terrainGrid.topGrid.Clone();
+                    snapshotCopy = manager.anchorBaseTerrainSnapshot;
+                }
+                else if (manager != null)
+                {
+                    snapshotCopy = manager.anchorBaseTerrainSnapshot;
+                }
             }
+
+            // 探针：Clone 后验证 snapshot 数组内容与 topGrid 一致。
+            SeamTerrainProbe.LogSnapshotBand(map, worldTile, snapshotCopy, "1802-post-snapshot");
+            // 探针：全图地形分布（区分锚点/口袋），判断拍摄时 topGrid 是否已是海岸填充后的状态。
+            SeamTerrainProbe.LogSnapshotFullMap(map, worldTile, snapshotCopy, "1802-snapshot");
 
             ApplyPolygonTerrain(map, worldTile);
         }

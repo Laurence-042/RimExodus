@@ -96,8 +96,8 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 ### 项目结构
 - `About/About.xml` — mod 元数据，packageId `RimExodus.SeamlessWorld`，依赖 `brrainz.harmony`，支持 1.6。
 - `Source/RimExodus.csproj` — net48，引用 `Krafs.Rimworld.Ref 1.6.4633` + `Lib.Harmony.Ref 2.4.2`，输出到 `..\1.6\Assemblies\`。
-- `1.6/Defs/WorldObjectDefs/WorldObjects.xml` — `RimExodus_SeamlessTileMap` WorldObjectDef，worldObjectClass `RimExodus.MapParent_SeamlessTile`，mapGenerator `RimExodus_SeamlessTileGenerator`。
-- `1.6/Defs/MapGeneration/SeamlessTileGenerator.xml` — `RimExodus_SeamlessTileGenerator` MapGeneratorDef（pocketMapProperties biome BorealForest）+ `RimExodus_SeamlessTile` GenStepDef（genStep Class="RimExodus.GenStep_SeamlessTile"）。
+- `1.6/Defs/WorldObjectDefs/WorldObjects.xml` — `RimExodus_SeamlessTileMap` WorldObjectDef，worldObjectClass `RimExodus.MapParent_SeamlessTile`，mapGenerator `Base_Player`（复用原版，与 Gravship 地表降落/远行队扎营同链；见末尾"复用 Base_Player + CoastalEdgeFill 提前"节）。
+- `1.6/Defs/MapGeneration/SeamlessTileGenerator.xml` — 三个 RimExodus GenStepDef（`RimExodus_CoastalEdgeFill` order=230 / `RimExodus_SeamlessTile` order=1802 / `RimExodus_SeamOverride` order=1803）。**不再有独立 MapGeneratorDef**（已废弃，邻居地块复用 Base_Player）。
 
 ### 源码文件（`Source/`）
 - `RimExodusMod.cs` — `[StaticConstructorOnStartup]`，`new Harmony("RimExodus.SeamlessWorld").PatchAll()`。
@@ -1217,7 +1217,7 @@ MapPreview 的"基础地形"白名单（`MapPreviewRequest.cs:107-115`）**不�
 - **新增 `1.6/Patches/MapGeneration.xml`**：用 `PatchOperationAdd` 把三个 RimExodus genStep 注入到原版 `Base_Player`/`Base_Faction`/`Encounter` 的 `genSteps` 列表。所有玩家可进入的地图（锚点家园/派系基地/遭遇战）都走与邻接地块 B 完全相同的链。
 - **废弃 `Source/Patches_GenStepMutatorPostTerrain.cs`**（整个文件删除）。其职责（A 路径的 `CoastalEdgeFill.Apply` + `BackupSnapshotAndApplyVoid`）已被注入到 Base_Player 的 genStep 取代。
 - **三个 GenStep 类守卫统一放宽**：从 `if (map.Parent is not MapParent_SeamlessTile) return;` 改为 `GetMapWorldTile(map) < 0`。`GetMapWorldTile` 对 `MapParent_SeamlessTile` 读 `worldTile` 字段，对其他地图读 `map.Tile`（原生 PlanetTile，所有普通地图都有有效值）。RimExodus 是全局无缝——任何玩家进入的地图都应当连续、void 也切、传送点也放，不存在"装了但只想要部分地图无缝"的场景。
-- **order 保持 1801/1802/1803**（Fog 之后）：CoastalEdgeFill(1801) → SeamlessTile(void+snapshot, 1802) → SeamOverride(1803)。执行顺序由 `GenStepDef.order` 决定（`GenerateContentsIntoMap` 按 `order, index` 排序），XML 列表顺序不参与排序。
+- **order**：CoastalEdgeFill(230，紧随 MutatorPostTerrain/原版 Coast mutator 220) → SeamlessTile(void+snapshot, 1802) → SeamOverride(1803)。CoastalEdgeFill 此前在 1801，提前到 230 是为了在 Plants(900) 之前铺水，避免植物浮在水上（见末尾"复用 Base_Player + CoastalEdgeFill 提前"节）。执行顺序由 `GenStepDef.order` 决定（`GenerateContentsIntoMap` 按 `order, index` 排序），XML 列表顺序不参与排序。
 
 ### `Patch_GenStepRocksFromGrid` 守卫放宽 + 注释订正
 - 守卫从 `isPocket || isAnchor` 双判定改为 `GetMapWorldTile(map) >= 0`，与三个 genStep 一致。
@@ -1255,3 +1255,97 @@ MapPreview 的"基础地形"白名单（`MapPreviewRequest.cs:107-115`）**不�
 
 ### 待办
 - 游戏内验证：锚点家园 A 的 snapshot 是否与最终地形一致（漂移消失）；派系基地/遭遇战的 void 裁切是否正常；MapPreview 预览是否显示 void 裁切和海岸补铺。
+
+## CoastalEdgeFill 必须铺全部格（含六边形外）—— snapshot 需要（已完成，游戏内已验证）
+
+### 现象
+锚点家园 A 和邻接地块 B 的接缝附近出现"被改成泥土"的异常带。SnapshotInspect 工具（Dev ToolMap，见下）点击六边形边界发现：六边形内是深水，一到六边形外立刻突变成 Soil/Gravel/Sand（断崖式跳变，不是渐变）。snapshot 六边形外部分"像是没应用自定义海岸"——保留了原生 Coast mutator 的地形（离海岸远 → 土），而六边形内是 CoastalEdgeFill 铺的连续深水/浅水/沙。
+
+### 根因（关键，务必理解）
+`CoastalEdgeFill.Apply` 原有 `if (!IsCellInPolygon(verts, size, cell)) continue;` 守卫（已删除），只铺六边形内格。这个守卫的旧注释"边外会被 void 覆盖，无需处理"是**错误的**——它只考虑了最终 topGrid，忽略了 snapshot：
+
+- **snapshot 在 void 铺设（1802）之前 Clone**（`BackupSnapshotAndApplyVoid` 先 `topGrid.Clone()` 再 `ApplyPolygonTerrain` 铺 void）。
+- **snapshot 的六边形外部分会被邻居 SeamOverride（1803）读取**做卷积混合——邻居的重叠区在几何上落在本图的六边形外。
+- 所以 snapshot **需要**六边形外格的真实海岸地形。如果 CoastalEdgeFill 只铺六边形内，六边形外保持原生 Coast mutator 的地形（离海岸远的方向是土），snapshot 六边形外 = 土 → SeamOverride 把土卷积进邻居接缝。
+- 同时，六边形边界处 CoastalEdgeFill 铺的水（内）与六边形外原生 Coast mutator 铺的地形（外）不连续 → 断崖式突变。
+
+### 修复
+删除 `CoastalEdgeFill.Apply` 的 `IsCellInPolygon` 守卫，让它铺**全部格**（含六边形外）。
+- 距离计算逻辑（`DistanceToEdge` 到海洋边）对全部格都有效，六边形外格同样按"到海洋边距离"铺水/沙，与六边形内连续。
+- 六边形外的水/沙会在 void 铺设（1802）时被 void 覆盖（topGrid 变 void），**但 snapshot 在 void 之前 Clone，保留了连续的海岸地形**。
+- 这同时消除了六边形边界突变 + 修复了 snapshot 六边形外的海岸地形缺失。
+
+### 关键不变量（新加地形类 genStep 必须遵守）
+- **凡是修改 terrainGrid 的 genStep，如果其结果需要被 snapshot 保留，就必须作用于全部格（含六边形外），不能加 `IsCellInPolygon` 守卫**。因为 snapshot 在 void 之前拍摄，六边形外格的 snapshot 值会被邻居 SeamOverride 读取。六边形外的地形最终会被 void 覆盖（topGrid 不受影响），但 snapshot 已经记录了它。
+- 反过来说：**只有"最终 topGrid 要呈现"的约束不需要管六边形外（void 会覆盖）**；但**"snapshot 要保留"的约束必须管六边形外**。两个约束要分开想。
+- 当前三个 RimExodus genStep 的职责：
+  - `RimExodus_CoastalEdgeFill`(230)：铺海岸水/沙，**必须铺全部格**（snapshot 需要）。紧随原版 Coast mutator(220)、先于 Plants(900)，避免植物浮在水上。
+  - `RimExodus_SeamlessTile`(1802)：铺 void + 拍 snapshot，**只对六边形外铺 void**（ApplyPolygonTerrain 内部判定）。snapshot 在此时 Clone，能记录 230 铺的海岸水。
+  - `RimExodus_SeamOverride`(1803)：卷积混合接缝带，只改六边形内边缘（带内格）。
+
+### 诊断工具（Dev ToolMap，保留供后续排查）
+- `DebugActions_SeamlessTile.InspectSnapshotAtPosition`（`DebugActionType.ToolMap`，RimExodus 分类下 "Inspect Snapshot At Position"）：点击地图格，输出该格的 current topGrid / self snapshot / 最近边+邻居 worldTile / NeighborLink offset / 邻居对应格坐标 / 邻居对应格的 current+snapshot。用于对比六边形内外、本端 vs 邻居的 snapshot 差异。`<<< DIFFERS from topGrid` 标记 snapshot 与当前 topGrid 不同的格（void 格正常会 differ）。
+- `SeamTerrainProbe`（受 `seamOverrideDiag` 开关控制）：`LogBandTerrain`/`LogSnapshotBand`（接缝带分布，依赖 void 已铺）、`LogOutsidePolygonTerrain`（六边形外分布，不依赖 void，可在 void 铺设前用）、`LogSnapshotFullMap`（全图 snapshot top5 分布）。挂在 CoastalEdgeFill 首/尾 + snapshot Clone 前 + SeamOverride 卷积处 + IncrementalMapGenerator 的关键 genStep 边界。
+
+### 倾向 genStep + XML patch 而非 Harmony patch（架构原则）
+本次修复全程用 genStep（CoastalEdgeFill）+ XML PatchOperation（注入 genStep 到 MapGeneratorDef），没用 Harmony patch。这是本项目的既定架构方向（见上"统一为 genStep + MapPreview 集成"节）：
+- **genStep 方式**：通过 `PatchOperationAdd` 把 RimExodus genStep 注入到 `Base_Player`/`Base_Faction`/`Encounter`，由 `GenStepDef.order` 控制执行顺序。锚点 A（原生 `MapGenerator.GenerateMap`）和邻居地块 B（`IncrementalMapGenerator`，mapGenerator 也是 Base_Player）走**完全相同的 genStep 链**，行为一致。
+- **避免 Harmony patch 地形生成**：Harmony patch 原版 genStep/mutator（如已废弃的 `Patches_GenStepMutatorPostTerrain`）会引入 A/B 路径分叉（A 走原生、B 走 IncrementalMapGenerator，patch 只命中其中一条），且难以跟随原版版本更新。新加地形处理应优先写独立 genStep 注入，而非 patch 原版。
+- **例外**：`Patch_TerrainGrid.SetTerrain`（防御性守卫，防 void 被覆盖）和 `Patch_GenStep_RocksFromGrid`（提前清岩石）保留，因为它们是跨 genStep 的横切守卫，不适合写成独立 genStep。
+
+### 关键文件变更（本轮）
+- `Source/CoastalEdgeFill.cs`（改）— 删除 `IsCellInPolygon` 守卫，铺全部格；注释说明 snapshot 需要六边形外地形。
+- `Source/SeamTerrainProbe.cs`（新）— 诊断探针工具类（LogBandTerrain/LogSnapshotBand/LogOutsidePolygonTerrain/LogSnapshotFullMap）。
+- `Source/DebugActions_SeamlessTile.cs`（改）— 新增 `InspectSnapshotAtPosition` Dev ToolMap 工具。
+- `Source/IncrementalMapGenerator.cs`（改）— RunOneGenStep 末尾加关键 genStep 边界探针。
+- `Source/SeamlessTerrainFill.cs`（改）— BackupSnapshotAndApplyVoid 的 Clone 前后加探针。
+- `Source/SeamlessSeamOverride.cs`（改）— ApplyOneWay 增强 chosen defName 分布 + 两端 snapshot 分布日志 + FormatDefNameTally 辅助方法。
+
+## 复用 Base_Player + CoastalEdgeFill 提前（已完成，可编译，游戏内待验证）
+
+两个改动：(1) 废弃独立的 `RimExodus_SeamlessTileGenerator` MapGeneratorDef，邻居地块复用原版 `Base_Player`；(2) CoastalEdgeFill 提前到 order=230，解决"植物浮在水上"。
+
+### 改动1：邻居地块复用 Base_Player（废弃独立 MapGeneratorDef）
+- **背景**：邻居地块此前用独立的 `RimExodus_SeamlessTileGenerator` MapGeneratorDef（手动复刻原版 genStep 链），既冗余又与注入机制重复维护。既然 `Patches/MapGeneration.xml` 已把三个 RimExodus genStep 注入到 Base_Player/Base_Faction/Encounter，邻居地块直接复用 Base_Player 即可。
+- **关键事实**：Gravship 地表降落和远行队扎营定居都用 Base_Player（`Settlement.MapGeneratorDef` override，玩家派系→Base_Player）。邻居地块（`MapParent_SeamlessTile`）在语义上与它们完全同构——就是"玩家在新 tile 的地块"。
+- **改动**：`WorldObjects.xml` 的 `<mapGenerator>` 从 `RimExodus_SeamlessTileGenerator` 改为 `Base_Player`；`SeamlessTileGenerator.xml` 删除 `<MapGeneratorDef>` 块，仅保留三个 `<GenStepDef>`。
+- **安全性验证**：
+  - `MapParent_SeamlessTile : MapParent`（**非 PocketMapParent**），`IncrementalMapGenerator` 走纯基础地图路径，从不设 isPocketMap、从不读 pocketMapProperties。Base_Player 无 pocketMapProperties 不影响生成。
+  - `mapParent.MapGeneratorDef` 间接读取（`SeamlessTileManager.GenerateTileMap` 不硬编码 defName），改 XML 即可，零 C# 改动。
+  - **ScenParts 在邻居地块无害**：所有会产出东西的 ScenPart 都有 `if (Find.GameInitData == null) return;` 守卫（`ScenPart_ScatterThings`/`ScenPart_PlayerPawnsArriveMethod`）。邻居地块生成时 `GameInitData` 已为 null（`Game.cs:553` 在 InitNewGame 末尾置 null），故 ScenParts genStep 是完全的 no-op，不会散落起始物资/colonist/动物。用户实测 Gravship 降落和远行队扎营同样用 Base_Player 也无散落，印证此结论。
+  - **MapPreview 不受影响**：`GenStepProperties` modExtension 配在 GenStepDef 上（非 MapGeneratorDef）。Base_Player 链通过 PatchOperationAdd 已注入三个 RimExodus genStep，MapPreview 遍历 Base_Player.genSteps 时能照常命中 `includeInPreviews=true` 的三个 genStep。
+
+### 改动2：CoastalEdgeFill order 1801 → 230
+- **问题**：CoastalEdgeFill 此前 order=1801（Fog 1500 之后、Plants 900 之后）。原版 Coast mutator 在 220 铺海后，Plants(900) 在海岸边的土地上 spawn 了植物，**然后** CoastalEdgeFill(1801) 补铺 Coast 漏掉的海洋边水 → 植物浮在水上。
+- **修复**：order 改为 230（紧随 MutatorPostTerrain=220，原版 Coast mutator 铺海之后）。补铺的水在 Plants(900) 之前就位，植物 spawn 时水格 fertility=0 被 `CheckSpawnWildPlantAt` 跳过 → 不再有植物浮水。
+- **安全性验证**：
+  - `TileMutatorWorker_Coast` **无 `GenerateFinal` 方法**（基类 `TileMutatorWorker` 的 virtual 列表里也没有），不会在 MutatorFinal(1600) 覆盖 230 铺的水。
+  - snapshot 在 1802 Clone（`BackupSnapshotAndApplyVoid` 先 `topGrid.Clone()` 再铺 void），能记录 230 铺的海岸水（含六边形外，供邻居 SeamOverride 卷积用）。CoastalEdgeFill 提前不影响 snapshot/void/SeamOverride 链。
+  - RocksFromGrid(200) 在 230 之前，岩石山已 spawn 为 edifice，`CoastalEdgeFill.cs` 的 Stone+edifice 守门（第 149-153 行）正常工作。
+  - Roads(390)/RockChunks(970)/ScatterRuins(750) 等自带水格校验（`allowInWaterBiome=false` / `NoPassClosedDoorsOrWater`），在 230 铺的水上不会 spawn 东西，与原版 Coast mutator 在 220 铺水后这些 genStep 的处理一致。
+- **改动文件**：`SeamlessTileGenerator.xml` 的 `RimExodus_CoastalEdgeFill` `<order>1801</order>` → `<order>230</order>`。
+
+### 关键文件变更（本轮）
+- `1.6/Defs/WorldObjectDefs/WorldObjects.xml`（改）— `<mapGenerator>` 改为 Base_Player + 注释说明复用理由。
+- `1.6/Defs/MapGeneration/SeamlessTileGenerator.xml`（改）— 删除 `<MapGeneratorDef>` 块（含 pocketMapProperties/disableShadows/genSteps），保留三个 `<GenStepDef>`；CoastalEdgeFill order→230；重写顶部注释。
+- `1.6/Patches/MapGeneration.xml`（改）— 注释订正（邻居地块走 Base_Player；CoastalEdgeFill order 230；移除 RimExodus_SeamlessTileGenerator 提及）。
+- `Source/GenStep_CoastalEdgeFill.cs`（改）— doc 订正 order=230 + 调用时机 + 提前理由。
+- `Source/CoastalEdgeFill.cs`（改）— doc 调用时机订正（order=230 紧随 Coast mutator）；删除自动探针调用（`SeamTerrainProbe.LogOutsidePolygonTerrain`，临时调试日志）。
+- `Source/IncrementalMapGenerator.cs`（改）— 删除 genStep 边界自动探针调用（`SeamTerrainProbe.LogBandTerrain`，临时调试日志）。
+- `Source/SeamlessTerrainFill.cs`（改）— 注释移除 RimExodus_SeamlessTileGenerator。
+- `Source/SeamlessTileManager.cs`（改）— RefreshMapVoid 注释移除 RimExodus_SeamlessTileGenerator。
+
+### 保留的诊断工具（非临时日志，受开关/手动触发）
+- `Source/SeamTerrainProbe.cs`（上轮新增，保留）— 接缝带/snapshot 地形分布探针工具类。所有方法受 `seamOverrideDiag` 开关控制（默认关），作为可复用工具库保留（被 `SeamlessSeamOverride.cs` 的 diag 分支调用）。
+- `Source/DebugActions_SeamlessTile.cs` 的 `InspectSnapshotAtPosition`（上轮新增，保留）— Dev ToolMap 工具，手动点击地图格输出 snapshot 值 + 邻居对应格信息。
+- `Source/SeamlessSeamOverride.cs` 的 diag 增强（上轮新增，保留）— `[RimExodus-SeamDiag]` 日志加 chosen defName 分布 + 两端 snapshot 分布，受 `seamOverrideDiag` 开关控制。
+
+### 待游戏内验证
+- 邻居地块 B 生成：真实 biome（非 BorealForest 占位）+ 原版 genStep 产物（岩石/植物/动物/远古神庙等，与锚点家园 A 同质）。
+- B 的边界 void 裁切正确（六边形外 void）。
+- 临海地块海岸：CoastalEdgeFill 铺的水上**不应有植物**（本次修复核心点）。
+- 跨图转移正常（B 的传送点由注入的 RimExodus_SeamlessTile genStep 铺设）。
+- MapPreview 预览邻居地块时三个 RimExodus genStep 仍生效。
+
+### 架构意义
+邻居地块与锚点家园 A 现在走**完全相同的 MapGeneratorDef（Base_Player）+ 完全相同的 genStep 链**（三个 RimExodus genStep 由 PatchOperationAdd 注入）。这是"地块对等论"的最终统一：A/B 不再因 MapGeneratorDef 不同而有任何生成路径分叉。废弃独立 MapGeneratorDef 也消除了手动维护 genSteps 列表的负担（此前 `RimExodus_SeamlessTileGenerator` 的 genSteps 是手动复刻原版 MapCommonBase，易随版本漂移）。

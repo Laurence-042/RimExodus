@@ -164,8 +164,8 @@ namespace RimExodus
         /// 刷新指定地图的 void 铺设：六边形内（含边）非 void，六边形外 void。可重复调用。
         ///
         /// **当前无调用者**。void 铺设已统一在 RimExodus_SeamlessTile genStep（order=1802）完成——
-        /// 通过 XML patch 注入到所有玩家可进入的 MapGeneratorDef（Base_Player / Base_Faction / Encounter /
-        /// RimExodus_SeamlessTileGenerator），锚点家园与邻接地块走同一条 genStep 链。
+        /// 通过 XML patch 注入到所有玩家可进入的 MapGeneratorDef（Base_Player / Base_Faction / Encounter），
+        /// 锚点家园与邻接地块（邻居地块的 mapGenerator 也是 Base_Player）走同一条 genStep 链。
         /// 此前锚点靠本方法在 MapGenerated 后延迟 1 tick 后补铺 void，会删除已生成实体（落石/切断建筑），已废弃。
         /// 保留本方法供未来读档重建或幂等兜底场景备用。
         /// </summary>

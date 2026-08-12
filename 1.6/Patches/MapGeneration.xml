@@ -3,18 +3,24 @@
 
   <!--
     RimExodus 统一注入：给所有玩家可进入的原版 MapGeneratorDef 追加三个 RimExodus genStep，
-    使 Base_Player（玩家家园/锚点 A）、Base_Faction（派系基地）、Encounter（遭遇/fallback）
-    与 RimExodus_SeamlessTileGenerator（邻接地块 B）走完全相同的海岸补铺 → void+snapshot → SeamOverride 链。
+    使 Base_Player（玩家家园/锚点 A，同时也是邻接地块 B 的 mapGenerator）、Base_Faction（派系基地）、
+    Encounter（遭遇/fallback）走完全相同的海岸补铺 → void+snapshot → SeamOverride 链。
+
+    **邻居地块 B 复用 Base_Player**：WorldObjects.xml 的 RimExodus_SeamlessTileMap <mapGenerator> 指向
+    Base_Player（与 Gravship 地表降落、远行队扎营定居共用同一条链）。邻居地块不再有独立 MapGeneratorDef。
+    MapParent_SeamlessTile : MapParent（非 PocketMapParent），IncrementalMapGenerator 走纯基础地图路径，
+    从不读 pocketMapProperties。ScenParts 等在邻居地块无害（GameInitData==null 守卫）。
 
     **背景**：此前锚点家园 A 走原生 Base_Player（无 RimExodus genStep），靠 Harmony Postfix
     GenStep_MutatorPostTerrain（order=220）在 Coast mutator 跑完后介入做海岸补铺 + void 铺设 + snapshot 备份。
     但 snapshot 在 order=220 备份太早——之后 Roads/Plants/Ruins/Animals/Fog 仍可能改地形，导致 snapshot
     与最终地形漂移（SeamOverride 读 snapshot、写 topGrid，两者口径不一致）。
-    改为 genStep 后，三个 RimExodus genStep 按 order 1801/1802/1803 在 Fog(1500) 之后执行，
-    snapshot 在 1802 备份（几乎最后），漂移问题消除，A/B 两路径完全对称。
+    改为 genStep 后，snapshot 在 1802 备份（几乎最后），漂移问题消除，A/B 两路径完全对称。
 
     **执行顺序**由 GenStepDef.order 决定（非 xml 列表序）：
-      RimExodus_CoastalEdgeFill (1801) → RimExodus_SeamlessTile (1802, void+snapshot) → RimExodus_SeamOverride (1803)
+      RimExodus_CoastalEdgeFill (230，紧随 MutatorPostTerrain/原版 Coast mutator 220) →
+      RimExodus_SeamlessTile (1802, void+snapshot) → RimExodus_SeamOverride (1803)
+    CoastalEdgeFill 提前到 230（此前在 1801）是为了让补铺的水在 Plants(900) 之前就位，避免植物浮在水上。
 
     **守卫**：genStep 类内部用 GetMapWorldTile(map) >= 0 守卫，任何有合法 worldTile 的地图都走完整链。
     RimExodus 的核心交互是全局无缝——任何玩家进入的地图都应当连续、void 也切、传送点也放。
