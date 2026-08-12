@@ -904,58 +904,29 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 - sky/weather 共享的存档重载验证。
 - 远行队进入出生点按来源方向精确推断（当前用任一可站立传送点）。
 
-## 阶段4 连续地形：全局平面坐标噪声方案（基础设施已完成，grid 重写待实现）
+## 阶段4 连续地形：接缝覆写 genStep 方向（连续 Perlin 方案已回退）
 
-实现"相邻地块地图的地形噪声在接缝处自然过渡（连续）"。
+实现"相邻地块地图的地形在接缝处视觉/通行连续"。
 
-### 噪声坐标方案的演进（重要教训，避免重蹈覆辙）
+### 方案演进与方向转变
 
-**失败的方案（都因"cell→球面反推"的几何本质问题）**：
-1. 切平面一阶近似（`anchor + first·offZ - second·offX`）：相邻 tile 切平面基方向不同 → 错位 ~1.0 球面单位。
-2. 球面三角形插值（`CellToSphereExact`）：平面顶点↔球面顶点重心坐标插值。理论上精确，实测仍错位 ~1.0。
-3. 球面坐标 + Perlin frequency 缩放：缩放不破坏连续性，但 sphere 坐标本身不连续。
-- **通用失败根因**：RimWorld 星球是球面多面体，相邻 tile 各自用自己中心的切平面基投影，两个平面坐标系之间有角度旋转（赤道→北极累积约 30°）。任何在 cell 层面做球面反推的方案都无法消除这个旋转。
+**已废弃方案：连续 Perlin（patch Perlin 叶子 + tileOrigin 全局平面坐标）**
+- 游戏内验证：沃土/水体连续（fertility 裸 Perlin），但岩石/山体不连续（elevation 被 Rotate/Scale 组合器包裹，叶子 patch 够不到）。
+- grid 重写（Postfix GenStep_ElevationFertility）可解 elevation，但本质是逐 genStep 介入，维护成本高，与"避免逐 genStep patch"初衷冲突。
+- **该方案已回退**，代码保留在 `continuous-perlin` 分支供参考。
 
-**最终成功方案：全局平面坐标（tileOrigin）**。
-- 核心：噪声采样和 void 裁切用**完全相同的坐标系**——cell 的平面坐标。void 已用平面坐标 + ComputeNeighborOffset 实现跨 tile 连续（接缝中点重合，误差 ≤ 重叠带）。噪声复用这套坐标。
-- 实现：每个 tile 存 `tileOrigin`（全局平面位置）。锚点=(0,0)，口袋=源 tileOrigin + ComputeNeighborOffset（生成时确定，序列化）。噪声采样坐标 = `cellLocal - center + tileOrigin`。
-- **关键认知**：Perlin 在任何连续坐标系里都连续，不限于球面。执着于"球面采样"是概念误区。
+**教训（仍有价值，避免重蹈覆辙）**：
+1. "cell→球面反推"不可行：相邻 tile 切平面基方向不同（球面投影旋转，赤道→北极累积约 30°），任何 cell→球面映射都产生 ~1.0 球面单位系统性错位。
+2. 叶子层 patch（Perlin.GetValue）只对裸 Perlin 有效；有组合器（Rotate/Scale/AddDisplacementNoise）包裹的 Perlin（如 elevation）叶子 patch 失效。
+3. genStep 数据来源分三类：读静态 grid（Terrain/RocksFromGrid 位置/Plants 间接）、自建噪声（ElevationFertility/RockNoises/TerrainPatchMaker）、纯随机（Roads/遗迹/间歇泉/动物）。详见 `doc/第四阶段-连续地形.md` E 节。
 
-### 叶子层 patch 的覆盖边界（实测 + 调研确认）
+**当前方向：接缝覆写 genStep**。
+- 正常用原版噪声生成地形（各地块独立 Perlin 场，不试图全局连续）。
+- 只在接缝重叠带用自定义 genStep 做过渡覆写（混合两端地形/平滑海拔等），保证接缝处视觉/通行连续。
+- `tileOrigin` 字段保留（`MapParent_SeamlessTile`），接缝覆写 genStep 将用它确定接缝位置。
 
-叶子层 patch（`Patches_NoiseLeafWarp` patch `Perlin.GetValue`/`RidgedMultifractal.GetValue`）对**裸 Perlin** 有效，对**有组合器包裹的 Perlin** 失效。
+### 当前状态
 
-- **裸 Perlin**（叶子 patch 有效）：fertility、RockNoises（岩石种类）、TerrainPatchMaker（pond/marsh）、RockChunks 密度抖动。
-- **有组合器包裹的 Perlin**（叶子 patch 失效）：elevation（被 `GenStep_ElevationFertility` 的 Rotate/Scale/AddDisplacementNoise 包裹，每 tile 随机角度）。
-
-**为什么组合器破坏叶子 patch**：组合器在 Perlin 叶子**之前**对坐标做变换。patch 在叶子层 warp 坐标，但组合器在 warp 之后、Perlin 之前又对坐标做了 tile 特定的旋转/缩放，破坏了 warp 建立的全局对齐。
-
-实测现象：沃土/沼泽/水体连续（fertility 裸 Perlin），岩石形状/山体不连续（elevation 被组合器包裹）。
-
-### genStep 数据来源分类（决定 patch 策略）
-
-详见 `doc/第四阶段-连续地形.md` E.3 节的完整调研。要点：
-- **类型1（读静态 grid）**：Terrain, RocksFromGrid(位置), RockChunks(位置), FindPlayerStartSpot → 在 GenStep_Terrain 前重写 grid 覆盖。
-- **类型2（自建噪声）**：ElevationFertility, RockNoises, TerrainPatchMaker, RockChunks(密度) → 裸 Perlin 叶子 patch 有效；有组合器需 grid 重写。
-- **类型3（纯随机/配置）**：Roads, ScatterRuinsSimple, SteamGeysers, Animals, Snow, Fog → 本就离散，无需连续。
-- **Plants 没有自己的噪声**：读 `terrainGrid.TerrainAt(loc).fertility`，连续性经 terrainDef 间接传导，无需单独 patch。
-
-### 当前实现状态
-
-**已完成**：
-- `Source/TileProjection.cs`：`GetBasis`/`VertexToDir2D`（void 多边形投影用，唯一持有 GetTileCenter + GetTangentsToPlanet）。
-- `Source/SeamlessNoiseProvider.cs`：`TryWarp`（全局平面坐标 cellLocal - center + tileOrigin）+ `DiagnosticValue`（诊断条纹）。
-- `Source/MapParent_SeamlessTile.cs`：`tileOrigin` 字段（Vector2，序列化）。
-- `Source/SeamlessTileManager.cs`：`GenerateTileMap` 算新 tile 的 tileOrigin。
-- `Source/Patches_NoiseLeafWarp.cs`：patch Perlin/RidgedMultifractal GetValue，gate RimExodus 地块，`EnsureFixedSeed` 固定 seed 为 WorldSeed 派生值（`HashCombineInt(WorldSeed, 13579)`）——所有 tile 共享同一 Perlin 场（连续性要求），但不同世界种子生成不同 Perlin 场（保留 WorldSeed 影响）。
-- `Source/GenStep_DebugDirtWater.cs` + `Source/RimExodusDebug.cs`：噪声显示器 genStep + 诊断日志。
-- `NoiseGenType` 枚举：Off(0) / PlaneGlobal(1) / DiagnosticRings(2)。
-
-**游戏内验证**：DiagnosticRings 条纹跨 tile 连续对齐；PlaneGlobal 模式沃土/沼泽/水体连续。
-
-**待实现（下一步）**：grid 重写——Prefix `GenStep_Terrain.Generate`，在那一刻用全局平面坐标 + 裸 Perlin 重新算 elevation 覆盖 `MapGenerator.Elevation` grid，解决 elevation 被 Rotate/Scale 包裹导致的山体不连续。一次 Prefix 同时解决 Terrain + RocksFromGrid 位置 + Plants。详见 `doc/第四阶段-连续地形.md` E.4 节。
-
-### 已知限制
-1. **锚点 A 与地块 B 接缝不连续**：A 是原生家园地图（不触发 patch gate），不连续。B 及以后地块间连续。
-2. **grid 重写未实现**：elevation 被组合器包裹，山体/岩石形状不连续（待 grid 重写解决）。
-3. **Roads 不连续**：类型3（世界邻接驱动 + 寻路），独立通道，grid 重写不覆盖。
+- 连续 Perlin 相关代码已删除（TileProjection/SeamlessNoiseProvider/Patches_NoiseLeafWarp/GenStep_DebugDirtWater/RimExodusDebug/NoiseGenType/debugDirtWaterMode）。
+- 保留：tileOrigin 字段（预留）、void 体系（WorldTileGeometry 独立投影）、传送/邻居/预加载/边界带/分帧生成等所有已验证功能。
+- 下一步：设计接缝覆写 genStep。
