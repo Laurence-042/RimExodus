@@ -28,6 +28,7 @@
       <li>RocksFromGrid</li>
       <li>Terrain</li>
       <li>RimExodus_SeamlessTile</li>
+      <li>RimExodus_SeamOverride</li>
       <li>MutatorPostTerrain</li>
       <li>Roads</li>
       <li>RockChunks</li>
@@ -45,6 +46,12 @@
     <defName>RimExodus_SeamlessTile</defName>
     <order>211</order>
     <genStep Class="RimExodus.GenStep_SeamlessTile"/>
+  </GenStepDef>
+
+  <GenStepDef>
+    <defName>RimExodus_SeamOverride</defName>
+    <order>212</order>
+    <genStep Class="RimExodus.GenStep_SeamOverride"/>
   </GenStepDef>
 
 </Defs>

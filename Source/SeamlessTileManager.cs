@@ -401,7 +401,7 @@ namespace RimExodus
         /// 沿 offset 方向收缩 <see cref="SeamOverlap"/> 格，使邻居多边形相对源地图多叠 2 格（接缝重叠带），
         /// 容纳投影扭曲。
         /// </summary>
-        private static IntVec3 ComputeNeighborOffset(int sourceWorldTile, int newWorldTile, Map sourceMap)
+        internal static IntVec3 ComputeNeighborOffset(int sourceWorldTile, int newWorldTile, Map sourceMap)
         {
             var sourceSize = sourceMap.Size;
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(sourceWorldTile, sourceSize.x);

@@ -54,6 +54,12 @@ namespace RimExodus
             listing.Gap();
 
             listing.CheckboxLabeled("Verbose logging (diagnostics)", ref s.verboseLogging);
+            listing.Gap();
+
+            // 接缝覆写混合带比例（0=关闭，0.25=默认 25% 半径）
+            listing.Label($"Seam override ratio: {s.seamOverrideRatio:F2}");
+            s.seamOverrideRatio = listing.Slider(s.seamOverrideRatio, 0f, 0.5f);
+            listing.Label("(接缝带 terrainDef 过渡混合占 tile 半径比例, 0=关闭)");
 
             listing.End();
         }

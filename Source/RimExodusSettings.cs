@@ -22,12 +22,19 @@ namespace RimExodus
         /// <summary>多边形边内侧 N 格禁建（阶段4 安全约束）。</summary>
         public int borderNoBuildDistance = 3;
 
+        /// <summary>
+        /// 接缝覆写混合带占 tile 半径的比例（阶段4 连续地形）。
+        /// 0.25 = 从接缝线向内 25% 的区域做 terrainDef 过渡混合。0 = 关闭接缝覆写。
+        /// </summary>
+        public float seamOverrideRatio = 0.25f;
+
         public override void ExposeData()
         {
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
             Scribe_Values.Look(ref preloadAllNeighborsOnStart, "preloadAllNeighborsOnStart", false);
             Scribe_Values.Look(ref verboseLogging, "verboseLogging", false);
             Scribe_Values.Look(ref borderNoBuildDistance, "borderNoBuildDistance", 3);
+            Scribe_Values.Look(ref seamOverrideRatio, "seamOverrideRatio", 0.25f);
             base.ExposeData();
         }
     }
