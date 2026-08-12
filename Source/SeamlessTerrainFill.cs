@@ -11,7 +11,9 @@ namespace RimExodus
     /// 每个地块独立按自己的六边形铺 void：六边形内（含边）非 void，六边形外 void。
     /// 不看邻居——两个地图各自独立铺 void，重叠区的 void 在对方地图上恰好是非 void。
     /// 传送点铺在自己六边形的边经过的格子上（含边判定 → 非 void）。
-    /// 供 GenStep（口袋地块）和 SeamlessTileManager.RefreshMapVoid 复用。
+    /// 供两类 genStep 介入路径复用：
+    /// - 邻接地块：<see cref="GenStep_SeamlessTile"/>（order=211，Terrain 之后、Plants 之前）。
+    /// - 锚点家园：<c>Patch_GenStep_MutatorPostTerrain</c> Postfix（order=220，同窗口）。
     /// </summary>
     public static class SeamlessTerrainFill
     {
@@ -93,11 +95,12 @@ namespace RimExodus
         /// <summary>
         /// 清除指定格集合上的所有实体（建筑/岩石/植物/物品/草丛等），保留 Pawn（Pawn 单独处理）。
         ///
-        /// **口袋地图 genStep 路径上的空操作**：口袋地图生成时，Patch_GenStep_RocksFromGrid（Postfix，
-        /// order~200，RocksFromGrid 之后立即）已清掉 void 格上的岩石/屋顶，等 RimExodus_SeamlessTile
-        /// （order=211）跑 ApplyPolygonTerrain 调本方法时已无 Thing 可清。
-        /// **锚点地图路径仍需本方法**：锚点 A 是原生 Map 不走 genStep，RefreshMapVoid 在游戏运行期间调用，
-        /// 此时玩家游戏期间生长的植物/掉落物/建筑会出现在 void 格上，必须由本方法清除。
+        /// **当前对所有 genStep 路径都是空操作/近空操作**：
+        /// - 邻接地块：Patch_GenStep_RocksFromGrid（Postfix，order~200）已清掉 void 格岩石/屋顶，
+        ///   等 RimExodus_SeamlessTile（order=211）调本方法时已无 Thing 可清。
+        /// - 锚点家园：Patch_GenStep_RocksFromGrid 同样提前清岩石（已扩展到锚点），
+        ///   Patch_GenStep_MutatorPostTerrain（order=220）调本方法时 Plants/Animals 还没 spawn，也无 Thing 可清。
+        /// 本方法保留作为防御性清理（如读档重建或未来运行时刷新场景）。
         /// </summary>
         private static void ClearThingsOnCells(Map map, List<IntVec3> cells)
         {

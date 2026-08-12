@@ -947,7 +947,7 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 - `Source/SeamlessSeamOverride.cs`（新）— 卷积混合 + 单向覆写逻辑。
 - `Source/GenStep_SeamlessTile.cs`（改）— 开头备份 topGrid 到 baseTerrainSnapshot。
 - `Source/MapParent_SeamlessTile.cs`（改）— 加 `baseTerrainSnapshot` 字段（非序列化）。
-- `Source/SeamlessTileManager.cs`（改）— 加 `anchorBaseTerrainSnapshot`；TrySetupOnStart 备份锚点；`ComputeNeighborOffset` 改 internal static。
+- `Source/SeamlessTileManager.cs`（改）— 加 `anchorBaseTerrainSnapshot`；`ComputeNeighborOffset` 改 internal static。（注：锚点 snapshot 备份点后移到 `Patch_GenStep_MutatorPostTerrain` Postfix，见下文"锚点家园 void 铺设"节。）
 - `Source/RimExodusSettings.cs`（改）— 加 `seamOverrideRatio`。
 - `Source/RimExodusMod.cs`（改）— UI slider。
 - `1.6/Defs/MapGeneration/SeamlessTileGenerator.xml`（改）— RimExodus_SeamOverride GenStepDef(order=212) + genSteps 列表。
@@ -956,9 +956,41 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 1. **单向**：先生成的 tile 侧接缝带保持原样（未被覆写）。新生成 tile 侧向已生成邻居过渡。这是设计决策，不是 bug。
 2. **岩石 Thing/屋顶**：接缝覆写只改 terrainDef，不改 RocksFromGrid 生成的岩石 Building/屋顶。山体地形变成土壤但岩石 Thing 可能在（待游戏内观察决定是否清除）。
 3. **Roads**：类型3（世界邻接驱动 + 寻路），独立通道，接缝覆写不覆盖。
-4. **锚点 snapshot 近似**：锚点在 TrySetupOnStart 备份（开档后首 tick），此时 terrainGrid 可能有少量玩家改动。通常改动在中心区域，不影响边缘混合带。
+4. **锚点 snapshot 近似**：锚点在 `Patch_GenStep_MutatorPostTerrain` Postfix（genStep 阶段，Terrain 之后）备份，此时 terrainGrid 是原版刚铺好的真实地形，无玩家改动。（注：此前在 TrySetupOnStart 备份，已移到 genStep 阶段，见下文"锚点家园 void 铺设"节。）
 
 ### 当前状态
 - 连续 Perlin 相关代码已删除（TileProjection/SeamlessNoiseProvider/Patches_NoiseLeafWarp/GenStep_DebugDirtWater/RimExodusDebug/NoiseGenType/debugDirtWaterMode）。
 - 保留：tileOrigin 字段、void 体系（WorldTileGeometry 独立投影）、传送/邻居/预加载/边界带/分帧生成等所有已验证功能。
 - 接缝覆写卷积混合已实现并编译通过，游戏内验证通过（地形跨 tile 平滑过渡）。
+
+## 锚点家园 void 铺设：从"后补"改为"生成时介入"（已完成，可编译）
+
+### 问题根因
+此前锚点家园地图（Settlement，走原生 `Base_Player` MapGeneratorDef）的 void 铺设走的是**后补**路径，而邻接地块（`MapParent_SeamlessTile`，走 `RimExodus_SeamlessTileGenerator`）走的是**生成时介入**路径——两者不对称：
+
+- **邻接地块**：`RimExodus_SeamlessTile` genStep（order=211，Terrain 之后、Plants 之前）铺 void。此时岩石已被 `Patch_GenStep_RocksFromGrid` Postfix 提前清掉，植物/动物/岩块还没 spawn，`ClearThingsOnCells` 几乎是空操作。
+- **锚点家园**：`Base_Player` 的 genStep 链里**根本没有** `RimExodus_SeamlessTile`（那个 genStep 只注册在 `RimExodus_SeamlessTileGenerator`）。void 只能靠 `MapGenerated` → 延迟 1 tick → `TrySetupOnStart` → `RefreshMapVoid` → `ApplyPolygonTerrain` **后补**。此时地图已完全生成（岩石/植物/玩家建造都在），`ClearThingsOnCells` 真实删除实体 → **删岩壁触发落石、删建筑切断玩家建造**。
+
+### 修复：统一为 genStep 介入
+让锚点家园也走 genStep 介入路径，与邻接地块完全对称。不修改 `Base_Player` MapGeneratorDef XML（污染全局 + 场景覆盖），改用 Harmony patch。
+
+### 新增源码文件
+- `Source/Patches_GenStepMutatorPostTerrain.cs`（新）— Postfix `GenStep_MutatorPostTerrain.Generate`（order=220，Terrain 之后、Plants 之前）。对 `IsAnchorMap(map)` 的锚点家园调 `ApplyPolygonTerrain` 铺 void + 备份 `anchorBaseTerrainSnapshot`。
+  - **为何选 MutatorPostTerrain 而非 Terrain**：`SeamlessTileGenerator.xml:11` 有历史教训注释——Postfix `GenStep_Terrain.Generate` 会因原方法内部 WaterBodyTracker NRE 被跳过。`GenStep_MutatorPostTerrain.Generate` 方法体极简（仅遍历 mutators 调 `GeneratePostTerrain`），无内部 NRE 风险。
+  - **为何不复用 RimExodus_SeamlessTile genStep**：那个 genStep 注册在 `RimExodus_SeamlessTileGenerator`，锚点走 `Base_Player` 根本不跑它。改 `Base_Player` XML 会污染全局。Postfix 一个所有地图都跑的原版 genStep（`MutatorPostTerrain` 在 `MapCommonBase` 里）更干净。
+
+### 修改的源码文件
+- `Source/Patches_GenStepRocksFromGrid.cs`（改）— 门禁从"仅 `MapParent_SeamlessTile`"扩展为"邻接地块 **或** `IsAnchorMap`"。worldTile 统一用 `SeamlessTileRegistry.GetMapWorldTile(map)`。锚点家园的 void 格岩石+屋顶现在也在 RocksFromGrid(200) 之后提前清（`DestroyMode.Vanish` 无落石），与邻接地块对称。
+- `Source/SeamlessTileManager.cs`（改）— `TrySetupOnStart` 移除 `RefreshMapVoid(map)` 调用 + `anchorBaseTerrainSnapshot` 备份（已移到 Postfix）；`EnsureNeighborRegistered` 移除两处冗余的 `RefreshMapVoid` 调用（void 几何只看自己六边形，与邻居关系无关，重复刷新只会删除已生成实体）；`RefreshMapVoid` 方法保留但标注"当前无调用者，供未来读档重建备用"。保留 `pendingAutoGenerateTicks = 1` 延迟（`preloadAllNeighborsOnStart=true` 时嵌套 `GenerateTileMap` 需要 `mapBeingGenerated==null`）。
+- `Source/SeamlessTerrainFill.cs`（改）— `ClearThingsOnCells` 注释更新：当前对所有 genStep 路径都是空操作（防御性保留）。
+
+### 关键不变量
+- **void 几何只看自己六边形**：与邻居关系无关。邻居关系变化不需要重新铺 void。这是删除 `EnsureNeighborRegistered` 里 `RefreshMapVoid` 调用的依据。
+- **`IsPlayerHome` 在 genStep 阶段可靠**：只依赖 `map.Parent.Faction == Faction.OfPlayer` + `def.canBePlayerHome`，这些在 `MapGenerator.GenerateMap` 之前已就位（`SettleUtility.AddNewHome` 先 `SetFaction` 再生成；开档路径 `Game.cs:514-529` 同理）。邻接地块 faction=null，`IsAnchorMap` 对它返回 false（双重保险）。
+
+### 已知边界
+- **Odyssey 重力飞船场景**：`IsPlayerHome` 涵盖 `wasSpawnedViaGravShipLanding`，会自动命中。若该场景 MapGeneratorDef 不含 `MutatorPostTerrain` genStep，Postfix 不触发，void 不铺。原型阶段可接受。
+- **某些场景 MapGeneratorDef 可能不含 MutatorPostTerrain**：则 void 不铺。原型阶段不保留后补 fallback（保留会重新引入"后补删实体"问题）。若实测发现此类场景再单独处理。
+
+### 待办
+- 游戏内验证：开档锚点家园 void 在 genStep 阶段铺好、无落石、无建筑切断、Plants/Animals 不在 void 格 spawn。

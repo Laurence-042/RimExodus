@@ -30,12 +30,12 @@ namespace RimExodus
         /// </summary>
         public List<NeighborLink> neighbors = new List<NeighborLink>();
 
-        /// <summary>是否已完成开档初始化（铺 void + 预铺传送点；阶段4a 后默认不自动生成邻居，除非 preloadAllNeighborsOnStart=true）。</summary>
+        /// <summary>是否已完成开档初始化（预铺传送点；void 已由 genStep 阶段铺设，不在此处）。阶段4a 后默认不自动生成邻居，除非 preloadAllNeighborsOnStart=true。</summary>
         private bool setupOnStartDone;
 
         /// <summary>
-        /// 锚点地图的基础地形快照（阶段4 接缝覆写）。
-        /// 锚点是原生 Map（不走 RimExodus genStep），在 TrySetupOnStart 的 RefreshMapVoid 之前备份。
+        /// 锚点地图的基础地形快照（阶段4 接缝覆写）：void 裁切前的完整矩形 topGrid。
+        /// 在 <see cref="Patch_GenStep_MutatorPostTerrain"/> Postfix（order=220，Terrain 之后）void 裁切之前备份。
         /// 供接缝覆写卷积混合读取。非序列化。
         /// </summary>
         public TerrainDef[] anchorBaseTerrainSnapshot;
@@ -134,19 +134,16 @@ namespace RimExodus
         /// 在锚点地图 A 上沿全部世界邻居边预铺单端传送点（对端 null）。
         /// 若 ModSettings.preloadAllNeighborsOnStart 为 true，则额外加载全部世界邻居地块（高配玩家流畅体验）。
         /// 否则不生成邻居，等 pawn 接近边界时事件驱动加载。
+        ///
+        /// **void 铺设不在此处**：锚点 void 已由 Patch_GenStep_MutatorPostTerrain（Postfix，order=220，
+        /// 在 genStep 阶段 Terrain 之后、Plants 之前）铺设，与邻接地块的 RimExodus_SeamlessTile genStep 对称。
+        /// 此前这里是 MapGenerated 后延迟 1 tick 的"后补"铺 void（RefreshMapVoid），会真实删除已生成的
+        /// 岩石/植物/玩家建造（落石/切断建筑），已废弃。anchorBaseTerrainSnapshot 备份也移到了那个 Postfix。
         /// </summary>
         private void TrySetupOnStart()
         {
             var anchorWorldTile = map.Tile;
             if (anchorWorldTile < 0) return;
-
-            // 锚点 A 是原生地图，不走 RimExodus GenStep，必须在此显式铺 void（六边形外 = void）。
-            // 阶段3 此调用依赖 GenerateTileMap 内的 RefreshMapVoid 顺带触发，
-            // 阶段4a 默认不生成邻居，故必须独立调用。
-            // 先备份基础地形（void 裁切前），供接缝覆写卷积混合读取。
-            if (anchorBaseTerrainSnapshot == null)
-                anchorBaseTerrainSnapshot = (TerrainDef[])map.terrainGrid.topGrid.Clone();
-            RefreshMapVoid(map);
 
             // 预铺锚点 A 沿全部世界邻居边的传送点（对端 null）。
             PlaceEnterSpotsAllNeighbors(map, anchorWorldTile);
@@ -164,8 +161,13 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 刷新指定地块地图的 void 铺设：六边形内（含边）非 void，六边形外 void。
-        /// 可重复调用。锚点 A（原生地图，不走 RimExodus GenStep）和口袋地块都适用。
+        /// 刷新指定地图的 void 铺设：六边形内（含边）非 void，六边形外 void。可重复调用。
+        ///
+        /// **当前无调用者**。void 铺设已统一在 genStep 阶段完成：
+        /// - 邻接地块（MapParent_SeamlessTile）：<c>RimExodus_SeamlessTile</c> genStep（order=211）。
+        /// - 锚点家园：<see cref="Patch_GenStep_MutatorPostTerrain"/> Postfix（order=220）。
+        /// 此前锚点靠本方法在 MapGenerated 后延迟 1 tick 后补铺 void，会删除已生成实体（落石/切断建筑），已废弃。
+        /// 保留本方法供未来读档重建或幂等兜底场景备用。
         /// </summary>
         internal static void RefreshMapVoid(Map map)
         {
@@ -394,9 +396,9 @@ namespace RimExodus
             PlaceEnterSpotsAllNeighbors(sourceMap, sourceWorldTile);
             PlaceEnterSpotsAllNeighbors(existingMap, existingWorldTile);
 
-            // 刷新两端 void（邻居关系变化后，虽然 void 只看自己多边形，但保险刷新）。
-            RefreshMapVoid(sourceMap);
-            RefreshMapVoid(existingMap);
+            // void 不需要刷新：void 几何只取决于地图自己的六边形（与世界邻居关系无关），
+            // 且两端地图的 void 在它们各自生成时（genStep 阶段）已铺好。此处再调 RefreshMapVoid 会
+            // 重新触发 ClearThingsOnCells，删除地图上已生成的实体（玩家建造/植物/掉落物）。
 
             // 新铺的传送点需刷新对端坐标缓存（RegisterNeighborBidirectional 内已刷一次，
             // 但补铺的 spot 在其之后，需再刷一次覆盖到它们）。
