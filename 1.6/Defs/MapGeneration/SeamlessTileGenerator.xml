@@ -41,36 +41,10 @@
     </genSteps>
   </MapGeneratorDef>
 
-  <!--
-    Debug dirt/water 诊断生成器（阶段4 连续地形诊断基础设施）。
-    只跑 RimExodus_DebugDirtWater（噪声显示器：noise > 阈值 = Soil，否则 = WaterOceanDeep）
-    + RimExodus_SeamlessTile（六边形 void 裁切，保留多边形边界）+ Fog。
-    绕开 ElevationFertility/Terrain/RocksFromGrid/Plants 等所有原版 genStep，
-    输出纯粹的噪声二值图，便于肉眼判断接缝处噪声是否连续。
-    noiseGenType 仍生效（切换 SphereNormal/LatLong/DiagnosticRings/Off 显示对应模式噪声）。
-    由 MapParent_SeamlessTile.MapGeneratorDef 在 debugDirtWaterMode=true 时返回。
-  -->
-  <MapGeneratorDef>
-    <defName>RimExodus_DebugDirtWaterGenerator</defName>
-    <label>debug dirt/water generator</label>
-    <disableShadows>true</disableShadows>
-    <genSteps>
-      <li>RimExodus_DebugDirtWater</li>
-      <li>RimExodus_SeamlessTile</li>
-      <li>Fog</li>
-    </genSteps>
-  </MapGeneratorDef>
-
   <GenStepDef>
     <defName>RimExodus_SeamlessTile</defName>
     <order>211</order>
     <genStep Class="RimExodus.GenStep_SeamlessTile"/>
-  </GenStepDef>
-
-  <GenStepDef>
-    <defName>RimExodus_DebugDirtWater</defName>
-    <order>0</order>
-    <genStep Class="RimExodus.GenStep_DebugDirtWater"/>
   </GenStepDef>
 
 </Defs>

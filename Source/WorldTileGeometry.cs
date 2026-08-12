@@ -14,8 +14,6 @@ namespace RimExodus
     /// 多边形顶点 = 地图中心 + 0.5S × 顶点方向（内切圆模型，详见阶段3计划）。
     ///
     /// 所有方法统一遍历 N 个顶点（N=5 五边形 / N=6 六边形），不区分具体边数。
-    ///
-    /// 坐标投影统一委托 <see cref="TileProjection"/>（唯一的切平面基来源 + 缓存）。
     /// </summary>
     public static class WorldTileGeometry
     {
@@ -42,16 +40,27 @@ namespace RimExodus
             if (grid == null) return;
 
             // 取地块顶点（球面世界坐标，环绕顺序）。
-            var verts = new List<UnityEngine.Vector3>();
+            var verts = new List<Vector3>();
             grid.GetTileVertices(worldTile, verts);
             if (verts.Count == 0) return;
 
-            // 统一从 TileProjection 取切平面基（带缓存，全游戏唯一来源）。
-            var basis = TileProjection.GetBasis(worldTile);
+            // 地块中心。
+            var center = grid.GetTileCenter(worldTile);
 
+            // 建立地块中心的切平面基（first / second 是切平面的两个正交单位向量）。
+            // 只要同一地块所有顶点用同一组基投影，2D 方向就一致；绝对朝向不影响多边形形状。
+            WorldRendererUtility.GetTangentsToPlanet(center, out var first, out var second);
+
+            // first/second 的绝对朝向难纯推理（依赖 LookRotation + 球面视角），
+            // 此处用 -Dot(second) / Dot(first) 校准（实测 180 度旋转 bug 后的经验值）。
             foreach (var vert in verts)
             {
-                result.Add(TileProjection.VertexToDir2D(basis, vert));
+                var d = vert - center;
+                var dx = -Vector3.Dot(d, second);
+                var dz = Vector3.Dot(d, first);
+                var dir = new Vector2(dx, dz);
+                dir.Normalize();
+                result.Add(dir);
             }
         }
 
