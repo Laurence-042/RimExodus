@@ -109,21 +109,25 @@ namespace RimExodus
                 // 每个 genStep 用 Rand.PushState/Seed/PopState 独立配对（RunOneGenStep），不依赖外层栈。
                 int seed = Gen.HashCombineInt(Find.World.info.Seed, mapParent.ID);
                 ClearWorkingDataStatic();
-                // 注意：此处曾在 ConstructComponents 前做 Rand.PushState/Seed/PopState（复刻原版 GenerateMap
-                // 顶部的 seed 设置），但那段是死代码（中间无 Rand 调用，PopState 恢复原状态后无净效果），
-                // 且 PopState 会把主线程 tick 累积的 Rand.iterations 带进 FillComponents 入口，触发 MapPreview
-                // 告警（"vanilla map components modified RNG by N"）。genStep 的 seed 由 RunOneGenStep 独立设置，
-                // 不依赖此处的 seed；RockNoises.Init 段（下方）有自己的 PushState/Seed/PopState。故删除。
+                // 外层 Rand 状态保护：Start 的同步段（ConstructComponents + 组装 genStep + RockNoises.Init）
+                // 不跨帧，用 PushState/Seed/PopState 包裹，复刻原版 GenerateMap 顶部的 seed 设置。
+                // 关键：Rand.Seed = seed 把 iterations 清零，使 FillComponents 入口 iterations 干净（MapPreview
+                // 在 FillComponents_Prefix 检测 iterations，期望 1 = GasGrid 构造器的 1 次 Rand；若读不到干净
+                // 值会告警 "vanilla map components modified RNG by N"）。Start 末尾 PopState 恢复主线程 RNG。
+                // 不跨帧，EnsureStateStackEmpty 不会清栈。
+                Rand.PushState();
+                Rand.Seed = seed;
+                Map newMap = null;
 
-                var newMap = new Map();
+                try
+                {
+                newMap = new Map();
                 newMap.uniqueID = Find.UniqueIDsManager.GetNextMapID();
                 newMap.generationTick = GenTicks.TicksGame;
                 newMap.events = new MapEvents(newMap);
 
                 MapGenerator.mapBeingGenerated = newMap;
-                try
-                {
-                    newMap.info.Size = mapSize;
+                newMap.info.Size = mapSize;
                     newMap.info.parent = mapParent;
                     newMap.generatorDef = mapGeneratorDef; // 关键：OutdoorTemp/Biome 等依赖此字段，原版 :126。
                     newMap.info.disableSunShadows = mapGeneratorDef.disableShadows;
@@ -215,6 +219,11 @@ namespace RimExodus
                     Log.Error($"[RimExodus] IncrementalMapGenerator prepare failed: {ex}");
                     CleanupFailedGeneration(newMap);
                     return false;
+                }
+                finally
+                {
+                    // 恢复主线程 RNG（Start 同步段用干净 seed 跑完，分帧 genStep 有自己的 PushState/Seed/PopState）。
+                    Rand.PopState();
                 }
             }
             catch (Exception outerEx)

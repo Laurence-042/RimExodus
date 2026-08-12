@@ -101,6 +101,11 @@ namespace RimExodus
                 int diagTotal = 0, diagOutOfBounds = 0, diagNeighborDistNull = 0, diagVoidCell = 0, diagUnchanged = 0, diagWritten = 0;
                 int diagNcXMin = int.MaxValue, diagNcXMax = int.MinValue, diagNcZMin = int.MaxValue, diagNcZMax = int.MinValue;
                 float diagWMin = 1f, diagWMax = 0f;
+                // 地形分类计数（判断"改成岩石 vs 土壤"的比例，定位"一侧空地/对侧岩石"）。
+                // 岩石类 = terrainDef.building != null（自然岩石地形的 building 指向岩石 BuildingDef）。
+                int diagWrittenToRock = 0, diagWrittenToSoil = 0;
+                int diagUnchangedRock = 0, diagUnchangedSoil = 0;
+                int diagSelfRock = 0, diagNbrRock = 0; // selfDist/neighborDist 众数是否岩石（采样点原始地形倾向）
 
                 foreach (var cell in bandCells)
                 {
@@ -136,14 +141,29 @@ namespace RimExodus
                     var localTerrain = topGrid[localIdx];
                     if (localTerrain == null || (voidDef != null && localTerrain == voidDef)) { diagVoidCell++; continue; }
 
+                    // 诊断：selfDist/neighborDist 众数是否岩石（采样点原始地形倾向）。
+                    if (diag)
+                    {
+                        var selfMode = GetMode(selfDist);
+                        var nbrMode = GetMode(neighborDist);
+                        if (selfMode != null && IsRockTerrain(selfMode)) diagSelfRock++;
+                        if (nbrMode != null && IsRockTerrain(nbrMode)) diagNbrRock++;
+                    }
+
                     // 加权混合分布，取众数。
                     var blended = BlendDistributions(neighborDist, selfDist, w);
                     var chosen = GetMode(blended);
-                    if (chosen == null || chosen == localTerrain) { diagUnchanged++; continue; }
+                    if (chosen == null || chosen == localTerrain)
+                    {
+                        if (diag) { if (IsRockTerrain(localTerrain)) diagUnchangedRock++; else diagUnchangedSoil++; }
+                        diagUnchanged++;
+                        continue;
+                    }
 
                     // 写入 terrainGrid。
                     topGrid[localIdx] = chosen;
                     mapDrawer.MapMeshDirty(cell, MapMeshFlagDefOf.Terrain, regenAdjacentCells: false, regenAdjacentSections: false);
+                    if (diag) { if (IsRockTerrain(chosen)) diagWrittenToRock++; else diagWrittenToSoil++; }
                     diagWritten++;
                 }
 
@@ -154,7 +174,9 @@ namespace RimExodus
                         : $"x[{diagNcXMin}..{diagNcXMax}] z[{diagNcZMin}..{diagNcZMax}]";
                     Log.Message($"[RimExodus-SeamDiag] wt={worldTile} nbr={neighborTile} offset={offset} bandCells={diagTotal} " +
                         $"w[{diagWMin:F2}..{diagWMax:F2}] oob={diagOutOfBounds} nbrDistNull={diagNeighborDistNull} " +
-                        $"voidCell={diagVoidCell} unchanged={diagUnchanged} written={diagWritten} nbrCellRange={ncRange} nbrSize={neighborSize}");
+                        $"voidCell={diagVoidCell} unchanged={diagUnchanged}(rock={diagUnchangedRock},soil={diagUnchangedSoil}) " +
+                        $"written={diagWritten}(toRock={diagWrittenToRock},toSoil={diagWrittenToSoil}) " +
+                        $"selfModeRock={diagSelfRock} nbrModeRock={diagNbrRock} nbrCellRange={ncRange} nbrSize={neighborSize}");
                 }
             }
         }
@@ -241,6 +263,27 @@ namespace RimExodus
                 }
             }
             return best;
+        }
+
+        /// <summary>
+        /// 岩石类 TerrainDef 集合（延迟初始化）。岩石 TerrainDef = 某 BuildingDef 的 building.naturalTerrain
+        /// （GenStep_Terrain 在 elevation≥0.61 格铺这种地形，对应 RocksFromGrid spawn 的岩石 Building）。
+        /// 用于诊断日志区分"改成岩石 vs 改成土壤"，定位"一侧空地/对侧岩石"。
+        /// </summary>
+        private static HashSet<TerrainDef> rockTerrains;
+        private static bool IsRockTerrain(TerrainDef t)
+        {
+            if (t == null) return false;
+            if (rockTerrains == null)
+            {
+                rockTerrains = new HashSet<TerrainDef>();
+                foreach (var def in DefDatabase<ThingDef>.AllDefs)
+                {
+                    if (def.building != null && def.building.naturalTerrain != null)
+                        rockTerrains.Add(def.building.naturalTerrain);
+                }
+            }
+            return rockTerrains.Contains(t);
         }
 
         /// <summary>格中心到多边形最近边的距离（遍历所有边取最小）。</summary>

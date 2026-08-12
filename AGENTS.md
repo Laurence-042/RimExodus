@@ -1023,3 +1023,32 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 - 游戏内开启 `seamOverrideDiag`，生成邻接地块，收集 `[RimExodus-SeamDiag]` 日志。
 - 根据 `oob`/`nbrCellRange`/`w` 数据确认采样几何根因，设计精确修复（可能是采样 offset 与传送 offset 解耦、混合带几何重定义、或 snapshot 范围扩展）。
 - 岩石 Building 一致性（terrainDef 改了但 Building 留着）待采样修复后游戏内观察再决定。
+
+## MapPreview 告警真正修复 + SeamDiag 数据初析（已完成，可编译）
+
+### MapPreview 告警（第二轮，真正修复）
+- **第一轮失败原因**：我删了 `IncrementalMapGenerator.Start` 在 `ConstructComponents` 前的 `Rand.PushState/Seed/PopState` 死代码，但那是**错误诊断**。真正的根因是：`ConstructComponents` 调用时 `Rand.iterations` 是主线程 tick 累积值（~117216），没被清零。原版 `GenerateMap` 在 `ConstructComponents` 前 `Rand.Seed = seed`（清零 iterations），MapPreview 在 `FillComponents_Prefix` 期望读到干净值（1 = GasGrid 构造器的 1 次 Rand）。
+- **第二轮真正修复**：`Start` 同步段用 `Rand.PushState()` + `Rand.Seed = seed`（清零 iterations）包裹，try/catch/finally，finally 里 `Rand.PopState()` 恢复主线程 RNG。`Start` 同步段不跨帧（分帧 genStep 在 `TickGeneration`），`EnsureStateStackEmpty` 不会清栈。
+- **关键**：`Rand.Seed = seed` 必须在 `ConstructComponents` **之前**执行（清零 iterations），这是原版 GenerateMap 的时序，MapPreview 依赖它。
+
+### SeamDiag 第一批数据（采样正常，不对称原因待定位）
+日志：`wt=97593 nbr=18461 offset=(163,0,-138) bandCells=3382 w[0.00..1.00] oob=160 nbrDistNull=0 voidCell=0 unchanged=1605 written=1617 nbrCellRange=x[0..84] z[145..247]`
+- **采样完全正常**：`oob=160`（4.7% 越界，边缘损耗）、`nbrDistNull=0`（卷积都有数据）、`w[0..1]`（权重完整覆盖）、`written=1617`(48%)+`unchanged=1605`(47%)。
+- **我之前"大幅越界导致混合失效"的纸面推演是错的**。用户反驳（"A 六边形是裁出来的，C 覆盖了被裁掉的部分"）正确。
+- **采样点 `nbrCellRange=x[0..84] z[145..247]`** 在 A 的西北象限，正好是 A 与 C 接壤边附近的 A 侧区域。接缝两侧采的是同一边的 A 地形，方向正确。
+- **不对称原因待定位**：采样和权重都正常，但用户仍看到"一侧空地/对侧岩石"。怀疑是单向覆写的结构性后果（A 侧未改 vs C 侧改成 A snapshot），或岩石类地形在卷积中的行为。需要增强诊断（岩石/土壤分类）。
+
+### SeamDiag 增强（岩石/土壤分类）
+诊断日志新增字段：
+- `unchanged(rock=N,soil=N)`：未变 cell 的本端地形岩石/土壤分类。
+- `written(toRock=N,toSoil=N)`：覆写目标岩石/土壤分类。
+- `selfModeRock=N nbrModeRock=N`：selfDist/neighborDist 众数是否岩石（采样点原始地形倾向）。
+- 岩石判定：`IsRockTerrain(t)` = t 是某 BuildingDef 的 `building.naturalTerrain`（延迟初始化 HashSet）。
+
+### 源码文件变更（本轮）
+- `Source/IncrementalMapGenerator.cs`（改）— `Start` 同步段 PushState/Seed + finally PopState（真正修复 MapPreview 告警）。
+- `Source/SeamlessSeamOverride.cs`（改）— SeamDiag 增强岩石/土壤分类 + selfModeRock/nbrModeRock；新增 `IsRockTerrain` 辅助方法。
+
+### 待办（下一轮）
+- 用户重新测试：确认 MapPreview 告警消失 + 提供增强后的 SeamDiag 日志（含岩石/土壤分类）。
+- 根据岩石/土壤分类数据定位"一侧空地/对侧岩石"的真正根因。
