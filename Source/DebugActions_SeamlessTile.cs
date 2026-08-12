@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using LudeonTK;
+using RimWorld;
 using RimWorld.Planet;
+using UnityEngine;
 using Verse;
 
 namespace RimExodus
@@ -105,5 +107,104 @@ namespace RimExodus
 
             Log.Message($"[RimExodus] Removed {toRemove.Count} seamless tile maps.");
         }
+
+        /// <summary>
+        /// 调试工具（Dev 地图工具）：点击地图格，输出该格的 snapshot 值 + SeamOverride 混合时引用的邻居格信息。
+        /// 用于精确定位"某格 snapshot 是水/沙，但被邻居土卷积成了泥"等海岸侵蚀问题。
+        /// 输出 self snapshot（本地 snapshot 在该格的值）vs neighbor snapshot（邻居对应格的值），
+        /// 以及 NeighborLink offset、邻居对应格坐标（与传送点同源，已验证正确）。
+        /// </summary>
+        [DebugAction(Category, "Inspect Snapshot At Position", false, false, false, false, false, 0, false,
+            actionType = DebugActionType.ToolMap, allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void InspectSnapshotAtPosition()
+        {
+            var map = Find.CurrentMap;
+            if (map == null) return;
+            var cell = UI.MouseCell();
+            if (!cell.InBounds(map)) return;
+
+            var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
+            var cellIndices = map.cellIndices;
+            var idx = cellIndices.CellToIndex(cell);
+            var currentTerrain = map.terrainGrid.topGrid[idx];
+
+            // 本地 snapshot（口袋读 MapParent_SeamlessTile，锚点读 Manager）。
+            TerrainDef[] selfSnapshot = null;
+            if (map.Parent is MapParent_SeamlessTile pocket)
+                selfSnapshot = pocket.baseTerrainSnapshot;
+            else
+                selfSnapshot = map.GetComponent<SeamlessTileManager>()?.anchorBaseTerrainSnapshot;
+
+            var selfSnapDef = (selfSnapshot != null && idx < selfSnapshot.Length) ? selfSnapshot[idx] : null;
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"[RimExodus-SnapshotInspect] cell=({cell.x},{cell.z}) wt={worldTile}");
+            sb.AppendLine($"  current topGrid: {TerrainName(currentTerrain)}");
+            sb.AppendLine($"  self snapshot:   {TerrainName(selfSnapDef)}{(selfSnapDef != null && currentTerrain != null && selfSnapDef != currentTerrain ? "  <<< DIFFERS from topGrid" : "")}");
+
+            if (worldTile < 0)
+            {
+                sb.AppendLine("  (no valid worldTile, no polygon/neighbor info)");
+                Log.Message(sb.ToString().TrimEnd());
+                return;
+            }
+
+            // 最近多边形边 + 对应邻居 worldTile。
+            var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, map.Size.x);
+            if (verts.Count < 3)
+            {
+                sb.AppendLine("  (polygon verts < 3, no neighbor info)");
+                Log.Message(sb.ToString().TrimEnd());
+                return;
+            }
+
+            var edgeIdx = SeamlessPolygonGeometry.FindClosestEdgeIndex(verts, cell.x + 0.5f, cell.z + 0.5f);
+            var worldNeighbors = new List<PlanetTile>();
+            Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
+            var neighborWorldTile = (edgeIdx >= 0 && edgeIdx < worldNeighbors.Count) ? worldNeighbors[edgeIdx].tileId : -1;
+
+            sb.AppendLine($"  nearestEdge={edgeIdx}  neighborWT={neighborWorldTile}");
+
+            // 邻居是否已加载（用 NeighborLink，与传送点同源）。
+            if (neighborWorldTile < 0 || !SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, neighborWorldTile, out var info))
+            {
+                sb.AppendLine("  neighbor loaded: NO");
+                Log.Message(sb.ToString().TrimEnd());
+                return;
+            }
+
+            var neighborMap = info.map;
+            var neighborCell = cell - info.offset;
+            sb.AppendLine($"  neighbor loaded: YES  (map={neighborMap?.uniqueID})");
+            sb.AppendLine($"    offset={info.offset}  (NeighborLink，与传送点同源)");
+            sb.AppendLine($"    neighborCell=({neighborCell.x},{neighborCell.z}) = cell - offset");
+
+            if (neighborMap == null || !neighborCell.InBounds(neighborMap))
+            {
+                sb.AppendLine($"    neighborCell out of bounds → SeamOverride 卷积时会跳过(oob)");
+                Log.Message(sb.ToString().TrimEnd());
+                return;
+            }
+
+            // 邻居对应格当前地形。
+            var neighborCurrent = neighborMap.terrainGrid.topGrid[neighborMap.cellIndices.CellToIndex(neighborCell)];
+            sb.AppendLine($"    neighbor current:  {TerrainName(neighborCurrent)}");
+
+            // 邻居对应格在邻居 snapshot 的值。
+            TerrainDef[] neighborSnapshot = null;
+            if (neighborMap.Parent is MapParent_SeamlessTile neighborPocket)
+                neighborSnapshot = neighborPocket.baseTerrainSnapshot;
+            else
+                neighborSnapshot = neighborMap.GetComponent<SeamlessTileManager>()?.anchorBaseTerrainSnapshot;
+
+            var nIdx = neighborMap.cellIndices.CellToIndex(neighborCell);
+            var neighborSnapDef = (neighborSnapshot != null && nIdx < neighborSnapshot.Length) ? neighborSnapshot[nIdx] : null;
+            sb.AppendLine($"    neighbor snapshot: {TerrainName(neighborSnapDef)}");
+
+            Log.Message(sb.ToString().TrimEnd());
+        }
+
+        /// <summary>TerrainDef 的简短名（null 安全）。</summary>
+        private static string TerrainName(TerrainDef t) => t == null ? "(null)" : t.defName;
     }
 }

@@ -106,6 +106,8 @@ namespace RimExodus
                 int diagTotal = 0, diagOutOfBounds = 0, diagNeighborDistNull = 0, diagVoidCell = 0, diagUnchanged = 0, diagWritten = 0;
                 float diagWMin = 1f, diagWMax = 0f;
                 int diagWrittenToRock = 0, diagWrittenToSoil = 0;
+                // chosen defName 分布（不只 toRock/toSoil 二分，精确定位写入的是泥土/沙/水/岩石）。
+                var diagWrittenDefNames = diag ? new Dictionary<string, int>() : null;
 
                 foreach (var cell in bandCells)
                 {
@@ -135,7 +137,12 @@ namespace RimExodus
 
                     topGrid[localIdx] = chosen;
                     mapDrawer.MapMeshDirty(cell, MapMeshFlagDefOf.Terrain, regenAdjacentCells: false, regenAdjacentSections: false);
-                    if (diag) { if (IsRockTerrain(chosen)) diagWrittenToRock++; else diagWrittenToSoil++; }
+                    if (diag)
+                    {
+                        if (IsRockTerrain(chosen)) diagWrittenToRock++; else diagWrittenToSoil++;
+                        diagWrittenDefNames.TryGetValue(chosen.defName, out var cn);
+                        diagWrittenDefNames[chosen.defName] = cn + 1;
+                    }
                     diagWritten++;
 
                     SyncRockBuilding(map, cell, chosen, out _);
@@ -143,10 +150,16 @@ namespace RimExodus
 
                 if (diag)
                 {
+                    // written chosen defName 分布（降序）。
+                    var writtenDist = diagWrittenDefNames.Count == 0 ? "(none)"
+                        : FormatDefNameTally(diagWrittenDefNames);
                     Log.Message($"[RimExodus-SeamDiag] wt={worldTile} nbr={neighborTile} offset={offset} bandCells={diagTotal} " +
                         $"w[{diagWMin:F2}..{diagWMax:F2}] oob={diagOutOfBounds} nbrDistNull={diagNeighborDistNull} " +
                         $"voidCell={diagVoidCell} unchanged={diagUnchanged} " +
-                        $"written={diagWritten}(toRock={diagWrittenToRock},toSoil={diagWrittenToSoil})");
+                        $"written={diagWritten}(toRock={diagWrittenToRock},toSoil={diagWrittenToSoil}) writtenDist={writtenDist}");
+                    // 两端 snapshot 在本邻居接缝带的分布：直接看出卷积输入是沙/水还是泥土。
+                    SeamTerrainProbe.LogSnapshotBand(map, worldTile, selfSnapshot, $"1803-self-nbr{neighborTile}");
+                    SeamTerrainProbe.LogSnapshotBand(neighborMap, neighborTile, neighborSnapshot, $"1803-neighbor-nbr{neighborTile}");
                 }
             }
         }
@@ -233,6 +246,28 @@ namespace RimExodus
                 }
             }
             return best;
+        }
+
+        /// <summary>把 defName→count 字典格式化为 "defName=count, defName=count"（按 count 降序）。</summary>
+        private static string FormatDefNameTally(Dictionary<string, int> tally)
+        {
+            if (tally == null || tally.Count == 0) return "(none)";
+            var sb = new System.Text.StringBuilder();
+            var items = new List<KeyValuePair<string, int>>(tally);
+            items.Sort((a, b) =>
+            {
+                var c = b.Value.CompareTo(a.Value);
+                if (c != 0) return c;
+                return string.Compare(a.Key, b.Key, System.StringComparison.Ordinal);
+            });
+            var first = true;
+            foreach (var kv in items)
+            {
+                if (!first) sb.Append(", ");
+                first = false;
+                sb.Append(kv.Key).Append('=').Append(kv.Value);
+            }
+            return sb.ToString();
         }
 
         /// <summary>
