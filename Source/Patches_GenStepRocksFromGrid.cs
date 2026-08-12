@@ -6,29 +6,26 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// Postfix GenStep_RocksFromGrid.Generate：清除 void 格上的岩石和屋顶。
+    /// Postfix GenStep_RocksFromGrid.Generate：提前清除"将来会是 void 的格"上的岩石和屋顶。
     ///
-    /// RocksFromGrid（order~200）只读 elevation grid，不看 terrain，不知道哪些格是 void。
-    /// 它会在 elevation>0.7 的格上 spawn 岩石（含 void 格）+ 设屋顶。
-    /// 本 Postfix 在它完成后，把 void 格上的岩石清除 + 屋顶移除，使 void 区域干净无落石。
+    /// RocksFromGrid（order=200）只读 elevation grid，不看 terrain，不知道哪些格是 void。
+    /// 它会在 elevation>0.7 的格上 spawn 岩石（含将来 void 的格）+ 设屋顶。
+    /// 本 Postfix 在它完成后，用 IsCellInPolygon 算出多边形外的格（即将来 void 格），
+    /// 提前清除上面的岩石 Building + 移除屋顶，使 void 区域干净。
     ///
-    /// 对 RimExodus 的两类地图都生效：
-    /// - 邻接地块（MapParent_SeamlessTile）：走 RimExodus_SeamlessTileGenerator，order=211 genStep 铺 void。
-    /// - 锚点家园（IsAnchorMap）：走原生 Base_Player，void 由 Patches_GenStepMutatorPostTerrain（order=220）铺。
-    /// 两者的 void 都在 Terrain(210) 之后、Plants(900) 之前铺，本 Postfix（order=200，Terrain 之前）提前清岩石+屋顶，
-    /// 使后续 RimExodus_SeamlessTile / MutatorPostTerrain 的 ClearThingsOnCells 变成空操作（此时已无岩石可清）。
+    /// **时序**：void 地形由 RimExodus_SeamlessTile（order=1802）铺，远在 RocksFromGrid(200) 之后。
+    /// 本 Postfix（order=200，Terrain 之前）提前清岩石，避免 1802 时 ClearThingsOnCells
+    /// 处理海量岩石 Building 的开销。Plants/Animals 在 900/1200 spawn，仍会在将来 void 格上生成，
+    /// 由 ApplyPolygonTerrain(1802) 的 ClearThingsOnCells/EvacuatePawnsOnCells 事后清理。
+    ///
+    /// **统一守卫**：用 GetMapWorldTile(map) >= 0，与三个 RimExodus genStep 一致——
+    /// 任何有合法 worldTile 的地图（邻接地块/锚点家园/派系基地/遭遇）都走本清理。
     /// </summary>
     [HarmonyPatch(typeof(GenStep_RocksFromGrid), nameof(GenStep_RocksFromGrid.Generate))]
     static class Patch_GenStep_RocksFromGrid
     {
         static void Postfix(Map map)
         {
-            // RimExodus 地图判定：邻接地块或锚点家园。其余地图（encounter/quest 等）放行。
-            var isPocket = map.Parent is MapParent_SeamlessTile sp && sp.worldTile >= 0;
-            var isAnchor = !isPocket && SeamlessTileGraph.IsAnchorMap(map);
-            if (!isPocket && !isAnchor) return;
-
-            // GetMapWorldTile 统一处理两类地图的 worldTile 取值。
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
             if (worldTile < 0) return;
 
@@ -86,8 +83,8 @@ namespace RimExodus
             }
 
             // 注意：不铺 void 地形（Terrain genStep 还没跑，此时铺会覆盖 elevation 判定）。
-            // void 地形由 RimExodus_SeamlessTile（order=211，Terrain 之后）铺。
-            // 本 Postfix 只清岩石和屋顶，让 RimExodus_SeamlessTile 的 ClearThingsOnCells 变成空操作（此时已无 Thing）。
+            // void 地形由 RimExodus_SeamlessTile（order=1802，Fog 之后）铺。
+            // 本 Postfix 只清岩石和屋顶，减少 1802 时 ClearThingsOnCells 的工作量（岩石已无，主要剩植物/物品）。
 
             if (RimExodusMod.Settings?.verboseLogging ?? false)
                 Log.Message($"[RimExodus] Patch_GenStep_RocksFromGrid: cleared {toRemove.Count} things + roofs from {voidCells.Count} void cells.");

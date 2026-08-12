@@ -27,7 +27,7 @@ namespace RimExodus
     {
         /// <summary>
         /// 对 map 的所有已加载邻居做单向接缝覆写（只改 map 自身，不改邻居）。
-        /// 在 GenStep_SeamOverride.Generate 里调用（order=212，void 裁切之后、Plants 之前）。
+        /// 在 GenStep_SeamOverride.Generate 里调用（order=1803，void 裁切 1802 之后）。
         /// </summary>
         public static void ApplyOneWay(Map map, int worldTile)
         {
@@ -104,94 +104,49 @@ namespace RimExodus
 
                 // 诊断取样统计（每邻居一条汇总日志）。
                 int diagTotal = 0, diagOutOfBounds = 0, diagNeighborDistNull = 0, diagVoidCell = 0, diagUnchanged = 0, diagWritten = 0;
-                int diagNcXMin = int.MaxValue, diagNcXMax = int.MinValue, diagNcZMin = int.MaxValue, diagNcZMax = int.MinValue;
                 float diagWMin = 1f, diagWMax = 0f;
-                // 地形分类计数（判断"改成岩石 vs 土壤"的比例，定位"一侧空地/对侧岩石"）。
-                // 岩石类 = terrainDef.building != null（自然岩石地形的 building 指向岩石 BuildingDef）。
                 int diagWrittenToRock = 0, diagWrittenToSoil = 0;
-                int diagUnchangedRock = 0, diagUnchangedSoil = 0;
-                int diagSelfRock = 0, diagNbrRock = 0; // selfDist/neighborDist 众数是否岩石（采样点原始地形倾向）
-                int diagBuildingSpawn = 0, diagBuildingDestroy = 0; // Building 同步计数
 
                 foreach (var cell in bandCells)
                 {
                     diagTotal++;
-                    // 权重 w：靠边（切比雪夫距离小）→1（取邻居），靠内（距离大）→0（取本端）。
-                    // 用 void 切比雪夫距离（bandDistances，与 band 同源），而非浮点多边形边距离——
-                    // 后者在多边形顶点附近振荡，会让 w 在相邻 band 格间翻转，卷积产生土/岩交替条带。
                     var chebyDist = bandDistances.TryGetValue(cell, out var cd) ? cd : 1;
                     var w = 1f - Mathf.Clamp01((chebyDist - 1f) / Mathf.Max(1, bandWidth - 1));
                     if (diag) { if (w < diagWMin) diagWMin = w; if (w > diagWMax) diagWMax = w; }
 
-                    // 对面 cell（在邻居地图坐标系）。
                     var neighborCell = cell - offset;
                     if (!neighborCell.InBounds(neighborMap)) { diagOutOfBounds++; continue; }
-                    if (diag)
-                    {
-                        if (neighborCell.x < diagNcXMin) diagNcXMin = neighborCell.x;
-                        if (neighborCell.x > diagNcXMax) diagNcXMax = neighborCell.x;
-                        if (neighborCell.z < diagNcZMin) diagNcZMin = neighborCell.z;
-                        if (neighborCell.z > diagNcZMax) diagNcZMax = neighborCell.z;
-                    }
 
-                    // 卷积：本端 3×3 邻域分布 + 邻居 3×3 邻域分布。
                     var selfDist = Convolve3x3(selfSnapshot, mapSize, cell);
                     var neighborDist = Convolve3x3(neighborSnapshot, neighborSize, neighborCell);
                     if (selfDist == null || neighborDist == null) { diagNeighborDistNull++; continue; }
 
-                    // 排除 void（卷积时跳过 void 格，但如果某格自身是 void 则跳过整个 cell）。
                     var localIdx = cellIndices.CellToIndex(cell);
                     var localTerrain = topGrid[localIdx];
                     if (localTerrain == null || (voidDef != null && localTerrain == voidDef)) { diagVoidCell++; continue; }
 
-                    // 诊断：selfDist/neighborDist 众数是否岩石（采样点原始地形倾向）。
-                    if (diag)
-                    {
-                        var selfMode = GetMode(selfDist);
-                        var nbrMode = GetMode(neighborDist);
-                        if (selfMode != null && IsRockTerrain(selfMode)) diagSelfRock++;
-                        if (nbrMode != null && IsRockTerrain(nbrMode)) diagNbrRock++;
-                    }
-
-                    // 加权混合分布，取众数。
                     var blended = BlendDistributions(neighborDist, selfDist, w);
                     var chosen = GetMode(blended);
                     if (chosen == null || chosen == localTerrain)
                     {
-                        if (diag) { if (IsRockTerrain(localTerrain)) diagUnchangedRock++; else diagUnchangedSoil++; }
                         diagUnchanged++;
                         continue;
                     }
 
-                    // 写入 terrainGrid。
                     topGrid[localIdx] = chosen;
                     mapDrawer.MapMeshDirty(cell, MapMeshFlagDefOf.Terrain, regenAdjacentCells: false, regenAdjacentSections: false);
                     if (diag) { if (IsRockTerrain(chosen)) diagWrittenToRock++; else diagWrittenToSoil++; }
                     diagWritten++;
 
-                    // 同步岩石 Building：SeamOverride 只改 TerrainDef，但 RocksFromGrid（order=200，已跑完）
-                    // 根据本端 elevation spawn Building。若 chosen 是岩石类但该格无岩石 Building → spawn；
-                    // 若 chosen 是非岩石但该格有岩石 Building → 清除。保持 TerrainDef 与 Building 一致，
-                    // 避免接缝两侧"A 有岩石 Building / C 只有岩石地面色"的反差。
-                    SyncRockBuilding(map, cell, chosen, out var bldAction);
-                    if (diag)
-                    {
-                        if (bldAction == 1) diagBuildingSpawn++;
-                        else if (bldAction == -1) diagBuildingDestroy++;
-                    }
+                    SyncRockBuilding(map, cell, chosen, out _);
                 }
 
                 if (diag)
                 {
-                    var ncRange = diagTotal == 0 || diagNcXMin == int.MaxValue
-                        ? "n/a"
-                        : $"x[{diagNcXMin}..{diagNcXMax}] z[{diagNcZMin}..{diagNcZMax}]";
                     Log.Message($"[RimExodus-SeamDiag] wt={worldTile} nbr={neighborTile} offset={offset} bandCells={diagTotal} " +
                         $"w[{diagWMin:F2}..{diagWMax:F2}] oob={diagOutOfBounds} nbrDistNull={diagNeighborDistNull} " +
-                        $"voidCell={diagVoidCell} unchanged={diagUnchanged}(rock={diagUnchangedRock},soil={diagUnchangedSoil}) " +
-                        $"written={diagWritten}(toRock={diagWrittenToRock},toSoil={diagWrittenToSoil}) " +
-                        $"bldSync(spawn={diagBuildingSpawn},destroy={diagBuildingDestroy}) " +
-                        $"selfModeRock={diagSelfRock} nbrModeRock={diagNbrRock} nbrCellRange={ncRange} nbrSize={neighborSize}");
+                        $"voidCell={diagVoidCell} unchanged={diagUnchanged} " +
+                        $"written={diagWritten}(toRock={diagWrittenToRock},toSoil={diagWrittenToSoil})");
                 }
             }
         }

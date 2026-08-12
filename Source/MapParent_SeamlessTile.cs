@@ -44,7 +44,7 @@ namespace RimExodus
 
         /// <summary>
         /// 基础地形快照（阶段4 接缝覆写）：void 裁切前的完整矩形地形备份。
-        /// 在 GenStep_SeamlessTile（order=211）开头备份，此时 Terrain(210) 已铺好 topGrid。
+        /// 在 GenStep_SeamlessTile（order=1802）开头备份，此时 Plants/Animals/Fog 已跑完，topGrid 接近最终。
         /// 供接缝覆写卷积混合读取——邻居 tile 的 snapshot 包含它被 void 切掉的六边形外区域，
         /// 正是本 tile 这侧的地形。
         /// 非序列化：生成期临时数据，读档后由 SeamlessTileManager 重建（锚点）或重新生成（口袋）。

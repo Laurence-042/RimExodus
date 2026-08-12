@@ -35,7 +35,7 @@ namespace RimExodus
 
         /// <summary>
         /// 锚点地图的基础地形快照（阶段4 接缝覆写）：void 裁切前的完整矩形 topGrid。
-        /// 在 <see cref="Patch_GenStep_MutatorPostTerrain"/> Postfix（order=220，Terrain 之后）void 裁切之前备份。
+        /// 在 GenStep_SeamlessTile（order=1802，Fog 之后）void 裁切之前备份（通过 BackupSnapshotAndApplyVoid 归一入口）。
         /// 供接缝覆写卷积混合读取。非序列化。
         /// </summary>
         public TerrainDef[] anchorBaseTerrainSnapshot;
@@ -135,10 +135,10 @@ namespace RimExodus
         /// 若 ModSettings.preloadAllNeighborsOnStart 为 true，则额外加载全部世界邻居地块（高配玩家流畅体验）。
         /// 否则不生成邻居，等 pawn 接近边界时事件驱动加载。
         ///
-        /// **void 铺设不在此处**：锚点 void 已由 Patch_GenStep_MutatorPostTerrain（Postfix，order=220，
-        /// 在 genStep 阶段 Terrain 之后、Plants 之前）铺设，与邻接地块的 RimExodus_SeamlessTile genStep 对称。
+        /// **void 铺设不在此处**：锚点 void 已由 RimExodus_SeamlessTile genStep（order=1802，Fog 之后）铺设，
+        /// 通过 XML patch 注入到 Base_Player，与邻接地块走完全相同的 genStep 链（不再依赖 Harmony Postfix）。
         /// 此前这里是 MapGenerated 后延迟 1 tick 的"后补"铺 void（RefreshMapVoid），会真实删除已生成的
-        /// 岩石/植物/玩家建造（落石/切断建筑），已废弃。anchorBaseTerrainSnapshot 备份也移到了那个 Postfix。
+        /// 岩石/植物/玩家建造（落石/切断建筑），已废弃。anchorBaseTerrainSnapshot 备份在 genStep 1802 完成。
         /// </summary>
         private void TrySetupOnStart()
         {
@@ -163,9 +163,9 @@ namespace RimExodus
         /// <summary>
         /// 刷新指定地图的 void 铺设：六边形内（含边）非 void，六边形外 void。可重复调用。
         ///
-        /// **当前无调用者**。void 铺设已统一在 genStep 阶段完成：
-        /// - 邻接地块（MapParent_SeamlessTile）：<c>RimExodus_SeamlessTile</c> genStep（order=211）。
-        /// - 锚点家园：<see cref="Patch_GenStep_MutatorPostTerrain"/> Postfix（order=220）。
+        /// **当前无调用者**。void 铺设已统一在 RimExodus_SeamlessTile genStep（order=1802）完成——
+        /// 通过 XML patch 注入到所有玩家可进入的 MapGeneratorDef（Base_Player / Base_Faction / Encounter /
+        /// RimExodus_SeamlessTileGenerator），锚点家园与邻接地块走同一条 genStep 链。
         /// 此前锚点靠本方法在 MapGenerated 后延迟 1 tick 后补铺 void，会删除已生成实体（落石/切断建筑），已废弃。
         /// 保留本方法供未来读档重建或幂等兜底场景备用。
         /// </summary>

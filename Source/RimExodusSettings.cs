@@ -36,6 +36,24 @@ namespace RimExodus
         /// </summary>
         public bool seamOverrideDiag = false;
 
+        /// <summary>
+        /// 海岸补铺：深水带宽度（格，到最近海洋边的距离 &lt; 此值铺深水）。0.15×mapSize 的比例。
+        /// 见 <see cref="CoastalEdgeFill"/>。0 = 关闭海岸补铺。
+        /// </summary>
+        public float coastalEdgeDeepWaterDistance = 0.15f;
+
+        /// <summary>
+        /// 海岸补铺：浅水带宽度（格，到最近海洋边的距离 &lt; 此值铺浅水，&lt; 深水阈值则铺深水）。
+        /// 必须大于深水阈值。
+        /// </summary>
+        public float coastalEdgeShallowWaterDistance = 0.25f;
+
+        /// <summary>
+        /// 海岸补铺：沙滩带宽度（格，到最近海洋边的距离 &lt; 此值且该格非水非冰时铺沙滩）。
+        /// 必须大于浅水阈值。对应 Coast mutator 的 MaxForSand(0.6)。
+        /// </summary>
+        public float coastalEdgeBeachSandDistance = 0.35f;
+
         public override void ExposeData()
         {
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
@@ -44,6 +62,9 @@ namespace RimExodus
             Scribe_Values.Look(ref borderNoBuildDistance, "borderNoBuildDistance", 3);
             Scribe_Values.Look(ref seamOverrideRatio, "seamOverrideRatio", 0.25f);
             Scribe_Values.Look(ref seamOverrideDiag, "seamOverrideDiag", false);
+            Scribe_Values.Look(ref coastalEdgeDeepWaterDistance, "coastalEdgeDeepWaterDistance", 0.15f);
+            Scribe_Values.Look(ref coastalEdgeShallowWaterDistance, "coastalEdgeShallowWaterDistance", 0.25f);
+            Scribe_Values.Look(ref coastalEdgeBeachSandDistance, "coastalEdgeBeachSandDistance", 0.35f);
             base.ExposeData();
         }
     }

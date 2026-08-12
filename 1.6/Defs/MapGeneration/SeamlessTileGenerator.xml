@@ -5,12 +5,18 @@
     无缝地块口袋地图生成器（阶段4a：真实地形 + 多边形 void 裁切）。
     genSteps 复用原版 MapCommonBase 的地形/岩石/植物/动物序列，使口袋地图按真实 worldTile 特性生成原版地形。
 
-    void 裁切用 RimExodus_SeamlessTile genStep（order=211，Terrain 之后立即、Plants 之前）：
-    Terrain(order=210) 跑完后 void genStep 把多边形外格覆写为 void，后续 genStep（Plants/RockChunks/Animals）
-    读 terrainGrid 发现 void Impassable 自然不 spawn，ClearThingsOnCells 只需清 RocksFromGrid 的岩石。
-    不能用 Postfix patch GenStep_Terrain——原方法内部 WaterBodyTracker NRE 会导致 Postfix 被跳过。
+    三个 RimExodus genStep 按 order（非列表序）在 Fog(1500) 之后执行：
+      RimExodus_CoastalEdgeFill (1801)：补原生 Coast mutator 漏铺的海洋边（多面环海按每条边独立铺）。
+      RimExodus_SeamlessTile    (1802)：备份 snapshot（void 裁切前的完整矩形 topGrid）+ 按六边形铺 void。
+      RimExodus_SeamOverride    (1803)：混合带卷积混合（读两端 snapshot，写本端 topGrid）。
 
-    biome/hilliness/elevation 等 TileInfo 字段不能在 Def 里写死（每个地块不同），
+    snapshot 备份点选在最晚（1802，Fog 之后），确保已含 Coast/海岸补铺/Plants 等的最终地形，
+    消除"snapshot 太早、后续 genStep 改地形导致漂移"问题。
+
+    **统一注入**：这三个 genStep 也通过 Patches/MapGeneration.xml 注入到原版 Base_Player / Base_Faction /
+    Encounter，使锚点家园 A、派系基地、遭遇战与邻接地块 B 走完全相同的链（不再依赖 Harmony Postfix）。
+
+    biome/hillness/elevation 等 TileInfo 字段不能在 Def 里写死（每个地块不同），
     由 GenerateTileMap 通过 extraInitBeforeContentGen 回调从真实 worldTile 动态注入 pocketTileInfo。
     pocketMapProperties.biome 这里留一个占位（会被回调覆盖）。
   -->
@@ -27,8 +33,6 @@
       <li>MutatorPostElevationFertility</li>
       <li>RocksFromGrid</li>
       <li>Terrain</li>
-      <li>RimExodus_SeamlessTile</li>
-      <li>RimExodus_SeamOverride</li>
       <li>MutatorPostTerrain</li>
       <li>Roads</li>
       <li>RockChunks</li>
@@ -39,19 +43,45 @@
       <li>Snow</li>
       <li>Animals</li>
       <li>Fog</li>
+      <li>RimExodus_CoastalEdgeFill</li>
+      <li>RimExodus_SeamlessTile</li>
+      <li>RimExodus_SeamOverride</li>
     </genSteps>
   </MapGeneratorDef>
 
   <GenStepDef>
+    <defName>RimExodus_CoastalEdgeFill</defName>
+    <order>1801</order>
+    <genStep Class="RimExodus.GenStep_CoastalEdgeFill"/>
+    <!-- MapPreview 集成：让本 genStep 进入预览白名单（海岸补铺在预览时可见）。
+         MayRequire 用 packageId；未装 Map Preview 时此 li 整体跳过，Class 不解析，无副作用。 -->
+    <modExtensions>
+      <li Class="MapPreview.GenStepProperties" MayRequire="m00nl1ght.MapPreview">
+        <includeInPreviews>true</includeInPreviews>
+      </li>
+    </modExtensions>
+  </GenStepDef>
+
+  <GenStepDef>
     <defName>RimExodus_SeamlessTile</defName>
-    <order>211</order>
+    <order>1802</order>
     <genStep Class="RimExodus.GenStep_SeamlessTile"/>
+    <modExtensions>
+      <li Class="MapPreview.GenStepProperties" MayRequire="m00nl1ght.MapPreview">
+        <includeInPreviews>true</includeInPreviews>
+      </li>
+    </modExtensions>
   </GenStepDef>
 
   <GenStepDef>
     <defName>RimExodus_SeamOverride</defName>
-    <order>212</order>
+    <order>1803</order>
     <genStep Class="RimExodus.GenStep_SeamOverride"/>
+    <modExtensions>
+      <li Class="MapPreview.GenStepProperties" MayRequire="m00nl1ght.MapPreview">
+        <includeInPreviews>true</includeInPreviews>
+      </li>
+    </modExtensions>
   </GenStepDef>
 
 </Defs>

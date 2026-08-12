@@ -11,9 +11,8 @@ namespace RimExodus
     /// 每个地块独立按自己的六边形铺 void：六边形内（含边）非 void，六边形外 void。
     /// 不看邻居——两个地图各自独立铺 void，重叠区的 void 在对方地图上恰好是非 void。
     /// 传送点铺在自己六边形的边经过的格子上（含边判定 → 非 void）。
-    /// 供两类 genStep 介入路径复用：
-    /// - 邻接地块：<see cref="GenStep_SeamlessTile"/>（order=211，Terrain 之后、Plants 之前）。
-    /// - 锚点家园：<c>Patch_GenStep_MutatorPostTerrain</c> Postfix（order=220，同窗口）。
+    /// 供 GenStep_SeamlessTile（order=1802）调用，该 genStep 通过 XML patch 注入到所有
+    /// 玩家可进入的 MapGeneratorDef（Base_Player / Base_Faction / Encounter / RimExodus_SeamlessTileGenerator）。
     /// </summary>
     public static class SeamlessTerrainFill
     {
@@ -21,9 +20,7 @@ namespace RimExodus
         /// 备份基础地形 snapshot（void 裁切前的完整矩形 topGrid）并按六边形铺 void。
         ///
         /// **两入口共用同一逻辑体**（归一点）：锚点家园 A 与邻接地块 B 的 void 铺设都走本方法。
-        /// 差异仅在入口：B 走 <c>RimExodus_SeamlessTile</c> genStep（order=211），A 走
-        /// <c>Patch_GenStepMutatorPostTerrain</c> Postfix（order=220，因 A 用原生 Base_Player
-        /// 无法加 RimExodus genStep）。snapshot 存储位置随载体类型自动选择（地块存 MapParent_SeamlessTile，
+        /// snapshot 存储位置随载体类型自动选择（地块存 MapParent_SeamlessTile，
         /// 锚点存 SeamlessTileManager），其余完全一致——避免两份重复的"备份+铺void"逻辑漂移。
         ///
         /// snapshot 用途：供 <see cref="SeamlessSeamOverride"/> 卷积混合读取对端真实地形。
@@ -125,12 +122,11 @@ namespace RimExodus
         /// <summary>
         /// 清除指定格集合上的所有实体（建筑/岩石/植物/物品/草丛等），保留 Pawn（Pawn 单独处理）。
         ///
-        /// **当前对所有 genStep 路径都是空操作/近空操作**：
-        /// - 邻接地块：Patch_GenStep_RocksFromGrid（Postfix，order~200）已清掉 void 格岩石/屋顶，
-        ///   等 RimExodus_SeamlessTile（order=211）调本方法时已无 Thing 可清。
-        /// - 锚点家园：Patch_GenStep_RocksFromGrid 同样提前清岩石（已扩展到锚点），
-        ///   Patch_GenStep_MutatorPostTerrain（order=220）调本方法时 Plants/Animals 还没 spawn，也无 Thing 可清。
-        /// 本方法保留作为防御性清理（如读档重建或未来运行时刷新场景）。
+        /// **当前时序下的实际工作量**：void 在 order=1802（Fog 之后）铺，此时 Plants(900)/Animals(1200) 已 spawn。
+        /// - 岩石 Building：Patch_GenStep_RocksFromGrid（Postfix，order=200）已提前清除（用 IsCellInPolygon 算
+        ///   将来 void 格），故本方法处理岩石时基本为空操作。
+        /// - 植物/物品：Plants(900) spawn 在将来 void 格上的会被本方法实际清理（Destroy Vanish）。
+        /// 因此本方法不是空操作——主要清理植物和散落物品。清理开销在生成时一次性发生。
         /// </summary>
         private static void ClearThingsOnCells(Map map, List<IntVec3> cells)
         {

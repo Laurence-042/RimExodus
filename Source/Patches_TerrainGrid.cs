@@ -5,19 +5,18 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// 保护 RimExodus void 格不被原生/第三方地形改写覆盖。
+    /// 保护 RimExodus void 格不被第三方/运行时地形改写覆盖（防御性守卫）。
     ///
-    /// **根因**：海岸 mutator（<see cref="TileMutatorWorker_Coast.GeneratePostTerrain"/>，genStep
-    /// <c>MutatorPostTerrain</c> order=220）在 void 铺设（<c>RimExodus_SeamlessTile</c> order=211）
-    /// **之后**跑，遍历 map.AllCells 调 <see cref="TerrainGrid.SetTerrain"/> 把海岸 noise 驱动的水/沙
-    /// 铺到格上——**包括六边形外的 void 格**（void 的 categoryType 默认 Misc ≠ Stone，Coast mutator
-    /// 的"非 Stone 才覆盖"判定放行）。结果六边形外的 void 被改成水，void 边界被破坏，传送点铺设
-    /// （读 terrainGrid 判 void 邻接）的"距 void 切比雪夫距离"基于被改坏的地形 → 传送点沿海岸
-    /// 不规则散开，不组成六边形（用户报告：沿海地块海洋侧传送点散开）。
+    /// **时序事实**：void 由 RimExodus_SeamlessTile（order=1802）铺设，远在任何原生地形 genStep 之后——
+    /// 原生 Coast mutator（在 MutatorPostTerrain order=220 内）在 void 铺设**之前**跑，
+    /// 两者时序上不冲突。因此本 patch 对原生 Coast mutator 场景**当前是空操作**。
     ///
-    /// **修复**：Prefix <see cref="TerrainGrid.SetTerrain"/>，若目标格当前是 RimExodus_Void 且新地形
-    /// 不是 void，拒绝改写（return false）。确立"void 一旦铺设不可变"语义，从源头阻止 Coast mutator
-    /// 及任何未来/第三方 mutator 改 void 格。
+    /// **本 patch 的实际作用**：防御 order&gt;1802 的第三方 genStep、或运行时地形改写（如 ModSettings
+    /// 触发的刷新、玩家建造、mod 地形工具）把已铺的 void 改成其他地形。确立"void 一旦铺设不可变"语义。
+    ///
+    /// **历史背景**：早期 void 铺设在 order=211（Terrain 210 之后、Coast 220 之前），那时 Coast mutator
+    /// 确实会在 void 之后跑并改写 void 格（沿海地块传送点散开 bug）。后 void 铺设挪到 1802，时序冲突消失，
+    /// 但本守卫保留——成本低，防御价值仍在。
     ///
     /// **不影响 RimExodus 自身**：<see cref="SeamlessTerrainFill.ApplyPolygonTerrain"/> 铺 void 用
     /// 直接写 <c>topGrid[idx] = voidDef</c>（跳过 SetTerrain），不触发本 patch。

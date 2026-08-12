@@ -757,7 +757,8 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 
 ### 修复1：void 铺设逻辑归一（消除两份重复代码）
 - **背景**：锚点家园 A 走原生 `Base_Player` genStep 链，邻接地块 B 走 `RimExodus_SeamlessTileGenerator`。两者 void 铺设的**逻辑体**（备份 baseTerrainSnapshot + `ApplyPolygonTerrain`）原本各写一份——`GenStep_SeamlessTile.Generate`（B，order=211）和 `Patch_GenStepMutatorPostTerrain.Postfix`（A，order=220）内联重复，易漂移。
-- **修复**：新增 `SeamlessTerrainFill.BackupSnapshotAndApplyVoid(map, worldTile)` 归一入口，snapshot 存储位置随载体自动选择（`MapParent_SeamlessTile.baseTerrainSnapshot` 或 `SeamlessTileManager.anchorBaseTerrainSnapshot`）。两个入口（genStep + Harmony Postfix）都调它，逻辑体唯一。入口结构无法消除（A 走 Base_Player 加不了 RimExodus genStep），但逻辑归一。
+- **修复**：新增 `SeamlessTerrainFill.BackupSnapshotAndApplyVoid(map, worldTile)` 归一入口，snapshot 存储位置随载体自动选择（`MapParent_SeamlessTile.baseTerrainSnapshot` 或 `SeamlessTileManager.anchorBaseTerrainSnapshot`）。两个入口（genStep + Harmony Postfix）都调它，逻辑体唯一。
+- **⚠ 后续已废弃"入口结构无法消除"结论**：当时认为"A 走 Base_Player 加不了 RimExodus genStep"——已被 XML PatchOperation 推翻。后续用 `PatchOperationAdd` 把三个 genStep 注入到 Base_Player/Base_Faction/Encounter，废弃了 Harmony Postfix，A/B 走完全统一的 genStep 链。详见末尾"统一为 genStep + MapPreview 集成"节。
 
 ### 修复2：传送点 spot 守门 bug（岩石 Building 误挡 spot）
 - **根因**：`PlaceEnterSpotsAllNeighbors` 旧用 `if (!cell.Walkable(targetMap)) continue;` 守门。岩石 Building `passability=Impassable` → pathGrid cost=10000 → `!Walkable` → spot 被跳过。这违背了 Ethereal 传送点的设计（`SeamlessEnterSpot.xml`: `passability=Standable`、不进 edificeGrid、可与岩山墙/任意地形共存）。
@@ -854,7 +855,7 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 
 ### 修复2：void 不可变（阻止海岸 mutator 改 void 格）——沿海地块传送点散开
 - **现象**：沿海地块海洋侧的传送点没组成六边形，而是沿海岸不规则散开。用户定位：海岸 mutator 对 void 的修改。
-- **根因**：海岸 mutator `TileMutatorWorker_Coast.GeneratePostTerrain`（genStep `MutatorPostTerrain` order=220）在 void 铺设（`RimExodus_SeamlessTile` order=211）**之后**跑，遍历 `map.AllCells` 调 `TerrainGrid.SetTerrain` 把海岸 noise 驱动的水/沙铺到格上——**包括六边形外的 void 格**（`RimExodus_Void` 的 categoryType 默认 Misc ≠ Stone，Coast mutator 的"非 Stone 才覆盖"判定放行）。结果六边形外的 void 被改成水，void 边界破坏，传送点铺设（读 terrainGrid 判 void 邻接）基于被改坏的地形 → 传送点沿海岸不规则散开。
+- **根因（⚠ 时序描述已过期，见末尾"统一为 genStep"节订正）**：此处记录的时序（Coast mutator order=220 在 void order=211 之后跑）是当时的理解。**实际核实后**：void 铺设在 order=1802（Fog 之后），Coast mutator 在 order=220（之前），二者时序上不冲突——Coast mutator 跑时 void 还没铺。当时此修复有效是因为别的因素（见下）。当前 `Patch_TerrainGrid` 保留为防御性守卫（防第三方/order>1802 改写 void），对原生 Coast 场景是空操作。
 - **修复**：新增 `Patches_TerrainGrid.cs`，Prefix `TerrainGrid.SetTerrain`——若目标格当前是 void 且新地形不是 void，拒绝改写（return false）。确立"void 一旦铺设不可变"语义，从源头阻止 Coast mutator 及任何第三方 mutator 改 void 格。不影响 RimExodus 自身（`ApplyPolygonTerrain` 直接写 topGrid，不走 SetTerrain）；不影响合法地形转换（void `changeable=false`+`layerable=false`，不可被烧/移除/覆盖）。
 
 ### 关键文件变更（本轮）
@@ -1195,3 +1196,62 @@ MapPreview 的"基础地形"白名单（`MapPreviewRequest.cs:107-115`）**不�
 ### 待办
 - 游戏内验证：接缝两侧岩石 Building 一致（A 有岩石 C 也有，无"岩石延伸 vs 空地"反差）。
 - 边界情况：spawn 岩石 Building 后屋顶/region 是否需要重算（SeamOverride 在 genStep 阶段，FinalizeInit 会全量重算，应该 OK）。
+
+## 统一为 genStep + MapPreview 集成（已完成，可编译，游戏内待验证）
+
+**核心变更**：废弃锚点家园 A 的 Harmony Postfix 入口，改为与邻接地块 B 完全统一的 genStep 链（通过 XML PatchOperation 注入到原版 MapGeneratorDef）。同时修正一批基于错误时序假设的过期描述。这是对上文"阶段4b 后续修复：void 铺设归一"修复1 中"入口结构无法消除（A 走 Base_Player 加不了 RimExodus genStep）"结论的推翻——XML PatchOperation 正是消除入口分叉的手段。
+
+### 根因订正：MutatorFinal 不是元凶
+上文多处（尤其"void 不可变"修复段）把 snapshot 漂移/void 被改归因于 `GenStep_MutatorFinal`。**经源码核实这是错误判断**：
+- 原生 `GenStep_MutatorFinal`(order=1600) 只调 `TileMutatorWorker.GeneratePostFog`。
+- `TileMutatorWorker_Coast`（海岸）**没有 override `GeneratePostFog`**——它只 override `GeneratePostElevationFertility`(order 20) 和 `GeneratePostTerrain`(order 220)。
+- 因此 **MutatorFinal 根本不改海岸/地形**。地形在 order=220（MutatorPostTerrain）就定型。
+- 同理，`Patch_TerrainGrid_SetTerrain` 那段"Coast mutator 在 void 之后跑改 void 格"的论证也基于错误时序（实际 void 在 1802、Coast 在 220，二者不冲突，该 patch 当前对原生 Coast 场景是空操作，仅防御第三方）。
+
+### 真正的根因：A 路径 snapshot 备份太早
+- **A（锚点家园）**：snapshot 在 `Patch_GenStepMutatorPostTerrain` 的 Harmony Postfix（order=220）备份——之后 Roads/RockChunks/Ruins/Plants/Snow/Animals/Fog 全部在 snapshot 之后跑，任何改地形的步骤都会让 snapshot 与最终地形漂移。
+- **B（邻接地块）**：snapshot 在 `RimExodus_SeamlessTile` genStep（order=1802，Fog 之后）备份——已经很晚，漂移小。
+- **修复**：统一用 genStep，snapshot 在 1802 备份（几乎最后），A/B 对称，漂移消除。
+
+### 统一注入（废弃 Harmony Postfix）
+- **新增 `1.6/Patches/MapGeneration.xml`**：用 `PatchOperationAdd` 把三个 RimExodus genStep 注入到原版 `Base_Player`/`Base_Faction`/`Encounter` 的 `genSteps` 列表。所有玩家可进入的地图（锚点家园/派系基地/遭遇战）都走与邻接地块 B 完全相同的链。
+- **废弃 `Source/Patches_GenStepMutatorPostTerrain.cs`**（整个文件删除）。其职责（A 路径的 `CoastalEdgeFill.Apply` + `BackupSnapshotAndApplyVoid`）已被注入到 Base_Player 的 genStep 取代。
+- **三个 GenStep 类守卫统一放宽**：从 `if (map.Parent is not MapParent_SeamlessTile) return;` 改为 `GetMapWorldTile(map) < 0`。`GetMapWorldTile` 对 `MapParent_SeamlessTile` 读 `worldTile` 字段，对其他地图读 `map.Tile`（原生 PlanetTile，所有普通地图都有有效值）。RimExodus 是全局无缝——任何玩家进入的地图都应当连续、void 也切、传送点也放，不存在"装了但只想要部分地图无缝"的场景。
+- **order 保持 1801/1802/1803**（Fog 之后）：CoastalEdgeFill(1801) → SeamlessTile(void+snapshot, 1802) → SeamOverride(1803)。执行顺序由 `GenStepDef.order` 决定（`GenerateContentsIntoMap` 按 `order, index` 排序），XML 列表顺序不参与排序。
+
+### `Patch_GenStepRocksFromGrid` 守卫放宽 + 注释订正
+- 守卫从 `isPocket || isAnchor` 双判定改为 `GetMapWorldTile(map) >= 0`，与三个 genStep 一致。
+- 注释订正：void 由 `RimExodus_SeamlessTile`(order=1802) 铺（不是旧的 211/220）。本 Postfix 在 order=200 提前清将来 void 格的岩石，减少 1802 时 `ClearThingsOnCells` 工作量。
+
+### `Patch_TerrainGrid` 注释订正（保留 patch，修正论证）
+- 原注释基于错误时序（"Coast mutator 在 void 之后跑"）。实际 void 在 1802、Coast 在 220，二者不冲突。
+- patch 保留为防御性守卫（防第三方/order>1802 的 genStep 或运行时改写把已铺 void 改掉）。注释如实说明"对原生 Coast 场景当前是空操作，仅防御第三方"。
+
+### MapPreview 集成（includeInPreviews modExtension）
+- **问题**：MapPreview 用**白名单**（非 order 过滤）决定预览跑哪些 genStep。默认白名单只含 6 个原生地形 genStep（ElevationFertility/Terrain/MutatorPostElevationFertility/MatorPostTerrain/Space/AsteroidBasic）。RimExodus 三个 genStep 不在白名单 → 预览被裁掉 → 看不到 void 裁切/海岸补铺。
+- **修复**：三个 `GenStepDef` 加 `MapPreview.GenStepProperties{includeInPreviews=true}` modExtension（MapPreview v1.12.26+ 提供的官方集成点）。
+- **可选依赖处理**：modExtension 的 `<li>` 加 `MayRequire="m00nl1ght.MapPreview"`（用 **packageId**，不是 mod 名）。经 `DirectXmlToObject.cs:303` 核实：`MayRequire` 在解析 `Class` **之前**检查 mod 是否活跃（`ModLister.AllModsActiveNoSuffix`），未装时整个 `<li>` 跳过、`Class` 不解析，无副作用。注意：`PatchOperationFindMod`（另一条件 patch 机制）用的是 **mod 名字**（"Map Preview"），不是 packageId——这是 RimWorld 的已知怪癖，故此处不用它而用 MayRequire。
+- **预览环境安全性已验证**：预览 map 用 `ConstructMinimalMapComponents`（不建 `SeamlessTileManager`），预览时 `GenSpawn.Spawn` 被禁用。三个 genStep 在此环境下：CoastalEdgeFill 只读写 terrainGrid（安全）；SeamlessTile 的 snapshot 因 manager==null 不备份、void 正常铺、ClearThings 空操作（安全）；SeamOverride 因 GetSnapshot 返回 null 直接 return（安全空操作）。
+
+### 文档订正要点（本节订正上文多处过时描述）
+- **"入口结构无法消除（A 走 Base_Player 加不了 RimExodus genStep）"**（行 760）→ 已废弃，XML PatchOperation 消除了入口分叉。
+- **"void 由 MutatorPostTerrain order=220 / RimExodus_SeamlessTile order=211 铺"** → 实际是 `RimExodus_SeamlessTile` order=1802（Fog 之后）。order=211/212/220 的描述全部过期。
+- **"MutatorFinal 改地形"** → 错误，见上"根因订正"。
+- **"ClearThingsOnCells 对所有路径都是空操作"** → 不再成立。void 在 1802 铺（Plants/Animals 之后），会实际清理 void 格上的植物/物品（岩石已由 Patch_GenStepRocksFromGrid 在 200 提前清）。
+
+### 关键文件变更（本轮）
+- `1.6/Patches/MapGeneration.xml`（新）— PatchOperationAdd 注入三个 RimExodus genStep 到 Base_Player/Base_Faction/Encounter。
+- `1.6/Defs/MapGeneration/SeamlessTileGenerator.xml`（改）— 三个 GenStepDef 加 `MapPreview.GenStepProperties` modExtension（MayRequire=m00nl1ght.MapPreview）；顶部注释订正时序。
+- `Source/GenStep_CoastalEdgeFill.cs`（改）— 守卫放宽为 GetMapWorldTile；注释订正。
+- `Source/GenStep_SeamlessTile.cs`（改）— 守卫放宽；注释订正 order=1802。
+- `Source/GenStep_SeamOverride.cs`（改）— 守卫放宽；注释订正 order=1803。
+- `Source/Patches_GenStepMutatorPostTerrain.cs`（删）— A 路径 Harmony Postfix 入口，已被 genStep 取代。
+- `Source/Patches_GenStepRocksFromGrid.cs`（改）— 守卫放宽为 GetMapWorldTile；注释订正。
+- `Source/Patches_TerrainGrid.cs`（改）— 注释订正（移除错误时序论证，保留防御性守卫）。
+- `Source/SeamlessTerrainFill.cs`（改）— ClearThingsOnCells 注释订正（不再空操作）。
+- `Source/SeamlessSeamOverride.cs`（改）— ApplyOneWay 注释订正 order=1803。
+- `Source/SeamlessTileManager.cs`（改）— anchorBaseTerrainSnapshot / RefreshMapVoid / TrySetupOnStart 注释订正。
+- `Source/MapParent_SeamlessTile.cs`（改）— baseTerrainSnapshot 注释订正 order=1802。
+
+### 待办
+- 游戏内验证：锚点家园 A 的 snapshot 是否与最终地形一致（漂移消失）；派系基地/遭遇战的 void 裁切是否正常；MapPreview 预览是否显示 void 裁切和海岸补铺。
