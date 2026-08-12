@@ -1052,3 +1052,30 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 ### 待办（下一轮）
 - 用户重新测试：确认 MapPreview 告警消失 + 提供增强后的 SeamDiag 日志（含岩石/土壤分类）。
 - 根据岩石/土壤分类数据定位"一侧空地/对侧岩石"的真正根因。
+
+## 接缝覆写 Building 同步（已完成，可编译，游戏内待验证）
+
+### 根因定位（通过 SeamDiag 数据 + 用户反馈确认）
+SeamDiag 第二批数据：`wt=87269 nbr=7888 ... written=1577(toRock=613,toSoil=964) selfModeRock=179 nbrModeRock=741`。
+- C 混合带被 SeamOverride 改成岩石 TerrainDef（toRock=613），但 **C 本端 elevation 低，RocksFromGrid（order=200）没 spawn 岩石 Building**。
+- A 侧（被采样）有岩石 TerrainDef + 岩石 Building（A elevation 高，RocksFromGrid spawn 了）。
+- **同一接缝两侧反差**：A 侧岩石 TerrainDef + 岩石 Building（视觉"岩石延伸"），C 侧岩石 TerrainDef 但无 Building（视觉"啥岩石都没有"）。
+- **根因**：SeamOverride 只改 TerrainDef，不处理 Building。TerrainDef 与 Building 不一致。
+
+### MapPreview 澄清
+MapPreview 的"基础地形"白名单（`MapPreviewRequest.cs:107-115`）**不含 RocksFromGrid**，岩石视觉来自 `TerrainDef + elevation≥0.7 染色`（`MapPreviewGenerator.cs:459-461`），不含 Building。所以 MapPreview 预览与 TerrainDef-only snapshot 对齐。但**游戏内实际表现**需要 Building 一致（玩家认知的"岩石"是可挖掘的 Building）。
+
+### 修复：SeamOverride 同步 Building
+`SeamlessSeamOverride.SyncRockBuilding(map, cell, chosen)`：SeamOverride 写入 TerrainDef 后调用。
+- `chosen` 是岩石类（`IsRockTerrain`）且该格无岩石 Building → `GenSpawn.Spawn(RockDefAt(cell))`（用本端岩石类型，与 RocksFromGrid 一致）。
+- `chosen` 是非岩石且该格有岩石 Building → `Destroy(DestroyMode.Vanish)`（无掉落）。
+- 岩石 Building 判定：`def.building.naturalTerrain != null`（岩石 BuildingDef 独有字段，反向对应 `IsRockTerrain`）。
+- 只在无 edifice 的格 spawn（不覆盖非岩石 edifice）。
+- 诊断日志加 `bldSync(spawn=N,destroy=N)` 计数。
+
+### 源码文件变更（本轮）
+- `Source/SeamlessSeamOverride.cs`（改）— 新增 `SyncRockBuilding`（TerrainDef 与 Building 同步）；SeamDiag 加 `bldSync` 计数。
+
+### 待办
+- 游戏内验证：接缝两侧岩石 Building 一致（A 有岩石 C 也有，无"岩石延伸 vs 空地"反差）。
+- 边界情况：spawn 岩石 Building 后屋顶/region 是否需要重算（SeamOverride 在 genStep 阶段，FinalizeInit 会全量重算，应该 OK）。

@@ -106,6 +106,7 @@ namespace RimExodus
                 int diagWrittenToRock = 0, diagWrittenToSoil = 0;
                 int diagUnchangedRock = 0, diagUnchangedSoil = 0;
                 int diagSelfRock = 0, diagNbrRock = 0; // selfDist/neighborDist 众数是否岩石（采样点原始地形倾向）
+                int diagBuildingSpawn = 0, diagBuildingDestroy = 0; // Building 同步计数
 
                 foreach (var cell in bandCells)
                 {
@@ -165,6 +166,17 @@ namespace RimExodus
                     mapDrawer.MapMeshDirty(cell, MapMeshFlagDefOf.Terrain, regenAdjacentCells: false, regenAdjacentSections: false);
                     if (diag) { if (IsRockTerrain(chosen)) diagWrittenToRock++; else diagWrittenToSoil++; }
                     diagWritten++;
+
+                    // 同步岩石 Building：SeamOverride 只改 TerrainDef，但 RocksFromGrid（order=200，已跑完）
+                    // 根据本端 elevation spawn Building。若 chosen 是岩石类但该格无岩石 Building → spawn；
+                    // 若 chosen 是非岩石但该格有岩石 Building → 清除。保持 TerrainDef 与 Building 一致，
+                    // 避免接缝两侧"A 有岩石 Building / C 只有岩石地面色"的反差。
+                    SyncRockBuilding(map, cell, chosen, out var bldAction);
+                    if (diag)
+                    {
+                        if (bldAction == 1) diagBuildingSpawn++;
+                        else if (bldAction == -1) diagBuildingDestroy++;
+                    }
                 }
 
                 if (diag)
@@ -176,6 +188,7 @@ namespace RimExodus
                         $"w[{diagWMin:F2}..{diagWMax:F2}] oob={diagOutOfBounds} nbrDistNull={diagNeighborDistNull} " +
                         $"voidCell={diagVoidCell} unchanged={diagUnchanged}(rock={diagUnchangedRock},soil={diagUnchangedSoil}) " +
                         $"written={diagWritten}(toRock={diagWrittenToRock},toSoil={diagWrittenToSoil}) " +
+                        $"bldSync(spawn={diagBuildingSpawn},destroy={diagBuildingDestroy}) " +
                         $"selfModeRock={diagSelfRock} nbrModeRock={diagNbrRock} nbrCellRange={ncRange} nbrSize={neighborSize}");
                 }
             }
@@ -284,6 +297,38 @@ namespace RimExodus
                 }
             }
             return rockTerrains.Contains(t);
+        }
+
+        /// <summary>
+        /// 同步 cell 上的岩石 Building 与 TerrainDef 一致。out action: 1=spawn, -1=destroy, 0=无操作。
+        /// </summary>
+        private static void SyncRockBuilding(Map map, IntVec3 cell, TerrainDef chosen, out int action)
+        {
+            action = 0;
+            var existing = cell.GetEdifice(map);
+            var hasRockBuilding = existing != null && existing.def.building != null && existing.def.building.naturalTerrain != null;
+            var wantRock = IsRockTerrain(chosen);
+
+            if (wantRock && !hasRockBuilding)
+            {
+                // chosen 是岩石类但无岩石 Building → spawn。
+                // 只在无 edifice 的格 spawn（避免覆盖已存在的非岩石 edifice）。
+                if (existing == null)
+                {
+                    var rockDef = GenStep_RocksFromGrid.RockDefAt(cell);
+                    if (rockDef != null)
+                    {
+                        GenSpawn.Spawn(rockDef, cell, map);
+                        action = 1;
+                    }
+                }
+            }
+            else if (!wantRock && hasRockBuilding)
+            {
+                // chosen 是非岩石但有岩石 Building → 清除（Vanish 无掉落）。
+                existing.Destroy(DestroyMode.Vanish);
+                action = -1;
+            }
         }
 
         /// <summary>格中心到多边形最近边的距离（遍历所有边取最小）。</summary>
