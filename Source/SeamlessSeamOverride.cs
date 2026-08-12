@@ -75,6 +75,7 @@ namespace RimExodus
             var topGrid = terrainGrid.topGrid;
             var mapDrawer = map.mapDrawer;
             var distCache = new Dictionary<IntVec3, float>();
+            var diag = RimExodusMod.Settings?.seamOverrideDiag ?? false;
 
             foreach (var kv in cellsByNeighbor)
             {
@@ -96,8 +97,14 @@ namespace RimExodus
                 var neighborSize = neighborMap.Size.x;
                 var neighborIndices = neighborMap.cellIndices;
 
+                // 诊断取样统计（每邻居一条汇总日志）。
+                int diagTotal = 0, diagOutOfBounds = 0, diagNeighborDistNull = 0, diagVoidCell = 0, diagUnchanged = 0, diagWritten = 0;
+                int diagNcXMin = int.MaxValue, diagNcXMax = int.MinValue, diagNcZMin = int.MaxValue, diagNcZMax = int.MinValue;
+                float diagWMin = 1f, diagWMax = 0f;
+
                 foreach (var cell in bandCells)
                 {
+                    diagTotal++;
                     // 权重 w：靠边→1（取邻居），靠内→0（取本端）。
                     if (!distCache.TryGetValue(cell, out var distFromEdge))
                     {
@@ -106,29 +113,48 @@ namespace RimExodus
                         distCache[cell] = distFromEdge;
                     }
                     var w = 1f - Mathf.Clamp01(distFromEdge / bandWidth);
+                    if (diag) { if (w < diagWMin) diagWMin = w; if (w > diagWMax) diagWMax = w; }
 
                     // 对面 cell（在邻居地图坐标系）。
                     var neighborCell = cell - offset;
-                    if (!neighborCell.InBounds(neighborMap)) continue;
+                    if (!neighborCell.InBounds(neighborMap)) { diagOutOfBounds++; continue; }
+                    if (diag)
+                    {
+                        if (neighborCell.x < diagNcXMin) diagNcXMin = neighborCell.x;
+                        if (neighborCell.x > diagNcXMax) diagNcXMax = neighborCell.x;
+                        if (neighborCell.z < diagNcZMin) diagNcZMin = neighborCell.z;
+                        if (neighborCell.z > diagNcZMax) diagNcZMax = neighborCell.z;
+                    }
 
                     // 卷积：本端 3×3 邻域分布 + 邻居 3×3 邻域分布。
                     var selfDist = Convolve3x3(selfSnapshot, mapSize, cell);
                     var neighborDist = Convolve3x3(neighborSnapshot, neighborSize, neighborCell);
-                    if (selfDist == null || neighborDist == null) continue;
+                    if (selfDist == null || neighborDist == null) { diagNeighborDistNull++; continue; }
 
                     // 排除 void（卷积时跳过 void 格，但如果某格自身是 void 则跳过整个 cell）。
                     var localIdx = cellIndices.CellToIndex(cell);
                     var localTerrain = topGrid[localIdx];
-                    if (localTerrain == null || (voidDef != null && localTerrain == voidDef)) continue;
+                    if (localTerrain == null || (voidDef != null && localTerrain == voidDef)) { diagVoidCell++; continue; }
 
                     // 加权混合分布，取众数。
                     var blended = BlendDistributions(neighborDist, selfDist, w);
                     var chosen = GetMode(blended);
-                    if (chosen == null || chosen == localTerrain) continue;
+                    if (chosen == null || chosen == localTerrain) { diagUnchanged++; continue; }
 
                     // 写入 terrainGrid。
                     topGrid[localIdx] = chosen;
                     mapDrawer.MapMeshDirty(cell, MapMeshFlagDefOf.Terrain, regenAdjacentCells: false, regenAdjacentSections: false);
+                    diagWritten++;
+                }
+
+                if (diag)
+                {
+                    var ncRange = diagTotal == 0 || diagNcXMin == int.MaxValue
+                        ? "n/a"
+                        : $"x[{diagNcXMin}..{diagNcXMax}] z[{diagNcZMin}..{diagNcZMax}]";
+                    Log.Message($"[RimExodus-SeamDiag] wt={worldTile} nbr={neighborTile} offset={offset} bandCells={diagTotal} " +
+                        $"w[{diagWMin:F2}..{diagWMax:F2}] oob={diagOutOfBounds} nbrDistNull={diagNeighborDistNull} " +
+                        $"voidCell={diagVoidCell} unchanged={diagUnchanged} written={diagWritten} nbrCellRange={ncRange} nbrSize={neighborSize}");
                 }
             }
         }
@@ -197,14 +223,18 @@ namespace RimExodus
             return result;
         }
 
-        /// <summary>取分布中占比最大的 terrainDef（众数）。</summary>
+        /// <summary>
+        /// 取分布中占比最大的 terrainDef（众数）。平局时按 defName 稳定决胜（消除 Dictionary 遍历序的随机性，
+        /// 避免相邻 cell 因遍历序不同而在占比相同时翻转，产生斑驳）。
+        /// </summary>
         private static TerrainDef GetMode(Dictionary<TerrainDef, float> dist)
         {
             TerrainDef best = null;
             var bestVal = -1f;
             foreach (var kv in dist)
             {
-                if (kv.Value > bestVal)
+                if (kv.Value > bestVal + 1e-6f ||
+                    (Mathf.Abs(kv.Value - bestVal) <= 1e-6f && best != null && string.Compare(kv.Key.defName, best.defName, System.StringComparison.Ordinal) < 0))
                 {
                     bestVal = kv.Value;
                     best = kv.Key;

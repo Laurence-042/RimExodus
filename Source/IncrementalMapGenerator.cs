@@ -109,17 +109,11 @@ namespace RimExodus
                 // 每个 genStep 用 Rand.PushState/Seed/PopState 独立配对（RunOneGenStep），不依赖外层栈。
                 int seed = Gen.HashCombineInt(Find.World.info.Seed, mapParent.ID);
                 ClearWorkingDataStatic();
-                // 准备阶段同步完成（不跨帧），PushState/Seed/PopState 配对安全：
-                // Rand.Seed setter 要求 stateStack.Count > 0，PushState 保证；PopState 恢复原状态。
-                Rand.PushState();
-                try
-                {
-                    Rand.Seed = seed;
-                }
-                finally
-                {
-                    Rand.PopState();
-                }
+                // 注意：此处曾在 ConstructComponents 前做 Rand.PushState/Seed/PopState（复刻原版 GenerateMap
+                // 顶部的 seed 设置），但那段是死代码（中间无 Rand 调用，PopState 恢复原状态后无净效果），
+                // 且 PopState 会把主线程 tick 累积的 Rand.iterations 带进 FillComponents 入口，触发 MapPreview
+                // 告警（"vanilla map components modified RNG by N"）。genStep 的 seed 由 RunOneGenStep 独立设置，
+                // 不依赖此处的 seed；RockNoises.Init 段（下方）有自己的 PushState/Seed/PopState。故删除。
 
                 var newMap = new Map();
                 newMap.uniqueID = Find.UniqueIDsManager.GetNextMapID();

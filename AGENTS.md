@@ -994,3 +994,32 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 
 ### 待办
 - 游戏内验证：开档锚点家园 void 在 genStep 阶段铺好、无落石、无建筑切断、Plants/Animals 不在 void 格 spawn。
+
+## 接缝覆写诊断开关 + MapPreview RNG 修复（已完成，可编译）
+
+### 问题2 修复：MapPreview "RNG modified by 119342" 告警
+- **根因**：`IncrementalMapGenerator.Start` 在 `ConstructComponents()`（:140）之前有一段死代码 `Rand.PushState()/Rand.Seed=seed/Rand.PopState()`（原 114-122 行）。这段中间无 Rand 调用，PopState 恢复原状态后无净效果，但 **PopState 把主线程 tick 累积的 `Rand.iterations`（~119342）带进了 `FillComponents` 入口**。MapPreview 在 `FillComponents_Prefix` 检测 `Rand.iterations`（期望 1 = GasGrid 构造器的 1 次 Rand），读到 119342 → 告警。
+- **修复**：删除那段死代码。genStep 的 seed 由 `RunOneGenStep`（:378）独立设置（`Rand.Seed = baseSeed + SeedPart`），RockNoises.Init 段有自己的 PushState/Seed/PopState，都不依赖被删的这段。
+- **不是连续 Perlin 残留**：连续 Perlin 代码（TileProjection/SeamlessNoiseProvider/NoiseGenType 等）已彻底删除，无任何残留。告警源是 IncrementalMapGenerator 的死代码，与 Perlin 无关。
+
+### 问题1 诊断：接缝覆写"一侧空地/对侧岩石"
+- **现象**：C（新生成）混合带被改成 A snapshot 的地形，但 A 侧混合带不参与（单向），出现一侧空地、对侧岩石，且反转也存在。
+- **当前定位（待游戏内诊断确认）**：怀疑 `neighborCell = cell - offset` 采样时，offset 模长（~2×apothem）与混合带宽度（bandWidth=31）不匹配，导致 C 混合带大部分 cell 映射到 A snapshot 外（越界被 `InBounds` 跳过），混合失效。但精确几何（flat-top vs pointy-top、越界比例、采样落点）需要游戏内诊断日志确认，不再纸面推测。
+- **新增 `seamOverrideDiag` 开关**（独立于 `verboseLogging`）：在 `SeamlessSeamOverride.ApplyOneWay` 每邻居循环里取样，产一条精简汇总日志：
+  ```
+  [RimExodus-SeamDiag] wt={C} nbr={A} offset={(x,y,z)} bandCells={N} w[{wMin}..{wMax}] oob={越界跳过数} nbrDistNull={卷积空} voidCell={本端void} unchanged={未变} written={写入数} nbrCellRange=x[..] z[..] nbrSize={A尺寸}
+  ```
+  - 开启方式：Mod 设置勾选 "Seam override diagnostics"，或在 `RimExodusSettings.seamOverrideDiag = true`。
+  - 用途：看 `oob`（越界跳过）占比、`nbrCellRange`（采样落点是否在 A 六边形外/边缘）、`w` 范围（权重是否如设计从 1→0），精确定位采样几何问题。
+- **附带修复：GetMode 稳定决胜**：`SeamlessSeamOverride.GetMode` 平局时按 `defName` 稳定决胜（原"首个最大值胜出"依赖 Dictionary 遍历序，相邻 cell 平局时翻转产生斑驳）。
+
+### 源码文件变更
+- `Source/IncrementalMapGenerator.cs`（改）— 删除 ConstructComponents 前的 Rand PushState/Seed/PopState 死代码（修复 MapPreview 告警）。
+- `Source/SeamlessSeamOverride.cs`（改）— 加 `seamOverrideDiag` 诊断取样（每邻居一条汇总日志）；`GetMode` 稳定决胜（平局按 defName）。
+- `Source/RimExodusSettings.cs`（改）— 加 `seamOverrideDiag` 字段（持久化）。
+- `Source/RimExodusMod.cs`（改）— 设置 UI 加 "Seam override diagnostics" 复选框。
+
+### 待办（下一轮，依赖诊断日志结果）
+- 游戏内开启 `seamOverrideDiag`，生成邻接地块，收集 `[RimExodus-SeamDiag]` 日志。
+- 根据 `oob`/`nbrCellRange`/`w` 数据确认采样几何根因，设计精确修复（可能是采样 offset 与传送 offset 解耦、混合带几何重定义、或 snapshot 范围扩展）。
+- 岩石 Building 一致性（terrainDef 改了但 Building 留着）待采样修复后游戏内观察再决定。

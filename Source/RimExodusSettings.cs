@@ -28,6 +28,14 @@ namespace RimExodus
         /// </summary>
         public float seamOverrideRatio = 0.25f;
 
+        /// <summary>
+        /// 接缝覆写开发诊断开关（独立于 verboseLogging，只产接缝相关精简日志）。
+        /// 开启时在 SeamlessSeamOverride.ApplyOneWay 关键位置取样：每邻居的 offset、混合带 cell 数、
+        /// 越界跳过数、权重分布、采样到的 neighborCell 坐标范围、卷积众数。
+        /// 用于精确定位"一侧空地/对侧岩石"的采样几何问题，不被 verbose 杂项干扰。
+        /// </summary>
+        public bool seamOverrideDiag = false;
+
         public override void ExposeData()
         {
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
@@ -35,6 +43,7 @@ namespace RimExodus
             Scribe_Values.Look(ref verboseLogging, "verboseLogging", false);
             Scribe_Values.Look(ref borderNoBuildDistance, "borderNoBuildDistance", 3);
             Scribe_Values.Look(ref seamOverrideRatio, "seamOverrideRatio", 0.25f);
+            Scribe_Values.Look(ref seamOverrideDiag, "seamOverrideDiag", false);
             base.ExposeData();
         }
     }

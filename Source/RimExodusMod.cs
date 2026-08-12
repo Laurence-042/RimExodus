@@ -54,6 +54,7 @@ namespace RimExodus
             listing.Gap();
 
             listing.CheckboxLabeled("Verbose logging (diagnostics)", ref s.verboseLogging);
+            listing.CheckboxLabeled("Seam override diagnostics (per-neighbor sample log)", ref s.seamOverrideDiag);
             listing.Gap();
 
             // 接缝覆写混合带比例（0=关闭，0.25=默认 25% 半径）
