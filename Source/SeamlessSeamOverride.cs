@@ -7,27 +7,29 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// 接缝覆写：相邻地块地图在接缝带做 terrainDef 过渡混合。
+    /// 接缝覆写：相邻地块地图在混合带做 terrainDef 卷积混合。
     ///
-    /// 正常用原版噪声生成地形（各地块独立 Perlin 场），只在接缝带（多边形边缘内侧环形带）
-    /// 用距离权重混合两端 terrainDef，让接缝处地形视觉/通行连续。
+    /// 【方案】生成时 Terrain(210) 铺好后、void 裁切前备份完整 terrainGrid（baseTerrainSnapshot）。
+    /// 新生成 tile C 完成后，对每个已加载邻居 A，C 的混合带 cell 用卷积（3×3 邻域 terrainDef 分布）
+    /// 加权混合：混合分布 = A 分布 × w + C 分布 × (1-w)，取众数。w 从边界(→1 取 A)到中心(→0 取 C)递减。
     ///
-    /// 【混合规则】terrainDef 离散，不能线性混合。按权重 w（靠边→1 取对面，靠内→0 取本端）选：
-    /// - 相同 terrainDef → 不变。
-    /// - w > 0.5 → 取对面 terrainDef。
-    /// - w ≤ 0.5 → 保持本端 terrainDef。
-    /// 这在带宽中间形成切换线，两侧分别是本端和对面的地形。
+    /// 【单向】只改 C（新生成 tile），不改 A（已生成 tile 保持原样）。
+    /// A 生成时 C 还不存在，A 没参考任何人——这是自然的。
     ///
-    /// 【双向覆写】后生成的 tile C 的 genStep 跑时，对面邻居 B 已加载。C 覆写自身侧带（参考 B），
-    /// 同时覆写 B 侧带（参考 C），因为 B 生成时 C 还不存在。仿照 PlaceEnterSpotsAllNeighbors 双端模式。
+    /// 【为什么卷积】terrainDef 离散，不能直接加权平均。卷积把每个 cell 的 terrainDef
+    /// 变成"周围 3×3 邻域的 terrainDef 分布"，分布可以加权平均，再取众数 → 平滑过渡。
+    ///
+    /// 【兼容性】不碰 elevation/fertility grid、不碰 Perlin、不碰 genStep 内部逻辑。
+    /// 纯 terrainDef snapshot 操作，兼容所有地形扩展 mod。河流/海岸（mutator/TerrainPatchMaker 改的
+    /// terrainGrid）在备份时已包含，卷积自然覆盖。
     /// </summary>
     public static class SeamlessSeamOverride
     {
         /// <summary>
-        /// 对 map 的所有已加载邻居做双向接缝覆写。
+        /// 对 map 的所有已加载邻居做单向接缝覆写（只改 map 自身，不改邻居）。
         /// 在 GenStep_SeamOverride.Generate 里调用（order=212，void 裁切之后、Plants 之前）。
         /// </summary>
-        public static void ApplyBidirectional(Map map, int worldTile)
+        public static void ApplyOneWay(Map map, int worldTile)
         {
             if (map == null || worldTile < 0) return;
             var ratio = RimExodusMod.Settings?.seamOverrideRatio ?? 0.25f;
@@ -36,7 +38,11 @@ namespace RimExodus
             var mapSize = map.Size.x;
             var bandWidth = Mathf.Max(1, Mathf.RoundToInt(ratio * mapSize * 0.5f));
 
-            // 本端多边形顶点 + 世界邻居列表（顺序与顶点环绕一致）。
+            // 本端 snapshot（void 裁切前的完整地形）。
+            var selfSnapshot = GetSnapshot(map);
+            if (selfSnapshot == null) return;
+
+            // 本端多边形顶点 + 世界邻居列表。
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize);
             if (verts.Count < 3) return;
 
@@ -45,101 +51,166 @@ namespace RimExodus
             var neighborWorldTiles = new List<int>(worldNeighbors.Count);
             foreach (var nt in worldNeighbors) neighborWorldTiles.Add(nt.tileId);
 
-            // 本端混合带：格 → 最近边对应的邻居 worldTile。
+            // 混合带：格 → 最近边对应的邻居 worldTile。
             var band = new Dictionary<IntVec3, int>();
             SeamlessPolygonGeometry.ComputeEdgeBand(verts, mapSize, bandWidth, neighborWorldTiles, band);
 
-            // 对每个已加载邻居做双向覆写。
-            foreach (var neighborTile in neighborWorldTiles)
+            if (band.Count == 0) return;
+
+            // 按邻居分组（每个邻居的混合带 cell 一组），减少重复算 offset。
+            var cellsByNeighbor = new Dictionary<int, List<IntVec3>>();
+            foreach (var kv in band)
             {
-                if (!SeamlessTileGraph.TryGetMapByWorldTile(neighborTile, out var neighborMap)) continue;
-                if (neighborMap == null || neighborMap.Disposed || neighborMap == map) continue;
-
-                // offset：本端 cell = 邻居 cell + offset（NeighborLink 契约）。故邻居 cell = 本端 cell - offset。
-                var offset = SeamlessTileManager.ComputeNeighborOffset(worldTile, neighborTile, map);
-                if (offset == IntVec3.Zero) continue;
-
-                // 覆写本端侧带（参考邻居）。
-                OverrideOneSide(map, worldTile, band, neighborTile, neighborMap, offset, verts, bandWidth);
-
-                // 覆写邻居侧带（参考本端）。邻居的混合带需在邻居 Map 上重算。
-                OverrideNeighborSide(map, neighborTile, neighborMap, worldTile, offset, bandWidth);
+                if (!cellsByNeighbor.TryGetValue(kv.Value, out var list))
+                {
+                    list = new List<IntVec3>();
+                    cellsByNeighbor[kv.Value] = list;
+                }
+                list.Add(kv.Key);
             }
-        }
 
-        /// <summary>
-        /// 覆写本端侧带：本端接缝带格的 terrainDef 按距离权重参考邻居对应格。
-        /// </summary>
-        private static void OverrideOneSide(Map map, int worldTile, Dictionary<IntVec3, int> band,
-            int neighborTile, Map neighborMap, IntVec3 offset, List<Vector2> verts, int bandWidth)
-        {
             var voidDef = DefDatabase<TerrainDef>.GetNamedSilentFail("RimExodus_Void");
             var terrainGrid = map.terrainGrid;
             var cellIndices = map.cellIndices;
             var topGrid = terrainGrid.topGrid;
             var mapDrawer = map.mapDrawer;
-            var neighborIndices = neighborMap.cellIndices;
-            var neighborTopGrid = neighborMap.terrainGrid.topGrid;
+            var distCache = new Dictionary<IntVec3, float>();
 
-            foreach (var kv in band)
+            foreach (var kv in cellsByNeighbor)
             {
-                if (kv.Value != neighborTile) continue; // 只处理指向当前邻居的格。
-                var cell = kv.Key;
+                var neighborTile = kv.Key;
+                var bandCells = kv.Value;
 
-                // 本端 terrainDef。
-                var localIdx = cellIndices.CellToIndex(cell);
-                var localTerrain = topGrid[localIdx];
-                if (localTerrain == null || (voidDef != null && localTerrain == voidDef)) continue;
+                // 邻居是否已加载。
+                if (!SeamlessTileGraph.TryGetMapByWorldTile(neighborTile, out var neighborMap)) continue;
+                if (neighborMap == null || neighborMap.Disposed || neighborMap == map) continue;
 
-                // 邻居对应格 = 本端 cell - offset。
-                var neighborCell = cell - offset;
-                if (!neighborCell.InBounds(neighborMap)) continue;
-                var neighborTerrain = neighborTopGrid[neighborIndices.CellToIndex(neighborCell)];
-                if (neighborTerrain == null || (voidDef != null && neighborTerrain == voidDef)) continue;
+                // 邻居 snapshot。
+                var neighborSnapshot = GetSnapshot(neighborMap);
+                if (neighborSnapshot == null) continue;
 
-                // 相同 terrainDef → 不变。
-                if (neighborTerrain == localTerrain) continue;
+                // offset：本端 cell = 邻居 cell + offset。故邻居 cell = 本端 cell - offset。
+                var offset = SeamlessTileManager.ComputeNeighborOffset(worldTile, neighborTile, map);
+                if (offset == IntVec3.Zero) continue;
 
-                // 算权重 w：靠边→1（取对面），靠内→0（取本端）。
-                var cellCenter = new Vector2(cell.x + 0.5f, cell.z + 0.5f);
-                var distFromEdge = MinDistanceToEdge(cellCenter, verts);
-                var w = 1f - Mathf.Clamp01(distFromEdge / bandWidth);
+                var neighborSize = neighborMap.Size.x;
+                var neighborIndices = neighborMap.cellIndices;
 
-                // w > 0.5 → 取对面 terrainDef。
-                if (w > 0.5f)
+                foreach (var cell in bandCells)
                 {
-                    topGrid[localIdx] = neighborTerrain;
+                    // 权重 w：靠边→1（取邻居），靠内→0（取本端）。
+                    if (!distCache.TryGetValue(cell, out var distFromEdge))
+                    {
+                        var cellCenter = new Vector2(cell.x + 0.5f, cell.z + 0.5f);
+                        distFromEdge = MinDistanceToEdge(cellCenter, verts);
+                        distCache[cell] = distFromEdge;
+                    }
+                    var w = 1f - Mathf.Clamp01(distFromEdge / bandWidth);
+
+                    // 对面 cell（在邻居地图坐标系）。
+                    var neighborCell = cell - offset;
+                    if (!neighborCell.InBounds(neighborMap)) continue;
+
+                    // 卷积：本端 3×3 邻域分布 + 邻居 3×3 邻域分布。
+                    var selfDist = Convolve3x3(selfSnapshot, mapSize, cell);
+                    var neighborDist = Convolve3x3(neighborSnapshot, neighborSize, neighborCell);
+                    if (selfDist == null || neighborDist == null) continue;
+
+                    // 排除 void（卷积时跳过 void 格，但如果某格自身是 void 则跳过整个 cell）。
+                    var localIdx = cellIndices.CellToIndex(cell);
+                    var localTerrain = topGrid[localIdx];
+                    if (localTerrain == null || (voidDef != null && localTerrain == voidDef)) continue;
+
+                    // 加权混合分布，取众数。
+                    var blended = BlendDistributions(neighborDist, selfDist, w);
+                    var chosen = GetMode(blended);
+                    if (chosen == null || chosen == localTerrain) continue;
+
+                    // 写入 terrainGrid。
+                    topGrid[localIdx] = chosen;
                     mapDrawer.MapMeshDirty(cell, MapMeshFlagDefOf.Terrain, regenAdjacentCells: false, regenAdjacentSections: false);
                 }
             }
         }
 
-        /// <summary>
-        /// 覆写邻居侧带：邻居接缝带格的 terrainDef 按距离权重参考本端对应格。
-        /// 用于处理"邻居生成时本端还不存在"的情况——本端生成时回补邻居侧。
-        /// </summary>
-        private static void OverrideNeighborSide(Map map, int neighborWorldTile,
-            Map neighborMap, int selfTile, IntVec3 offset, int bandWidth)
+        /// <summary>获取 map 的基础地形 snapshot（RimExodus tile 从 MapParent，锚点从 Manager）。</summary>
+        private static TerrainDef[] GetSnapshot(Map map)
         {
-            // 邻居的混合带：在邻居 Map 上重算。
-            var neighborSize = neighborMap.Size.x;
-            var neighborVerts = SeamlessPolygonGeometry.BuildPolygonVertices(neighborWorldTile, neighborSize);
-            if (neighborVerts.Count < 3) return;
+            if (map.Parent is MapParent_SeamlessTile pocket) return pocket.baseTerrainSnapshot;
+            var manager = map.GetComponent<SeamlessTileManager>();
+            return manager?.anchorBaseTerrainSnapshot;
+        }
 
-            var worldNeighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(neighborWorldTile, worldNeighbors);
-            var neighborNeighborTiles = new List<int>(worldNeighbors.Count);
-            foreach (var nt in worldNeighbors) neighborNeighborTiles.Add(nt.tileId);
+        /// <summary>
+        /// 3×3 卷积：统计 centerCell 周围 3×3 邻域（含自身）每种 terrainDef 的出现次数。
+        /// 越界格跳过。void 格跳过（不参与统计）。
+        /// 返回归一化占比（和=1）。
+        /// </summary>
+        private static Dictionary<TerrainDef, float> Convolve3x3(TerrainDef[] snapshot, int mapSize, IntVec3 center)
+        {
+            var counts = new Dictionary<TerrainDef, int>();
+            var total = 0;
+            var voidDef = DefDatabase<TerrainDef>.GetNamedSilentFail("RimExodus_Void");
 
-            var neighborBand = new Dictionary<IntVec3, int>();
-            SeamlessPolygonGeometry.ComputeEdgeBand(neighborVerts, neighborSize, bandWidth, neighborNeighborTiles, neighborBand);
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                for (var dz = -1; dz <= 1; dz++)
+                {
+                    var nx = center.x + dx;
+                    var nz = center.z + dz;
+                    if (nx < 0 || nx >= mapSize || nz < 0 || nz >= mapSize) continue;
+                    var idx = nz * mapSize + nx;
+                    var t = snapshot[idx];
+                    if (t == null) continue;
+                    if (voidDef != null && t == voidDef) continue;
+                    counts.TryGetValue(t, out var c);
+                    counts[t] = c + 1;
+                    total++;
+                }
+            }
 
-            // 邻居 offset（指向本端）：邻居 cell + neighborOffset = 本端 cell。
-            // 但我们已经有了 self→neighbor 的 offset（本端 cell = 邻居 cell + offset），
-            // 所以 neighborOffset = -offset，本端 cell = 邻居 cell + offset。
-            // 邻居侧覆写：邻居带格参考本端对应格（本端 cell = 邻居 cell + offset）。
-            // OverrideOneSide 的逻辑反过来：以邻居为主，参考本端。
-            OverrideOneSide(neighborMap, neighborWorldTile, neighborBand, selfTile, map, new IntVec3(-offset.x, 0, -offset.z), neighborVerts, bandWidth);
+            if (total == 0) return null;
+            var result = new Dictionary<TerrainDef, float>(counts.Count);
+            foreach (var kv in counts)
+                result[kv.Key] = (float)kv.Value / total;
+            return result;
+        }
+
+        /// <summary>加权混合两个分布：result[t] = distA[t] × w + distB[t] × (1-w)。</summary>
+        private static Dictionary<TerrainDef, float> BlendDistributions(
+            Dictionary<TerrainDef, float> distA, Dictionary<TerrainDef, float> distB, float w)
+        {
+            var result = new Dictionary<TerrainDef, float>();
+            var oneMinusW = 1f - w;
+            foreach (var kv in distA)
+            {
+                var v = kv.Value * w;
+                distB.TryGetValue(kv.Key, out var bv);
+                result[kv.Key] = v + bv * oneMinusW;
+            }
+            // distB 中有但 distA 中没有的。
+            foreach (var kv in distB)
+            {
+                if (!result.ContainsKey(kv.Key))
+                    result[kv.Key] = kv.Value * oneMinusW;
+            }
+            return result;
+        }
+
+        /// <summary>取分布中占比最大的 terrainDef（众数）。</summary>
+        private static TerrainDef GetMode(Dictionary<TerrainDef, float> dist)
+        {
+            TerrainDef best = null;
+            var bestVal = -1f;
+            foreach (var kv in dist)
+            {
+                if (kv.Value > bestVal)
+                {
+                    bestVal = kv.Value;
+                    best = kv.Key;
+                }
+            }
+            return best;
         }
 
         /// <summary>格中心到多边形最近边的距离（遍历所有边取最小）。</summary>

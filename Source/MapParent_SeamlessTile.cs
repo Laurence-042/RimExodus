@@ -42,6 +42,15 @@ namespace RimExodus
         /// </summary>
         public Vector2 tileOrigin = Vector2.zero;
 
+        /// <summary>
+        /// 基础地形快照（阶段4 接缝覆写）：void 裁切前的完整矩形地形备份。
+        /// 在 GenStep_SeamlessTile（order=211）开头备份，此时 Terrain(210) 已铺好 topGrid。
+        /// 供接缝覆写卷积混合读取——邻居 tile 的 snapshot 包含它被 void 切掉的六边形外区域，
+        /// 正是本 tile 这侧的地形。
+        /// 非序列化：生成期临时数据，读档后由 SeamlessTileManager 重建（锚点）或重新生成（口袋）。
+        /// </summary>
+        public TerrainDef[] baseTerrainSnapshot;
+
         public override string Label => "Seamless Tile Map";
 
         /// <summary>

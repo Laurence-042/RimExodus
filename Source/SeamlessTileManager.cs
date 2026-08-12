@@ -33,6 +33,13 @@ namespace RimExodus
         /// <summary>是否已完成开档初始化（铺 void + 预铺传送点；阶段4a 后默认不自动生成邻居，除非 preloadAllNeighborsOnStart=true）。</summary>
         private bool setupOnStartDone;
 
+        /// <summary>
+        /// 锚点地图的基础地形快照（阶段4 接缝覆写）。
+        /// 锚点是原生 Map（不走 RimExodus genStep），在 TrySetupOnStart 的 RefreshMapVoid 之前备份。
+        /// 供接缝覆写卷积混合读取。非序列化。
+        /// </summary>
+        public TerrainDef[] anchorBaseTerrainSnapshot;
+
         /// <summary>延迟开档初始化的 tick 计数（MapGenerated 时 mapBeingGenerated 可能仍非空，需延迟到下一 tick 调 TrySetupOnStart）。</summary>
         private int pendingAutoGenerateTicks = -1;
 
@@ -136,6 +143,9 @@ namespace RimExodus
             // 锚点 A 是原生地图，不走 RimExodus GenStep，必须在此显式铺 void（六边形外 = void）。
             // 阶段3 此调用依赖 GenerateTileMap 内的 RefreshMapVoid 顺带触发，
             // 阶段4a 默认不生成邻居，故必须独立调用。
+            // 先备份基础地形（void 裁切前），供接缝覆写卷积混合读取。
+            if (anchorBaseTerrainSnapshot == null)
+                anchorBaseTerrainSnapshot = (TerrainDef[])map.terrainGrid.topGrid.Clone();
             RefreshMapVoid(map);
 
             // 预铺锚点 A 沿全部世界邻居边的传送点（对端 null）。

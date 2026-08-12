@@ -10,7 +10,7 @@ namespace RimExodus
     /// 本 genStep 在六边形内边缘的混合带做 terrainDef 过渡：参考已加载邻居的对应 cell，
     /// 按距离权重混合两端 terrainDef，让接缝处地形视觉/通行连续。
     ///
-    /// 双向覆写：本端生成时，对面已加载邻居的侧带也一并覆写（回补邻居生成时本端不存在的情况）。
+    /// 单向覆写：只改本端（新生成 tile），不改已加载邻居（已生成 tile 保持原样）。
     ///
     /// 实际逻辑委托 <see cref="SeamlessSeamOverride"/>。本类只做 genStep 壳 + worldTile 提取。
     /// </summary>
@@ -23,7 +23,7 @@ namespace RimExodus
             if (!(map.Parent is MapParent_SeamlessTile parent) || parent.worldTile < 0)
                 return; // 非 RimExodus 地块地图：跳过。
 
-            SeamlessSeamOverride.ApplyBidirectional(map, parent.worldTile);
+            SeamlessSeamOverride.ApplyOneWay(map, parent.worldTile);
         }
     }
 }
