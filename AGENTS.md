@@ -845,6 +845,22 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 ### 存档影响
 旧存档里已生成的 B 地形用旧 seed（mapParent.ID），改 seed 后不会自动变（地形已存档）。按存档兼容性原则（mod 未发布、测试在新档），重开档即可。
 
+## 阶段4b 后续修复：exit grid 提示统一 + void 不可变（已完成，可编译）
+
+### 修复1：锚点家园 A 也显示 exit grid 浅绿色传送点提示
+- **现象**：聚焦 B（邻接地块）能看到浅绿色传送点地块，聚焦 A（家园）看不到。
+- **根因**：浅绿色是原版 `ExitMapGrid` 的 CellBoolDrawer 调试可视化（`ExitMapGrid.cs:103` Color 0.35,1,0.35,0.12），不是传送点本身（spot `drawerType=None` 不画）。原版 `MapUsesExitGridNow:42-45` 对 `map.IsPlayerHome` 返回 false → A 不画 exit grid、B 画。
+- **修复**：Postfix `ExitMapGrid.MapUsesExitGrid` getter，对铺了 RimExodus 传送点的地图（含家园 A）强制 true，同步改缓存字段 `mapUsesExitGrid`。只对有 RimExodus 传送点的地图生效，不影响其他原版家园。副作用：A 的 `IsExitCell` 现在也按 grid 返回（A 的传送点格本就被标为 exit cell，原生撤离/远征队流程在 A 也该工作，是期望行为）。
+
+### 修复2：void 不可变（阻止海岸 mutator 改 void 格）——沿海地块传送点散开
+- **现象**：沿海地块海洋侧的传送点没组成六边形，而是沿海岸不规则散开。用户定位：海岸 mutator 对 void 的修改。
+- **根因**：海岸 mutator `TileMutatorWorker_Coast.GeneratePostTerrain`（genStep `MutatorPostTerrain` order=220）在 void 铺设（`RimExodus_SeamlessTile` order=211）**之后**跑，遍历 `map.AllCells` 调 `TerrainGrid.SetTerrain` 把海岸 noise 驱动的水/沙铺到格上——**包括六边形外的 void 格**（`RimExodus_Void` 的 categoryType 默认 Misc ≠ Stone，Coast mutator 的"非 Stone 才覆盖"判定放行）。结果六边形外的 void 被改成水，void 边界破坏，传送点铺设（读 terrainGrid 判 void 邻接）基于被改坏的地形 → 传送点沿海岸不规则散开。
+- **修复**：新增 `Patches_TerrainGrid.cs`，Prefix `TerrainGrid.SetTerrain`——若目标格当前是 void 且新地形不是 void，拒绝改写（return false）。确立"void 一旦铺设不可变"语义，从源头阻止 Coast mutator 及任何第三方 mutator 改 void 格。不影响 RimExodus 自身（`ApplyPolygonTerrain` 直接写 topGrid，不走 SetTerrain）；不影响合法地形转换（void `changeable=false`+`layerable=false`，不可被烧/移除/覆盖）。
+
+### 关键文件变更（本轮）
+- `Source/Patches_ExitMapGrid.cs` — 加 `Patch_ExitMapGrid_MapUsesExitGrid`（Postfix getter，A 也显示 exit grid）。
+- `Source/Patches_TerrainGrid.cs`（新）— Prefix `SetTerrain` 拦 void→非void。
+
 ## 阶段4：连续地形调研 + 边界带不可建造约束 + 共因 bug 修复（已完成，可编译）
 
 阶段4 原定义是"连续地形原型"。本轮聚焦**调研 + 两个可直接落地的实现项**，连续地形四项分轮推进。完整调研结论见 `doc/第四阶段-连续地形.md`。
