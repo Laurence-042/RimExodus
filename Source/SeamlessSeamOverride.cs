@@ -51,9 +51,15 @@ namespace RimExodus
             var neighborWorldTiles = new List<int>(worldNeighbors.Count);
             foreach (var nt in worldNeighbors) neighborWorldTiles.Add(nt.tileId);
 
-            // 混合带：格 → 最近边对应的邻居 worldTile。
+            // 混合带：格 → 最近边对应的邻居 worldTile。bandDistances：格 → 到 void 的切比雪夫距离（供权重 w 用）。
+            // 用 ComputeVoidBand（void 边界 + 多轮膨胀）而非旧的 ComputeEdgeBand（浮点多边形边距离）——
+            // 后者与 void 边界（格角检测）口径不一致，会让最外圈擦边格漏出 band 外不被卷积覆写，
+            // 保持原生土壤，形成"岩石（band 内）→ 土（band 外最外圈）→ void"的泥土带。
+            // 同时 w 也用 void 切比雪夫距离（而非浮点多边形边距离），保证权重随到 void 的距离单调，
+            // 避免浮点距离在多边形顶点附近振荡导致卷积在 self/neighbor 间翻转产生条带（土/岩交替）。
             var band = new Dictionary<IntVec3, int>();
-            SeamlessPolygonGeometry.ComputeEdgeBand(verts, mapSize, bandWidth, neighborWorldTiles, band);
+            var bandDistances = new Dictionary<IntVec3, int>();
+            SeamlessPolygonGeometry.ComputeVoidBand(map, bandWidth, neighborWorldTiles, band, bandDistances);
 
             if (band.Count == 0) return;
 
@@ -74,7 +80,6 @@ namespace RimExodus
             var cellIndices = map.cellIndices;
             var topGrid = terrainGrid.topGrid;
             var mapDrawer = map.mapDrawer;
-            var distCache = new Dictionary<IntVec3, float>();
             var diag = RimExodusMod.Settings?.seamOverrideDiag ?? false;
 
             foreach (var kv in cellsByNeighbor)
@@ -111,14 +116,11 @@ namespace RimExodus
                 foreach (var cell in bandCells)
                 {
                     diagTotal++;
-                    // 权重 w：靠边→1（取邻居），靠内→0（取本端）。
-                    if (!distCache.TryGetValue(cell, out var distFromEdge))
-                    {
-                        var cellCenter = new Vector2(cell.x + 0.5f, cell.z + 0.5f);
-                        distFromEdge = MinDistanceToEdge(cellCenter, verts);
-                        distCache[cell] = distFromEdge;
-                    }
-                    var w = 1f - Mathf.Clamp01(distFromEdge / bandWidth);
+                    // 权重 w：靠边（切比雪夫距离小）→1（取邻居），靠内（距离大）→0（取本端）。
+                    // 用 void 切比雪夫距离（bandDistances，与 band 同源），而非浮点多边形边距离——
+                    // 后者在多边形顶点附近振荡，会让 w 在相邻 band 格间翻转，卷积产生土/岩交替条带。
+                    var chebyDist = bandDistances.TryGetValue(cell, out var cd) ? cd : 1;
+                    var w = 1f - Mathf.Clamp01((chebyDist - 1f) / Mathf.Max(1, bandWidth - 1));
                     if (diag) { if (w < diagWMin) diagWMin = w; if (w > diagWMax) diagWMax = w; }
 
                     // 对面 cell（在邻居地图坐标系）。
@@ -331,19 +333,5 @@ namespace RimExodus
             }
         }
 
-        /// <summary>格中心到多边形最近边的距离（遍历所有边取最小）。</summary>
-        private static float MinDistanceToEdge(Vector2 p, List<Vector2> verts)
-        {
-            var n = verts.Count;
-            var min = float.MaxValue;
-            for (var j = 0; j < n; j++)
-            {
-                var v0 = verts[j];
-                var v1 = verts[(j + 1) % n];
-                var d = SeamlessPolygonGeometry.DistanceToEdge(p, v0, v1);
-                if (d < min) min = d;
-            }
-            return min;
-        }
     }
 }

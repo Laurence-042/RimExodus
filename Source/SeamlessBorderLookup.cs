@@ -130,38 +130,21 @@ namespace RimExodus
             }
 
             // 构建预加载带（borderCells：格 → 最近边对应的邻居 worldTile）。
+            // 用 ComputeVoidBand（void 边界 + 多轮膨胀）——与 void 铺设/接缝覆写/传送点带同源，
+            // 不会漏掉接缝附近的擦边格（旧的 ComputeEdgeBand 浮点边距离会漏，需传送点格兜底补全，已废弃）。
             borderCells = new Dictionary<IntVec3, int>();
             if (preloadBandWidth > 0)
             {
-                SeamlessPolygonGeometry.ComputeEdgeBand(verts, map.Size.x, preloadBandWidth, neighborWorldTiles, borderCells);
-
-                // 兜底：把所有传送点格也加入预加载带（传送点在接缝上，应触发预加载）。
-                // ComputeEdgeBand 的扫描线差集可能在边附近有 ±1 格误差漏掉某些接缝格，
-                // 传送点格必在接缝上，用它们的 targetWorldTile 补全 borderCells。
-                var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
-                if (enterSpotDef != null)
-                {
-                    foreach (var thing in map.listerThings.ThingsOfDef(enterSpotDef))
-                    {
-                        if (thing == null) continue;
-                        var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
-                        if (comp == null) continue;
-                        var cell = thing.Position;
-                        if (!borderCells.ContainsKey(cell))
-                        {
-                            borderCells[cell] = comp.targetWorldTile;
-                        }
-                    }
-                }
+                SeamlessPolygonGeometry.ComputeVoidBand(map, preloadBandWidth, neighborWorldTiles, borderCells);
             }
 
             // 构建不可建造带（noBuildBandCells：只需格集合，不需 worldTile 值）。
+            // 同预加载带，用 ComputeVoidBand（void 边界同源）。语义上多覆盖一圈擦边格，禁建更安全。
             noBuildBandCells = new HashSet<IntVec3>();
             if (noBuildBandWidth > 0)
             {
-                // ComputeEdgeBand 输出 Dictionary<IntVec3,int>，这里只需 key，用临时字典接收后取 key。
                 var tmpDict = new Dictionary<IntVec3, int>();
-                SeamlessPolygonGeometry.ComputeEdgeBand(verts, map.Size.x, noBuildBandWidth, neighborWorldTiles, tmpDict);
+                SeamlessPolygonGeometry.ComputeVoidBand(map, noBuildBandWidth, neighborWorldTiles, tmpDict);
                 foreach (var kv in tmpDict)
                 {
                     noBuildBandCells.Add(kv.Key);

@@ -289,7 +289,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ### 新增源码文件
 - `Source/WorldTileGeometry.cs` — 世界地块真实几何读取。`ComputeVertexDirections`/`ComputeEdgeDirections`（顶点/边方向）、`FindNeighborIndex`（邻居序号反查）。用 Odyssey 版 `WorldGrid` API（`GetTileVertices`/`GetTileNeighbors`/`GetTileCenter`/`GetMaxTileNeighborCountEver`）。
-- `Source/SeamlessPolygonGeometry.cs` — 多边形几何工具。`BuildPolygonVertices`（内切圆顶点，阶段3 收尾加了进程级缓存）、`ContainsPoint`/`IsCellInPolygon`（点在凸多边形内 / 格角检测消除 void 孤岛）、`ScanlineFill`（凸多边形扫描线填充）、`InsetPolygon`/`ComputeEdgeBand`/`DistanceToEdge`（凸多边形内缩 + 边界带）、`FindClosestEdgeIndex`（点→最近多边形边索引）。**`EnumerateEdgeCells`（边 Bresenham 划线）已废弃**——传送点铺设改用平移法接缝带（见阶段4b 末"传送点铺设几何归一"），此方法当前无调用者，保留备用。
+- `Source/SeamlessPolygonGeometry.cs` — 多边形几何工具。`BuildPolygonVertices`（内切圆顶点，进程级缓存）、`ContainsPoint`/`ContainsPointAt`/`IsCellInPolygon`（点在凸多边形内 / 格角检测消除 void 孤岛）、`DistanceToEdge`（点到线段距离）、`FindClosestEdgeIndex`（点→最近多边形边索引）、**`ComputeVoidBand`（"距 void 边界 N 格"的唯一实现，多轮膨胀，void 边界同源）**。`EnumerateEdgeCells`+`BresenhamLine`（边 Bresenham 划线）已废弃（传送点改平移法接缝带），保留备用。**旧的 `ComputeEdgeBand`/`InsetPolygon`/`ScanlineFill`/`AddBandRowCells`/`PolygonArea`/`LineLineIntersection` 已删除**（浮点多边形边距离口径与 void 格角检测不一致，被 `ComputeVoidBand` 取代，详见阶段4b 末"接缝带几何归一"）。
 - `Source/SeamlessTerrainFill.cs` — 多边形地形铺设。`ApplyPolygonTerrain`（自己六边形内+边格→非void，六边形外→铺 RimExodus_Void 并清除实体/Pawn）、`BackupSnapshotAndApplyVoid`（归一入口：备份 baseTerrainSnapshot + 调 ApplyPolygonTerrain，锚点与邻接地块共用）。
 - `1.6/Defs/TerrainDefs/VoidTerrain.xml` — `RimExodus_Void` 虚空地形 Def。
 
@@ -706,7 +706,7 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 
 ### 不改的部分
 - 几何底层（`WorldTileGeometry`/`SeamlessPolygonGeometry`/切平面基）：每 tile 保留自己的基。
-- void 铺设（`ApplyPolygonTerrain`）、渲染、归属判定（`TryGetOwnerNeighbor`）、边界带（`ComputeEdgeBand`）、预加载：经 `NeighborLink.offset` 自动跟随。
+- void 铺设（`ApplyPolygonTerrain`）、渲染、归属判定（`TryGetOwnerNeighbor`）、边界带（`ComputeVoidBand`）、预加载：经 `NeighborLink.offset` 自动跟随。
 - 传送点铺设（`PlaceEnterSpotsAllNeighbors`）：铺**接缝带**——到最近 void 格的切比雪夫距离 ∈ {1, 2} 的非 void 格（即紧贴 void 的 `SeamOverlap`=2 格宽环形带：最外圈 + 次外圈）。两端各有 2 格宽 spot 带，通过 offset 重叠时实际接缝落在两端带的中线上，接缝上两端都有 spot；投影旋转导致两端 spot 错开 ≤2 格时仍互相覆盖（吸收偏移）。每格按"最近多边形边 j"分组确定 `targetWorldTile`。spot 直接由 terrainGrid 的 void 边界决定（与 `ApplyPolygonTerrain` 同一套格角检测几何），不再用独立的 RoundToInt Bresenham 线。预铺时 `hasArrival` 默认 false，待邻居加载后刷新。
 
 ### 待游戏内验证
@@ -771,7 +771,7 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
   - 接缝带定义：到最近 void 格的**切比雪夫距离 ∈ {1, 2}** 的非 void 格（即紧贴 void 的 `SeamOverlap`=2 格宽环形带）。
   - 算法：①单遍扫 `terrainGrid` 标记 `isVoid[]`；②对每个 void 格，把它的 (2·SeamOverlap+1)² 邻域内的非 void 格标进 `inBand[]`（等价于"void 向外膨胀 SeamOverlap 格"/"边缘 void 上下左右含对角平移 ≤SeamOverlap 格的并集"）；③`inBand` 格铺 spot。复杂度 O(N² + void格数·(2r+1)²)。
   - spot 几何直接由 terrainGrid 的 void 边界决定（与 `ApplyPolygonTerrain` 同一套格角检测几何），彻底消除两套口径错配。
-  - 每格调 `FindClosestEdgeIndex`（新增：到 6 条多边形边的浮点距离取最小）确定 `targetWorldTile`，与 `ComputeEdgeBand`/`AddBandRowCells` 的最近边逻辑一致。
+  - 每格调 `FindClosestEdgeIndex`（到 6 条多边形边的浮点距离取最小）确定 `targetWorldTile`，与 `ComputeVoidBand` 的最近边分组逻辑一致。
 - **废弃**：`EnumerateEdgeCells`（RoundToInt Bresenham 单线）当前无调用者，保留备用。
 
 ### 顺带：邻居渲染视区裁剪 + FogOfWar 层（SeamlessTileRenderer，会话前遗留工作）
@@ -791,6 +791,42 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 - 两端 spot 带（2 格宽）对称、经 offset 重叠后接缝落中线。
 - 跨图转移落点稳定（投影偏移被 2 格带吸收）。
 - 邻居渲染视区裁剪不漏绘（pawn/建筑在视区边缘不闪烁）。
+
+## 阶段4b 后续修复：接缝带几何归一 ComputeVoidBand（已完成，可编译）
+
+游戏内暴露两个连发症状，定位到**同一个架构债**："距边界 N 格"语义有两套几何口径——`ComputeEdgeBand`（浮点多边形边距离 + 凸多边形内缩 + 扫描线差集）vs void 边界（`IsCellInPolygon` 格角检测）。凡是用一个铺带、用另一个定 void 的地方都会错配。本轮彻底归一。
+
+### 症状1：岩石和 void 之间一条泥土（SeamOverride band 漏最外圈）
+- **诊断数据**（临时 SeamDiag-EdgeRing）：void 最外圈 942 格中 **360 格在 SeamOverride band 外**（`outsideBand=360`），不被卷积覆写，保持原生土壤 → "岩石（band 内）→ 土（band 外最外圈）→ void"。
+- **根因**：SeamOverride 的 band 用 `ComputeEdgeBand`（浮点多边形边距离），void 用格角检测，两者在凸多边形边附近 ±1 格差异，最外圈擦边格漏出 band 外。
+
+### 症状2：过渡带土/岩交替条带（SeamOverride 权重 w 振荡）
+- **现象**：接缝带出现"2 格土 / 2 格岩 / 2 格土……"周期性条带。
+- **根因**：SeamOverride 权重 `w = 1 - distFromEdge/bandWidth` 用的 `distFromEdge = MinDistanceToEdge(cellCenter, verts)`（浮点多边形边距离），而 band 改用 void 切比雪夫距离后，两者口径不一致。浮点边距离在**凸多边形顶点附近振荡**（到相邻两条边的最小距离交替取值），w 随之振荡 → 卷积在"取邻居(岩石)"/"取本端(土)"间翻转 → 周期 2 条带。
+
+### 修复：归一到 ComputeVoidBand（"距 void 边界 N 格"的唯一实现）
+- **新增 `SeamlessPolygonGeometry.ComputeVoidBand(map, bandWidth, neighborWorldTiles, result, distances=null)`**：
+  - 算法 = **多轮膨胀**（BFS 式）：distArr 记录每格到 void 的切比雪夫距离（0=void 种子，k=到最近 void 距离）。每轮把上一轮 k-1 标记格的 8-邻域（非 void）标为 k。跑 bandWidth 轮。
+  - 输出 `result`（带内格 → 最近边对应的邻居 worldTile，用 `FindClosestEdgeIndex` 分组）+ 可选 `distances`（带内格 → 切比雪夫距离，供权重用）。
+  - 复杂度 O(N²·bandWidth)：bandWidth=15 → 94 万次；bandWidth=31 → 194 万次。远优于平移法（void格数×(2r+1)²≈2000万）。
+  - **语义统一**：直接读 terrainGrid 判 void，与 `ApplyPolygonTerrain` 格角检测同源。
+- **3 个消费者全部改用它**（消除 ComputeEdgeBand 的所有调用）：
+  1. **SeamOverride 接缝覆写带**（bandWidth≈31）：`ComputeVoidBand(..., bandDistances)`；权重 w 改用 `1 - (chebyDist-1)/(bandWidth-1)`（void 切比雪夫距离，靠 void→1 取邻居、靠内→0 取本端，单调）。修复症状1（band 覆盖所有最外圈）+ 症状2（w 单调无振荡）。
+  2. **BorderLookup 预加载带**（15）：改用 ComputeVoidBand；顺带**删除"传送点格兜底补全"**（void 边界不会漏接缝格，兜底冗余）。
+  3. **BorderLookup 禁建带**（3）：改用 ComputeVoidBand。语义改进（多覆盖一圈擦边格，禁建更安全）。
+- **废弃清理**：删除 `ComputeEdgeBand`/`InsetPolygon`/`PopulateInsetPolygon`/`ScanlineFill`/`AddBandRowCells`/`PolygonArea`/`LineLineIntersection`（全部只被 ComputeEdgeBand 内部用，无外部消费者）。SeamOverride 删除未用的 `distCache`/`MinDistanceToEdge`。保留 `EnumerateEdgeCells`+`BresenhamLine`（已标废弃，备用）。
+
+### 归一后的全局一致性
+"距边界 N 格"现在只有一份实现（ComputeVoidBand），所有消费者（传送点带虽用平移法但同源 void 边界、SeamOverride band + 权重、BorderLookup 预加载带、BorderLookup 禁建带）都用 void 切比雪夫距离，彻底消除浮点/格角两套口径的错配（泥土带、条带、传送点缺失都是这个根因的不同表现）。
+
+### 关键文件变更（本轮）
+- `Source/SeamlessPolygonGeometry.cs` — 新增 `ComputeVoidBand`（多轮膨胀 + distances 输出）；删除 `ComputeEdgeBand`/`InsetPolygon`/`PopulateInsetPolygon`/`ScanlineFill`/`AddBandRowCells`/`PolygonArea`/`LineLineIntersection`。
+- `Source/SeamlessSeamOverride.cs` — band 改 `ComputeVoidBand`（带 distances）；权重 w 改用 void 切比雪夫距离；删 `distCache`/`MinDistanceToEdge`；移除临时 SeamDiag-EdgeRing 诊断 + `using System.Linq`。
+- `Source/SeamlessBorderLookup.cs` — 预加载带/禁建带改 `ComputeVoidBand`；删传送点格兜底补全。
+- `AGENTS.md` / `doc/无缝世界地块探索.md` — 订正 ComputeEdgeBand → ComputeVoidBand 的当前状态描述（历史叙述节保留）。
+
+### 附：MapPreview 不显示邻接地块 B（非 bug，符合设计）
+MapPreview 靠玩家在世界地图界面选中地块触发预览。B（`MapParent_SeamlessTile`）的 `Print` 是空操作、`useDynamicDrawer=false`——B 在世界地图不可见/不可选，MapPreview 拿不到选中事件。与生成路径（IncrementalMapGenerator）、genSteps 过滤均无关。符合 B 的设计本意（无缝地块叠加在锚点地图，不在世界视图单独显示）。若需给 B 加预览是新功能。
 
 ## 阶段4：连续地形调研 + 边界带不可建造约束 + 共因 bug 修复（已完成，可编译）
 
@@ -981,9 +1017,10 @@ RimWorld 星球是球面多面体（大量六边形 + 12 个五边形平面拼�
 
 **接缝覆写 genStep**：`RimExodus_SeamOverride`(order=212，void 裁切 211 之后、Plants 900 之前)。
 - 调 `SeamlessSeamOverride.ApplyOneWay(map, worldTile)`。
-- 混合带 = `ComputeEdgeBand(verts, mapSize, bandWidth=seamOverrideRatio×mapSize/2)`（默认 0.25 → ~31 格）。
+- 混合带 = `ComputeVoidBand(map, bandWidth=seamOverrideRatio×mapSize/2, ...)`（默认 0.25 → ~31 格）。用 void 边界 + 多轮膨胀，输出每格到 void 的切比雪夫距离（供权重 w 用）。
 - 每个 cell：对面 cell = cell - offset（offset 用 `ComputeNeighborOffset` 重算，纯几何）。
 - 卷积：`Convolve3x3(snapshot, mapSize, cell)` 统计 3×3 邻域 terrainDef 占比（跳过 void/越界）。
+- 权重 w = `1 - (chebyDist-1)/(bandWidth-1)`（chebyDist = 到 void 切比雪夫距离，靠 void→1 取邻居，靠内→0 取本端，单调）。**必须与 band 同源用 void 切比雪夫距离**——早期用浮点多边形边距离（`MinDistanceToEdge`）会在凸多边形顶点附近振荡，让 w 在相邻 band 格翻转，卷积产生土/岩交替条带。
 - 混合：`BlendDistributions(neighborDist, selfDist, w)` 加权 → `GetMode` 取众数 → 写入 topGrid + MapMeshDirty。
 
 **可配置**：`RimExodusSettings.seamOverrideRatio`（默认 0.25，slider 0-0.5，0=关闭）。
