@@ -52,4 +52,34 @@ namespace RimExodus
                 Log.Message($"[RimExodus] ExitMapGrid.Rebuild postfix: marked {marked} enter-spot cells as exit cells on map {___map.uniqueID}.");
         }
     }
+
+    /// <summary>
+    /// 让铺了 RimExodus 传送点的地图（含玩家家园 A）也算"使用 exit grid"——
+    /// 原版 <see cref="ExitMapGrid.MapUsesExitGridNow"/> 对 <c>map.IsPlayerHome</c> 返回 false，
+    /// 导致锚点家园 A 的传送点格虽被标为 exit cell（见 <see cref="Patch_ExitMapGrid_Rebuild"/>），
+    /// 但 exit grid 的浅绿色 CellBoolDrawer 不绘制（<see cref="ExitMapGrid.ExitMapGridUpdate"/> 读
+    /// <see cref="ExitMapGrid.MapUsesExitGrid"/> 决定是否 MarkForDraw）。结果聚焦 B（非家园）能看到
+    /// 浅绿色传送点提示、聚焦 A（家园）看不到。
+    ///
+    /// 修复：Postfix <see cref="ExitMapGrid.MapUsesExitGrid"/>，对有 RimExodus 传送点的地图强制 true。
+    /// 覆盖 IsPlayerHome 的 false。副作用是 IsExitCell 在 A 也按 grid 返回（A 的传送点格本就被标为 exit cell，
+    /// 这是期望行为——原生撤离/远征队流程在 A 也该工作）。
+    /// </summary>
+    [HarmonyPatch(typeof(ExitMapGrid), nameof(ExitMapGrid.MapUsesExitGrid), MethodType.Getter)]
+    static class Patch_ExitMapGrid_MapUsesExitGrid
+    {
+        static void Postfix(ExitMapGrid __instance, Map ___map, ref bool __result, ref bool ___mapUsesExitGrid)
+        {
+            if (__result) return; // 已经 true（如 B），无需改。
+            if (___map == null) return;
+            var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
+            if (enterSpotDef == null) return;
+            // 仅对实际铺了 RimExodus 传送点的地图生效（避免影响其他原版家园地图）。
+            if (___map.listerThings.ThingsOfDef(enterSpotDef).Count > 0)
+            {
+                __result = true;
+                ___mapUsesExitGrid = true; // 同步改缓存字段，避免同 tick 内其他读取者拿到旧值。
+            }
+        }
+    }
 }
