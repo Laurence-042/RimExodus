@@ -11,7 +11,7 @@ namespace RimExodus
     /// 每个地块独立按自己的六边形铺 void：六边形内（含边）非 void，六边形外 void。
     /// 不看邻居——两个地图各自独立铺 void，重叠区的 void 在对方地图上恰好是非 void。
     /// 传送点铺在自己六边形的边经过的格子上（含边判定 → 非 void）。
-    /// 供 GenStep_SeamlessTile（order=1802）调用，该 genStep 通过 XML patch 注入到所有
+    /// 供 GenStep_SeamlessTile（order=1400）调用，该 genStep 通过 XML patch 注入到所有
     /// 玩家可进入的 MapGeneratorDef（Base_Player / Base_Faction / Encounter）。邻居地块（MapParent_SeamlessTile）
     /// 的 mapGenerator 也是 Base_Player，与锚点家园 A 同链。
     /// </summary>
@@ -33,7 +33,7 @@ namespace RimExodus
             // 备份基础地形（void 裁切前的完整矩形 topGrid）。
             // 探针：Clone 前记录六边形外格地形（snapshot 即将复制这些格，它们给邻居 SeamOverride 用）。
             // 此时 void 未铺，LogBandTerrain（依赖 void）不可用，用 LogOutsidePolygonTerrain（不依赖 void）。
-            SeamTerrainProbe.LogOutsidePolygonTerrain(map, worldTile, "1802-pre-snapshot");
+            SeamTerrainProbe.LogOutsidePolygonTerrain(map, worldTile, "1400-pre-snapshot");
 
             TerrainDef[] snapshotCopy = null;
             if (map.Parent is MapParent_SeamlessTile pocket)
@@ -56,9 +56,9 @@ namespace RimExodus
             }
 
             // 探针：Clone 后验证 snapshot 数组内容与 topGrid 一致。
-            SeamTerrainProbe.LogSnapshotBand(map, worldTile, snapshotCopy, "1802-post-snapshot");
+            SeamTerrainProbe.LogSnapshotBand(map, worldTile, snapshotCopy, "1400-post-snapshot");
             // 探针：全图地形分布（区分锚点/口袋），判断拍摄时 topGrid 是否已是海岸填充后的状态。
-            SeamTerrainProbe.LogSnapshotFullMap(map, worldTile, snapshotCopy, "1802-snapshot");
+            SeamTerrainProbe.LogSnapshotFullMap(map, worldTile, snapshotCopy, "1400-snapshot");
 
             ApplyPolygonTerrain(map, worldTile);
         }
@@ -141,7 +141,7 @@ namespace RimExodus
         /// <summary>
         /// 清除指定格集合上的所有实体（建筑/岩石/植物/物品/草丛等），保留 Pawn（Pawn 单独处理）。
         ///
-        /// **当前时序下的实际工作量**：void 在 order=1802（Fog 之后）铺，此时 Plants(900)/Animals(1200) 已 spawn。
+        /// **当前时序下的实际工作量**：void 在 order=1400（Fog 之前）铺，此时 Plants(900)/Animals(1200)/Snow(1150) 已 spawn。
         /// - 岩石 Building：Patch_GenStep_RocksFromGrid（Postfix，order=200）已提前清除（用 IsCellInPolygon 算
         ///   将来 void 格），故本方法处理岩石时基本为空操作。
         /// - 植物/物品：Plants(900) spawn 在将来 void 格上的会被本方法实际清理（Destroy Vanish）。

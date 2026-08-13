@@ -3,6 +3,7 @@ using RimWorld;
 using RimWorld.Planet;
 using UnityEngine;
 using Verse;
+using Verse.Noise;
 
 namespace RimExodus
 {
@@ -19,7 +20,11 @@ namespace RimExodus
     /// 【为什么卷积】terrainDef 离散，不能直接加权平均。卷积把每个 cell 的 terrainDef
     /// 变成"周围 3×3 邻域的 terrainDef 分布"，分布可以加权平均，再取众数 → 平滑过渡。
     ///
-    /// 【兼容性】不碰 elevation/fertility grid、不碰 Perlin、不碰 genStep 内部逻辑。
+    /// 【权重噪声】w 是纯线性距离函数时，GetMode 离散跳变会在带内形成规则等距的 self↔neighbor 过渡线。
+    /// 在 w 上叠加低频空间 Perlin 噪声（基于 worldTile 稳定 seed，幅度可配 seamOverrideNoiseAmplitude），
+    /// dither 掉离散跳变 → 过渡线变弯曲不规则斑块。Clamp01 保证不破坏总体单调趋势。
+    ///
+    /// 【兼容性】不碰 elevation/fertility grid、不碰 genStep 内部逻辑。
     /// 纯 terrainDef snapshot 操作，兼容所有地形扩展 mod。河流/海岸（mutator/TerrainPatchMaker 改的
     /// terrainGrid）在备份时已包含，卷积自然覆盖。
     /// </summary>
@@ -27,7 +32,7 @@ namespace RimExodus
     {
         /// <summary>
         /// 对 map 的所有已加载邻居做单向接缝覆写（只改 map 自身，不改邻居）。
-        /// 在 GenStep_SeamOverride.Generate 里调用（order=1803，void 裁切 1802 之后）。
+        /// 在 GenStep_SeamOverride.Generate 里调用（order=1410，void 裁切 1400 之后、Fog 1500 之前）。
         /// </summary>
         public static void ApplyOneWay(Map map, int worldTile)
         {
@@ -37,6 +42,17 @@ namespace RimExodus
 
             var mapSize = map.Size.x;
             var bandWidth = Mathf.Max(1, Mathf.RoundToInt(ratio * mapSize * 0.5f));
+
+            // 权重噪声：低频空间 Perlin，dither 掉 GetMode 离散跳变（把规则等距过渡线打散成弯曲斑块）。
+            // 基于 worldTile 的稳定 seed → 同一地块多次生成噪声一致，不同地块噪声不同。
+            // 频率 0.04 让带内（bandWidth≈30）能跨约 1 个噪声周期，相邻格噪声值接近（空间相关），
+            // 不会逐格雪花。幅度可配（seamOverrideNoiseAmplitude，默认 0.15，0=关闭）。
+            var noiseAmp = RimExodusMod.Settings?.seamOverrideNoiseAmplitude ?? 0.15f;
+            Perlin weightNoise = null;
+            if (noiseAmp > 0f)
+            {
+                weightNoise = new Perlin(0.04f, 2.0, 0.5, 4, worldTile * 31 + 7919, QualityMode.Medium);
+            }
 
             // 本端 snapshot（void 裁切前的完整地形）。
             var selfSnapshot = GetSnapshot(map);
@@ -113,7 +129,12 @@ namespace RimExodus
                 {
                     diagTotal++;
                     var chebyDist = bandDistances.TryGetValue(cell, out var cd) ? cd : 1;
-                    var w = 1f - Mathf.Clamp01((chebyDist - 1f) / Mathf.Max(1, bandWidth - 1));
+                    var wBase = 1f - Mathf.Clamp01((chebyDist - 1f) / Mathf.Max(1, bandWidth - 1));
+                    // 叠加空间噪声：w' = clamp01(wBase + n×amp)，n∈[-1,1]。clamp01 保证 w∈[0,1]，
+                    // 不破坏"最内圈偏邻居、中心偏 self"的总体单调，只是把过渡线抖弯。
+                    var w = weightNoise != null
+                        ? Mathf.Clamp01(wBase + (float)weightNoise.GetValue(cell) * noiseAmp)
+                        : wBase;
                     if (diag) { if (w < diagWMin) diagWMin = w; if (w > diagWMax) diagWMax = w; }
 
                     var neighborCell = cell - offset;
@@ -154,12 +175,12 @@ namespace RimExodus
                     var writtenDist = diagWrittenDefNames.Count == 0 ? "(none)"
                         : FormatDefNameTally(diagWrittenDefNames);
                     Log.Message($"[RimExodus-SeamDiag] wt={worldTile} nbr={neighborTile} offset={offset} bandCells={diagTotal} " +
-                        $"w[{diagWMin:F2}..{diagWMax:F2}] oob={diagOutOfBounds} nbrDistNull={diagNeighborDistNull} " +
+                        $"noiseAmp={noiseAmp:F2} w[{diagWMin:F2}..{diagWMax:F2}] oob={diagOutOfBounds} nbrDistNull={diagNeighborDistNull} " +
                         $"voidCell={diagVoidCell} unchanged={diagUnchanged} " +
                         $"written={diagWritten}(toRock={diagWrittenToRock},toSoil={diagWrittenToSoil}) writtenDist={writtenDist}");
                     // 两端 snapshot 在本邻居接缝带的分布：直接看出卷积输入是沙/水还是泥土。
-                    SeamTerrainProbe.LogSnapshotBand(map, worldTile, selfSnapshot, $"1803-self-nbr{neighborTile}");
-                    SeamTerrainProbe.LogSnapshotBand(neighborMap, neighborTile, neighborSnapshot, $"1803-neighbor-nbr{neighborTile}");
+                    SeamTerrainProbe.LogSnapshotBand(map, worldTile, selfSnapshot, $"1410-self-nbr{neighborTile}");
+                    SeamTerrainProbe.LogSnapshotBand(neighborMap, neighborTile, neighborSnapshot, $"1410-neighbor-nbr{neighborTile}");
                 }
             }
         }

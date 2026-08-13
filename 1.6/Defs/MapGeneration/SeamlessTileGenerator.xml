@@ -21,9 +21,18 @@
         TileMutatorWorker_Coast 无 GenerateFinal 方法，不会在后续 MutatorFinal(1600) 覆盖。
         RocksFromGrid(200) 在 230 之前，岩石山已 spawn 为 edifice，CoastalEdgeFill 的 Stone+edifice
         守门正常工作。
-      RimExodus_SeamlessTile    (1802)：备份 snapshot（void 裁切前的完整矩形 topGrid）+ 按六边形铺 void。
-        snapshot 在 1802 Clone，能记录 230 铺的海岸水（含六边形外，供邻居 SeamOverride 卷积用）。
-      RimExodus_SeamOverride    (1803)：混合带卷积混合（读两端 snapshot，写本端 topGrid）。
+      RimExodus_SeamlessTile    (1400)：备份 snapshot（void 裁切前的完整矩形 topGrid）+ 按六边形铺 void。
+        snapshot 在 1400 Clone，能记录 230 铺的海岸水（含六边形外，供邻居 SeamOverride 卷积用）。
+      RimExodus_SeamOverride    (1410)：混合带卷积混合（读两端 snapshot，写本端 topGrid）。
+
+    **为什么 SeamlessTile/SeamOverride 在 Fog(1500) 之前**：让 GenStep_Fog 的 flood-fill 基于
+    void 裁切 + SeamOverride 覆写后的【最终地形】算可达性——void 外（六边形外条带）不可通行→
+    不揭雾，与实际渲染（void 透明）和寻路（void 不可通行）一致。若放在 Fog 之后（旧 1802/1803），
+    Fog 会据完整矩形地形揭雾，把之后变 void 的条带也揭了，揭雾状态与实际地形不符。
+    查证 MutatorFinal(1600) 的 GeneratePostFog 不覆盖 terrainGrid：TileMutatorWorker_Coast 无
+    GeneratePostFog 重写，TileMutatorWorker_River.GeneratePostFog 只建 river lookup texture 不改
+    terrainGrid，其余 mutator（AncientUplink/Quarry/InsectMegahive/Stockpile）生成 Thing 不改 terrainGrid。
+    故 SeamOverride(1410) 的地形覆写能保留到最终。
 
     **守卫**：genStep 类内部用 GetMapWorldTile(map) >= 0 守卫，任何有合法 worldTile 的地图都走完整链。
   -->
@@ -43,7 +52,7 @@
 
   <GenStepDef>
     <defName>RimExodus_SeamlessTile</defName>
-    <order>1802</order>
+    <order>1400</order>
     <genStep Class="RimExodus.GenStep_SeamlessTile"/>
     <modExtensions>
       <li Class="MapPreview.GenStepProperties" MayRequire="m00nl1ght.MapPreview">
@@ -54,7 +63,7 @@
 
   <GenStepDef>
     <defName>RimExodus_SeamOverride</defName>
-    <order>1803</order>
+    <order>1410</order>
     <genStep Class="RimExodus.GenStep_SeamOverride"/>
     <modExtensions>
       <li Class="MapPreview.GenStepProperties" MayRequire="m00nl1ght.MapPreview">

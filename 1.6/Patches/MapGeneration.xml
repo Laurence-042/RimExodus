@@ -15,12 +15,14 @@
     GenStep_MutatorPostTerrain（order=220）在 Coast mutator 跑完后介入做海岸补铺 + void 铺设 + snapshot 备份。
     但 snapshot 在 order=220 备份太早——之后 Roads/Plants/Ruins/Animals/Fog 仍可能改地形，导致 snapshot
     与最终地形漂移（SeamOverride 读 snapshot、写 topGrid，两者口径不一致）。
-    改为 genStep 后，snapshot 在 1802 备份（几乎最后），漂移问题消除，A/B 两路径完全对称。
+    改为 genStep 后，snapshot 在 1400 备份（Fog 1500 之前），漂移问题消除，A/B 两路径完全对称。
 
     **执行顺序**由 GenStepDef.order 决定（非 xml 列表序）：
       RimExodus_CoastalEdgeFill (230，紧随 MutatorPostTerrain/原版 Coast mutator 220) →
-      RimExodus_SeamlessTile (1802, void+snapshot) → RimExodus_SeamOverride (1803)
+      RimExodus_SeamlessTile (1400, void+snapshot) → RimExodus_SeamOverride (1410) → Fog(1500)
     CoastalEdgeFill 提前到 230（此前在 1801）是为了让补铺的水在 Plants(900) 之前就位，避免植物浮在水上。
+    SeamlessTile/SeamOverride 放在 Fog(1500) 之前，让 Fog flood-fill 基于 void 裁切 + SeamOverride 覆写后的
+    最终地形算可达性（void 外条带不可达→不揭雾）。
 
     **守卫**：genStep 类内部用 GetMapWorldTile(map) >= 0 守卫，任何有合法 worldTile 的地图都走完整链。
     RimExodus 的核心交互是全局无缝——任何玩家进入的地图都应当连续、void 也切、传送点也放。

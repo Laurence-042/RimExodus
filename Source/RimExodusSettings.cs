@@ -29,6 +29,14 @@ namespace RimExodus
         public float seamOverrideRatio = 0.25f;
 
         /// <summary>
+        /// 接缝覆写权重噪声幅度（0=关闭噪声，回到纯线性 w）。0.15 = w 上下抖动 ±0.15。
+        /// 在混合权重 w 上叠加低频空间 Perlin 噪声，dither 掉 GetMode 离散跳变，把规则等距过渡线
+        /// 打散成自然弯曲斑块。种子基于 worldTile 稳定，同一地块多次生成噪声一致。
+        /// 设 0 可关闭对照验证效果。
+        /// </summary>
+        public float seamOverrideNoiseAmplitude = 0.15f;
+
+        /// <summary>
         /// 接缝覆写开发诊断开关（独立于 verboseLogging，只产接缝相关精简日志）。
         /// 开启时在 SeamlessSeamOverride.ApplyOneWay 关键位置取样：每邻居的 offset、混合带 cell 数、
         /// 越界跳过数、权重分布、采样到的 neighborCell 坐标范围、卷积众数。
@@ -61,6 +69,7 @@ namespace RimExodus
             Scribe_Values.Look(ref verboseLogging, "verboseLogging", false);
             Scribe_Values.Look(ref borderNoBuildDistance, "borderNoBuildDistance", 3);
             Scribe_Values.Look(ref seamOverrideRatio, "seamOverrideRatio", 0.25f);
+            Scribe_Values.Look(ref seamOverrideNoiseAmplitude, "seamOverrideNoiseAmplitude", 0.15f);
             Scribe_Values.Look(ref seamOverrideDiag, "seamOverrideDiag", false);
             Scribe_Values.Look(ref coastalEdgeDeepWaterDistance, "coastalEdgeDeepWaterDistance", 0.15f);
             Scribe_Values.Look(ref coastalEdgeShallowWaterDistance, "coastalEdgeShallowWaterDistance", 0.25f);

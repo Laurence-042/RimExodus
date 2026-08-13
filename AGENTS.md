@@ -1349,3 +1349,42 @@ MapPreview 的"基础地形"白名单（`MapPreviewRequest.cs:107-115`）**不�
 
 ### 架构意义
 邻居地块与锚点家园 A 现在走**完全相同的 MapGeneratorDef（Base_Player）+ 完全相同的 genStep 链**（三个 RimExodus genStep 由 PatchOperationAdd 注入）。这是"地块对等论"的最终统一：A/B 不再因 MapGeneratorDef 不同而有任何生成路径分叉。废弃独立 MapGeneratorDef 也消除了手动维护 genSteps 列表的负担（此前 `RimExodus_SeamlessTileGenerator` 的 genSteps 是手动复刻原版 MapCommonBase，易随版本漂移）。
+
+## 阶段4b 后续：SeamOverride 前移到 Fog 之前 + 权重噪声软化（已完成，可编译，游戏内待验证）
+
+### 改动1：SeamlessTile/SeamOverride order 前移到 Fog(1500) 之前
+
+| defName | 旧 order | 新 order |
+|---|---|---|
+| `RimExodus_SeamlessTile` | 1802 | **1400** |
+| `RimExodus_SeamOverride` | 1803 | **1410** |
+| `RimExodus_CoastalEdgeFill` | 230 | 230（不变） |
+
+- **问题**：旧顺序 SeamlessTile(1802)/SeamOverride(1803) 在 Fog(1500) 之后。`GenStep_Fog.Generate`（`GenStep_Fog.cs:23`）从 `PlayerStartSpot`/`rootsToUnfog` 做 `FloodFillerFog.FloodUnfog`，可达性遍历用 `TraverseMode.NoPassClosedDoorsOrWater`——基于**当时 topGrid + edifice**算。此时 void 还没铺（1802 才铺）、SeamOverride 还没覆写（1803 才改），Fog 据完整矩形地形 flood-fill → 把六边形外条带（之后变 void）也揭雾了，揭雾状态与实际（void 透明不可通行）不符。
+- **修复**：前移到 1400/1410（Fog 1500 之前）。此时 void 已裁切、SeamOverride 已覆写（含 SyncRockBuilding spawn 的岩石），Fog flood-fill 据最终地形算可达性 → void 外条带不可达不揭雾，与渲染/寻路一致。
+- **前移安全性验证（已查证）**：
+  - **快照约束**：SeamlessTile(1400) 仍在 CoastalEdgeFill(230) 之后，snapshot 能照常记录海岸水。✓
+  - **MutatorFinal(1600) 不覆盖 SeamOverride 地形**：`GenStep_MutatorFinal`（`GenStep_MutatorFinal.cs:11`）调每个 `TileMutator.Worker.GeneratePostFog`。查证 `TileMutatorWorker_Coast` **无 GeneratePostFog 重写**（只有 GeneratePostElevationFertility/GeneratePostTerrain）；`TileMutatorWorker_River.GeneratePostFog`（`TileMutatorWorker_River.cs:133`）只调 `GenerateRiverLookupTexture` 建 river lookup texture 不改 terrainGrid；其余 mutator（AncientUplink/Quarry/InsectMegahive/Stockpile）生成 Thing 不改 terrainGrid。故 SeamOverride(1410) 的地形覆写能保留到最终。✓
+  - **SeamOverride 的 SyncRockBuilding 在 Fog 之前 spawn 岩石**：正是想要的——Fog flood-fill 据此算可达性。✓
+  - **MapPreview includeInPreviews 不受 order 影响**（只是白名单标记）。✓
+- **改动文件**：`1.6/Defs/MapGeneration/SeamlessTileGenerator.xml`（order + 头注释）、`1.6/Patches/MapGeneration.xml`（头注释）、全库 order 引用注释同步（GenStep_SeamlessTile/GenStep_SeamOverride/CoastalEdgeFill/GenStep_CoastalEdgeFill/Patches_GenStepRocksFromGrid/Patches_TerrainGrid/MapParent_SeamlessTile/SeamlessTileManager/SeamlessTerrainFill/SeamlessSeamOverride）。
+
+### 改动2：权重 w 加空间 Perlin 噪声（软化硬边界来源③）
+
+- **问题**：旧权重 `w = 1 - clamp01((chebyDist-1)/(bandWidth-1))` 是纯线性、纯确定性的。GetMode 把连续权重离散成单个 TerrainDef，相邻 cell 在 mode 翻转阈值处跳变，在带内形成**规则等距的 self↔neighbor 过渡线**（像等高线），视觉上生硬。
+- **修复**：在 w 上叠加低频空间 Perlin 噪声（dither），把规则等距线打散成弯曲不规则斑块。
+  - `RimExodusSettings.seamOverrideNoiseAmplitude`（默认 0.15，0=关闭）：`w' = clamp01(wBase + n×amp)`，n∈[-1,1]。
+  - Perlin 构造：`new Perlin(0.04f, 2.0, 0.5, 4, worldTile * 31 + 7919, QualityMode.Medium)`。基于 worldTile 稳定 seed → 同一地块多次生成噪声一致，不同地块噪声不同。频率 0.04 让带内（bandWidth≈30）能跨约 1 个噪声周期，相邻格噪声值接近（空间相关），不会逐格雪花。
+  - **Clamp01 保证 w∈[0,1]**：不破坏"最内圈偏邻居、中心偏 self"的总体单调趋势，只是把过渡线抖弯。幅度 0.15 远小于带内 w 从 1→0 的总跨度，不会反转为"中心偏邻居"。
+  - **噪声加在 w 上而非 Convolve3x3/GetMode**：直接 dither 掉 GetMode 离散跳变（来源③），最小侵入。来源①（snapshot 矩形边界卷积截断）、来源②（band 最内圈 w 硬夹到 1.0）本轮不动，留待后续单独验证。
+- **改动文件**：`Source/SeamlessSeamOverride.cs`（加 `using Verse.Noise`、Perlin 构造、w 扰动、diag 日志加 noiseAmp）、`Source/RimExodusSettings.cs`（加 seamOverrideNoiseAmplitude 字段 + ExposeData）。
+
+### 未解决（留待后续）
+- **硬边界来源①**：snapshot 矩形边界处 Convolve3x3 窗口截断（越界格 skip）。可改 Convolve3x3 越界时 clamp 到边格/镜像填充，不再 skip。本轮未做。
+- **硬边界来源②**：band 最内圈（ChebyDist=1）w 硬夹到 1.0，紧邻 void。可把 w 上限从 1.0 软化到如 0.85。本轮未做。
+
+### 待游戏内验证
+- 生成邻居地块，开 `seamOverrideDiag`，看新 diag 日志含 `noiseAmp=0.15`，w 范围比纯线性宽。
+- 接缝带过渡线应从规则等距直线变成弯曲不规则斑块（对比设 `seamOverrideNoiseAmplitude=0` 回到旧直线）。
+- Fog 范围：void 外条带应保持雾化（未揭），与旧版"整矩形揭雾"对比。
+- MutatorFinal(1600) 后 SeamOverride 地形未被覆盖（查证结论的运行时确认）。

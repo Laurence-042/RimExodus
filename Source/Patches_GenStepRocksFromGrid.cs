@@ -13,10 +13,10 @@ namespace RimExodus
     /// 本 Postfix 在它完成后，用 IsCellInPolygon 算出多边形外的格（即将来 void 格），
     /// 提前清除上面的岩石 Building + 移除屋顶，使 void 区域干净。
     ///
-    /// **时序**：void 地形由 RimExodus_SeamlessTile（order=1802）铺，远在 RocksFromGrid(200) 之后。
-    /// 本 Postfix（order=200，Terrain 之前）提前清岩石，避免 1802 时 ClearThingsOnCells
+    /// **时序**：void 地形由 RimExodus_SeamlessTile（order=1400）铺，远在 RocksFromGrid(200) 之后。
+    /// 本 Postfix（order=200，Terrain 之前）提前清岩石，避免 1400 时 ClearThingsOnCells
     /// 处理海量岩石 Building 的开销。Plants/Animals 在 900/1200 spawn，仍会在将来 void 格上生成，
-    /// 由 ApplyPolygonTerrain(1802) 的 ClearThingsOnCells/EvacuatePawnsOnCells 事后清理。
+    /// 由 ApplyPolygonTerrain(1400) 的 ClearThingsOnCells/EvacuatePawnsOnCells 事后清理。
     ///
     /// **统一守卫**：用 GetMapWorldTile(map) >= 0，与三个 RimExodus genStep 一致——
     /// 任何有合法 worldTile 的地图（邻接地块/锚点家园/派系基地/遭遇）都走本清理。
@@ -83,8 +83,8 @@ namespace RimExodus
             }
 
             // 注意：不铺 void 地形（Terrain genStep 还没跑，此时铺会覆盖 elevation 判定）。
-            // void 地形由 RimExodus_SeamlessTile（order=1802，Fog 之后）铺。
-            // 本 Postfix 只清岩石和屋顶，减少 1802 时 ClearThingsOnCells 的工作量（岩石已无，主要剩植物/物品）。
+            // void 地形由 RimExodus_SeamlessTile（order=1400，Fog 之前）铺。
+            // 本 Postfix 只清岩石和屋顶，减少 1400 时 ClearThingsOnCells 的工作量（岩石已无，主要剩植物/物品）。
 
             if (RimExodusMod.Settings?.verboseLogging ?? false)
                 Log.Message($"[RimExodus] Patch_GenStep_RocksFromGrid: cleared {toRemove.Count} things + roofs from {voidCells.Count} void cells.");
