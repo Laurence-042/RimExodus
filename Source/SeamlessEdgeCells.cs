@@ -1,0 +1,91 @@
+using System.Collections.Generic;
+using RimWorld;
+using Verse;
+
+namespace RimExodus
+{
+    /// <summary>
+    /// 六边形接缝带格的统一访问入口。本类是"所有边缘行为改用六边形边缘"策略的几何根基：
+    /// 把"传送点格集合"作为六边形边缘带的权威定义，供 <see cref="Patches_CellFinder"/>/
+    /// <see cref="Patches_Reachability"/>/ <see cref="Patches_ExitMapGrid"/> 复用，
+    /// 避免每处 patch 各自遍历 <c>listerThings</c>。
+    ///
+    /// 设计：传送点（<c>RimExodus_SeamlessEnterSpot</c>）由 <see cref="SeamlessTileManager.PlaceEnterSpotsAllNeighbors"/>
+    /// 沿六边形 <c>SeamOverlap</c>=2 宽接缝带铺设（铺设时过了 Standable 校验、排除 void），
+    /// 因此传送点格集合 = "可站立的非 void 六边形接缝带"，与 <see cref="ExitMapGrid"/> 标记的
+    /// exit cell 集合同源。复用传送点格而非重新跑 <c>ComputeVoidBand</c>，保证唯一口径。
+    ///
+    /// 缓存：按 (map.uniqueID, spot 数量) 失效。spot 铺设/邻居加载后数量变化即重建。
+    /// </summary>
+    internal static class SeamlessEdgeCells
+    {
+        private static ThingDef _cachedEnterSpotDef;
+        private static ThingDef EnterSpotDef
+        {
+            get
+            {
+                if (_cachedEnterSpotDef == null)
+                    _cachedEnterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
+                return _cachedEnterSpotDef;
+            }
+        }
+
+        // 缓存键：map.uniqueID；缓存值：{spots snapshot 版本号, cells}。版本号 = 当前 spot 数量，
+        // spot 增减（新邻居加载/卸载）时数量变化触发重建。
+        private static readonly Dictionary<int, (int version, List<IntVec3> cells)> _cache = new();
+        private static readonly List<IntVec3> _scratch = new(); // EnumerateSeamEdgeCells 复用，避免每次分配
+
+        /// <summary>该地图是否为 RimExodus 无缝地块（有传送点）。含锚点 A（原生 MapParent，也是无缝地块的一员）。</summary>
+        internal static bool HasSeamEdge(Map map)
+        {
+            if (map == null || EnterSpotDef == null) return false;
+            return map.listerThings.ThingsOfDef(EnterSpotDef).Count > 0;
+        }
+
+        /// <summary>
+        /// 返回该地图所有传送点格的快照列表（= 六边形接缝带）。调用者可自由打乱/遍历。
+        /// 带缓存：spot 数量未变时直接返回缓存列表（只读语义，调用者不应修改）。
+        /// </summary>
+        internal static List<IntVec3> GetSeamEdgeCells(Map map)
+        {
+            if (map == null || EnterSpotDef == null) return null;
+
+            var spots = map.listerThings.ThingsOfDef(EnterSpotDef);
+            int version = spots.Count;
+            if (version == 0) return null;
+
+            if (_cache.TryGetValue(map.uniqueID, out var entry) && entry.version == version)
+                return entry.cells;
+
+            // 重建：把所有传送点 Position 拷贝到新列表。
+            var cells = new List<IntVec3>(version);
+            for (int i = 0; i < version; i++)
+                cells.Add(spots[i].Position);
+
+            _cache[map.uniqueID] = (version, cells);
+            return cells;
+        }
+
+        /// <summary>
+        /// 把接缝带格填入 <paramref name="result"/>（Clear + Add，复用调用者的列表避免分配）。
+        /// 供需要"自己遍历且不复用缓存列表引用"的调用者使用（如 Reachability 逐个 CanReach）。
+        /// </summary>
+        internal static void PopulateSeamEdgeCells(Map map, List<IntVec3> result)
+        {
+            result.Clear();
+            if (map == null || EnterSpotDef == null) return;
+            var spots = map.listerThings.ThingsOfDef(EnterSpotDef);
+            int count = spots.Count;
+            for (int i = 0; i < count; i++)
+                result.Add(spots[i].Position);
+        }
+
+        /// <summary>随机一个接缝格。无接缝格返回 <see cref="IntVec3.Invalid"/>。</summary>
+        internal static IntVec3 RandomSeamEdgeCell(Map map)
+        {
+            var cells = GetSeamEdgeCells(map);
+            if (cells == null || cells.Count == 0) return IntVec3.Invalid;
+            return cells[Rand.Range(0, cells.Count)];
+        }
+    }
+}

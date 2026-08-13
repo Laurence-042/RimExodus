@@ -6,18 +6,20 @@ using Verse.AI;
 namespace RimExodus
 {
     /// <summary>
-    /// 阶段4前置：让远行队组建流程的出口目标指向传送点（而非地图边缘，边缘被六边形 void 封死）。
+    /// 阶段4前置：让 <see cref="RCellFinder"/> 三个**自构方形边缘格**的出口选择方法改用传送点。
     ///
-    /// 背景：六边形裁切把地块地图的矩形边缘格都切成了 void（不可站立）。
-    /// 原版 <see cref="RCellFinder.TryFindBestExitSpot"/>/<see cref="RCellFinder.TryFindRandomExitSpot"/>
-    /// 在地图矩形边缘找可站立且可达的格作为出口目标——六边形 void 边缘全失败 → 返回 false →
-    /// <see cref="JobGiver_ExitMap.TryGiveJob"/> 返回 null（不生成 ExitMap Job）→ 远行队组建流程卡住，
-    /// pawn 没有 ExitMap Job，可能踩到传送点被 <see cref="SeamlessMapTransferTrigger.TryTriggerTransfer"/> 直接跨图。
+    /// 背景：本 mod 的边缘归一策略主要在根原语层（<see cref="Patches_CellFinder"/> patch
+    /// <c>CellFinder.TryFindRandomEdgeCellWith</c> + <c>RandomEdgeCell</c>，<see cref="Patches_Reachability"/>
+    /// patch <c>CanReachMapEdge</c>），一处覆盖袭击/远行队/商队/访客/行人穿越等全部消费者。
     ///
-    /// 修复：Prefix 拦截这两个方法，对 RimExodus 地块（<see cref="MapParent_SeamlessTile"/>），
-    /// 找一个 pawn 可到达的传送点格作为出口目标返回 true。这样 JobGiver_ExitMap 生成带
-    /// <c>exitMapOnArrival=true</c> 的 Goto（目标=传送点），pawn 走到传送点后原生 JobDriver_Goto.TryExitMap
-    /// 触发 → 远行队生成。TryTriggerTransfer 检查到 exitMapOnArrival=true 放行（不跨图）。
+    /// 但 <see cref="RCellFinder.TryFindBestExitSpot"/>/<see cref="RCellFinder.TryFindRandomExitSpot"/> 的
+    /// 主体自己直接构造方形边缘格（如 <c>new IntVec3(0,0,result.z)</c>），不走根原语；
+    /// <see cref="RCellFinder.TryFindClosestEdgeCellTo"/> 由 <c>Dialog_FormCaravan</c> 直接调用。
+    /// 这三个方法必须单独 Prefix 拦截，把出口目标改成最近的可达传送点格。
+    ///
+    /// 这样 JobGiver_ExitMap 生成带 <c>exitMapOnArrival=true</c> 的 Goto（目标=传送点），pawn 走到传送点
+    /// 后原生 JobDriver_Goto.TryExitMap 触发 → 远行队生成。TryTriggerTransfer 检查到
+    /// exitMapOnArrival=true 放行（不跨图）。
     /// </summary>
     [HarmonyPatch(typeof(RCellFinder), nameof(RCellFinder.TryFindBestExitSpot))]
     static class Patch_RCellFinder_TryFindBestExitSpot

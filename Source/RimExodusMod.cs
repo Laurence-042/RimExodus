@@ -24,6 +24,17 @@ namespace RimExodus
 
             var harmony = new Harmony("RimExodus.SeamlessWorld");
             harmony.PatchAll();
+
+            // 显式 patch CellFinder.TryFindRandomEdgeCellWith 的 4 参数重载（out 参数需 MakeByRefType()，
+            // [HarmonyPatch] 特性无法声明，故在 PatchAll 之外手动绑定）。
+            var target = AccessTools.Method(typeof(CellFinder), nameof(CellFinder.TryFindRandomEdgeCellWith),
+                new[] { typeof(System.Predicate<Verse.IntVec3>), typeof(Verse.Map), typeof(float), typeof(Verse.IntVec3).MakeByRefType() });
+            var prefix = AccessTools.Method(typeof(Patch_CellFinder_TryFindRandomEdgeCellWith), nameof(Patch_CellFinder_TryFindRandomEdgeCellWith.Prefix));
+            if (target != null && prefix != null)
+                harmony.Patch(target, prefix: new HarmonyMethod(prefix));
+            else
+                Log.Error($"[RimExodus] Failed to bind Patch_CellFinder_TryFindRandomEdgeCellWith (target={target}, prefix={prefix}).");
+
             Log.Message("[RimExodus] Harmony patches applied.");
         }
 

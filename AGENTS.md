@@ -1387,4 +1387,79 @@ MapPreview 的"基础地形"白名单（`MapPreviewRequest.cs:107-115`）**不�
 - 生成邻居地块，开 `seamOverrideDiag`，看新 diag 日志含 `noiseAmp=0.15`，w 范围比纯线性宽。
 - 接缝带过渡线应从规则等距直线变成弯曲不规则斑块（对比设 `seamOverrideNoiseAmplitude=0` 回到旧直线）。
 - Fog 范围：void 外条带应保持雾化（未揭），与旧版"整矩形揭雾"对比。
+
+## 阶段4b 后续：禁用方形撤离带 + 统一 patch 边缘行为改用六边形边缘（已完成，可编译，游戏内待验证）
+
+### 问题
+游戏内观察到：起始地图和扩展地图边缘仍显示一圈**原版方形浅绿色撤离带**（exit grid），与六边形接缝带的传送点撤离带**共存**，前者无效（方形边缘多为 void）且误导。
+
+### 根因
+- 浅绿色带 = `ExitMapGrid`（`Verse/ExitMapGrid.cs`，实现 `ICellBoolGiver`）+ `CellBoolDrawer`，每帧由 `MapInterface.cs:149` 的 `Find.CurrentMap.exitMapGrid.ExitMapGridUpdate()` 绘制，门控是 `ExitMapGrid.MapUsesExitGrid`。
+- 原版 `ExitMapGrid.Rebuild()`（`:156-205`）标记**矩形 2 格宽**带（`MaxDistToEdge=2`）为 exit cell，判定用 `OnEdge` + `IsGoodExitCell`（`CanBeSeenOver` 只看 edifice 不看 walkability → 部分 void/边缘格仍被标）。
+- RimExodus 自己的 `Patches_ExitMapGrid.cs` 此前是 **Postfix**：原版先把矩形带铺满，Postfix 再**追加**传送点格——**从不清除矩形带**，且 `MapUsesExitGrid` Postfix 强制 true → 两套带共存。
+
+### 修复策略：patch 根原语，一处覆盖全部边缘消费者
+用户要求"最理想是远行队/袭击/商队/访客 patch 同一个（最根本的）方法"。所有"在地图边缘找格"的消费者（袭击入口 `TryFindRandomPawnEntryCell`、远行队出口 `TryFindRandomPawnExitCell`、撤退 `TryFindExitSpotNear`、行人穿越 `TryFindTravelDestinationFromEntry`）最终都走两个**根原语**：
+1. `CellFinder.TryFindRandomEdgeCellWith(Predicate, Map, float, out IntVec3)`（4 参数随机重载）
+2. `CellFinder.RandomEdgeCell(Map)`
+
+在根原语上 patch，**一处覆盖全部消费者**。上层 `RCellFinder.TryFindBestExitSpot`/`TryFindRandomExitSpot` 主体自己直接构造方形边缘格（不走根原语），由现有 `Patches_RCellFinder.cs` 3 个 Prefix 单独处理。
+
+### 改动
+
+#### 1. 绿色带——清空矩形、只保留六边形接缝带（`Patches_ExitMapGrid.cs`）
+- `Patch_ExitMapGrid_Rebuild` 从 **Postfix** 改为 **Prefix**：对有 RimExodus 传送点的地图 `return false`（跳过原版 `Rebuild` 的矩形带铺设），反射访问 private 字段 `exitMapGrid`/`dirty`/`drawerInt`（`AccessTools.FieldRefAccess` 缓存委托），自己 `new BoolGrid(map)` 或 `Clear()`，只把传送点格标 true。
+- 结果：`CellBoolDrawer` 重建 mesh 时只有六边形接缝带是绿色，方形带消失。
+- `Patch_ExitMapGrid_MapUsesExitGrid` Postfix 保留不变（仍需让 home map 也画绿色）。
+
+#### 2. 新增 `SeamlessEdgeCells.cs`（六边形接缝带格统一入口）
+- 把"传送点格集合"作为六边形边缘带的权威定义（与 `PlaceEnterSpotsAllNeighbors` 同源，铺设时过了 Standable 校验、排除 void）。
+- 方法：`HasSeamEdge(Map)`、`GetSeamEdgeCells(Map)`（带缓存，按 (map.uniqueID, spot 数量) 失效）、`PopulateSeamEdgeCells(Map, List)`（复用调用者列表）、`RandomSeamEdgeCell(Map)`。
+- 复用传送点格而非重新跑 `ComputeVoidBand`，保证与 exit-cell 标记逻辑唯一口径。
+
+#### 3. 核心 patch 根原语（新增 `Patches_CellFinder.cs`）
+- `Patch_CellFinder_TryFindRandomEdgeCellWith`（Prefix）：对 RimExodus 地块把候选池从方形边缘格换成接缝带格，Fisher-Yates 打乱后逐个过原版 validator（try/catch 对齐原版异常处理）。**一个 patch 覆盖袭击/远行队/撤退/行人穿越**全部消费者。
+- `Patch_CellFinder_RandomEdgeCell`（Postfix）：兜底少数直调。
+- **重载消歧坑**：`TryFindRandomEdgeCellWith` 有 4 参数/5 参数（带 Rot4 dir）两个重载。`[HarmonyPatch]` 特性的参数类型数组是 `object[]`，不能放 `typeof(IntVec3).MakeByRefType()`（out 参数，非编译期常量，CS0182）。**解决**：该类不带 `[HarmonyPatch]` 特性，在 `RimExodusMod` 构造器里用 `AccessTools.Method(..., new[]{ ..., typeof(IntVec3).MakeByRefType() })` + `harmony.Patch(target, prefix)` 显式绑定。
+- **Rot4 dir 重载未 patch**：方向语义在无缝场景下无意义，留待验证后视情况补。
+
+#### 4. patch `Reachability.CanReachMapEdge`（新增 `Patches_Reachability.cs`）
+- 原版用 `Region.District.TouchesMapEdge`（检查矩形边缘），六边形裁切后恒 false。
+- Prefix 对 RimExodus 地块改为"从起点能否 `CanReach` 任一接缝格"，复刻原版前置守门（pawn 必须生成在本地图）。影响 `RCellFinder.TryFindBestExitSpot` 开头检查、`JobGiver_ExitMap` 可行性、远行队组建。
+
+#### 5. 精简 `Patches_RCellFinder.cs` 注释
+- 3 个 Prefix（`TryFindBestExitSpot`/`TryFindRandomExitSpot`/`TryFindClosestEdgeCellTo`）保留（这些方法主体自构方形边缘格，不走根原语）。
+- 注释更新为说明"根原语层已覆盖大部分消费者，这里处理 RCellFinder 自构方形边的方法"。
+
+### 覆盖矩阵（patch 后）
+
+| 消费者 | 原版路径 | patch 后 |
+|---|---|---|
+| 浅绿色带 | `ExitMapGrid.Rebuild` 矩形带 | 改动1：只标六边形接缝带 |
+| 袭击入口 | `TryFindRandomPawnEntryCell` → `TryFindRandomEdgeCellWith` | 改动3：接缝带 |
+| 远行队出口 | `TryFindRandomPawnExitCell` → `TryFindRandomEdgeCellWith` | 改动3：接缝带 |
+| 撤退 spot near | `TryFindExitSpotNear` → `TryFindRandomEdgeCellWith` | 改动3：接缝带 |
+| 行人穿越出口 | `TryFindTravelDestinationFromEntry` → `TryFindRandomEdgeCellWith` | 改动3：接缝带 |
+| 最佳出口选择 | `RCellFinder.TryFindBestExitSpot`（自构方形边） | 改动5：保留现有 Prefix |
+| 随机出口选择 | `RCellFinder.TryFindRandomExitSpot`（自构方形边） | 改动5：保留现有 Prefix |
+| 远行队组建最近边 | `RCellFinder.TryFindClosestEdgeCellTo` | 改动5：保留现有 Prefix |
+| 直调 RandomEdgeCell | `CellFinder.RandomEdgeCell` | 改动3：Postfix 兜底 |
+| 能否到达边缘 | `Reachability.CanReachMapEdge` | 改动4：接缝带 |
+| 踩传送点 ExitMap | `JobDriver_Goto` → `IsExitCell` | 无需改（改动1 已标传送点为 exit cell） |
+
+### 关键文件变更
+- 新增：`Source/SeamlessEdgeCells.cs`、`Source/Patches_CellFinder.cs`、`Source/Patches_Reachability.cs`。
+- 改：`Source/Patches_ExitMapGrid.cs`（Postfix→Prefix + 反射字段）、`Source/Patches_RCellFinder.cs`（注释更新）、`Source/RimExodusMod.cs`（PatchAll 后显式绑定 `TryFindRandomEdgeCellWith` 4 参数重载）。
+
+### 风险与注意事项
+- **patch 根原语连锁影响广**：所有 mod 和原版代码调 `TryFindRandomEdgeCellWith`/`RandomEdgeCell`/`CanReachMapEdge` 都受影响，但仅限"有 RimExodus 传送点的地图"（`HasSeamEdge` 守门），其他地图原版放行。
+- **传送点格可能被建筑遮挡**（玩家建墙）：validator 会过滤掉不可达格，自然回退到其他接缝格。
+- **`CanReachMapEdge` 性能**：接缝格 ~100 个逐个 CanReach，region 缓存 + 同 tick 同参数结果缓存，代价可控。
+
+### 待游戏内验证
+- 浅绿色带只出现在六边形接缝处，方形边不再有绿色。
+- 袭击从六边形边缘进入（不落 void）。
+- 远行队组建/撤离走到传送点。
+- 行人穿越地图从一侧进另一侧出。
+- 撤退的袭击者跑到六边形边缘后 ExitMap。
 - MutatorFinal(1600) 后 SeamOverride 地形未被覆盖（查证结论的运行时确认）。
