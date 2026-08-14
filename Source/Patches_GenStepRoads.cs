@@ -126,7 +126,17 @@ namespace RimExodus
     ///
     /// 【做法】每条路画完后，对"距任一接缝锚点 ≤ <see cref="SeamFillRadius"/> 格且
     /// fromRoad ≤ 1.5（中线±1.5）"的格强制铺 roadDef 的主路面 TerrainDef（跳过概率抽签）。
-    /// 水格跳过（过河交给 Bridge 步骤）；已有 Road tag 地形的格跳过（不覆盖已铺上的）。
+    ///
+    /// 【跳过条件（关键）】
+    /// - 水格（尚未铺桥的河格）：过河交给原版 Bridge 步骤（roadGenSteps[0]，先于本 Postfix）。
+    /// - <c>terrain.bridge</c>：已铺桥的河格——桥在 foundationGrid（TerrainAt 经 foundation
+    ///   遮蔽返回 Bridge），tags 只有 "Floor"（无 Water/Road tag），没有此判据会把桥格
+    ///   SetTerrain 成路面：topGrid 从水变土 → 该格不再是水（水体连续性断），桥塌后露出
+    ///   河里的路面。与原版 <c>RoadDefGenStep_Place</c> 的 <c>!terrainDef2.bridge</c> 守卫对齐。
+    /// - Road tag 地形：已铺上的路面不覆盖。
+    ///
+    /// 【石路映射】place 为 FlagstoneSandstone 时原版 Place 会替换成区域岩石色（rockDef），
+    /// 本 Postfix 同步映射，否则石路接缝补铺出砂岩色而非区域岩色。
     /// </summary>
     static class Patch_GenStep_Roads_ApplyDistanceField
     {
@@ -153,6 +163,12 @@ namespace RimExodus
                 }
             }
             if (placeTerrain == null) return;
+
+            // 石路映射：原版 Place 把 FlagstoneSandstone 替换成区域岩石色（rockDef）。
+            if (placeTerrain == TerrainDefOf.FlagstoneSandstone && rockDef != null)
+            {
+                placeTerrain = rockDef;
+            }
 
             // 接缝锚点集：每条多边形边的锚点（与 FindRoadExitCell 同一套几何）。
             var mapSize = map.Size.x;
@@ -192,7 +208,9 @@ namespace RimExodus
                     var cell = new IntVec3(x, 0, z);
                     var terrain = map.terrainGrid.TerrainAt(cell);
                     if (terrain == placeTerrain) continue;
-                    if (terrain != null && (terrain.IsWater || terrain.HasTag("Road"))) continue; // 水交给 Bridge；已铺路材质不覆盖
+                    // 水交给 Bridge；已铺桥（foundation 遮蔽，bridge=true，无 Water/Road tag）不覆盖；
+                    // 已铺路材质不覆盖。
+                    if (terrain != null && (terrain.IsWater || terrain.bridge || terrain.HasTag("Road"))) continue;
 
                     map.terrainGrid.SetTerrain(cell, placeTerrain);
                     filled++;

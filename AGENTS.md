@@ -84,10 +84,20 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - 连续 Perlin 全局对齐方案已废弃（elevation 被组合器包裹无法叶子层对齐），代码在 `continuous-perlin` 分支。
 
 ### 道路与河流接缝对齐（阶段4 连续地形）
-- **道路**（`Patches_GenStepRoads.cs`，order 390 内部）：①Prefix `FindRoadExitCell`（private）——道路出口格强制对齐到接缝锚点（边中点向内 SeamOverlap 格），可达性检查用原版同款两级放宽（NoPassClosedDoors → PassAllDestroyableThings，**不能用 NoPassClosedDoorsOrWater**——比原版严，锚点被河挡住时误放行原版导致出口落回方形边）。②Postfix `ApplyDistanceField`——接缝锚点 ≤6 格且 fromRoad≤1.5 的格强制补铺主路面（原版双重随机抽签在 DirtPath/DirtRoad 中线留 ~11-14% 断格：接缝最后 3 格断概率 ~36%；StoneRoad 唯一实心 mult=0）。③Postfix `Generate`——快照 static `paths`（A* 路径节点）到 `SeamlessRoadPaths` MapComponent（防分帧增量生成下被其他地图清空），供 SeamOverride 道路保护用。
+- **道路**（`Patches_GenStepRoads.cs`，order 390 内部）：①Prefix `FindRoadExitCell`（private）——道路出口格强制对齐到接缝锚点（边中点向内 SeamOverlap 格），可达性检查用原版同款两级放宽（NoPassClosedDoors → PassAllDestroyableThings，**不能用 NoPassClosedDoorsOrWater**——比原版严，锚点被河挡住时误放行原版导致出口落回方形边）。②Postfix `ApplyDistanceField`——接缝锚点 ≤6 格且 fromRoad≤1.5 的格强制补铺主路面（原版双重随机抽签在 DirtPath/DirtRoad 中线留 ~11-14% 断格：接缝最后 3 格断概率 ~36%；StoneRoad 唯一实心 mult=0）。跳过条件含 `terrain.bridge`（已铺桥格——桥在 foundationGrid，TerrainAt 遮蔽返回 Bridge，tags 只有 Floor 无 Water/Road tag，没有此判据会把桥格 SetTerrain 成路面：topGrid 从水变土、桥塌后露出河里的路）；place 为 FlagstoneSandstone 时映射 rockDef（对齐原版区域岩色）。③Postfix `Generate`——快照 static `paths`（A* 路径节点）到 `SeamlessRoadPaths` MapComponent（防分帧增量生成下被其他地图清空），供 SeamOverride 道路保护用。
 - **河流**（`Patches_TileMutatorRiver.cs`，order 220 内部）：Prefix `GetMapEdgeNodes`（protected，元组返回）——河端点从"随机直线的图外交点"替换为接缝边中点锚点（offsetCells=0，河延伸到边使两端水直接相接）。原生河 = 过随机中心(Rand 0.3-0.7×Size)的直线 + Perlin 弯曲（边缘漂移 ±11 格），两端只共享流向角、入口出口落点纯随机——无原生对齐保证。弯曲 bell 端点=0 → 接缝处河是直线段。Confluence 的流入/流出支流各取元组一端连汇合点，与本 patch 返回顺序 (heading反向端, heading正向端) 天然兼容。
-- 共享几何：`SeamlessPolygonGeometry.FindClosestEdgeByAngle`（世界图方向角 → 本地图接缝边）+ `ComputeSeamCellForEdge`（边 → 接缝锚点格，offsetCells 参数：道路用 SeamOverlap、河流用 0）。
+- 共享几何：`SeamlessPolygonGeometry.FindClosestEdgeByAngle`（世界图方向角 → 本地图接缝边）+ `ComputeSeamCellForEdge`（边 → 接缝锚点格，offsetCells 参数：道路用 SeamOverlap、河流用 0）+ `DistanceToNearestEdge`（格 → 距最近边浮点距离）。
 - `RefineEndcap` 的 ≤5 格端点检查**不会**移动六边形内侧锚点（它只是"是否执行 endcap 重路由"的门槛，锚点距方形边 ~19 格 → 恒跳过）——已排除的嫌疑，勿再查。
+
+### 建筑选址避开六边形边（阶段4b）
+- **问题**：原版建筑选址全按方形边界收缩（如 `GenStep_Settlement.CanScatterAt` 的 `BoundsRect(12)`），不感知六边形（边中点距方形边 ~17 格）→ 建筑锚点跨六边形边 → order 1400 铺 void 时被切半。
+- **三个 patch**（`Patches_BuildingPlacement.cs`，覆盖全部选址根原语）：①Prefix `GenStep_Scatterer.CanScatterAt`（protected virtual，字符串声明特性；子类 base 调用命中）——锚点六边形外或距边 <20 格（=最大建筑半宽 19+1，Settlement 38×38）拒绝，上层 1000 次重试消化（安全区约占方形 55-60%）。②Postfix `MapGenUtility.GetClearRects`——过滤四角+边中点距边 <10 格或六边形外的矩形（清晰矩形路：Outpost/AncientComplex/Gravcore/SurveySite/Harbor 等；Burst 内核不可 patch，此托管入口是唯一可行点）。③Postfix `CellFinder.RandomNotEdgeCell`——采样六边形外 → Invalid（FindPlayerStartSpot tightness 降级兜底 + 运行时 CompDeepScanner/incident）。
+- 几何判定用 `BuildPolygonVertices` 纯几何（order 400-970 期间可用），勿用 `HasSeamEdge`（运行时传送点入口，order 1400 前为 false）。
+- 残余缺口（接受）：`GetOutpostRect` 贴附矩形、`GenerateLandingPadNearby`——锚点已安全后溢出概率低，观察。
+
+### void 渲染与邻居背景（`SeamlessTileRenderer`）
+- void 地形 `dontRender=true` 实际画在 `MatBases.ShadowMask`（半透明不写不透明色），主相机只清深度——void 带的背景完全依赖 `SeamlessTileRenderer` 的 CommandBuffer 每帧 `ClearRenderTarget(true,true)` 全屏清色 + 邻居地形 mesh（`BeforeForwardOpaque`）。
+- **零邻居分支也必须清色**（曾经的历史 bug）：`cachedNeighbors.Count == 0` 时不能提前 return——否则清色被短路，void 带保留上一帧像素成红色拖影（新档锚点首生成/孤岛地块/Remove All Tile Maps/读档邻居未再生成四种场景）。零邻居时执行"清色-only"帧（不画邻居 mesh），同时 `commandBuffer.Clear()` 防邻居全部卸载后旧 buffer 逐帧重放已 Dispose 地图的 DrawMesh。
 
 ### 边缘行为统一（阶段4b）
 - 浅绿色 exit grid：`Patches_ExitMapGrid` Prefix 重建只标六边形接缝带（不标原版方形带）。

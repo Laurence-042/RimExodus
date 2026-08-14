@@ -58,6 +58,15 @@ namespace RimExodus
             SeamlessTileGraph.PopulateNeighbors(map, cachedNeighbors);
             if (cachedNeighbors.Count == 0)
             {
+                // 零邻居（新档锚点首生成 / 孤岛地块 / 邻居全部卸载 / 读档邻居未再生成）时
+                // 仍要执行全屏清色：void 地形画半透明 ShadowMask 不写不透明色，主相机只清
+                // 深度——不清色的话 void 带保留上一帧像素，平移相机时残影累积成红色拖影。
+                // 不画任何邻居 mesh，只做"清色-only"帧。同时 commandBuffer.Clear() 清掉
+                // 陈旧命令——否则邻居全部卸载后，挂在相机上的旧 buffer 会逐帧重放对已
+                // Dispose 地图 mesh 的 DrawMesh（void 带冻结显示旧邻居画面）。
+                EnsureCommandBuffer();
+                commandBuffer.Clear();
+                commandBuffer.ClearRenderTarget(true, true, Color.clear, 1f);
                 return;
             }
 

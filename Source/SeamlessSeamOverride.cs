@@ -135,7 +135,7 @@ namespace RimExodus
                     // 只混合 C 可见区域（C 六边形内）。C 六边形外是 C 的 void，不混合。
                     if (!SeamlessPolygonGeometry.IsCellInPolygon(verts, mapSize, cCell)) continue;
 
-                    var distToEdge_A = ComputeDistanceToNearestEdge(neighborVerts, aCell);
+                    var distToEdge_A = SeamlessPolygonGeometry.DistanceToNearestEdge(neighborVerts, aCell);
                     if (distToEdge_A > maxDepth) maxDepth = distToEdge_A;
                     candidates.Add((aCell, cCell, distToEdge_A));
                 }
@@ -218,23 +218,6 @@ namespace RimExodus
 
         /// <summary>道路保护半径（格，切比雪夫）。2 = 覆盖 Bezier 偏离 + 常见路面半宽。</summary>
         private const int RoadGuardRadius = 2;
-
-        /// <summary>计算 cell 中心点到多边形最近边的浮点垂直距离。</summary>
-        private static float ComputeDistanceToNearestEdge(List<Vector2> verts, IntVec3 cell)
-        {
-            var px = cell.x + 0.5f;
-            var py = cell.z + 0.5f;
-            var minDist = float.MaxValue;
-            var n = verts.Count;
-            for (var j = 0; j < n; j++)
-            {
-                var v0 = verts[j];
-                var v1 = verts[(j + 1) % n];
-                var d = SeamlessPolygonGeometry.DistanceToEdge(new Vector2(px, py), v0, v1);
-                if (d < minDist) minDist = d;
-            }
-            return minDist;
-        }
 
         /// <summary>获取 map 的基础地形 snapshot（地块从 MapParent_SeamlessTile，锚点从 Manager）。</summary>
         private static TerrainDef[] GetSnapshot(Map map)

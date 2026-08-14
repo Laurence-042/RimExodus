@@ -300,6 +300,24 @@ namespace RimExodus
         }
 
         /// <summary>
+        /// 计算 cell 中心点到多边形最近边的浮点垂直距离。
+        /// 供 SeamOverride 权重衰减（距 A 边深度）与建筑选址边距判定（Scatterer patch）共用。
+        /// </summary>
+        public static float DistanceToNearestEdge(List<Vector2> verts, IntVec3 cell)
+        {
+            var px = cell.x + 0.5f;
+            var py = cell.z + 0.5f;
+            var minDist = float.MaxValue;
+            var n = verts.Count;
+            for (var j = 0; j < n; j++)
+            {
+                var d = DistanceToEdge(new Vector2(px, py), verts[j], verts[(j + 1) % n]);
+                if (d < minDist) minDist = d;
+            }
+            return minDist;
+        }
+
+        /// <summary>
         /// 计算点 p 到线段 (v0→v1) 的最短距离（解析）。
         /// 用于判定格子距多边形边的距离。
         /// </summary>
