@@ -79,11 +79,5 @@ namespace RimExodus
             if (map.Parent is MapParent_SeamlessTile tileParent) return tileParent.worldTile;
             return map.Tile; // 家园地图等非地块地图：读原生 PlanetTile（隐式转 int）。
         }
-
-        /// <summary>判断 a 与 b 是否为直接邻居（对称关系）。</summary>
-        public static bool AreSeamlessNeighbors(Map a, Map b)
-        {
-            return SeamlessTileGraph.AreNeighbors(a, b);
-        }
     }
 }

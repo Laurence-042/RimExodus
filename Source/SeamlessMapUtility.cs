@@ -13,24 +13,6 @@ namespace RimExodus
     /// </summary>
     public static class SeamlessMapUtility
     {
-        /// <summary>把局部坐标按偏移映射到目标地图坐标（通用平移）。</summary>
-        public static IntVec3 ToMapCoord(IntVec3 localCell, IntVec3 offset)
-        {
-            return localCell + offset;
-        }
-
-        /// <summary>把目标地图坐标按偏移反查为局部坐标（通用平移取反）。</summary>
-        public static IntVec3 FromMapCoord(IntVec3 mapCell, IntVec3 offset)
-        {
-            return mapCell - offset;
-        }
-
-        /// <summary>把局部坐标按偏移映射到目标地图的世界绘制位置（Vector3）。</summary>
-        public static Vector3 ToMapDrawPos(IntVec3 localCell, IntVec3 offset)
-        {
-            return (localCell + offset).ToVector3Shifted();
-        }
-
         /// <summary>
         /// 把当前地图坐标解析成实际应操作的 Map + 局部坐标。
         /// 用点在凸多边形内判定（ContainsPoint，阶段3）在当前地图 + 直接邻居间裁决归属：

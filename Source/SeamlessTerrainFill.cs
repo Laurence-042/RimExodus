@@ -31,34 +31,18 @@ namespace RimExodus
             if (map == null || worldTile < 0) return;
 
             // 备份基础地形（void 裁切前的完整矩形 topGrid）。
-            // 探针：Clone 前记录六边形外格地形（snapshot 即将复制这些格，它们给邻居 SeamOverride 用）。
-            // 此时 void 未铺，LogBandTerrain（依赖 void）不可用，用 LogOutsidePolygonTerrain（不依赖 void）。
-            SeamTerrainProbe.LogOutsidePolygonTerrain(map, worldTile, "1400-pre-snapshot");
-
-            TerrainDef[] snapshotCopy = null;
-            if (map.Parent is MapParent_SeamlessTile pocket)
+            if (map.Parent is MapParent_SeamlessTile tile)
             {
-                pocket.baseTerrainSnapshot = (TerrainDef[])map.terrainGrid.topGrid.Clone();
-                snapshotCopy = pocket.baseTerrainSnapshot;
+                tile.baseTerrainSnapshot = (TerrainDef[])map.terrainGrid.topGrid.Clone();
             }
             else
             {
                 var manager = map.GetComponent<SeamlessTileManager>();
-                if (manager != null && manager.anchorBaseTerrainSnapshot == null)
+                if (manager != null)
                 {
                     manager.anchorBaseTerrainSnapshot = (TerrainDef[])map.terrainGrid.topGrid.Clone();
-                    snapshotCopy = manager.anchorBaseTerrainSnapshot;
-                }
-                else if (manager != null)
-                {
-                    snapshotCopy = manager.anchorBaseTerrainSnapshot;
                 }
             }
-
-            // 探针：Clone 后验证 snapshot 数组内容与 topGrid 一致。
-            SeamTerrainProbe.LogSnapshotBand(map, worldTile, snapshotCopy, "1400-post-snapshot");
-            // 探针：全图地形分布（区分锚点/口袋），判断拍摄时 topGrid 是否已是海岸填充后的状态。
-            SeamTerrainProbe.LogSnapshotFullMap(map, worldTile, snapshotCopy, "1400-snapshot");
 
             ApplyPolygonTerrain(map, worldTile);
         }

@@ -5,8 +5,8 @@ namespace RimExodus
 {
     /// <summary>
     /// 邻居预加载的静态入口（阶段4a）。
-    /// 屏蔽"源地图是锚点还是口袋地块"的差异：每张地图都有 <see cref="SeamlessTileManager"/> 组件
-    /// （由 Map.FillComponents 自动实例化），从源地图取其 Manager 再调 <see cref="SeamlessTileManager.TryPreloadNeighbor"/>。
+    /// 屏蔽"源地块是锚点还是地块地图"的差异：每张地图都有 <see cref="SeamlessTileManager"/> 组件
+    /// （由 Map.FillComponents 自动实例化），从源地块取其 Manager 再调 <see cref="SeamlessTileManager.TryPreloadNeighbor"/>。
     ///
     /// 异步化：预加载请求登记到队列（<see cref="QueuePreload"/>），由 <see cref="SeamlessTileManager.MapComponentTick"/>
     /// 在下一 tick 消费（<see cref="ConsumeQueued"/>)。避免在 Pawn_JobTracker.StartJob 调用栈内同步生成地图
@@ -14,29 +14,29 @@ namespace RimExodus
     /// </summary>
     public static class SeamlessTilePreloader
     {
-        /// <summary>待处理的预加载请求队列（sourceMap, targetWorldTile）。每条请求由首个 tick 的 Manager 消费。</summary>
+        /// <summary>待处理的预加载请求队列（originMap, targetWorldTile）。每条请求由首个 tick 的 Manager 消费。</summary>
         private static readonly List<PreloadRequest> pendingQueue = new List<PreloadRequest>();
 
-        /// <summary>已入队的 (sourceMap, targetWorldTile) 集合，防重复入队。</summary>
+        /// <summary>已入队的 (originMap, targetWorldTile) 集合，防重复入队。</summary>
         private static readonly HashSet<int> queuedHashes = new HashSet<int>();
 
         private struct PreloadRequest
         {
-            public Map sourceMap;
+            public Map originMap;
             public int targetWorldTile;
         }
 
         /// <summary>
         /// 登记一个预加载请求到队列（异步）。不立即生成，由 MapComponentTick 在下一 tick 消费。
-        /// 幂等：同一 (sourceMap, targetWorldTile) 重复入队只保留一条。
+        /// 幂等：同一 (originMap, targetWorldTile) 重复入队只保留一条。
         /// </summary>
-        public static void QueuePreload(Map sourceMap, int targetWorldTile)
+        public static void QueuePreload(Map originMap, int targetWorldTile)
         {
-            if (sourceMap == null || targetWorldTile < 0) return;
-            var hash = HashKey(sourceMap, targetWorldTile);
+            if (originMap == null || targetWorldTile < 0) return;
+            var hash = HashKey(originMap, targetWorldTile);
             if (queuedHashes.Contains(hash)) return;
             queuedHashes.Add(hash);
-            pendingQueue.Add(new PreloadRequest { sourceMap = sourceMap, targetWorldTile = targetWorldTile });
+            pendingQueue.Add(new PreloadRequest { originMap = originMap, targetWorldTile = targetWorldTile });
         }
 
         /// <summary>
@@ -54,25 +54,25 @@ namespace RimExodus
 
             foreach (var req in snapshot)
             {
-                if (req.sourceMap == null) continue;
-                var manager = req.sourceMap.GetComponent<SeamlessTileManager>();
+                if (req.originMap == null) continue;
+                var manager = req.originMap.GetComponent<SeamlessTileManager>();
                 if (manager == null) continue;
                 manager.TryPreloadNeighbor(req.targetWorldTile);
             }
         }
 
         /// <summary>同步预加载入口（保留供 Dev 命令等需要立即生成的场景使用）。</summary>
-        public static bool TryPreload(Map sourceMap, int targetWorldTile)
+        public static bool TryPreload(Map originMap, int targetWorldTile)
         {
-            if (sourceMap == null) return false;
-            var manager = sourceMap.GetComponent<SeamlessTileManager>();
+            if (originMap == null) return false;
+            var manager = originMap.GetComponent<SeamlessTileManager>();
             if (manager == null) return false;
             return manager.TryPreloadNeighbor(targetWorldTile);
         }
 
-        private static int HashKey(Map sourceMap, int targetWorldTile)
+        private static int HashKey(Map originMap, int targetWorldTile)
         {
-            var mapId = sourceMap?.uniqueID ?? 0;
+            var mapId = originMap?.uniqueID ?? 0;
             return (mapId * 73856093) ^ (targetWorldTile * 19349663);
         }
     }

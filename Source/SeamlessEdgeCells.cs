@@ -10,7 +10,7 @@ namespace RimExodus
     /// <see cref="Patches_Reachability"/>/ <see cref="Patches_ExitMapGrid"/> 复用，
     /// 避免每处 patch 各自遍历 <c>listerThings</c>。
     ///
-    /// 设计：传送点（<c>RimExodus_SeamlessEnterSpot</c>）由 <see cref="SeamlessTileManager.PlaceEnterSpotsAllNeighbors"/>
+    /// 设计：传送点（<c>RimExodus_SeamlessEnterSpot</c>）由 <see cref="SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors"/>
     /// 沿六边形 <c>SeamOverlap</c>=2 宽接缝带铺设（铺设时过了 Standable 校验、排除 void），
     /// 因此传送点格集合 = "可站立的非 void 六边形接缝带"，与 <see cref="ExitMapGrid"/> 标记的
     /// exit cell 集合同源。复用传送点格而非重新跑 <c>ComputeVoidBand</c>，保证唯一口径。
@@ -33,7 +33,6 @@ namespace RimExodus
         // 缓存键：map.uniqueID；缓存值：{spots snapshot 版本号, cells}。版本号 = 当前 spot 数量，
         // spot 增减（新邻居加载/卸载）时数量变化触发重建。
         private static readonly Dictionary<int, (int version, List<IntVec3> cells)> _cache = new();
-        private static readonly List<IntVec3> _scratch = new(); // EnumerateSeamEdgeCells 复用，避免每次分配
 
         /// <summary>该地图是否为 RimExodus 无缝地块（有传送点）。含锚点 A（原生 MapParent，也是无缝地块的一员）。</summary>
         internal static bool HasSeamEdge(Map map)

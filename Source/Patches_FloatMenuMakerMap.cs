@@ -40,16 +40,16 @@ namespace RimExodus
             context = null;
             __result = new List<FloatMenuOption>();
 
-            var crossesToPocketMap = SeamlessMapUtility.TryResolveMapPosition(clickPos, hostMap, out var targetMap, out var targetLocalCell);
+            var crossesToNeighborMap = SeamlessMapUtility.TryResolveMapPosition(clickPos, hostMap, out var targetMap, out var targetLocalCell);
             var anyPawnElsewhere = selectedPawns.Any(p => p.Map != hostMap);
-            if (!crossesToPocketMap && !anyPawnElsewhere)
+            if (!crossesToNeighborMap && !anyPawnElsewhere)
             {
-                // 两端都在宿主地图，原版流程完全不受影响。
+                // 两端都在当前地图，原版流程完全不受影响。
                 return true;
             }
 
-            var effectiveMap = crossesToPocketMap ? targetMap : hostMap;
-            var effectiveClickPos = crossesToPocketMap ? targetLocalCell.ToVector3Shifted() : clickPos;
+            var effectiveMap = crossesToNeighborMap ? targetMap : hostMap;
+            var effectiveClickPos = crossesToNeighborMap ? targetLocalCell.ToVector3Shifted() : clickPos;
             if (effectiveMap == null || !effectiveClickPos.InBounds(effectiveMap))
             {
                 return false;
@@ -180,7 +180,7 @@ namespace RimExodus
         /// </summary>
         private static AcceptanceReport ShouldGenerateFloatMenuForPawnCrossMap(Pawn pawn, Map hostMap)
         {
-            if (pawn.Map != hostMap && !SeamlessTileRegistry.AreSeamlessNeighbors(pawn.Map, hostMap))
+            if (pawn.Map != hostMap && !SeamlessTileGraph.AreNeighbors(pawn.Map, hostMap))
             {
                 return false;
             }

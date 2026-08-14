@@ -7,8 +7,8 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// 宿主地图上的无缝地块管理器。
-    /// 负责生成/卸载无缝地块口袋地图，并维护接缝关系。
+    /// 锚点地图（家园 A）上的无缝地块管理器。
+    /// 负责生成/卸载无缝地块地图，并维护接缝关系。
     ///
     /// 邻居表以 worldTile 为主键，offset 隐式编码方向（阶段4a 全面重构后无 direction/edgeAngle 字段）。
     /// 多边形裁切用内切圆顶点模型（顶点 = center + 0.5S × 方向）。
@@ -120,7 +120,7 @@ namespace RimExodus
             base.MapGenerated();
             // 仅锚点地图（家园 A）触发开档初始化，便于原型测试。
             // 地块地图（MapParent_SeamlessTile）的邻居生成不通过 MapGenerated 自动级联（避免生成风暴）。
-            // 阶段4前置：基础地图后 IsPocketMap 恒 false，改用 Parent 类型判断是否为地块地图。
+            // 基础地图用 Parent 类型判断是否为地块地图（非 IsPocketMap）。
             if (map.Parent is MapParent_SeamlessTile) return;
             if (!setupOnStartDone)
             {
@@ -146,7 +146,7 @@ namespace RimExodus
             if (anchorWorldTile < 0) return;
 
             // 预铺锚点 A 沿全部世界邻居边的传送点（对端 null）。
-            PlaceEnterSpotsAllNeighbors(map, anchorWorldTile);
+            SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(map, anchorWorldTile);
 
             // 可选：开档加载全部世界邻居。
             var preloadAll = RimExodusMod.Settings?.preloadAllNeighborsOnStart ?? false;
@@ -158,33 +158,6 @@ namespace RimExodus
             {
                 TryPreloadNeighbor(neighborTile.tileId);
             }
-        }
-
-        /// <summary>
-        /// 刷新指定地图的 void 铺设：六边形内（含边）非 void，六边形外 void。可重复调用。
-        ///
-        /// **当前无调用者**。void 铺设已统一在 RimExodus_SeamlessTile genStep（order=1400）完成——
-        /// 通过 XML patch 注入到所有玩家可进入的 MapGeneratorDef（Base_Player / Base_Faction / Encounter），
-        /// 锚点家园与邻接地块（邻居地块的 mapGenerator 也是 Base_Player）走同一条 genStep 链。
-        /// 此前锚点靠本方法在 MapGenerated 后延迟 1 tick 后补铺 void，会删除已生成实体（落石/切断建筑），已废弃。
-        /// 保留本方法供未来读档重建或幂等兜底场景备用。
-        /// </summary>
-        internal static void RefreshMapVoid(Map map)
-        {
-            if (map == null) return;
-
-            int worldTile;
-            if (map.Parent is MapParent_SeamlessTile pocketParent)
-            {
-                worldTile = pocketParent.worldTile;
-            }
-            else
-            {
-                worldTile = map.Tile;
-            }
-            if (worldTile < 0) return;
-
-            SeamlessTerrainFill.ApplyPolygonTerrain(map, worldTile);
         }
 
         /// <summary>
@@ -282,16 +255,16 @@ namespace RimExodus
             // 原生 Coast/River/Delta 等 TileMutator 自然生效，无需 InjectRealTileInfo。
             mapParent.Tile = new PlanetTile(newWorldTile);
             var anchorMap = SeamlessTileGraph.GetAnchorMap(map) ?? map;
-            var hostOffset = ComputeNeighborOffset(sourceWorldTile, newWorldTile, map);
+            var hostOffset = SeamlessNeighborRegistry.ComputeNeighborOffset(sourceWorldTile, newWorldTile, map);
             var sourceWorldTileCapture = sourceWorldTile;
-            var sourceMapCapture = map;
+            var originMapCapture = map;
 
             // 计算 new tile 在全局平面坐标系的原点（阶段4 接缝覆写预留）。
             // tileOrigin = 源 tile 的 tileOrigin + hostOffset（源→新的平面偏移）。
             // 源是锚点 tile（非 MapParent_SeamlessTile）→ tileOrigin = (0,0)。
-            // 源是口袋 tile → 读 sourceMapParent.tileOrigin（沿邻居链累加）。
-            var sourceTileOrigin = (map.Parent is MapParent_SeamlessTile sourcePocket)
-                ? sourcePocket.tileOrigin
+            // 源是地块 tile → 读 originTile.tileOrigin（沿邻居链累加）。
+            var sourceTileOrigin = (map.Parent is MapParent_SeamlessTile originTile)
+                ? originTile.tileOrigin
                 : UnityEngine.Vector2.zero;
             mapParent.tileOrigin = sourceTileOrigin + new UnityEngine.Vector2(hostOffset.x, hostOffset.z);
 
@@ -318,14 +291,14 @@ namespace RimExodus
                     interiorMap.skyManager = anchorMap.skyManager;
                     interiorMap.weatherDecider = anchorMap.weatherDecider;
                     interiorMap.weatherManager = anchorMap.weatherManager;
-                    RegisterNeighborBidirectional(sourceMapCapture, mapParent, sourceWorldTileCapture, newWorldTile, hostOffset);
-                    // 不刷新 sourceMapCapture 的 void——锚点 map 的 void 在 TrySetupOnStart 时已铺好，
+                    SeamlessNeighborRegistry.RegisterNeighborBidirectional(originMapCapture, mapParent, sourceWorldTileCapture, newWorldTile, hostOffset);
+                    // 不刷新 originMapCapture 的 void——锚点 map 的 void 在 TrySetupOnStart 时已铺好，
                     // void 只看自己的多边形（不因邻居关系变化而变）。每次生成邻居都 RefreshMapVoid(锚点)
                     // 会重新清锚点 void 格上玩家游戏期间生长的植物/掉落物（耗时 12-23 秒）。
-                    PlaceEnterSpotsAllNeighbors(interiorMap, newWorldTile);
-                    PlaceEnterSpotsAllNeighbors(sourceMapCapture, sourceWorldTileCapture);
-                    RefreshEnterSpotArrivals(sourceMapCapture);
-                    RefreshEnterSpotArrivals(interiorMap);
+                    SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(originMapCapture, sourceWorldTileCapture);
+                    SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(interiorMap, newWorldTile);
+                    SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(originMapCapture);
+                    SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(interiorMap);
                     AutoConnectWorldNeighbors(interiorMap, newWorldTile);
 
                     if (RimExodusMod.Settings?.verboseLogging ?? false)
@@ -367,34 +340,34 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 当目标 worldTile 已有地图但尚未与 sourceMap 建立直接邻居关系时（多跳间隙，如 C↔A 隔着 B），
+        /// 当目标 worldTile 已有地图但尚未与 originMap 建立直接邻居关系时（多跳间隙，如 C↔A 隔着 B），
         /// 补登记双向邻居表 + 补铺两端传送点 + 互绑。使 C 可以直接走到 A 而非生成 A 的副本。
         /// 若已是直接邻居则跳过（幂等）。
         /// </summary>
-        private static void EnsureNeighborRegistered(Map sourceMap, int sourceWorldTile, Map existingMap, int existingWorldTile)
+        private static void EnsureNeighborRegistered(Map originMap, int sourceWorldTile, Map existingMap, int existingWorldTile)
         {
-            if (sourceMap == null || existingMap == null || sourceMap == existingMap) return;
+            if (originMap == null || existingMap == null || originMap == existingMap) return;
 
             // 若已是直接邻居则无需补登记。
-            if (SeamlessTileGraph.TryGetNeighborLinkByWorldTile(sourceMap, existingWorldTile, out _))
+            if (SeamlessTileGraph.TryGetNeighborLinkByWorldTile(originMap, existingWorldTile, out _))
             {
                 return;
             }
 
             if (RimExodusMod.Settings?.verboseLogging ?? false)
-                Log.Message($"[RimExodus] EnsureNeighborRegistered: linking source map {sourceMap.uniqueID}(wt={sourceWorldTile}) " +
+                Log.Message($"[RimExodus] EnsureNeighborRegistered: linking origin map {originMap.uniqueID}(wt={sourceWorldTile}) " +
                     $"with existing map {existingMap.uniqueID}(wt={existingWorldTile}) as direct neighbors.");
 
-            // 计算 offset（existing 相对 source）。两端须在世界网格上互为邻居。
-            var offset = ComputeNeighborOffset(sourceWorldTile, existingWorldTile, sourceMap);
+            // 计算 offset（existing 相对 origin）。两端须在世界网格上互为邻居。
+            var offset = SeamlessNeighborRegistry.ComputeNeighborOffset(sourceWorldTile, existingWorldTile, originMap);
             var existingParent = existingMap.info.parent;
 
             // 双向登记邻居表（复用 RegisterNeighborBidirectional 逻辑）。
-            RegisterNeighborBidirectional(sourceMap, existingParent, sourceWorldTile, existingWorldTile, offset);
+            SeamlessNeighborRegistry.RegisterNeighborBidirectional(originMap, existingParent, sourceWorldTile, existingWorldTile, offset);
 
             // 补铺两端传送点（幂等）。
-            PlaceEnterSpotsAllNeighbors(sourceMap, sourceWorldTile);
-            PlaceEnterSpotsAllNeighbors(existingMap, existingWorldTile);
+            SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(originMap, sourceWorldTile);
+            SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(existingMap, existingWorldTile);
 
             // void 不需要刷新：void 几何只取决于地图自己的六边形（与世界邻居关系无关），
             // 且两端地图的 void 在它们各自生成时（genStep 阶段）已铺好。此处再调 RefreshMapVoid 会
@@ -402,243 +375,11 @@ namespace RimExodus
 
             // 新铺的传送点需刷新对端坐标缓存（RegisterNeighborBidirectional 内已刷一次，
             // 但补铺的 spot 在其之后，需再刷一次覆盖到它们）。
-            RefreshEnterSpotArrivals(sourceMap);
-            RefreshEnterSpotArrivals(existingMap);
+            SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(originMap);
+            SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(existingMap);
         }
 
-        /// <summary>
-        /// 计算从 sourceWorldTile 到 newWorldTile，新地块相对源地块的偏移。
-        /// offset = round(2 × (边中点 - 中心) - SeamOverlap × 方向单位向量)，边中点取自源地块多边形（内切圆模型）。
-        /// 边由 newWorldTile 在源地块邻居表中的位置确定。
-        /// 沿 offset 方向收缩 <see cref="SeamOverlap"/> 格，使邻居多边形相对源地图多叠 2 格（接缝重叠带），
-        /// 容纳投影扭曲。
-        /// </summary>
-        internal static IntVec3 ComputeNeighborOffset(int sourceWorldTile, int newWorldTile, Map sourceMap)
-        {
-            var sourceSize = sourceMap.Size;
-            var verts = SeamlessPolygonGeometry.BuildPolygonVertices(sourceWorldTile, sourceSize.x);
-            if (verts.Count == 0) return IntVec3.Zero;
-
-            var edgeIdx = WorldTileGeometry.FindNeighborIndex(sourceWorldTile, newWorldTile);
-            if (edgeIdx < 0) return IntVec3.Zero;
-
-            var n = verts.Count;
-            var center = new Vector2(sourceSize.x * 0.5f, sourceSize.z * 0.5f);
-            var mid = (verts[edgeIdx] + verts[(edgeIdx + 1) % n]) * 0.5f;
-            var offsetVec = 2f * (mid - center);
-            // 沿 offset 方向收缩 SeamOverlap 格，形成接缝重叠带（容纳投影扭曲）。
-            var mag = offsetVec.magnitude;
-            if (mag > 1e-6f)
-            {
-                offsetVec -= offsetVec / mag * SeamOverlap;
-            }
-            // 方向校准已验证正确（heading 真值对比），诊断日志移除保持干净。
-            return new IntVec3(Mathf.RoundToInt(offsetVec.x), 0, Mathf.RoundToInt(offsetVec.y));
-        }
-
-        /// <summary>
-        /// 双向登记两个地块的邻居关系（支持任意组合：锚点-口袋、口袋-口袋、口袋-锚点）。
-        /// 源地块 → 新地块：用源地块多边形上指向 newWorldTile 的边角度。
-        /// 新地块 → 源地块：偏移 = -offset。
-        /// 存储位置由 SetNeighborOnMap 统一屏蔽（锚点存 Manager.neighbors，口袋存 MapParent_SeamlessTile.neighbors）。
-        /// </summary>
-        private static void RegisterNeighborBidirectional(Map sourceMap, MapParent newParent,
-            int sourceWorldTile, int newWorldTile, IntVec3 offset)
-        {
-            var sourceParent = sourceMap.info.parent;
-            var newMap = newParent.Map;
-
-            SetNeighborOnMap(sourceMap, newWorldTile, newParent, offset);
-            if (newMap != null)
-            {
-                SetNeighborOnMap(newMap, sourceWorldTile, sourceParent, -offset);
-            }
-
-            // offset 在此确定且不再变：刷新两端所有传送点的对端坐标缓存，供传送/寻路 O(1) 读取。
-            RefreshEnterSpotArrivals(sourceMap);
-            if (newMap != null)
-            {
-                RefreshEnterSpotArrivals(newMap);
-            }
-        }
-
-        /// <summary>
-        /// 遍历 map 上所有无缝传送点，按各自的 targetWorldTile 查邻居表得 offset，算出并缓存对端坐标。
-        /// 在邻居关系建立（<see cref="RegisterNeighborBidirectional"/>）后调用一次。
-        /// 幂等：可重复调用（每次重新查 offset 并覆盖缓存）。
-        /// </summary>
-        public static void RefreshEnterSpotArrivals(Map map)
-        {
-            if (map == null) return;
-            var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
-            if (enterSpotDef == null) return;
-
-            foreach (var thing in map.listerThings.ThingsOfDef(enterSpotDef))
-            {
-                var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
-                comp?.ComputeAndCacheArrival(map);
-            }
-        }
-
-        /// <summary>在 map 上登记一条邻居连接（锚点存 Manager.neighbors，口袋存 MapParent_SeamlessTile.neighbors）。</summary>
-        private static void SetNeighborOnMap(Map map, int worldTile, MapParent neighbor, IntVec3 offset)
-        {
-            if (map == null || neighbor == null) return;
-            if (map.Parent is MapParent_SeamlessTile tileParent)
-            {
-                tileParent.SetNeighbor(worldTile, neighbor, offset);
-            }
-            else
-            {
-                map.GetComponent<SeamlessTileManager>()?.SetNeighbor(worldTile, neighbor, offset);
-            }
-        }
-
-        /// <summary>
-        /// 沿地图全部世界邻居边预铺单端传送点（阶段4a 预铺 + 阶段4b 传送机制重构）。
-        /// 枚举"接缝带"——到最近 void 格的切比雪夫距离 ∈ {1, 2} 的非 void 格（即紧贴 void 的
-        /// <see cref="SeamOverlap"/> 格宽环形带：最外圈 + 次外圈）。每个格按"最近多边形边 j"
-        /// 分组确定 <see cref="CompSeamlessTileEnterSpot.targetWorldTile"/>（= 该边对应的世界邻居 tile）。
-        /// spot 预铺时 hasArrival 默认 false；邻居加载后由 <see cref="RefreshEnterSpotArrivals"/>
-        /// 用 offset 算对端坐标并缓存到 spot（cachedArrivalCell），废弃了旧的互绑模式。
-        ///
-        /// 幂等：已存在同位置 spot 不重复铺。锚点和口袋都适用（不依赖 MapParent 类型）。
-        ///
-        /// **接缝带宽度 = SeamOverlap（2）格（关键设计）**：两端各有 2 格宽的 spot 带，通过
-        /// <see cref="ComputeNeighborOffset"/> 的 offset 重叠时，实际接缝落在两端 2 格带的中线上——
-        /// 接缝上两端都有 spot。投影必然扭曲（相邻 tile 切平面基有旋转，赤道→北极累积约 30°），
-        /// 2 格宽的 spot 带互相覆盖吸收此偏移：即使两端 spot 因投影旋转错开 ≤2 格，落点仍能落在
-        /// 对端 spot 带内，不会漏到无 spot 的内部或 void。这正是"传送点带本身 SeamOverlap 格宽"
-        /// 的含义（旧的"沿边 Bresenham 单线 / 不铺两层"描述已废弃）。
-        ///
-        /// **几何一致性**：spot 带直接由 terrainGrid 里的 void 边界决定（平移法：把每个 void 格
-        /// 的 (2·SeamOverlap+1)² 邻域内的非 void 格标为带内，等价于"void 向外膨胀 SeamOverlap 格"，
-        /// 也等价于"本格非 void 且到 void 的切比雪夫距离 ∈ {1..SeamOverlap}"），与
-        /// <see cref="SeamlessTerrainFill.ApplyPolygonTerrain"/> 铺 void 用的是同一套格角检测几何，
-        /// 杜绝"spot 几何 vs void 边界"两套口径错配。复杂度 O(N² + void格数·(2r+1)²)。
-        ///
-        /// **调用时机**：必须在 <see cref="SeamlessTerrainFill.ApplyPolygonTerrain"/> 之后调用——
-        /// 本方法直接读 terrainGrid 判定 void。ApplyPolygonTerrain 会清空 void 格上的实体，
-        /// 若在它之前铺 spot，spot 会被清空逻辑销毁。GenerateTileMap 内部保证此顺序（GenStep 含 ApplyPolygonTerrain
-        /// 在 MapGenerator.GenerateMap 内执行，之后才调本方法）。
-        /// </summary>
-        public static void PlaceEnterSpotsAllNeighbors(Map targetMap, int worldTile)
-        {
-            if (targetMap == null || worldTile < 0) return;
-
-            var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
-            if (enterSpotDef == null)
-            {
-                Log.Error("[RimExodus] ThingDef RimExodus_SeamlessEnterSpot not found.");
-                return;
-            }
-
-            // void 地形 Def：从 terrainGrid 读本格/邻格是否 void。
-            var voidDef = DefDatabase<TerrainDef>.GetNamedSilentFail("RimExodus_Void");
-
-            var mapSize = targetMap.Size;
-            var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize.x);
-            if (verts.Count == 0) return;
-
-            // 取世界邻居列表（顺序与多边形顶点环绕一致，边 j ↔ 邻居 j）。
-            var worldNeighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
-            if (worldNeighbors.Count == 0) return;
-
-            // 预解析每个边 j 对应的世界邻居 tileId（避免内层循环重复访问）。
-            var edgeNeighborTiles = new int[verts.Count];
-            for (var j = 0; j < verts.Count; j++)
-            {
-                edgeNeighborTiles[j] = j < worldNeighbors.Count ? worldNeighbors[j].tileId : -1;
-            }
-
-            var terrainGrid = targetMap.terrainGrid.topGrid;
-            var cellIndices = targetMap.cellIndices;
-            var sx = mapSize.x;
-            var sz = mapSize.z;
-            var totalCells = sx * sz;
-            // 接缝带切比雪夫半径 = SeamOverlap（到 void 的切比雪夫距离 ∈ {1..SeamOverlap}）。
-            var bandRadius = SeamOverlap;
-
-            // ---- 平移法构建接缝带掩码（比每格扫 5×5 邻域高效且直观）----
-            // 第 1 遍：标记所有 void 格。
-            // 第 2 遍：对每个 void 格，把它 (2r+1)×(2r+1) 邻域内的非 void 格标为带内。
-            // 等价于"把 void 向外膨胀 bandRadius 格"，即边缘 void 上下左右平移 ≤bandRadius 格的并集。
-            var isVoid = new bool[totalCells];
-            if (voidDef != null)
-            {
-                for (var i = 0; i < totalCells; i++) isVoid[i] = terrainGrid[i] == voidDef;
-            }
-            var inBand = new bool[totalCells];
-            for (var z = 0; z < sz; z++)
-            {
-                for (var x = 0; x < sx; x++)
-                {
-                    if (!isVoid[z * sx + x]) continue;
-                    var xMin = x - bandRadius; if (xMin < 0) xMin = 0;
-                    var xMax = x + bandRadius; if (xMax >= sx) xMax = sx - 1;
-                    var zMin = z - bandRadius; if (zMin < 0) zMin = 0;
-                    var zMax = z + bandRadius; if (zMax >= sz) zMax = sz - 1;
-                    for (var nz = zMin; nz <= zMax; nz++)
-                    {
-                        var rowBase = nz * sx;
-                        for (var nx = xMin; nx <= xMax; nx++)
-                        {
-                            var ni = rowBase + nx;
-                            // 只标非 void 格为带内（void 本身保持 false，不铺 spot）。
-                            if (!isVoid[ni]) inBand[ni] = true;
-                        }
-                    }
-                }
-            }
-
-            var placed = 0;
-
-            for (var x = 0; x < sx; x++)
-            {
-                for (var z = 0; z < sz; z++)
-                {
-                    var idx = z * sx + x;
-                    if (!inBand[idx]) continue;
-
-                    var cell = new IntVec3(x, 0, z);
-
-                    // 最近多边形边 j → 该边对应的世界邻居 tile（targetWorldTile）。
-                    var edgeIdx = SeamlessPolygonGeometry.FindClosestEdgeIndex(verts, cell.x + 0.5f, cell.z + 0.5f);
-                    var neighborWorldTile = edgeIdx >= 0 && edgeIdx < edgeNeighborTiles.Length ? edgeNeighborTiles[edgeIdx] : -1;
-                    if (neighborWorldTile < 0) continue;
-
-                    // 幂等查重：该格已有同 def spot 则跳过。
-                    var existing = targetMap.thingGrid.ThingsListAtFast(cell);
-                    var hasSpot = false;
-                    for (var i = 0; i < existing.Count; i++)
-                    {
-                        if (existing[i].def == enterSpotDef) { hasSpot = true; break; }
-                    }
-                    if (hasSpot) continue;
-
-                    var spot = ThingMaker.MakeThing(enterSpotDef);
-                    var comp = spot.TryGetComp<CompSeamlessTileEnterSpot>();
-                    var spawned = GenSpawn.Spawn(spot, cell, targetMap);
-                    if (spawned != null && comp != null)
-                    {
-                        comp.targetWorldTile = neighborWorldTile;
-                        // hasArrival 默认 false：预铺时不缓存对端坐标，待邻居加载、
-                        // RegisterNeighborBidirectional → RefreshEnterSpotArrivals 时算出。
-                        placed++;
-                    }
-                    else if (spawned != null)
-                    {
-                        spawned.DeSpawn();
-                    }
-                }
-            }
-
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
-                Log.Message($"[RimExodus] PlaceEnterSpotsAllNeighbors map={targetMap.uniqueID}(wt={worldTile}) placed {placed} single-end spots.");
-        }
-
-        /// <summary>卸载一个无缝地块基础地图，并清理邻居表中的双向引用。</summary>
+        /// <summary>卸载一个无缝地块地图，并清理邻居表中的双向引用。</summary>
         public void RemoveTileMap(MapParent_SeamlessTile parent)
         {
             if (parent == null) return;
@@ -646,47 +387,9 @@ namespace RimExodus
             var interiorMap = parent.Map;
             if (interiorMap != null)
             {
-                CleanupNeighborLinks(parent);
-                // 阶段4前置：基础地图无 sourceMap，不在 pocketMaps 列表。
+                SeamlessNeighborRegistry.CleanupNeighborLinks(parent);
                 // WorldObject 由 DeinitAndRemoveMap 触发 MapParent 销毁时清理。
                 Current.Game.DeinitAndRemoveMap(interiorMap, false);
-            }
-        }
-
-        /// <summary>移除 parent 与其所有邻居之间的双向邻居表引用，并刷新受影响剩余邻居的传送点缓存。</summary>
-        private static void CleanupNeighborLinks(MapParent_SeamlessTile parent)
-        {
-            var linksToRemove = new List<NeighborLink>(parent.neighbors);
-            parent.neighbors.Clear();
-
-            // 收集受影响的剩余邻居 Map（去重），清理后需刷新其传送点缓存，
-            // 否则指向被卸载地块的 spot 仍保留陈旧的 hasArrival/cachedArrivalCell。
-            var affectedMaps = new HashSet<Map>();
-
-            foreach (var link in linksToRemove)
-            {
-                if (link?.neighbor == null) continue;
-                if (link.neighbor is MapParent_SeamlessTile neighborTile)
-                {
-                    neighborTile.neighbors.RemoveAll(n => n != null && n.neighbor == parent);
-                }
-                else if (link.neighbor.Map != null)
-                {
-                    link.neighbor.Map.GetComponent<SeamlessTileManager>()?.neighbors
-                        .RemoveAll(n => n != null && n.neighbor == parent);
-                }
-
-                // 记录受影响的邻居 Map（neighbor.Map 在口袋被卸载场景下可能为 null，跳过）。
-                if (link.neighbor.Map != null)
-                {
-                    affectedMaps.Add(link.neighbor.Map);
-                }
-            }
-
-            // 刷新剩余邻居的传送点缓存：指向已卸载地块的 spot 会重算 hasArrival=false，缓存自然失效。
-            foreach (var affectedMap in affectedMaps)
-            {
-                RefreshEnterSpotArrivals(affectedMap);
             }
         }
     }

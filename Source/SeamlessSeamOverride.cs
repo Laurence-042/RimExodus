@@ -96,7 +96,8 @@ namespace RimExodus
             var cellIndices = map.cellIndices;
             var topGrid = terrainGrid.topGrid;
             var mapDrawer = map.mapDrawer;
-            var diag = RimExodusMod.Settings?.seamOverrideDiag ?? false;
+            // 硬边界来源②修复：最内圈 w 不再硬夹到 1.0，cap 到此值系统保留 (1-wCap) self 分布。
+            var wCap = Mathf.Clamp01(RimExodusMod.Settings?.seamOverrideWeightCap ?? 0.9f);
 
             foreach (var kv in cellsByNeighbor)
             {
@@ -112,90 +113,58 @@ namespace RimExodus
                 if (neighborSnapshot == null) continue;
 
                 // offset：本端 cell = 邻居 cell + offset。故邻居 cell = 本端 cell - offset。
-                var offset = SeamlessTileManager.ComputeNeighborOffset(worldTile, neighborTile, map);
+                var offset = SeamlessNeighborRegistry.ComputeNeighborOffset(worldTile, neighborTile, map);
                 if (offset == IntVec3.Zero) continue;
 
                 var neighborSize = neighborMap.Size.x;
                 var neighborIndices = neighborMap.cellIndices;
 
-                // 诊断取样统计（每邻居一条汇总日志）。
-                int diagTotal = 0, diagOutOfBounds = 0, diagNeighborDistNull = 0, diagVoidCell = 0, diagUnchanged = 0, diagWritten = 0;
-                float diagWMin = 1f, diagWMax = 0f;
-                int diagWrittenToRock = 0, diagWrittenToSoil = 0;
-                // chosen defName 分布（不只 toRock/toSoil 二分，精确定位写入的是泥土/沙/水/岩石）。
-                var diagWrittenDefNames = diag ? new Dictionary<string, int>() : null;
-
                 foreach (var cell in bandCells)
                 {
-                    diagTotal++;
                     var chebyDist = bandDistances.TryGetValue(cell, out var cd) ? cd : 1;
-                    var wBase = 1f - Mathf.Clamp01((chebyDist - 1f) / Mathf.Max(1, bandWidth - 1));
+                    // wBase cap 到 wCap（来源②）：最内圈不再硬夹到 1.0，系统保留 (1-wCap) self 分布。
+                    var wBase = wCap * (1f - Mathf.Clamp01((chebyDist - 1f) / Mathf.Max(1, bandWidth - 1)));
                     // 叠加空间噪声：w' = clamp01(wBase + n×amp)，n∈[-1,1]。clamp01 保证 w∈[0,1]，
                     // 不破坏"最内圈偏邻居、中心偏 self"的总体单调，只是把过渡线抖弯。
                     var w = weightNoise != null
                         ? Mathf.Clamp01(wBase + (float)weightNoise.GetValue(cell) * noiseAmp)
                         : wBase;
-                    if (diag) { if (w < diagWMin) diagWMin = w; if (w > diagWMax) diagWMax = w; }
 
                     var neighborCell = cell - offset;
-                    if (!neighborCell.InBounds(neighborMap)) { diagOutOfBounds++; continue; }
+                    if (!neighborCell.InBounds(neighborMap)) continue;
 
                     var selfDist = Convolve3x3(selfSnapshot, mapSize, cell);
                     var neighborDist = Convolve3x3(neighborSnapshot, neighborSize, neighborCell);
-                    if (selfDist == null || neighborDist == null) { diagNeighborDistNull++; continue; }
+                    if (selfDist == null || neighborDist == null) continue;
 
                     var localIdx = cellIndices.CellToIndex(cell);
                     var localTerrain = topGrid[localIdx];
-                    if (localTerrain == null || (voidDef != null && localTerrain == voidDef)) { diagVoidCell++; continue; }
+                    if (localTerrain == null || (voidDef != null && localTerrain == voidDef)) continue;
 
                     var blended = BlendDistributions(neighborDist, selfDist, w);
                     var chosen = GetMode(blended);
-                    if (chosen == null || chosen == localTerrain)
-                    {
-                        diagUnchanged++;
-                        continue;
-                    }
+                    if (chosen == null || chosen == localTerrain) continue;
 
                     topGrid[localIdx] = chosen;
                     mapDrawer.MapMeshDirty(cell, MapMeshFlagDefOf.Terrain, regenAdjacentCells: false, regenAdjacentSections: false);
-                    if (diag)
-                    {
-                        if (IsRockTerrain(chosen)) diagWrittenToRock++; else diagWrittenToSoil++;
-                        diagWrittenDefNames.TryGetValue(chosen.defName, out var cn);
-                        diagWrittenDefNames[chosen.defName] = cn + 1;
-                    }
-                    diagWritten++;
 
                     SyncRockBuilding(map, cell, chosen, out _);
-                }
-
-                if (diag)
-                {
-                    // written chosen defName 分布（降序）。
-                    var writtenDist = diagWrittenDefNames.Count == 0 ? "(none)"
-                        : FormatDefNameTally(diagWrittenDefNames);
-                    Log.Message($"[RimExodus-SeamDiag] wt={worldTile} nbr={neighborTile} offset={offset} bandCells={diagTotal} " +
-                        $"noiseAmp={noiseAmp:F2} w[{diagWMin:F2}..{diagWMax:F2}] oob={diagOutOfBounds} nbrDistNull={diagNeighborDistNull} " +
-                        $"voidCell={diagVoidCell} unchanged={diagUnchanged} " +
-                        $"written={diagWritten}(toRock={diagWrittenToRock},toSoil={diagWrittenToSoil}) writtenDist={writtenDist}");
-                    // 两端 snapshot 在本邻居接缝带的分布：直接看出卷积输入是沙/水还是泥土。
-                    SeamTerrainProbe.LogSnapshotBand(map, worldTile, selfSnapshot, $"1410-self-nbr{neighborTile}");
-                    SeamTerrainProbe.LogSnapshotBand(neighborMap, neighborTile, neighborSnapshot, $"1410-neighbor-nbr{neighborTile}");
                 }
             }
         }
 
-        /// <summary>获取 map 的基础地形 snapshot（RimExodus tile 从 MapParent，锚点从 Manager）。</summary>
+        /// <summary>获取 map 的基础地形 snapshot（地块从 MapParent_SeamlessTile，锚点从 Manager）。</summary>
         private static TerrainDef[] GetSnapshot(Map map)
         {
-            if (map.Parent is MapParent_SeamlessTile pocket) return pocket.baseTerrainSnapshot;
+            if (map.Parent is MapParent_SeamlessTile tile) return tile.baseTerrainSnapshot;
             var manager = map.GetComponent<SeamlessTileManager>();
             return manager?.anchorBaseTerrainSnapshot;
         }
 
         /// <summary>
         /// 3×3 卷积：统计 centerCell 周围 3×3 邻域（含自身）每种 terrainDef 的出现次数。
-        /// 越界格跳过。void 格跳过（不参与统计）。
+        /// 越界格 clamp 到边界格（硬边界来源①修复：不再 skip，假设边界外与边界格同地形，
+        /// 消除 snapshot 矩形边界处卷积窗口截断导致的残缺分布）。void 格跳过（不参与统计）。
         /// 返回归一化占比（和=1）。
         /// </summary>
         private static Dictionary<TerrainDef, float> Convolve3x3(TerrainDef[] snapshot, int mapSize, IntVec3 center)
@@ -208,9 +177,11 @@ namespace RimExodus
             {
                 for (var dz = -1; dz <= 1; dz++)
                 {
+                    // 来源①修复：越界 clamp 到边界格（而非 skip），避免 snapshot 矩形边界处窗口截断。
                     var nx = center.x + dx;
+                    if (nx < 0) nx = 0; else if (nx >= mapSize) nx = mapSize - 1;
                     var nz = center.z + dz;
-                    if (nx < 0 || nx >= mapSize || nz < 0 || nz >= mapSize) continue;
+                    if (nz < 0) nz = 0; else if (nz >= mapSize) nz = mapSize - 1;
                     var idx = nz * mapSize + nx;
                     var t = snapshot[idx];
                     if (t == null) continue;
@@ -267,28 +238,6 @@ namespace RimExodus
                 }
             }
             return best;
-        }
-
-        /// <summary>把 defName→count 字典格式化为 "defName=count, defName=count"（按 count 降序）。</summary>
-        private static string FormatDefNameTally(Dictionary<string, int> tally)
-        {
-            if (tally == null || tally.Count == 0) return "(none)";
-            var sb = new System.Text.StringBuilder();
-            var items = new List<KeyValuePair<string, int>>(tally);
-            items.Sort((a, b) =>
-            {
-                var c = b.Value.CompareTo(a.Value);
-                if (c != 0) return c;
-                return string.Compare(a.Key, b.Key, System.StringComparison.Ordinal);
-            });
-            var first = true;
-            foreach (var kv in items)
-            {
-                if (!first) sb.Append(", ");
-                first = false;
-                sb.Append(kv.Key).Append('=').Append(kv.Value);
-            }
-            return sb.ToString();
         }
 
         /// <summary>

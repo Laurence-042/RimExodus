@@ -128,10 +128,10 @@ namespace RimExodus
             var idx = cellIndices.CellToIndex(cell);
             var currentTerrain = map.terrainGrid.topGrid[idx];
 
-            // 本地 snapshot（口袋读 MapParent_SeamlessTile，锚点读 Manager）。
+            // 本地 snapshot（地块读 MapParent_SeamlessTile，锚点读 Manager）。
             TerrainDef[] selfSnapshot = null;
-            if (map.Parent is MapParent_SeamlessTile pocket)
-                selfSnapshot = pocket.baseTerrainSnapshot;
+            if (map.Parent is MapParent_SeamlessTile tile)
+                selfSnapshot = tile.baseTerrainSnapshot;
             else
                 selfSnapshot = map.GetComponent<SeamlessTileManager>()?.anchorBaseTerrainSnapshot;
 
@@ -192,8 +192,8 @@ namespace RimExodus
 
             // 邻居对应格在邻居 snapshot 的值。
             TerrainDef[] neighborSnapshot = null;
-            if (neighborMap.Parent is MapParent_SeamlessTile neighborPocket)
-                neighborSnapshot = neighborPocket.baseTerrainSnapshot;
+            if (neighborMap.Parent is MapParent_SeamlessTile neighborTile)
+                neighborSnapshot = neighborTile.baseTerrainSnapshot;
             else
                 neighborSnapshot = neighborMap.GetComponent<SeamlessTileManager>()?.anchorBaseTerrainSnapshot;
 

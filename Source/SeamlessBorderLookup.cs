@@ -12,7 +12,7 @@ namespace RimExodus
     /// 不在表中的格 = 非边界带，不触发预加载。
     /// 查询 O(1)，适合未来高频场景（如撤退袭击者批量检查）。
     ///
-    /// 构建算法：算法 C（凸多边形内缩 + 扫描线差集），见 <see cref="SeamlessPolygonGeometry.ComputeEdgeBand"/>。
+    /// 构建算法：算法 C（凸多边形内缩 + 扫描线差集），见 <see cref="SeamlessPolygonGeometry.ComputeVoidBand"/>。
     /// 阈值从 <see cref="RimExodusSettings.borderPreloadDistance"/> 读取。
     /// </summary>
     public class SeamlessBorderLookup : MapComponent

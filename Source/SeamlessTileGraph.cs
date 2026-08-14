@@ -29,9 +29,9 @@ namespace RimExodus
             if (map == null) return false;
 
             NeighborLink link = null;
-            if (map.Parent is MapParent_SeamlessTile pocketParent)
+            if (map.Parent is MapParent_SeamlessTile tileParent)
             {
-                link = pocketParent.GetNeighborByWorldTile(worldTile);
+                link = tileParent.GetNeighborByWorldTile(worldTile);
             }
             else
             {
@@ -67,9 +67,9 @@ namespace RimExodus
             if (map == null || result == null) return;
 
             List<NeighborLink> links;
-            if (map.Parent is MapParent_SeamlessTile pocketParent)
+            if (map.Parent is MapParent_SeamlessTile tileParent)
             {
-                links = pocketParent.neighbors;
+                links = tileParent.neighbors;
             }
             else
             {
@@ -106,7 +106,7 @@ namespace RimExodus
 
         /// <summary>
         /// 判断 map 是否为锚点地图（玩家家园，IsPlayerHome）。
-        /// 阶段4前置：改基础地图后 IsPocketMap 恒 false，改用 IsPlayerHome 区分家园与地块。
+        /// 用 IsPlayerHome 区分家园与地块（基础地图无 IsPocketMap 语义）。
         /// 地块地图（MapParent_SeamlessTile）不是锚点；原生家园地图是锚点。
         /// </summary>
         public static bool IsAnchorMap(Map map)

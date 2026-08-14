@@ -6,7 +6,7 @@ namespace RimExodus
     /// 无缝地块入口端点。
     ///
     /// 架构（容纳投影扭曲）：传送点不再与对端 spot 双向互绑。每个 spot 记录指向的对端世界地块
-    /// <see cref="targetWorldTile"/>；邻居关系建立后，由 <see cref="SeamlessTileManager.RefreshEnterSpotArrivals"/>
+    /// <see cref="targetWorldTile"/>；邻居关系建立后，由 <see cref="SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals"/>
     /// 按 offset 算出"本格在对端地图的对应坐标"并缓存到 <see cref="cachedArrivalCell"/>。
     /// 之后传送触发与寻路查询都 O(1) 读缓存，不再现算 offset、不依赖对端 spot 是否存在。
     ///

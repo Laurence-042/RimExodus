@@ -65,13 +65,20 @@ namespace RimExodus
             listing.Gap();
 
             listing.CheckboxLabeled("Verbose logging (diagnostics)", ref s.verboseLogging);
-            listing.CheckboxLabeled("Seam override diagnostics (per-neighbor sample log)", ref s.seamOverrideDiag);
             listing.Gap();
 
             // 接缝覆写混合带比例（0=关闭，0.25=默认 25% 半径）
             listing.Label($"Seam override ratio: {s.seamOverrideRatio:F2}");
             s.seamOverrideRatio = listing.Slider(s.seamOverrideRatio, 0f, 0.5f);
             listing.Label("(接缝带 terrainDef 过渡混合占 tile 半径比例, 0=关闭)");
+
+            // 权重噪声幅度（0=关闭噪声，0.15=默认）
+            listing.Label($"Seam override noise amplitude: {s.seamOverrideNoiseAmplitude:F2}");
+            s.seamOverrideNoiseAmplitude = listing.Slider(s.seamOverrideNoiseAmplitude, 0f, 0.5f);
+
+            // 权重上限（1.0=关闭，0.9=默认）
+            listing.Label($"Seam override weight cap: {s.seamOverrideWeightCap:F2}");
+            s.seamOverrideWeightCap = listing.Slider(s.seamOverrideWeightCap, 0.5f, 1.0f);
 
             listing.End();
         }

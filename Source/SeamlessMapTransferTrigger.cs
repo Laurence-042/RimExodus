@@ -50,7 +50,7 @@ namespace RimExodus
 
             // 选中保持集的失效清理（pawn 死亡/销毁/未跨图残留）。仅在锚点地图跑，避免每张地图重复。
             // 集合通常为空（跨图完成即消费），清理开销可忽略。
-            // 阶段4前置：基础地图后 IsPocketMap 恒 false，改用 SeamlessTileGraph.IsAnchorMap 判断家园。
+            // 用 IsAnchorMap 判断家园（基础地图无 IsPocketMap 语义）。
             if (SeamlessTileGraph.IsAnchorMap(map))
             {
                 SeamlessSelectionTracker.PurgeInvalid();

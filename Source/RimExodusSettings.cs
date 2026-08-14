@@ -37,12 +37,11 @@ namespace RimExodus
         public float seamOverrideNoiseAmplitude = 0.15f;
 
         /// <summary>
-        /// 接缝覆写开发诊断开关（独立于 verboseLogging，只产接缝相关精简日志）。
-        /// 开启时在 SeamlessSeamOverride.ApplyOneWay 关键位置取样：每邻居的 offset、混合带 cell 数、
-        /// 越界跳过数、权重分布、采样到的 neighborCell 坐标范围、卷积众数。
-        /// 用于精确定位"一侧空地/对侧岩石"的采样几何问题，不被 verbose 杂项干扰。
+        /// 接缝覆写权重上限（硬边界来源②修复）。最内圈（紧邻 void）的 w 不再硬夹到 1.0，
+        /// 而是 cap 到此值，系统性地保留 (1-wCap) 比例的 self 分布，避免最内圈形成硬边界。
+        /// 1.0 = 关闭（等同旧行为）。0.9 = 最内圈最多 90% 取邻居分布，保留 10% self。
         /// </summary>
-        public bool seamOverrideDiag = false;
+        public float seamOverrideWeightCap = 0.9f;
 
         /// <summary>
         /// 海岸补铺：深水带宽度（格，到最近海洋边的距离 &lt; 此值铺深水）。0.15×mapSize 的比例。
@@ -70,7 +69,7 @@ namespace RimExodus
             Scribe_Values.Look(ref borderNoBuildDistance, "borderNoBuildDistance", 3);
             Scribe_Values.Look(ref seamOverrideRatio, "seamOverrideRatio", 0.25f);
             Scribe_Values.Look(ref seamOverrideNoiseAmplitude, "seamOverrideNoiseAmplitude", 0.15f);
-            Scribe_Values.Look(ref seamOverrideDiag, "seamOverrideDiag", false);
+            Scribe_Values.Look(ref seamOverrideWeightCap, "seamOverrideWeightCap", 0.9f);
             Scribe_Values.Look(ref coastalEdgeDeepWaterDistance, "coastalEdgeDeepWaterDistance", 0.15f);
             Scribe_Values.Look(ref coastalEdgeShallowWaterDistance, "coastalEdgeShallowWaterDistance", 0.25f);
             Scribe_Values.Look(ref coastalEdgeBeachSandDistance, "coastalEdgeBeachSandDistance", 0.35f);

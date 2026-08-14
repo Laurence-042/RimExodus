@@ -11,9 +11,9 @@ namespace RimExodus
     /// 基于内切圆顶点模型：多边形顶点 = 地图中心 + 0.5S × 顶点方向单位向量。
     /// 所有方法统一遍历 N 个顶点（N=5 或 6），不区分五边形/六边形。
     ///
-    /// 提供多边形顶点构造、凸多边形扫描线填充、点在多边形内判定、
-    /// 边 Bresenham 枚举（传送点划线）等共用能力，
-    /// 供 GenStep 铺虚空、ComputeNeighborOffset 算偏移、EnumerateSeamCells 放传送点、
+    /// 提供多边形顶点构造、点在多边形内判定、
+    /// 距 void 边界环形带（ComputeVoidBand，传送点/混合带/边界带共用）等能力，
+    /// 供 GenStep 铺虚空、ComputeNeighborOffset 算偏移、PlaceEnterSpotsAllNeighbors 放传送点、
     /// Registry 归属判定复用。
     /// </summary>
     public static class SeamlessPolygonGeometry
@@ -121,32 +121,6 @@ namespace RimExodus
             if (ContainsPointAt(verts, cell.x, cell.z + 1f)) return true;
             if (ContainsPointAt(verts, cell.x + 1f, cell.z + 1f)) return true;
             return false;
-        }
-
-        /// <summary>
-        /// 沿多边形边 j（连接顶点 j 与顶点 j+1）用 Bresenham 枚举线经过的格子。
-        /// 用于传送点划线满铺接缝。浮点顶点先 RoundToInt 成整数端点，再走标准整数 Bresenham。
-        /// 注：void 判定已改用 IsCellInPolygon 格角检测（不依赖此划线），故不做边格补偿——
-        /// 边附近的 void 孤岛由格角检测消除，传送点只需覆盖边线经过的主体格。
-        /// </summary>
-        public static IEnumerable<IntVec3> EnumerateEdgeCells(List<Vector2> verts, int edgeIdx, int mapSize)
-        {
-            var n = verts.Count;
-            if (n == 0) yield break;
-
-            var v0 = verts[edgeIdx];
-            var v1 = verts[(edgeIdx + 1) % n];
-
-            // Bresenham（浮点端点版本，逐格步进）。
-            var x0 = Mathf.RoundToInt(v0.x);
-            var y0 = Mathf.RoundToInt(v0.y);
-            var x1 = Mathf.RoundToInt(v1.x);
-            var y1 = Mathf.RoundToInt(v1.y);
-
-            foreach (var cell in BresenhamLine(x0, y0, x1, y1, mapSize))
-            {
-                yield return cell;
-            }
         }
 
         /// <summary>
@@ -277,42 +251,6 @@ namespace RimExodus
             t = Mathf.Clamp01(t);
             var closest = v0 + t * edge;
             return Vector2.Distance(p, closest);
-        }
-
-        /// <summary>
-        /// 整数 Bresenham 直线（含四格交点补偿：整数交点处向 +x 方向补一格）。
-        /// 输出经过的所有格（截断到地图范围）。
-        /// </summary>
-        private static IEnumerable<IntVec3> BresenhamLine(int x0, int y0, int x1, int y1, int mapSize)
-        {
-            var dx = Mathf.Abs(x1 - x0);
-            var dy = Mathf.Abs(y1 - y0);
-            var sx = x0 < x1 ? 1 : -1;
-            var sy = y0 < y1 ? 1 : -1;
-            var err = dx - dy;
-
-            var x = x0;
-            var y = y0;
-
-            while (true)
-            {
-                if (x >= 0 && x < mapSize && y >= 0 && y < mapSize)
-                {
-                    yield return new IntVec3(x, 0, y);
-                }
-                if (x == x1 && y == y1) break;
-                var e2 = 2 * err;
-                if (e2 > -dy)
-                {
-                    err -= dy;
-                    x += sx;
-                }
-                if (e2 < dx)
-                {
-                    err += dx;
-                    y += sy;
-                }
-            }
         }
     }
 }

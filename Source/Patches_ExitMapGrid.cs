@@ -12,7 +12,7 @@ namespace RimExodus
     ///    的格为 exit cell，<see cref="CellBoolDrawer"/> 把这些格画成浅绿色带。
     /// 2. 六边形裁切后矩形边缘全是 void，方形带无效（既看不清也走不到），但 <c>CanBeSeenOver</c> 只看 edifice
     ///    不看 walkability，部分 void/边缘格仍会被标 → 画出一圈无效的浅绿色方形带。
-    /// 3. 同时传送点沿六边形接缝带铺设（<see cref="SeamlessTileManager.PlaceEnterSpotsAllNeighbors"/>），
+    /// 3. 同时传送点沿六边形接缝带铺设（<see cref="SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors"/>），
     ///    需要把这些格标为 exit cell，原生 <c>JobDriver_Goto</c> 检查 <c>IsExitCell</c> 时踩传送点设
     ///    <c>exitMapOnArrival=true</c>，触发原生 <c>Pawn.ExitMap</c> → 大地图远行队生成。
     ///

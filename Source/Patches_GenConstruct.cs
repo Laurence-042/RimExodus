@@ -16,8 +16,8 @@ namespace RimExodus
     /// Prefix 内遍历 <see cref="GenAdj.OccupiedRect(IntVec3, Rot4, IntVec2)"/>，任一格落在禁建带 → 拒绝。
     ///
     /// godMode 放行（开发模式可建，与原生 InNoBuildEdgeArea 语义一致）。
-    /// 不处理原版 InNoBuildEdgeArea（地图矩形边缘 10 格禁建）——对 pocket map 它本就返回 false，无需处理；
-    /// 用户明确要求不处理，避免六边形边角顶边缘时反而能在原版禁建带建造。
+    /// 不处理原版 InNoBuildEdgeArea（地图矩形边缘 10 格禁建）——两者各管各的，本 patch 只管多边形边内侧的禁建带；
+    /// 用户明确要求不处理 InNoBuildEdgeArea，避免六边形边角顶到地图矩形边缘时反而能在原版禁建带建造。
     /// </summary>
     [HarmonyPatch(typeof(GenConstruct), nameof(GenConstruct.CanPlaceBlueprintAt))]
     static class Patch_GenConstruct_CanPlaceBlueprintAt
