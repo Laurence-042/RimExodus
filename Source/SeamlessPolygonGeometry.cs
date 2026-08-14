@@ -237,33 +237,41 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 找方向角 angle 对应的多边形边索引。遍历每条边，算边中点相对地图中心的角度，
-        /// 返回与 angle 角度差最小的边。供道路出口（FindRoadExitCell patch）和河流端点
-        /// （GetMapEdgeNodes patch）把"世界图方向角"映射到"本地图的接缝边"。
+        /// 按世界图方向角找对应的多边形边索引（精确邻居身份映射，替代旧的本地边中点角度近似）。
+        ///
+        /// 【为什么不用本地边中点角度匹配】六边形边中点方向离散（间隔 60°）+ 切平面投影扭曲：
+        /// 世界图上"正南 180°"的邻居方向，本地边中点方向可能是 150°/210°（该 tile 没有朝正南的边），
+        /// 角度最近匹配会锚到 SE/SW 边——而**河/路 link 的真实边**（与那个邻居共享的边）被 30° 偏差
+        /// 挤掉，导致"南北河被画成东北-西南、下方地图连不上"。
+        ///
+        /// 【做法】枚举世界邻居算 <c>GetHeadingFromTo(me, neighbor)</c>（世界图真值，无投影扭曲），
+        /// 找与 <paramref name="worldAngle"/> 方向差最小的邻居，再用邻居在 <c>GetTileNeighbors</c>
+        /// 中的索引直接映射到边索引——"边 j ↔ 邻居 j"是传送点系统（ComputeVoidBand 的
+        /// neighborWorldTiles[edgeIdx]）依赖的既有架构事实。
+        ///
+        /// 调用方语义：road 的 angle 即 me→link邻居 heading（精确命中自身）；river 的 angle 是
+        /// far→near 流向（≈ me→near），上游端用 angle+180° 再调一次。
         /// </summary>
-        internal static int FindClosestEdgeByAngle(List<Vector2> verts, int mapSize, float angle)
+        /// <returns>边索引（=-1 无邻居/匹配失败）。</returns>
+        internal static int FindEdgeByWorldHeading(int worldTile, float worldAngle)
         {
-            var n = verts.Count;
-            if (n < 3) return -1;
-            var center = new Vector2(mapSize * 0.5f, mapSize * 0.5f);
-            var bestEdge = -1;
+            var neighbors = new List<PlanetTile>();
+            Find.WorldGrid.GetTileNeighbors(worldTile, neighbors);
+            if (neighbors.Count == 0) return -1;
+
+            var bestIdx = -1;
             var bestDiff = float.MaxValue;
-            for (var j = 0; j < n; j++)
+            for (var j = 0; j < neighbors.Count; j++)
             {
-                var v0 = verts[j];
-                var v1 = verts[(j + 1) % n];
-                var mid = (v0 + v1) * 0.5f;
-                // AngleFlat 是 Vector3 扩展方法，用 Vector2 分量构造 Vector3（y=0 平面）。
-                var dir = new Vector3((mid - center).x, 0f, (mid - center).y);
-                var edgeAngle = dir.AngleFlat();
-                var diff = GenGeo.AngleDifferenceBetween(edgeAngle, angle);
+                var heading = Find.WorldGrid.GetHeadingFromTo(worldTile, neighbors[j]);
+                var diff = GenGeo.AngleDifferenceBetween(heading, worldAngle);
                 if (diff < bestDiff)
                 {
                     bestDiff = diff;
-                    bestEdge = j;
+                    bestIdx = j;
                 }
             }
-            return bestEdge;
+            return bestIdx;
         }
 
         /// <summary>

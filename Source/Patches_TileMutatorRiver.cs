@@ -48,10 +48,14 @@ namespace RimExodus
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize);
             if (verts.Count < 3) return true; // 几何异常放行
 
-            // 下游边（angle 方向，对应下游邻居）+ 上游边（angle+180° 方向，对应上游邻居）。
-            var downEdge = SeamlessPolygonGeometry.FindClosestEdgeByAngle(verts, mapSize, angle);
-            var upEdge = SeamlessPolygonGeometry.FindClosestEdgeByAngle(verts, mapSize, angle + 180f);
-            if (downEdge < 0 || upEdge < 0 || downEdge == upEdge) return true; // 退化（五边形顶点边界等）放行原版
+            // 下游边 + 上游边：用世界邻居 heading 匹配 + 邻居→边精确映射。
+            // angle = far→near 流向 ≈ me→near（河流链近似直，原版同假设）→ 匹配到下游邻居；
+            // angle+180 → 上游邻居。勿用本地边中点角度近似——六边形边方向离散 60° + 投影扭曲
+            // 会把"正南流向"的河锚到 SE/SW 边（用户实测：南北河被画成东北-西南，下方连不上）。
+            var downEdge = SeamlessPolygonGeometry.FindEdgeByWorldHeading(worldTile, angle);
+            var upEdge = SeamlessPolygonGeometry.FindEdgeByWorldHeading(worldTile, angle + 180f);
+            if (downEdge < 0 || upEdge < 0 || downEdge >= verts.Count || upEdge >= verts.Count) return true;
+            if (downEdge == upEdge) return true; // 退化（顶点边界等）放行原版
 
             // 端点 = 边中点（offsetCells=0，河延伸到边）：depth map 网格 (Size+50)² 坐标 -25..Size+25，
             // 锚点在图内 → t∈[0,1] 深度覆盖正常，河恰好止于边中点。

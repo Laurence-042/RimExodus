@@ -78,7 +78,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `SeamlessSeamOverride.ApplyOneWay`：3×3 卷积加权取众数 + 单向覆写（只改新生成 tile C，不改已生成邻居 A）。
 - **混合带由 A snapshot 决定（非 C 的 bandWidth）**：遍历 A 被 void 裁掉的条带格（`!IsCellInPolygon(AVerts)`，即 A 六边形外），映射到 C 的 `cCell = aCell + offset` 做卷积。混合带宽度 = A 被裁掉的实际深度，无固定 bandWidth 配置。
 - 权重 w：`wCap × (1 - clamp01(aCell距A六边形边距离/maxDepth))` + 空间 Perlin 噪声 dither。**maxDepth 只统计实际参与混合的候选格**（投影到 C 可见区域内）——不能用全图 void 最大深度，方形角落距六边形边可达 40+ 格会污染归一化，把接缝处 w 整体抬高（曾导致 A 全岩石时整条混合带被写成岩石、边界为直线的硬边 bug）。
-- **窄结构保护（权威元数据判据）**：3×3 众数卷积天然抹掉 ≤2 格宽线性结构（窗口内少数派）。①道路：`SeamlessRoadPaths`（`GenStep_Roads.Generate` Postfix 快照 static paths 到 MapComponent，防分帧增量生成下被其他地图清空）±2 格缓冲内跳过混合；②水格：C 当前地形 `IsWater` 跳过（水的连续由 CoastalEdgeFill/river mutator 两端独立保证）。判据用生成期权威数据而非局部模式识别（细线检测无法区分 2 格宽土径和常规地形边缘条带——局部模式同构）。不做 A 侧结构继承。
+- **窄结构保护（权威元数据判据）**：3×3 众数卷积天然抹掉 ≤2 格宽线性结构（窗口内少数派）。①道路主判据（地形）：本格已是 `IsRoad`（HasTag Road）或 `bridge` 地形 → 跳过混合——路面可铺到距 A* 中线 2-3 格 + Bezier 偏离折线 3-4 格，仅靠路径缓冲会漏（实测 snapshot=BrokenAsphalt 的格被卷积成 Sand）。②道路兜底（路径缓冲）：`SeamlessRoadPaths`（`GenStep_Roads.Generate` Postfix 快照 static paths 到 MapComponent，防分帧增量生成下被其他地图清空）±3 格切比雪夫——覆盖 Gravel 等无 Road tag 路面。③水格：C 当前地形 `IsWater` 跳过（水的连续由 CoastalEdgeFill/river mutator 两端独立保证）。判据用生成期权威数据而非局部模式识别（细线检测无法区分 2 格宽土径和常规地形边缘条带——局部模式同构）。不做 A 侧结构继承。
 - 卷积采样源：self 用 C 当前 topGrid（裁切后真实状态），neighbor 用 A snapshot（裁切前完整地形，含 A 被裁掉部分的真实地形）。
 - GenStep 顺序：`CoastalEdgeFill(230)` → `SeamlessTile(1400, 备份snapshot+铺void)` → `SeamOverride(1410, 卷积覆写)` → `Fog(1500, 据最终地形揭雾)`。
 - 连续 Perlin 全局对齐方案已废弃（elevation 被组合器包裹无法叶子层对齐），代码在 `continuous-perlin` 分支。
@@ -86,7 +86,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 ### 道路与河流接缝对齐（阶段4 连续地形）
 - **道路**（`Patches_GenStepRoads.cs`，order 390 内部）：①Prefix `FindRoadExitCell`（private）——道路出口格强制对齐到接缝锚点（边中点向内 SeamOverlap 格），可达性检查用原版同款两级放宽（NoPassClosedDoors → PassAllDestroyableThings，**不能用 NoPassClosedDoorsOrWater**——比原版严，锚点被河挡住时误放行原版导致出口落回方形边）。②Postfix `ApplyDistanceField`——接缝锚点 ≤6 格且 fromRoad≤1.5 的格强制补铺主路面（原版双重随机抽签在 DirtPath/DirtRoad 中线留 ~11-14% 断格：接缝最后 3 格断概率 ~36%；StoneRoad 唯一实心 mult=0）。跳过条件含 `terrain.bridge`（已铺桥格——桥在 foundationGrid，TerrainAt 遮蔽返回 Bridge，tags 只有 Floor 无 Water/Road tag，没有此判据会把桥格 SetTerrain 成路面：topGrid 从水变土、桥塌后露出河里的路）；place 为 FlagstoneSandstone 时映射 rockDef（对齐原版区域岩色）。③Postfix `Generate`——快照 static `paths`（A* 路径节点）到 `SeamlessRoadPaths` MapComponent（防分帧增量生成下被其他地图清空），供 SeamOverride 道路保护用。
 - **河流**（`Patches_TileMutatorRiver.cs`，order 220 内部）：Prefix `GetMapEdgeNodes`（protected，元组返回）——河端点从"随机直线的图外交点"替换为接缝边中点锚点（offsetCells=0，河延伸到边使两端水直接相接）。原生河 = 过随机中心(Rand 0.3-0.7×Size)的直线 + Perlin 弯曲（边缘漂移 ±11 格），两端只共享流向角、入口出口落点纯随机——无原生对齐保证。弯曲 bell 端点=0 → 接缝处河是直线段。Confluence 的流入/流出支流各取元组一端连汇合点，与本 patch 返回顺序 (heading反向端, heading正向端) 天然兼容。
-- 共享几何：`SeamlessPolygonGeometry.FindClosestEdgeByAngle`（世界图方向角 → 本地图接缝边）+ `ComputeSeamCellForEdge`（边 → 接缝锚点格，offsetCells 参数：道路用 SeamOverlap、河流用 0）+ `DistanceToNearestEdge`（格 → 距最近边浮点距离）。
+- 共享几何：`SeamlessPolygonGeometry.FindEdgeByWorldHeading`（世界图方向角 → 邻居 → 边索引的**精确身份映射**：枚举世界邻居算 `GetHeadingFromTo(me, neighbor)` 匹配 angle，再用邻居索引直接映射边——"边 j ↔ GetTileNeighbors[j]"是传送点系统依赖的架构事实。**勿改回本地边中点角度近似**：六边形边方向离散 60° + 投影扭曲，会把"正南流向"锚到 SE/SW 边——用户实测南北河被画成东北-西南、下方地图连不上）+ `ComputeSeamCellForEdge`（边 → 接缝锚点格，offsetCells 参数：道路用 SeamOverlap、河流用 0）+ `DistanceToNearestEdge`（格 → 距最近边浮点距离）。
 - `RefineEndcap` 的 ≤5 格端点检查**不会**移动六边形内侧锚点（它只是"是否执行 endcap 重路由"的门槛，锚点距方形边 ~19 格 → 恒跳过）——已排除的嫌疑，勿再查。
 
 ### 建筑选址避开六边形边（阶段4b）

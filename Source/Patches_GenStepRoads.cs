@@ -90,9 +90,11 @@ namespace RimExodus
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize);
             if (verts.Count < 3) return true; // 几何异常放行
 
-            // 找 angle 对应的边（边中点-中心 的角度最接近 angle）。
-            var bestEdge = SeamlessPolygonGeometry.FindClosestEdgeByAngle(verts, mapSize, angle);
-            if (bestEdge < 0) return true;
+            // 找 angle 对应的边。road 的 angle = GetHeadingFromTo(me, link邻居)（精确），
+            // 用世界邻居 heading 匹配 + 邻居→边精确映射（勿用本地边中点角度近似——60° 离散 +
+            // 投影扭曲会锚错边，见 FindEdgeByWorldHeading 注释）。
+            var bestEdge = SeamlessPolygonGeometry.FindEdgeByWorldHeading(worldTile, angle);
+            if (bestEdge < 0 || bestEdge >= verts.Count) return true;
 
             // 算该边接缝锚点格（多边形几何，不依赖传送点）。
             var exitCell = SeamlessPolygonGeometry.ComputeSeamCellForEdge(verts, bestEdge, mapSize, map,

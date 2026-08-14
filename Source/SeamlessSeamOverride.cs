@@ -148,7 +148,13 @@ namespace RimExodus
                     var localTerrain = topGrid[cIdx];
                     if (localTerrain == null || (voidDef != null && localTerrain == voidDef)) continue;
 
-                    // 道路保护：C 的路格（±2 格缓冲）不混合——窄路是卷积少数派，混合必然失真。
+                    // 道路保护①（地形判据，精确）：本格已是路/桥地形 → 不混合。窄路（1-2 格宽）
+                    // 在 3×3 卷积里永远是少数派，混合必然失真；路面可铺到距 A* 中线 2-3 格处
+                    // （材质曲线 fromRoad≤1.4 + 抗锯齿）+ Bezier 偏离折线最多 3-4 格，仅靠路径
+                    // 缓冲判据会漏（用户实测：snapshot=BrokenAsphalt 的格被卷积成 Sand）。
+                    if (localTerrain.IsRoad || localTerrain.bridge) continue;
+                    // 道路保护②（路径缓冲判据，兜底）：A* 路径 ±3 格内的格不混合——覆盖
+                    // Gravel 等无 Road tag 的路面（曲线同样到 fromRoad 1.4）。
                     if (roadGuard.Contains(cCell)) continue;
                     // 河流/海岸保护：C 的水格不混合。水的连续性由 CoastalEdgeFill(230) 和
                     // river mutator 按世界图两端独立保证，不需要 SeamOverride 继承。
@@ -190,8 +196,9 @@ namespace RimExodus
         private static readonly List<(IntVec3 aCell, IntVec3 cCell, float dist)> candidates = new();
 
         /// <summary>
-        /// 构建 C 的道路保护集：<see cref="SeamlessRoadPaths"/> 快照的 A* 路径节点，
-        /// 每节点 ±2 格切比雪夫膨胀（覆盖 Bezier 平滑相对折线的偏离 + 路面半宽）。
+        /// 构建 C 的道路路径缓冲保护集：<see cref="SeamlessRoadPaths"/> 快照的 A* 路径节点，
+        /// 每节点 ±<see cref="RoadGuardRadius"/> 格切比雪夫膨胀。有 Road tag / bridge 的路面
+        /// 由混合循环的地形判据精确保护，本缓冲兜底 Gravel 等无 tag 路面。
         /// </summary>
         private static HashSet<IntVec3> BuildRoadGuard(Map map)
         {
@@ -216,8 +223,12 @@ namespace RimExodus
             return guard;
         }
 
-        /// <summary>道路保护半径（格，切比雪夫）。2 = 覆盖 Bezier 偏离 + 常见路面半宽。</summary>
-        private const int RoadGuardRadius = 2;
+        /// <summary>
+        /// 道路路径缓冲保护半径（格，切比雪夫）。3 = Bezier 偏离折线（最多 3-4 格）+
+        /// 无 tag 路面半宽（Gravel 曲线到 fromRoad 1.4）。有 Road tag / bridge 的路面
+        /// 由地形判据（IsRoad/bridge）精确保护，本缓冲只兜底无 tag 路面。
+        /// </summary>
+        private const int RoadGuardRadius = 3;
 
         /// <summary>获取 map 的基础地形 snapshot（地块从 MapParent_SeamlessTile，锚点从 Manager）。</summary>
         private static TerrainDef[] GetSnapshot(Map map)
