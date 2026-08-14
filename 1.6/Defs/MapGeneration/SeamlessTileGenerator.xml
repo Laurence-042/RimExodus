@@ -29,10 +29,12 @@
     void 裁切 + SeamOverride 覆写后的【最终地形】算可达性——void 外（六边形外条带）不可通行→
     不揭雾，与实际渲染（void 透明）和寻路（void 不可通行）一致。若放在 Fog 之后（旧 1802/1803），
     Fog 会据完整矩形地形揭雾，把之后变 void 的条带也揭了，揭雾状态与实际地形不符。
-    查证 MutatorFinal(1600) 的 GeneratePostFog 不覆盖 terrainGrid：TileMutatorWorker_Coast 无
-    GeneratePostFog 重写，TileMutatorWorker_River.GeneratePostFog 只建 river lookup texture 不改
-    terrainGrid，其余 mutator（AncientUplink/Quarry/InsectMegahive/Stockpile）生成 Thing 不改 terrainGrid。
-    故 SeamOverride(1410) 的地形覆写能保留到最终。
+    查证 MutatorFinal(1600) 的 GeneratePostFog 对多数 mutator 不覆盖 terrainGrid（Coast 无
+    GeneratePostFog 重写，River 只建 lookup texture）。例外：TileMutatorWorker_AncientUplink 铺
+    AncientTile、TileMutatorWorker_InsectMegahive 铺 InsectSludge/rock——这些罕见任务地块上
+    SeamOverride(1410) 的覆写会被 1600 覆盖（已知小瑕疵）。此外 order 400+ 的 Settlement/site
+    BaseGen 地板（SymbolResolver_FloorFill→SetTerrain）会写 topGrid，这是 snapshot 必须在 1400
+    （而非 391-399）备份的核心原因，详见 doc/地图生成步骤.md。
 
     **守卫**：genStep 类内部用 GetMapWorldTile(map) >= 0 守卫，任何有合法 worldTile 的地图都走完整链。
   -->

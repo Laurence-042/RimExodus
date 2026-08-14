@@ -237,6 +237,69 @@ namespace RimExodus
         }
 
         /// <summary>
+        /// 找方向角 angle 对应的多边形边索引。遍历每条边，算边中点相对地图中心的角度，
+        /// 返回与 angle 角度差最小的边。供道路出口（FindRoadExitCell patch）和河流端点
+        /// （GetMapEdgeNodes patch）把"世界图方向角"映射到"本地图的接缝边"。
+        /// </summary>
+        internal static int FindClosestEdgeByAngle(List<Vector2> verts, int mapSize, float angle)
+        {
+            var n = verts.Count;
+            if (n < 3) return -1;
+            var center = new Vector2(mapSize * 0.5f, mapSize * 0.5f);
+            var bestEdge = -1;
+            var bestDiff = float.MaxValue;
+            for (var j = 0; j < n; j++)
+            {
+                var v0 = verts[j];
+                var v1 = verts[(j + 1) % n];
+                var mid = (v0 + v1) * 0.5f;
+                // AngleFlat 是 Vector3 扩展方法，用 Vector2 分量构造 Vector3（y=0 平面）。
+                var dir = new Vector3((mid - center).x, 0f, (mid - center).y);
+                var edgeAngle = dir.AngleFlat();
+                var diff = GenGeo.AngleDifferenceBetween(edgeAngle, angle);
+                if (diff < bestDiff)
+                {
+                    bestDiff = diff;
+                    bestEdge = j;
+                }
+            }
+            return bestEdge;
+        }
+
+        /// <summary>
+        /// 算指定边的接缝锚点格：边中点向地图中心方向偏移 <paramref name="offsetCells"/> 格，
+        /// 落在可见区域内紧贴 void 边界。道路出口锚点用 <see cref="SeamlessTileManager.SeamOverlap"/>
+        /// 偏移（与传送点带一致）；河流端点用 0 偏移（河要延伸到边上，接缝处水直接相接）。
+        /// 偏移后不在多边形内时向内逐格重试（该边处 void 条带可能很窄）。
+        /// </summary>
+        internal static IntVec3 ComputeSeamCellForEdge(List<Vector2> verts, int edgeIdx, int mapSize, Map map, int offsetCells)
+        {
+            var n = verts.Count;
+            var v0 = verts[edgeIdx];
+            var v1 = verts[(edgeIdx + 1) % n];
+            var mid = (v0 + v1) * 0.5f; // 边中点（在六边形边上）
+            var center = new Vector2(mapSize * 0.5f, mapSize * 0.5f);
+
+            // 从边中点向中心方向偏移 offsetCells 格（进入可见区域内侧）。
+            var inward = (center - mid).normalized;
+            var anchor = mid + inward * offsetCells;
+
+            var cell = new IntVec3(Mathf.RoundToInt(anchor.x), 0, Mathf.RoundToInt(anchor.y));
+            if (!cell.InBounds(map)) return IntVec3.Invalid;
+            if (IsCellInPolygon(verts, mapSize, cell)) return cell;
+
+            // 偏移不足（该边处 void 条带很窄），再向内逐格试。
+            for (var extra = 1; extra <= 3; extra++)
+            {
+                var tryAnchor = mid + inward * (offsetCells + extra);
+                var tryCell = new IntVec3(Mathf.RoundToInt(tryAnchor.x), 0, Mathf.RoundToInt(tryAnchor.y));
+                if (tryCell.InBounds(map) && IsCellInPolygon(verts, mapSize, tryCell))
+                    return tryCell;
+            }
+            return IntVec3.Invalid;
+        }
+
+        /// <summary>
         /// 计算点 p 到线段 (v0→v1) 的最短距离（解析）。
         /// 用于判定格子距多边形边的距离。
         /// </summary>

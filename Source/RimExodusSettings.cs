@@ -23,12 +23,6 @@ namespace RimExodus
         public int borderNoBuildDistance = 3;
 
         /// <summary>
-        /// 接缝覆写混合带占 tile 半径的比例（阶段4 连续地形）。
-        /// 0.25 = 从接缝线向内 25% 的区域做 terrainDef 过渡混合。0 = 关闭接缝覆写。
-        /// </summary>
-        public float seamOverrideRatio = 0.25f;
-
-        /// <summary>
         /// 接缝覆写权重噪声幅度（0=关闭噪声，回到纯线性 w）。0.15 = w 上下抖动 ±0.15。
         /// 在混合权重 w 上叠加低频空间 Perlin 噪声，dither 掉 GetMode 离散跳变，把规则等距过渡线
         /// 打散成自然弯曲斑块。种子基于 worldTile 稳定，同一地块多次生成噪声一致。
@@ -67,7 +61,6 @@ namespace RimExodus
             Scribe_Values.Look(ref preloadAllNeighborsOnStart, "preloadAllNeighborsOnStart", false);
             Scribe_Values.Look(ref verboseLogging, "verboseLogging", false);
             Scribe_Values.Look(ref borderNoBuildDistance, "borderNoBuildDistance", 3);
-            Scribe_Values.Look(ref seamOverrideRatio, "seamOverrideRatio", 0.25f);
             Scribe_Values.Look(ref seamOverrideNoiseAmplitude, "seamOverrideNoiseAmplitude", 0.15f);
             Scribe_Values.Look(ref seamOverrideWeightCap, "seamOverrideWeightCap", 0.9f);
             Scribe_Values.Look(ref coastalEdgeDeepWaterDistance, "coastalEdgeDeepWaterDistance", 0.15f);

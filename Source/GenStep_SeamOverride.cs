@@ -10,8 +10,9 @@ namespace RimExodus
     /// 本 genStep 在六边形内边缘的混合带做 terrainDef 过渡：参考已加载邻居的对应 cell，
     /// 按距离权重混合两端 terrainDef，让接缝处地形视觉/通行连续。
     /// 放在 Fog 之前是为了让 Fog flood-fill 基于覆写后的最终地形算可达性（含 SyncRockBuilding
-    /// spawn 的岩石），void 外条带不揭雾。查证 MutatorFinal(1600) 的 GeneratePostFog 不覆盖 terrainGrid，
-    /// 故本 genStep 的覆写能保留到最终。
+    /// spawn 的岩石），void 外条带不揭雾。MutatorFinal(1600) 多数 mutator 不写 terrainGrid，
+    /// 但 AncientUplink/InsectMegahive 的 GeneratePostFog 会 SetTerrain——这些任务地块上
+    /// 本 genStep 的覆写可能被覆盖（已知小瑕疵，罕见场景）。
     ///
     /// 单向覆写：只改本端（新生成 tile），不改已加载邻居（已生成 tile 保持原样）。
     /// 锚点地图 A 生成时无已加载邻居 → ApplyOneWay 的卷积循环对每个邻居查 TryGetMapByWorldTile 无命中 → 空操作。
