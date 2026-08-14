@@ -243,6 +243,9 @@ namespace RimExodus
         /// 越界格 clamp 到边界格（硬边界来源①修复：不再 skip，假设边界外与边界格同地形，
         /// 消除 snapshot 矩形边界处卷积窗口截断导致的残缺分布）。
         /// void 格跳过（voidDef != null 时，地形数组里可能含 void 的格不参与统计——用于 C 当前 topGrid）。
+        /// **水格跳过**：河走廊延伸水/海岸水会大片出现在 A 的 void 条带 snapshot 里，
+        /// 不跳过的话混合带众数可能被卷成水——水的连续性由 river/CoastalEdgeFill 两端
+        /// 独立保证，卷积不采样水。
         /// 返回归一化占比（和=1）。
         /// </summary>
         /// <param name="voidDef">void TerrainDef，null 表示该数组无 void（如 A snapshot 是裁切前备份）。</param>
@@ -264,6 +267,7 @@ namespace RimExodus
                     var t = snapshot[idx];
                     if (t == null) continue;
                     if (voidDef != null && t == voidDef) continue;
+                    if (t.IsWater) continue;
                     counts.TryGetValue(t, out var c);
                     counts[t] = c + 1;
                     total++;

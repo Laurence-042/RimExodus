@@ -90,10 +90,13 @@ namespace RimExodus
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize);
             if (verts.Count < 3) return true; // 几何异常放行
 
-            // 找 angle 对应的边。road 的 angle = GetHeadingFromTo(me, link邻居)（精确），
-            // 用世界邻居 heading 匹配 + 邻居→边精确映射（勿用本地边中点角度近似——60° 离散 +
-            // 投影扭曲会锚错边，见 FindEdgeByWorldHeading 注释）。
-            var bestEdge = SeamlessPolygonGeometry.FindEdgeByWorldHeading(worldTile, angle);
+            // 找 angle 对应的边。**不能信任传入 angle 的精确值**：原版 CalculateNeededRoads
+            // 对多条路的 angle 加了向量平均偏置 + 随机抖动（为了让出口在方形边缘散开——
+            // 我们的锚点在边中点，偏置只有害处）——两条路夹角 60° 时偏置可达 60°，直接把
+            // 匹配推过邻居间隔到隔壁边（对面接不上）。与 river 同逻辑：用权威邻居身份映射，
+            // 且只遍历【有 road link 的邻居】（GetRoadDef != null）——匹配池缩到 road 邻居
+            //（彼此 ≥60° 且都是合法目标），偏置再大也命中正确 link 邻居，排除无路邻居干扰。
+            var bestEdge = FindRoadLinkEdgeByHeading(worldTile, angle);
             if (bestEdge < 0 || bestEdge >= verts.Count) return true;
 
             // 算该边接缝锚点格（多边形几何，不依赖传送点）。
@@ -116,6 +119,33 @@ namespace RimExodus
 
             // 不可达放行原版。
             return true;
+        }
+
+        /// <summary>
+        /// 按世界图方向角在【有 road link 的邻居】里找对应边索引（与 river 的
+        /// <see cref="SeamlessPolygonGeometry.FindEdgeByWorldHeading"/> 同逻辑，但匹配池
+        /// 过滤到 GetRoadDef != null 的邻居）。返回邻居索引 = 边索引（边 j ↔ 邻居 j 同构），
+        /// 无 road link 邻居返回 -1。
+        /// </summary>
+        private static int FindRoadLinkEdgeByHeading(int worldTile, float angle)
+        {
+            var neighbors = new List<PlanetTile>();
+            Find.WorldGrid.GetTileNeighbors(worldTile, neighbors);
+
+            var bestIdx = -1;
+            var bestDiff = float.MaxValue;
+            for (var j = 0; j < neighbors.Count; j++)
+            {
+                if (Find.WorldGrid.GetRoadDef(worldTile, neighbors[j]) == null) continue; // 只看 road-link 邻居
+                var heading = Find.WorldGrid.GetHeadingFromTo(worldTile, neighbors[j]);
+                var diff = GenGeo.AngleDifferenceBetween(heading, angle);
+                if (diff < bestDiff)
+                {
+                    bestDiff = diff;
+                    bestIdx = j;
+                }
+            }
+            return bestIdx;
         }
     }
 
