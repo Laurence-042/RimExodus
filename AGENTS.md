@@ -77,7 +77,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - 各地块正常用原版噪声独立生成，只在接缝带做 terrainDef 过渡混合。不追求全局连续。
 - `SeamlessSeamOverride.ApplyOneWay`：3×3 卷积加权取众数 + 单向覆写（只改新生成 tile C，不改已生成邻居 A）。
 - **混合带由 A snapshot 决定（非 C 的 bandWidth）**：遍历 A 被 void 裁掉的条带格（`!IsCellInPolygon(AVerts)`，即 A 六边形外），映射到 C 的 `cCell = aCell + offset` 做卷积。混合带宽度 = A 被裁掉的实际深度，无固定 bandWidth 配置。
-- 权重 w：`wCap × (1 - clamp01(aCell距A六边形边距离/maxDepth))` + 空间 Perlin 噪声 dither。**maxDepth 只统计实际参与混合的候选格**（投影到 C 可见区域内）——不能用全图 void 最大深度，方形角落距六边形边可达 40+ 格会污染归一化，把接缝处 w 整体抬高（曾导致 A 全岩石时整条混合带被写成岩石、边界为直线的硬边 bug）。
+- 权重 w：`wCap × dSq/(dSq+dHex)` + 空间 Perlin 噪声 dither。dSq = aCell 到 A 方形边界切比雪夫格距（解析 `min(x,z,S-1-x,S-1-z)`），dHex = 到 A 六边形边欧氏垂距。**逐格局部归一化，无全局统计量**——历史教训（勿回退）：前两代用"全图 void 最大深度"/"候选集 maxDepth"全局归一，都被 A 方形角落格污染（角落深度 40-68 格，且与接缝相邻的方形角落能绕六边形顶点投影进 C 侧向楔形区，"角落格投影后多被过滤"假设已被实测证伪——数据点 A(249,249)→C(59,146)，距 C 中心仅 ~69 格 ≪ 内切圆 ~108），maxDepth 被抬高 2-3 倍 → 整条带 w≥0.45、邻居众数全带通吃（A 全岩石时整条混合带被写成岩石）。逐格比例还保证窄条带区段接缝侧 w 同样接近 wCap。dSq 切比雪夫/dHex 欧氏度量混用为有意取舍（≤√2 单调偏差，dither 下不可见）。已知保留行为：顶点楔形区仍参与混合（贴 A 六边形边的角落格 w≈wCap，与侧向邻居的混合顺序相关），不做走廊限制。
 - **窄结构保护（权威元数据判据）**：3×3 众数卷积天然抹掉 ≤2 格宽线性结构（窗口内少数派）。①道路主判据（地形）：本格已是 `IsRoad`（HasTag Road）或 `bridge` 地形 → 跳过混合——路面可铺到距 A* 中线 2-3 格 + Bezier 偏离折线 3-4 格，仅靠路径缓冲会漏（实测 snapshot=BrokenAsphalt 的格被卷积成 Sand）。②道路兜底（路径缓冲）：`SeamlessRoadPaths`（`GenStep_Roads.Generate` Postfix 快照 static paths 到 MapComponent，防分帧增量生成下被其他地图清空）±3 格切比雪夫——覆盖 Gravel 等无 Road tag 路面。③水格：C 当前地形 `IsWater` 跳过（水的连续由 CoastalEdgeFill/river mutator 两端独立保证）。判据用生成期权威数据而非局部模式识别（细线检测无法区分 2 格宽土径和常规地形边缘条带——局部模式同构）。不做 A 侧结构继承。
 - 卷积采样源：self 用 C 当前 topGrid（裁切后真实状态），neighbor 用 A snapshot（裁切前完整地形，含 A 被裁掉部分的真实地形）。
 - GenStep 顺序：`CoastalEdgeFill(230)` → `SeamlessTile(1400, 备份snapshot+铺void)` → `SeamOverride(1410, 卷积覆写)` → `Fog(1500, 据最终地形揭雾)`。

@@ -17,14 +17,18 @@ namespace RimExodus
     /// 应该"继承"的地形。遍历 A 六边形外的格（= A 被 void 裁掉的部分），映射到 C 的
     /// cCell = aCell + offset 做卷积混合。混合带宽度 = A 被裁掉的实际深度，无固定配置。
     ///
-    /// 【maxDepth 用实际候选集归一化】w 的归一化分母只统计"投影到 C 可见区域的候选格"的
-    /// 最大 void 深度，不能用全图 void 条带最大深度——六边形朝向任意时方形角落距六边形边
-    /// 可达 40+ 格（远超接缝边中点 ~17 格），全图统计会把接缝处 w 整体抬高，曾导致
-    /// "A 全岩石时整条混合带被写成岩石、边界是几何直线"的硬边 bug。
+        /// 【w 归一化必须逐格局部（两代方案的教训）】第一代用全图 void 条带最大深度、第二代用
+        /// 候选集最大深度（maxDepth）归一——两者都被 A 方形角落格污染：角落深度可达 40-68 格
+        /// （远超接缝边中点 ~17 格），且与接缝相邻的方形角落能绕过六边形顶点投影进 C 六边形的
+        /// 侧向楔形区（"角落格投影到 C 后多在 C 六边形外被过滤"的假设已被实测证伪），
+        /// maxDepth 被抬高 2-3 倍 → 整条混合带 w≥0.45、邻居众数全带通吃（A 全岩石时混合带被
+        /// 整条写成岩石）。现行方案 dSq/(dSq+dHex) 逐格比例（见下），无全局统计量，此类污染
+        /// 结构性不可能。
     ///
     /// 【窄结构保护（权威元数据判据，非局部模式识别）】3×3 众数卷积天然抹掉 ≤2 格宽的
     /// 线性结构（窗口内少数派）。保护规则：
-    /// - 道路：<see cref="SeamlessRoadPaths"/>（GenStep_Roads A* 路径快照）±2 格缓冲内跳过混合。
+    /// - 道路（双层判据）：①本格已是 IsRoad/bridge 地形精确跳过；②<see cref="SeamlessRoadPaths"/>
+    ///   （GenStep_Roads A* 路径快照）±3 格切比雪夫缓冲兜底 Gravel 等无 Road tag 路面。
     ///   生成器自己知道路在哪，零歧义；从局部地形模式反推（"细线检测"）无法区分
     ///   2 格宽土径和常规地形的边缘条带（局部模式同构）。
     /// - 水格：C 当前地形 IsWater 跳过。水的连续由 CoastalEdgeFill(230)/river mutator
@@ -37,9 +41,11 @@ namespace RimExodus
     /// 【为什么卷积】terrainDef 离散，不能直接加权平均。卷积把每个 cell 的 terrainDef
     /// 变成"周围 3×3 邻域的 terrainDef 分布"，分布可以加权平均，再取众数 → 平滑过渡。
     ///
-    /// 【权重 w】aCell 距 A 六边形边越近（void 条带最浅处，紧贴 A 可见区域）→ w 越高
-    /// （强继承 A snapshot，因为越靠近 A 可见区域，A snapshot 代表性越强）；aCell 越深入
-    /// A void（void 条带最深处，靠近方形地图角）→ w 越低（弱继承）。
+        /// 【权重 w】w = wCap × dSq/(dSq+dHex)：dSq = aCell 到 A 方形边界的切比雪夫格距（解析），
+        /// dHex = 到 A 六边形边的欧氏垂距。贴 A 六边形边（紧贴 A 可见区域）→ w≈wCap（强继承
+        /// A snapshot，代表性越强），贴方形外缘 → w≈0（弱继承）。逐格局部归一化还保证窄条带
+        /// 区段接缝侧 w 同样接近 wCap（连续性沿整条边一致，与条带深浅无关），深角落格只压低
+        /// 自己的 w。dSq 切比雪夫 / dHex 欧氏的度量混用为有意取舍：≤√2 单调偏差，dither 下不可见。
     ///
     /// 【权重噪声】w 是纯线性距离函数时，GetMode 离散跳变会在带内形成规则等距的过渡线。
     /// 在 w 上叠加低频空间 Perlin 噪声（基于 worldTile 稳定 seed，幅度可配 seamOverrideNoiseAmplitude），
@@ -91,7 +97,7 @@ namespace RimExodus
             var verbose = RimExodusMod.Settings?.verboseLogging ?? false;
             var written = 0;
 
-            // C 的道路保护集：GenStep_Roads 路径快照 ±2 格缓冲（覆盖 Bezier 平滑相对 A* 折线的偏离）。
+            // C 的道路保护集：GenStep_Roads 路径快照 ±3 格缓冲（覆盖 Bezier 平滑相对 A* 折线的偏离）。
             // 窄路（1-2 格宽）在 3×3 卷积里永远是少数派，不保护会被周围地形卷没。
             var roadGuard = BuildRoadGuard(map);
 
@@ -115,15 +121,12 @@ namespace RimExodus
                 var neighborVerts = SeamlessPolygonGeometry.BuildPolygonVertices(neighborTile, neighborSize);
                 if (neighborVerts.Count < 3) continue;
 
-                // 第一遍：收集候选混合格（A 六边形外的 aCell，投影 cCell 落在 C 可见区域内），
-                // 统计【实际参与混合的格】的最大 void 深度。
-                //
-                // 不能用全图 void 条带最大深度归一化：六边形朝向任意时，方形地图角落距六边形边
-                // 可达 40+ 格（远超接缝边中点的 ~17 格），而角落格投影到 C 后多在 C 六边形外被过滤。
-                // 用全图最大值会把接缝处 w 整体抬高（曾出现 wBase≈0.52 从未跌破 GetMode 翻转阈值，
-                // A 全岩石时整条混合带被写成岩石、边界为混合带几何直线而非噪声弯曲的过渡线）。
+                // 第一遍：收集候选混合格（A 六边形外的 aCell，投影 cCell 落在 C 可见区域内）。
+                // 候选集不做走廊/角落限制：A 方形角落格能绕过六边形顶点投影进 C 六边形的侧向
+                // 楔形区（实测数据点 A(249,249)→C(59,146)，距 C 中心仅 ~69 格 ≪ 内切圆 ~108 格），
+                // 会进候选集——w 已是逐格局部归一化（见第二遍），角落深格只压低自己的 w，
+                // 不影响其他格的权重。
                 candidates.Clear();
-                var maxDepth = 0f;
                 foreach (var aCell in CellRect.WholeMap(neighborMap))
                 {
                     // 只处理 A 被 void 裁掉的格（A 六边形外）。A 可见区域（六边形内）跳过。
@@ -135,11 +138,9 @@ namespace RimExodus
                     // 只混合 C 可见区域（C 六边形内）。C 六边形外是 C 的 void，不混合。
                     if (!SeamlessPolygonGeometry.IsCellInPolygon(verts, mapSize, cCell)) continue;
 
-                    var distToEdge_A = SeamlessPolygonGeometry.DistanceToNearestEdge(neighborVerts, aCell);
-                    if (distToEdge_A > maxDepth) maxDepth = distToEdge_A;
-                    candidates.Add((aCell, cCell, distToEdge_A));
+                    candidates.Add((aCell, cCell, SeamlessPolygonGeometry.DistanceToNearestEdge(neighborVerts, aCell)));
                 }
-                if (maxDepth <= 0f || candidates.Count == 0) continue;
+                if (candidates.Count == 0) continue;
 
                 // 第二遍：混合。
                 foreach (var (aCell, cCell, distToEdge_A) in candidates)
@@ -160,9 +161,16 @@ namespace RimExodus
                     // river mutator 按世界图两端独立保证，不需要 SeamOverride 继承。
                     if (localTerrain.IsWater) continue;
 
-                    // w 权重：aCell 距 A 六边形边越近 → w 越高（强继承 A snapshot）。
-                    // maxDepth 只统计实际参与混合的格（见第一遍注释）。
-                    var wBase = wCap * (1f - Mathf.Clamp01(distToEdge_A / maxDepth));
+                    // w 权重：逐格局部归一化 aCell 在本地 void 条带内的相对位置。
+                    // dSq = 到 A 方形边界的切比雪夫格距（解析），distToEdge_A = 到 A 六边形边的
+                    // 欧氏垂距。贴六边形边 → w≈wCap（强继承 A snapshot），贴方形外缘 → w≈0。
+                    // 无全局 maxDepth（弃用原因见文件头）：角落深格只压低自己的 w。
+                    // 分母守卫：六边形顶点贴方形边时 dSq 与 dHex 同时≈0，取 w=0。
+                    var dSq = Mathf.Min(Mathf.Min(aCell.x, aCell.z),
+                        Mathf.Min(neighborSize - 1 - aCell.x, neighborSize - 1 - aCell.z));
+                    var wBase = (dSq + distToEdge_A) > 1e-3f
+                        ? wCap * (dSq / (dSq + distToEdge_A))
+                        : 0f;
                     // 叠加空间噪声：w' = clamp01(wBase + n×amp)，n∈[-1,1]。clamp01 保证 w∈[0,1]，
                     // 不破坏"靠近边偏邻居、深入 void 偏 self"的总体单调，只是把过渡线抖弯。
                     var w = weightNoise != null
@@ -184,7 +192,7 @@ namespace RimExodus
                     written++;
 
                     if (verbose)
-                        Log.Message($"[RimExodus] SeamOverride cCell={cCell} aCell={aCell} wBase={wBase:F3} w={w:F3} distEdge={distToEdge_A:F1} maxDepth={maxDepth:F1} local={localTerrain.defName} chosen={chosen.defName}");
+                        Log.Message($"[RimExodus] SeamOverride cCell={cCell} aCell={aCell} wBase={wBase:F3} w={w:F3} distEdge={distToEdge_A:F1} dSq={dSq} local={localTerrain.defName} chosen={chosen.defName}");
                 }
             }
 
