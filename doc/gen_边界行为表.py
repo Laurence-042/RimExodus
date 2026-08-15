@@ -5,10 +5,16 @@
 脚本读取 doc/边界行为表.md，替换 <!-- GEN:行为表 BEGIN --> ... <!-- GEN:行为表 END -->
 标记之间的内容。改行为规则直接改本文件的规则区，重跑即可再生。
 
-行为语义（与文档第三章一致）：
-- flag = job.exitMapOnArrival：撤离/远行队资格（原生链，RimExodus 不干预）。
-- 传送资格 = 跨图登记 ∨ 动物。只看"踩上传送点格"，与目标格无关。
-- 预加载 = 玩家征召 goto 且目标在预加载边界带（15 格）内且非传送点格（待办②收紧后）。
+定稿语义（2026-08 用户定稿）：
+- 预加载只能由玩家操作触发。
+- NPC 撤离场景（撤离 duty/囚犯越狱/野性恐慌逃跑）：对端未加载 → 正常原生撤离；
+  对端已加载 → 传送进对端继续撤离，直到到达没有加载对端的撤离点（视为跑出视野）。
+- 玩家征召 goto 传送点格（殖民者）= 显式要求脱离地图 → 原生撤离/组队，不跨图。
+  殖民地机械族保留原版 !IsColonyMech 例外（站住）。
+- 跨图 goto 覆盖：殖民者、殖民地机械族、被征召的驯养动物。
+- 敌方主体战斗移动（追击/走位）踩已加载传送点 → 传送（跨图追击）。
+- 驯养动物跟随主人踩已加载传送点 → 传送；其余闲逛/工作/无 flag 逃跑一律无事。
+- 目标格不是传送点的行，传送点不激活（踩点两列恒"—"）。
 """
 import io
 import os
@@ -31,141 +37,175 @@ SUBJECTS = [
     ("访客/旅行者/商队", False, "非敌对 NPC（VisitColony/TravelAndExit/TradeWithColony）"),
     ("囚犯", False, "玩家囚徒"),
     ("野生动物", True, "无阵营"),
-    ("驯养动物", True, "玩家阵营动物"),
+    ("驯养动物", True, "玩家阵营动物（含可征召）"),
 ]
 
 # 目标格类型（图内普通格不可能踩到传送点，不单列）
 TARGETS = ["传送点格（=接缝带格）", "预加载边界带非传送点格（距 void 3-15 格）"]
 
-# 移动来源：每条 = (名称, 适用主体谓词, 规则函数)
-# 规则函数 subject(名称, 是否动物, 目标格 key) -> dict，键：
-#   flag      : "有"/"无"/自定义文案（如 mech 例外）；为 None 表示该目标组合不适用（不生成行）
-#   eligible  : True=有传送资格（动物或跨图登记）
-#   cont      : 传送后是否续程 Goto（仅跨图登记）
-#   vanilla   : 原版行为文案
-#   patch     : patch 依赖文案
-#   preload   : 该目标格的预加载文案
-def _no_preload():
-    return "否"
+# 行为取值（踩点两列的组合）
+ACT_TRANSFER_CONT = "**传送** + 续程 Goto"
+ACT_TRANSFER_EXIT = "**传送** + 对端续发撤离 job（继续跑，直到无加载对端的出口→原生撤离）"
+ACT_TRANSFER_PLAIN = "**传送**"
+ACT_NATIVE_EXIT = "原生撤离/组队（身份受限）"
+ACT_NOTHING = "无事"
+NA = "—（目标非传送点，传送点不激活）"
+
+# 撤离类来源对 spot 的行为（对端已加载/未生成）
+EXIT_DUTY = (ACT_TRANSFER_EXIT, "原生撤离（视为跑出视野）")
 
 
+def spot_behaviors(flag, eligible, act_loaded, act_unloaded):
+    if flag:
+        return act_loaded, act_unloaded
+    if eligible:
+        return act_loaded, ACT_NOTHING
+    return ACT_NOTHING, ACT_NOTHING
+
+
+# 移动来源：每条 = (名称, 适用主体谓词, 规则函数(主体名, 是否动物, 目标key) -> dict 或 None)
+# dict 键：expect（玩家预期/场景分类）、flag、elig（传送资格）、loaded、unloaded、
+#          preload（spot/band 两键）、vanilla、patch
 SOURCES = [
     (
         "玩家征召 goto（右键/拖框）",
         lambda name, animal: name in ("殖民者", "殖民地机械族"),
         lambda name, animal, tgt: {
-            "flag": (
-                ("有（DraftedMove 原生：点击格是 exit cell）" if name == "殖民者"
-                 else "无（原版 `!IsColonyMech` 例外）")
-                if tgt == "spot" else "无（点击格非 exit cell 不设）"
-            ),
-            "eligible": False,
-            "cont": False,
-            "vanilla": "出口格→撤离/组队" if (tgt == "spot" and name == "殖民者")
-                else "无事（mech 不设 flag，不撤离）" if name == "殖民地机械族" else "无事",
-            "patch": "现有（ExitMapGrid 标传送点为出口格）" if (tgt == "spot" and name == "殖民者")
-                else "无需（原版例外自动生效）" if name == "殖民地机械族"
-                else "现有（预加载已有；踩点无事待待办①收紧）",
-            "preload": {
-                "spot": "否（待办②：现状会误触发，需排除传送点格）",
-                "band": "是（现状已生效：playerForced 分支）",
-            }[tgt],
-        },
+            "殖民者": {
+                "expect": "玩家要求殖民者快速脱离地图成为远行队" if tgt == "spot" else "玩家要求殖民者去开新图",
+                "flag": "有（DraftedMove 原生：点击格是 exit cell）" if tgt == "spot" else "无（点击格非 exit cell 不设）",
+                "elig": False,
+                "loaded": ACT_NATIVE_EXIT if tgt == "spot" else ACT_NOTHING,
+                "unloaded": ACT_NATIVE_EXIT if tgt == "spot" else ACT_NOTHING,
+                "preload": {"spot": "否（待办：现状会误触发，需排除传送点格）",
+                            "band": "是（现状已生效：playerForced 分支）"},
+                "vanilla": "出口格→撤离/组队" if tgt == "spot" else "无事",
+                "patch": "现有（ExitMapGrid 标传送点为出口格）" if tgt == "spot"
+                    else "现有（预加载已有）",
+            },
+            "殖民地机械族": {
+                "expect": "保留原版例外（不自行离图）；跨图移动走跨图 goto",
+                "flag": "无（原版 `!IsColonyMech` 例外）" if tgt == "spot" else "无（点击格非 exit cell 不设）",
+                "elig": False,
+                "loaded": ACT_NOTHING,
+                "unloaded": ACT_NOTHING,
+                "preload": {"spot": "否（待办：同殖民者，排除传送点格）",
+                            "band": "是（现状已生效：playerForced 分支）"},
+                "vanilla": "无事（mech 不设 flag，不撤离）",
+                "patch": "无需（原版例外自动生效）",
+            },
+        }[name],
     ),
     (
         "跨图 goto（mod 注入桥接）",
-        lambda name, animal: name == "殖民者",
+        lambda name, animal: name in ("殖民者", "殖民地机械族", "驯养动物"),
         lambda name, animal, tgt: None if tgt != "spot" else {
+            "expect": {
+                "殖民者": "玩家要求殖民者去新地图",
+                "殖民地机械族": "玩家要求机械族去新地图（需扩展桥接注入对象）",
+                "驯养动物": "玩家要求被征召动物去新地图（需扩展桥接注入对象）",
+            }[name],
             "flag": "无",
-            "eligible": True,
-            "cont": True,
+            "elig": True,
+            "loaded": ACT_TRANSFER_CONT,
+            "unloaded": "不涉及（对端必须先生成才能 goto）",
+            "preload": {"spot": "不涉及（对端必须先生成才能 goto）", "band": "不涉及"},
             "vanilla": "不存在",
-            "patch": "现有 + 待办③（桥接 job 需带传送许可标记）",
-            "preload": "无需（对端隐式已加载）",
+            "patch": "现有 + 待办（桥接注入扩展至机械族/被征召动物；桥接 job 需带传送许可标记）",
         },
     ),
     (
         "AI 闲逛/工作移动",
         lambda name, animal: True,
         lambda name, animal, tgt: {
+            "expect": {
+                "殖民者": "殖民者不该瞎逛到另一地图然后回不来",
+                "殖民地机械族": "同殖民者",
+                "敌方人形": "等待突袭的敌人不该瞎逛到另一地图然后回不来",
+                "敌方机械族": "同敌方人形",
+                "盟友增援": "同敌人（NPC）",
+                "访客/旅行者/商队": "同敌人（NPC）",
+                "囚犯": "同敌人（NPC）",
+                "野生动物": "同敌人（NPC）",
+                "驯养动物": "同殖民者（不该瞎逛到另一地图）",
+            }[name],
             "flag": "无（GotoWander/工作 job 均不带）",
-            "eligible": animal,
-            "cont": False,
+            "elig": False,
+            "loaded": ACT_NOTHING,
+            "unloaded": ACT_NOTHING,
+            "preload": {"spot": "否", "band": "否"},
             "vanilla": "无事（可停在出口格但不离图）",
-            "patch": "现有（动物即传，保留）" if animal else "收紧（待办①：现状无资格即传）",
-            "preload": _no_preload(),
+            "patch": "收紧（现状无资格即传，需收紧为不传）",
         },
     ),
     (
         "AI 战斗移动（追击/走位）",
         lambda name, animal: name in ("敌方人形", "敌方机械族", "盟友增援"),
         lambda name, animal, tgt: {
+            "expect": "玩家不能通过跨图逃离追击，除非敌人和旧地图一起被清理",
             "flag": "无（AIFightEnemy 等不带）",
-            "eligible": False,
-            "cont": False,
+            "elig": True,
+            "loaded": ACT_TRANSFER_PLAIN,
+            "unloaded": ACT_NOTHING,
+            "preload": {"spot": "否", "band": "否"},
             "vanilla": "无事",
-            "patch": "收紧（待办①）",
-            "preload": _no_preload(),
+            "patch": "新增（需 patch 识别敌方+战斗 job，允许借传送点跨图追击）",
         },
     ),
     (
         "AI 逃跑（flee，无 flag）",
         lambda name, animal: name != "殖民地机械族",
         lambda name, animal, tgt: {
+            "expect": "原版 AI 因恐慌逃跑时不会跑出地图；按 NPC 原则不该跨图",
             "flag": "无（普通 Flee 不设）",
-            "eligible": animal,
-            "cont": False,
+            "elig": False,
+            "loaded": ACT_NOTHING,
+            "unloaded": ACT_NOTHING,
+            "preload": {"spot": "否", "band": "否"},
             "vanilla": "无事",
-            "patch": "现有（动物即传）" if animal else "收紧（待办①）",
-            "preload": _no_preload(),
+            "patch": "收紧（现状无资格即传，需收紧为不传）",
+        },
+    ),
+    (
+        "撤离 duty（袭击撤退/盟友·访客·商队·旅行者离场/囚犯越狱）",
+        lambda name, animal: name in ("敌方人形", "敌方机械族", "盟友增援", "访客/旅行者/商队", "囚犯"),
+        lambda name, animal, tgt: {
+            "expect": "敌人需要能进入对端已加载地图继续跑，直到其到达没有加载对端地图的撤离点（视为跑出玩家视野）",
+            "flag": "有（JobGiver_ExitMap / JobGiver_PrisonerEscape）",
+            "elig": False,
+            "loaded": EXIT_DUTY[0],
+            "unloaded": EXIT_DUTY[1],
+            "preload": {"spot": "否", "band": "否"},
+            "vanilla": "出口格→撤离（NPC 只能加入现有队）",
+            "patch": "分流（现状 flag 一律放行原生撤离；需改为对端已加载→传送+续发撤离）",
         },
     ),
     (
         "野生动物恐慌逃跑（原生 50% Flee+flag）",
         lambda name, animal: name == "野生动物",
         lambda name, animal, tgt: {
+            "expect": "逃跑的动物需要能进入对端已加载地图继续跑，以此允许玩家跨图追猎，直到其到达没有加载对端地图的撤离点（视为跑出玩家视野）。未掷中 flag 的 flee 不跨图（原则同上）",
             "flag": "有（Pawn_MindState 原生）",
-            "eligible": False,
-            "cont": False,
+            "elig": False,
+            "loaded": EXIT_DUTY[0],
+            "unloaded": EXIT_DUTY[1],
+            "preload": {"spot": "否", "band": "否"},
             "vanilla": "出口格→撤离（ExitMap 回世界）",
-            "patch": "现有（RCellFinder 出口导向）",
-            "preload": _no_preload(),
-        },
-    ),
-    (
-        "撤离 duty（袭击撤退/盟友·访客·商队·旅行者离场）",
-        lambda name, animal: name in ("敌方人形", "敌方机械族", "盟友增援", "访客/旅行者/商队"),
-        lambda name, animal, tgt: {
-            "flag": "有（JobGiver_ExitMap）",
-            "eligible": False,
-            "cont": False,
-            "vanilla": "出口格→撤离（NPC 只能加入现有队）",
-            "patch": "现有（RCellFinder 出口导向）",
-            "preload": _no_preload(),
-        },
-    ),
-    (
-        "囚犯越狱",
-        lambda name, animal: name == "囚犯",
-        lambda name, animal, tgt: {
-            "flag": "有（JobGiver_PrisonerEscape）",
-            "eligible": False,
-            "cont": False,
-            "vanilla": "出口格→撤离",
-            "patch": "现有（RCellFinder 出口导向）",
-            "preload": _no_preload(),
+            "patch": "分流（同撤离 duty：对端已加载→传送继续跑）",
         },
     ),
     (
         "驯养动物跟随主人",
         lambda name, animal: name == "驯养动物",
         lambda name, animal, tgt: {
+            "expect": "跟随主人时应该能在主人跨过接缝前往新地图时跟随主人；但不该独立触发地图生成",
             "flag": "无（Follow/FollowClose 不带）",
-            "eligible": True,
-            "cont": False,
+            "elig": True,
+            "loaded": ACT_TRANSFER_PLAIN,
+            "unloaded": ACT_NOTHING,
+            "preload": {"spot": "否", "band": "否"},
             "vanilla": "无事",
-            "patch": "现有（动物即传）。⚠ 踩点会与主人分图，待用户定夺",
-            "preload": _no_preload(),
+            "patch": "收紧（现状『动物即传』过宽，应收窄为跟随 job；跟随传送保留）",
         },
     ),
 ]
@@ -173,23 +213,14 @@ SOURCES = [
 TARGET_KEYS = ["spot", "band"]
 
 
-def spot_behaviors(rule):
-    """返回 (踩点已加载, 踩点未生成)。"""
-    if rule["flag"].startswith("有"):
-        return ("原生撤离/组队（身份受限）", "同左（不依赖对端）")
-    if rule["eligible"]:
-        return ("**传送**" + ("+ 续程 Goto" if rule["cont"] else ""), "无事")
-    return ("无事", "无事")
-
-
 def build_table():
     lines = []
     lines.append("全组合枚举（脚本 `doc/gen_边界行为表.py` 生成，改规则后重跑再生）。")
-    lines.append("传送/撤离判定只看 pawn 实际踩到传送点格，与该格是目标还是路径经过无关；")
-    lines.append("目标格列影响的是**预加载触发**与到达后站位。动物 = 野生 + 驯养。")
+    lines.append("判定只看 pawn 实际踩到传送点格且该移动的目标/意图指向跨图；")
+    lines.append("目标格非传送点的行，传送点一概不激活（踩点两列恒为\"—\"）。动物分野生/驯养，行为不同。")
     lines.append("")
-    lines.append("| # | 主体 | 移动来源 | 目标格 | flag | 传送资格 | 踩传送点(已加载) | 踩传送点(未生成) | 预加载 | 原版行为 | patch 依赖 |")
-    lines.append("|---|---|---|---|---|---|---|---|---|---|---|")
+    lines.append("| # | 主体 | 移动来源 | 目标格 | flag | 玩家预期/场景分类 | 传送资格 | 踩传送点(已加载) | 踩传送点(未生成) | 预加载 | 原版行为 | patch 依赖 |")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
     n = 0
     for s_name, s_animal, _s_desc in SUBJECTS:
         for src_name, applies, make_rule in SOURCES:
@@ -199,14 +230,13 @@ def build_table():
                 rule = make_rule(s_name, s_animal, key)
                 if rule is None:
                     continue
-                loaded, unloaded = spot_behaviors(rule)
-                elig = "有（动物）" if (rule["eligible"] and not rule["cont"]) else (
-                    "有（跨图登记）" if rule["eligible"] else "无")
+                loaded, unloaded = (rule["loaded"], rule["unloaded"]) if key == "spot" else (NA, NA)
+                elig = "有" if rule["elig"] else "无"
                 n += 1
                 lines.append(
-                    "| %d | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
-                        n, s_name, src_name, tgt, rule["flag"], elig,
-                        loaded, unloaded, rule["preload"],
+                    "| %d | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+                        n, s_name, src_name, tgt, rule["flag"], rule["expect"], elig,
+                        loaded, unloaded, rule["preload"][key],
                         rule["vanilla"], rule["patch"],
                     )
                 )
@@ -218,7 +248,7 @@ def main():
         content = f.read()
     i, j = content.index(BEGIN), content.index(END)
     table = build_table()
-    rows = table.count("\n| ") + 1
+    rows = len([ln for ln in table.splitlines() if ln.startswith("| ")]) - 1
     new = content[: i + len(BEGIN)] + "\n" + table + "\n\n" + content[j:]
     with io.open(DOC, "w", encoding="utf-8") as f:
         f.write(new)
