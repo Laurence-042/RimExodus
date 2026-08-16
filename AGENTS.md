@@ -22,6 +22,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `doc/第三阶段-六边形裁切.md` — 六边形多边形裁切、void 铺设、接缝带几何归一。
 - `doc/第四阶段-连续地形.md` — 连续地形调研（四项可行性分级）、接缝覆写卷积混合（E 节）、分帧增量生成。
 - `doc/第四阶段a-预加载与传送机制.md` — 邻居预加载、多跳传送点、异步加载、传送机制重构、边缘 patch 统一。
+- `doc/边界行为表.md` — 传送点/接缝带行为规范（主体 × 移动来源全枚举，状态定稿 2026-08；阶段5 边界行为的权威规格，由 `doc/gen_边界行为表.py` 生成）。
 - `doc/地图生成步骤.md` — RimWorld 完整 genStep 执行顺序（含 RimExodus 注入点：230 海岸补铺 / 1400 铺 void + 备份 snapshot / 1410 接缝覆写 / Harmony patch 在 200 预清岩石、390 道路锚点对齐）。
 - `doc/用可重叠正方形承载六边形网格的空间映射方案.md` — 六边形网格的空间映射理论。
 
@@ -37,7 +38,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 - **查询优先用自带工具，别用命令行**：正常情况下使用 Grep/Glob/Read 等内置查询工具做检索与定位，不要用 Bash 跑 `Select-String`/`grep`/`findstr` 等命令。命令行转义（尤其 Windows + Git Bash + PowerShell 的引号/路径混用）容易出错，还会消耗用户的检视精力去判断命令是否安全。**例外**：Grep 工具在本仓库偶尔对明确存在的内容返回空结果（不报错，静默失败），此时可改用 PowerShell `Select-String -Path <绝对路径> -Pattern <正则>`（绝对路径用正斜杠）作为后备，这是已知的可靠替代。
 - **编译**：仓库根目录运行 `just build`（默认任务也是 `build`），底层命令为 `dotnet build Source/RimExodus.csproj -c Debug`，输出 `1.6/Assemblies/RimExodus.dll`。
-- 主设计文档的"当前阶段计划"定义推进顺序：VMF 调研 → 最小技术原型 → 六边形裁切 → 连续地形 → 跨地图寻路与射击（5 个阶段）。阶段 1-3 已完成，阶段 4 进行中（接缝覆写已完成），阶段 5 未开始。
+- 主设计文档的"当前阶段计划"定义推进顺序：VMF 调研 → 最小技术原型 → 六边形裁切 → 连续地形 → 跨地图寻路与射击（5 个阶段）。阶段 1-4 已完成，阶段 5 进行中（边界行为/传送许可制已落地，跨图寻路与射击未开始）。
 
 ## 当前架构核心事实（地块对等论）
 
@@ -65,7 +66,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `CompSeamlessTileEnterSpot`：`targetWorldTile`（标记对端）+ `cachedArrivalCell`/`hasArrival`（缓存对端坐标，不序列化）。废弃了旧的互绑 `CounterpartSpot`。
 - `SeamlessEnterSpotPlacer`（静态）：`PlaceEnterSpotsAllNeighbors`（复用 ComputeVoidBand 铺接缝带传送点）+ `RefreshEnterSpotArrivals`（邻居关系建立后按 offset 算缓存）。
 - `SeamOverlap=2` 接缝重叠带：`ComputeNeighborOffset` 算 offset 后沿其方向收缩 SeamOverlap 格，使邻居多边形相对当前地图多叠 2 格，吸收投影扭曲（相邻 tile 切平面基旋转，赤道→北极累积约 30°）。
-- 防反弹：pawn 级锁（`HashSet<Pawn>`），离开整条接缝带才解锁。事件驱动传送检测（`Patches_PawnPathFollower` Postfix `TryEnterNextPathCell`，O(1) 查 thingGrid）。
+- ~~防反弹：pawn 级锁~~ **已删除（阶段5 改传送许可登记制，无许可不传 + 撤离链 VisitedTiles 防回弹；锁的"站在任一传送点保持"语义会卡死沿相邻边带内行走的撤离者）**。事件驱动传送检测保留但**必须用 Prefix + `pather.nextCell`（即将进入的格），不能用 Postfix**——历史教训（勿回退）：进入终点格时原方法体内部同步跑 `PatherArrived → job 完成 → think tree 发新 job（Wait_Combat 等）→ StartJob 钩子清掉传送许可`，Postfix 永远晚于这条链，终点格传送永不触发（实测 Bridge issued 后紧跟 "Grant cleared by Wait_Combat"）；Prefix 还抢先于撤离 job 到达 toil 的原生 TryExitMap（对端已加载时撤离者应传送而非原生离场）。传送后 Prefix 以 **Map 前后变化**判定跳过原方法体（教训勿回退：不能用 `pawn.Spawned` 判定——传送后 pawn 在新图上仍 Spawned，旧图 path/nextCell 状态跑方法体必然错乱，实测每次传送当 tick NRE 于 `TryEnterNextPathCell`）。`TryTransferPawn` **不校验 pawn 与 spot 的格距**（教训勿回退：原版 pather 的 `SetupMoveIntoNextCell` 节点去重双消费 + 路径重建可合法产生"nextCell 距 pawn ≥2 格"的调用，曼哈顿 ≤1 校验会误拒；不变量由调用方保证——触发器在 nextCell 上找到该 spot 即"正在进入"），坐标映射只依赖 spot。
 
 ### 邻居预加载与异步加载（阶段4a）
 - 事件驱动：Hook `Pawn_JobTracker.StartJob`，仅 `playerForced==true` 的 Goto 触发边界检测（避免动物级联加载）。
@@ -76,8 +77,8 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 ### 接缝覆写卷积混合（阶段4 连续地形）
 - 各地块正常用原版噪声独立生成，只在接缝带做 terrainDef 过渡混合。不追求全局连续。
 - `SeamlessSeamOverride.ApplyOneWay`：3×3 卷积加权取众数 + 单向覆写（只改新生成 tile C，不改已生成邻居 A）。
-- **混合带由 A snapshot 决定（非 C 的 bandWidth）**：遍历 A 被 void 裁掉的条带格（`!IsCellInPolygon(AVerts)`，即 A 六边形外），映射到 C 的 `cCell = aCell + offset` 做卷积。混合带宽度 = A 被裁掉的实际深度，无固定 bandWidth 配置。
-- 权重 w：`wCap × dSq/(dSq+dHex)` + 空间 Perlin 噪声 dither。dSq = aCell 到 A 方形边界切比雪夫格距（解析 `min(x,z,S-1-x,S-1-z)`），dHex = 到 A 六边形边欧氏垂距。**逐格局部归一化，无全局统计量**——历史教训（勿回退）：前两代用"全图 void 最大深度"/"候选集 maxDepth"全局归一，都被 A 方形角落格污染（角落深度 40-68 格，且与接缝相邻的方形角落能绕六边形顶点投影进 C 侧向楔形区，"角落格投影后多被过滤"假设已被实测证伪——数据点 A(249,249)→C(59,146)，距 C 中心仅 ~69 格 ≪ 内切圆 ~108），maxDepth 被抬高 2-3 倍 → 整条带 w≥0.45、邻居众数全带通吃（A 全岩石时整条混合带被写成岩石）。逐格比例还保证窄条带区段接缝侧 w 同样接近 wCap。dSq 切比雪夫/dHex 欧氏度量混用为有意取舍（≤√2 单调偏差，dither 下不可见）。已知保留行为：顶点楔形区仍参与混合（贴 A 六边形边的角落格 w≈wCap，与侧向邻居的混合顺序相关），不做走廊限制。
+- **混合带由 A snapshot 决定（非 C 的 bandWidth）**：候选 = 凡 aCell 在 A 矩形内、映射 `cCell = aCell + offset` 落在 C 六边形内的格，含两段：① A 被 void 裁掉的条带格（A 六边形外）；② **SeamOverlap 重叠带**（aCell 在 A 六边形内的 2-3 格——offset 沿接缝收缩 SeamOverlap 格致 A 六边形投影叠进 C 六边形）。② 勿回退：候选收集若只收"A 六边形外"，重叠带是 C 原始地形，夹在"void 透出的 A 地形"与混合带之间成为未混合舌状条带（2026-08 探针实测：3 格 Soil 夹在两层 Slate 之间）。offset 平移约一图跨度，两六边形交集只有重叠带 → 候选集天然有界。混合带宽度 = A 被裁掉的实际深度 + 重叠带，无固定 bandWidth 配置。
+- 权重 w：`wCap × dSq/(dSq+dHex)` + 空间 Perlin 噪声 dither。dSq = aCell 到 A 方形边界切比雪夫格距（解析 `min(x,z,S-1-x,S-1-z)`），dHex = 到 A 六边形边欧氏垂距（无符号——重叠带 aCell 在六边形内侧同样贴边高 w，与 void 条带侧平滑衔接）。**逐格局部归一化，无全局统计量**——历史教训（勿回退）：前两代用"全图 void 最大深度"/"候选集 maxDepth"全局归一，都被 A 方形角落格污染（角落深度 40-68 格，且与接缝相邻的方形角落能绕六边形顶点投影进 C 侧向楔形区，"角落格投影后多被过滤"假设已被实测证伪——数据点 A(249,249)→C(59,146)，距 C 中心仅 ~69 格 ≪ 内切圆 ~108），maxDepth 被抬高 2-3 倍 → 整条带 w≥0.45、邻居众数全带通吃（A 全岩石时整条混合带被写成岩石）。逐格比例还保证窄条带区段接缝侧 w 同样接近 wCap。dSq 切比雪夫/dHex 欧氏度量混用为有意取舍（≤√2 单调偏差，dither 下不可见）。已知保留行为：顶点楔形区仍参与混合（贴 A 六边形边的角落格 w≈wCap，与侧向邻居的混合顺序相关），不做走廊限制。
 - **窄结构保护（权威元数据判据）**：3×3 众数卷积天然抹掉 ≤2 格宽线性结构（窗口内少数派）。①道路主判据（地形）：本格已是 `IsRoad`（HasTag Road）或 `bridge` 地形 → 跳过混合——路面可铺到距 A* 中线 2-3 格 + Bezier 偏离折线 3-4 格，仅靠路径缓冲会漏（实测 snapshot=BrokenAsphalt 的格被卷积成 Sand）。②道路兜底（路径缓冲）：`SeamlessRoadPaths`（`GenStep_Roads.Generate` Postfix 快照 static paths 到 MapComponent，防分帧增量生成下被其他地图清空）±3 格切比雪夫——覆盖 Gravel 等无 Road tag 路面。③水格：C 当前地形 `IsWater` 跳过（水的连续由 CoastalEdgeFill/river mutator 两端独立保证）。判据用生成期权威数据而非局部模式识别（细线检测无法区分 2 格宽土径和常规地形边缘条带——局部模式同构）。不做 A 侧结构继承。
 - 卷积采样源：self 用 C 当前 topGrid（裁切后真实状态），neighbor 用 A snapshot（裁切前完整地形，含 A 被裁掉部分的真实地形）。
 - GenStep 顺序：`CoastalEdgeFill(230)` → `SeamlessTile(1400, 备份snapshot+铺void)` → `SeamOverride(1410, 卷积覆写)` → `Fog(1500, 据最终地形揭雾)`。
@@ -112,6 +113,18 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `Patches_FloatMenuMakerMap`：Prefix 接管跨图 FloatMenu 生成，`InjectCrossMapGotoOption` 按桥接可达性注入跨图 Goto 选项。
 - `SeamlessSelectionTracker`：跨切图的选中保持集（解决切图 ClearSelection 丢选中）。
 - `SeamlessCameraFocus`：首个殖民者跨图自动聚焦 + 无感相机（切图后用 SetRootPosAndSize 同时恢复位置+缩放）。
+
+### 跨图边界行为（阶段5，传送许可登记制，权威规格 = `doc/边界行为表.md`）
+- **判定收拢原则**：传送资格不在踩点时判定——状态变更事件处登记许可（Grant）并绑定传送点，踩点热路径（`SeamlessMapTransferTrigger.TryTriggerTransfer`）只做一次字典查询 + 匹配分派。**无许可不传**（闲逛/工作/无 flag 逃跑一律无事是结构性结果）。
+- `SeamlessTransferGrants`（静态登记表 `Dictionary<Pawn,Grant>`）：Kind = Bridge（玩家跨图 goto）/ Evacuation（NPC 撤离链）/ Pursue（跨图追击）/ Follow（跟随跨图）。`TransitTag`（"RimExodus.Transit"）写在我们下发 Goto 的 `job.dutyTag` 上（干净可序列化字段，无引擎消费者）——StartJob 钩子据此识别"许可驱动 job"，不当 job 替换清除许可。
+- 三个登记点：① `Patches_Job` StartJob Prefix——`exitMapOnArrival && !playerForced`（撤离 duty/囚犯越狱/野性恐慌/释放访客）→ Evacuation 许可；任何非 TransitTag job 启动 → 旧许可清除（清理先于登记，天然处理 job 重发/队列复用）。playerForced 精确区分玩家征召 goto（原版 5 个 flag 赋值点中只有 DraftedMove 走 TryTakeOrderedJob 设 true）→ 玩家撤离不登记，踩传送点走原生撤离/组队。② `SeamlessCrossMapOrders.TryBridgeJob`——Bridge 许可（绑定 exitSpot + 携带最终目的地，吸收已删除的 SeamlessCrossMapPendingDestinations）+ TransitTag Goto。③ `NotifyPawnTransferred`（传送完成事件）——撤离链续程 + 追击者/跟随者扫描（目标/主人刚跨图的瞬间事件标记，跨图意图由事件本身保证，无需踩点时判意图）。
+- **撤离链方向性（防回弹/横跳）**：`TryFindEvacuationExit` 三级候选——未访问边且对端未加载（到达即原生离场，链终止最快）> 未访问边（链继续）> 无过滤（只剩已访问边，ForceExit 踩点直接 `pawn.ExitMap`）。VisitedTiles 跨 hop 传递（含来向 tile）。**续程 job 不带 exitMapOnArrival**（传送落点本身常是出口格，flag job 的 pre-tick IsExitCell 检查会在落地瞬间原生离场，破坏"继续跑"）；Evacuation 首跳许可不绑具体点（首个踩到的传送点：对端已加载→传送续链，未生成→交还原版 JobDriver 原生撤离）。
+- 追击扫描：出发地图上 `AttackMelee` 目标=刚跨图者 且 NPC 战斗体（`SeamlessBoundaryRules.IsNpcCombatant`：人形/机械族非玩家阵营，覆盖敌人+盟友）→ 借同一传送点传送追击。走位 Goto 无跨图意图判据不激活、AttackStatic 恒站立不踩格——均不扫。狂猎动物不属战斗体（行为表无此行）。
+- 跟随扫描：出发地图上 `Follow/FollowClose` 目标=刚跨图者 → 跟随传送（驯养动物 + NPC 随从统一覆盖，防商队过缝解体）。
+- **游荡兜底**：Pursue/Follow 落地 NPC（传送时 lord 已被 Notify_PawnLost 剥离、无 duty）若无目标会永久滞留——600 ticks 宽限内重新接战/有 lord 则解除，超时转入撤离链跑出世界（排除来向 tile）。
+- 预加载排除传送点格（`SeamlessBorderPreloader.CheckPawnGoto` + `SeamlessEdgeCells.IsSeamEdgeCell` thingGrid O(1)）：征召 goto 传送点格 = 撤离意图，不触发对端生成。
+- 跨图指令主体（`SeamlessBoundaryRules.IsCrossMapOrderable`）：殖民者 / 殖民地机械族（`IsColonyMech`，保留原版 `!IsColonyMech` 不自行离图例外）/ 玩家阵营驯养动物。
+- 静态清扫挂在锚点地图 `SeamlessMapTransferTrigger.MapComponentTick`：Grants 失效/超时（6000 ticks 兜底，正常生命周期由 StartJob 替换清理）、游荡宽限检查、`SeamlessCrossMapOrders.PurgeInvalid`（pendingMenuTargets 死亡/转世界 pawn 泄漏）。
 
 ## 存档兼容性说明
 

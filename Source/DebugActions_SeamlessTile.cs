@@ -113,6 +113,9 @@ namespace RimExodus
         /// 用于精确定位"某格 snapshot 是水/沙，但被邻居土卷积成了泥"等海岸侵蚀问题。
         /// 输出 self snapshot（本地 snapshot 在该格的值）vs neighbor snapshot（邻居对应格的值），
         /// 以及 NeighborLink offset、邻居对应格坐标（与传送点同源，已验证正确）。
+        /// 末尾附 <see cref="SeamlessSeamOverride.DescribeCellMixing"/> 重放段：逐已加载邻居给出
+        /// 混合带归属、跳过保护、权重链（dSq/distEdge/wBase/噪声/w）、snapshot 与 self 的 3×3
+        /// 卷积输入、混合分布与覆写判定（不覆写 / 会覆写 local → chosen）。
         /// </summary>
         [DebugAction(Category, "Inspect Snapshot At Position", false, false, false, false, false, 0, false,
             actionType = DebugActionType.ToolMap, allowedGameStates = AllowedGameStates.PlayingOnMap)]
@@ -165,41 +168,45 @@ namespace RimExodus
 
             sb.AppendLine($"  nearestEdge={edgeIdx}  neighborWT={neighborWorldTile}");
 
-            // 邻居是否已加载（用 NeighborLink，与传送点同源）。
+            // 邻居是否已加载（用 NeighborLink，与传送点同源）。最近边邻居仅作上下文参考，
+            // 重放段自行遍历全部已加载邻居，故此处不再提前返回。
             if (neighborWorldTile < 0 || !SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, neighborWorldTile, out var info))
             {
                 sb.AppendLine("  neighbor loaded: NO");
-                Log.Message(sb.ToString().TrimEnd());
-                return;
             }
-
-            var neighborMap = info.map;
-            var neighborCell = cell - info.offset;
-            sb.AppendLine($"  neighbor loaded: YES  (map={neighborMap?.uniqueID})");
-            sb.AppendLine($"    offset={info.offset}  (NeighborLink，与传送点同源)");
-            sb.AppendLine($"    neighborCell=({neighborCell.x},{neighborCell.z}) = cell - offset");
-
-            if (neighborMap == null || !neighborCell.InBounds(neighborMap))
-            {
-                sb.AppendLine($"    neighborCell out of bounds → SeamOverride 卷积时会跳过(oob)");
-                Log.Message(sb.ToString().TrimEnd());
-                return;
-            }
-
-            // 邻居对应格当前地形。
-            var neighborCurrent = neighborMap.terrainGrid.topGrid[neighborMap.cellIndices.CellToIndex(neighborCell)];
-            sb.AppendLine($"    neighbor current:  {TerrainName(neighborCurrent)}");
-
-            // 邻居对应格在邻居 snapshot 的值。
-            TerrainDef[] neighborSnapshot = null;
-            if (neighborMap.Parent is MapParent_SeamlessTile neighborTile)
-                neighborSnapshot = neighborTile.baseTerrainSnapshot;
             else
-                neighborSnapshot = neighborMap.GetComponent<SeamlessTileManager>()?.anchorBaseTerrainSnapshot;
+            {
+                var neighborMap = info.map;
+                var neighborCell = cell - info.offset;
+                sb.AppendLine($"  neighbor loaded: YES  (map={neighborMap?.uniqueID})");
+                sb.AppendLine($"    offset={info.offset}  (NeighborLink，与传送点同源)");
+                sb.AppendLine($"    neighborCell=({neighborCell.x},{neighborCell.z}) = cell - offset");
 
-            var nIdx = neighborMap.cellIndices.CellToIndex(neighborCell);
-            var neighborSnapDef = (neighborSnapshot != null && nIdx < neighborSnapshot.Length) ? neighborSnapshot[nIdx] : null;
-            sb.AppendLine($"    neighbor snapshot: {TerrainName(neighborSnapDef)}");
+                if (neighborMap == null || !neighborCell.InBounds(neighborMap))
+                {
+                    sb.AppendLine($"    neighborCell out of bounds → SeamOverride 卷积时会跳过(oob)");
+                }
+                else
+                {
+                    // 邻居对应格当前地形。
+                    var neighborCurrent = neighborMap.terrainGrid.topGrid[neighborMap.cellIndices.CellToIndex(neighborCell)];
+                    sb.AppendLine($"    neighbor current:  {TerrainName(neighborCurrent)}");
+
+                    // 邻居对应格在邻居 snapshot 的值。
+                    TerrainDef[] neighborSnapshot = null;
+                    if (neighborMap.Parent is MapParent_SeamlessTile neighborTile)
+                        neighborSnapshot = neighborTile.baseTerrainSnapshot;
+                    else
+                        neighborSnapshot = neighborMap.GetComponent<SeamlessTileManager>()?.anchorBaseTerrainSnapshot;
+
+                    var nIdx = neighborMap.cellIndices.CellToIndex(neighborCell);
+                    var neighborSnapDef = (neighborSnapshot != null && nIdx < neighborSnapshot.Length) ? neighborSnapshot[nIdx] : null;
+                    sb.AppendLine($"    neighbor snapshot: {TerrainName(neighborSnapDef)}");
+                }
+            }
+
+            // SeamOverride 混合重放（逐已加载邻居：混合带归属/跳过保护/权重链/3×3 卷积输入/覆写判定）。
+            sb.Append(SeamlessSeamOverride.DescribeCellMixing(map, worldTile, cell));
 
             Log.Message(sb.ToString().TrimEnd());
         }
