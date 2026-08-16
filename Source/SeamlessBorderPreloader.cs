@@ -39,6 +39,14 @@ namespace RimExodus
             }
             if (worldTile < 0) return;
 
+            // 传送点格 = 撤离意图（玩家征召 goto 踩传送点 → 原生撤离/组队，行为表行 1/8）：
+            // 不需要对端地图，不触发预加载。边界带带宽（15）包含传送点带（2），必须显式排除。
+            if (SeamlessEdgeCells.IsSeamEdgeCell(map, targetCell))
+            {
+                Log.Message($"[RimExodus] CheckPawnGoto: pawn {pawn.LabelShort} target {targetCell} is a seamless enter spot (exit intent), skip preload.");
+                return;
+            }
+
             // 已加载则跳过。
             if (SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, worldTile, out _))
             {

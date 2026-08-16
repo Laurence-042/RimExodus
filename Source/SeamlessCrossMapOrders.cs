@@ -57,6 +57,10 @@ namespace RimExodus
             // 无论是否命中桥接条件，都只消费一次，避免过期记录影响后续无关的 Job。
             pendingMenuTargets.Remove(pawn);
 
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] TryInterceptJob: consumed pending goto for {pawn.LabelShort} "
+                    + $"(pending map {pending.Map?.uniqueID ?? -1} cell {pending.Cell}, pawn map {pawn.Map?.uniqueID ?? -1}).");
+
             // 目标地图内部会按可站立格重新选点（不一定等于原始点击格），因此不能按 Cell 精确匹配，
             // 只要该 Pawn 存在跨地图的待处理点击、且这是紧随其后的一个 Goto 单，就当作同一次指令。
             if (pending.Map == pawn.Map)
@@ -76,9 +80,44 @@ namespace RimExodus
                 return false;
             }
 
-            SeamlessCrossMapPendingDestinations.Record(pawn, targetMap, targetLocalCell);
-            pawn.jobs.StartJob(JobMaker.MakeJob(JobDefOf.Goto, exitSpot.Position), JobCondition.InterruptForced);
+            // 阶段5：桥接登记为 Bridge 传送许可（绑定 exitSpot + 携带最终目的地，吸收原
+            // SeamlessCrossMapPendingDestinations），下发的 Goto 用 TransitTag 自标识为许可驱动 job。
+            // 踩点时凭许可传送（无许可不传），传送消费后由许可携带的最终目的地续程。
+            var grant = SeamlessTransferGrants.Create(pawn, SeamlessTransferGrants.GrantKind.Bridge);
+            grant.BoundSpot = exitSpot.Position;
+            grant.FinalDestMap = targetMap;
+            grant.FinalDestCell = targetLocalCell;
+
+            var job = JobMaker.MakeJob(JobDefOf.Goto, exitSpot.Position);
+            job.dutyTag = SeamlessTransferGrants.TransitTag;
+            pawn.jobs.StartJob(job, JobCondition.InterruptForced);
+
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] Bridge issued: {pawn.LabelShort} on map {pawn.Map.uniqueID} "
+                    + $"-> spot {exitSpot.Position}, final dest map {targetMap.uniqueID} cell {targetLocalCell}.");
             return true;
+        }
+
+        /// <summary>清除已失效 pawn 的待处理点击登记（死亡/销毁/离场后残留，防过期记录影响后续 Goto）。</summary>
+        public static void PurgeInvalid()
+        {
+            if (pendingMenuTargets.Count == 0) return;
+
+            List<Pawn> stale = null;
+            foreach (var pair in pendingMenuTargets)
+            {
+                var pawn = pair.Key;
+                // !Spawned 覆盖"原生离场转世界 pawn"（非 Destroyed 但不再跑 job，登记会永久残留）。
+                if (pawn == null || pawn.Destroyed || pawn.Dead || !pawn.Spawned)
+                {
+                    stale ??= new List<Pawn>();
+                    stale.Add(pawn);
+                }
+            }
+            if (stale != null)
+            {
+                foreach (var pawn in stale) pendingMenuTargets.Remove(pawn);
+            }
         }
 
         /// <summary>

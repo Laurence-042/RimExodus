@@ -86,5 +86,20 @@ namespace RimExodus
             if (cells == null || cells.Count == 0) return IntVec3.Invalid;
             return cells[Rand.Range(0, cells.Count)];
         }
+
+        /// <summary>
+        /// cell 是否为传送点格（thingGrid 直查 spot def，O(1)，与 <see cref="GetSeamEdgeCells"/> 同源同口径：
+        /// 传送点铺设位置集合 = 接缝带权威定义）。供预加载排除等单格判定使用，避免取整表。
+        /// </summary>
+        internal static bool IsSeamEdgeCell(Map map, IntVec3 cell)
+        {
+            if (map == null || EnterSpotDef == null || !cell.InBounds(map)) return false;
+            var things = map.thingGrid.ThingsListAt(cell);
+            for (int i = 0; i < things.Count; i++)
+            {
+                if (things[i].def == EnterSpotDef) return true;
+            }
+            return false;
+        }
     }
 }

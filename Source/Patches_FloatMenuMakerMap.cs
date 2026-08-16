@@ -50,6 +50,10 @@ namespace RimExodus
 
             var effectiveMap = crossesToNeighborMap ? targetMap : hostMap;
             var effectiveClickPos = crossesToNeighborMap ? targetLocalCell.ToVector3Shifted() : clickPos;
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] FloatMenu takeover: crossesToNeighborMap={crossesToNeighborMap} "
+                    + $"(cell {IntVec3.FromVector3(clickPos)} -> {(crossesToNeighborMap ? $"{targetMap.uniqueID}:{targetLocalCell}" : "host")}), "
+                    + $"anyPawnElsewhere={anyPawnElsewhere}, effectiveMap={effectiveMap?.uniqueID}");
             if (effectiveMap == null || !effectiveClickPos.InBounds(effectiveMap))
             {
                 return false;
@@ -148,8 +152,15 @@ namespace RimExodus
             // 清空全部原版产出（cell 级 provider 的错误可达性判定结果）。
             result.Clear();
 
+            // 跨图指令主体（行为表行 3/10/55）：殖民者 / 殖民地机械族 / 玩家阵营驯养动物。
+            // 其余主体（如被选中的中立访客）不出跨图选项——原版同样不可对其下令移动。
+            if (!SeamlessBoundaryRules.IsCrossMapOrderable(pawn)) return;
+
             // 桥接可达性：pawn 能否从本图到达某个对端指向 context.map 的桥接传送点。
             var canBridge = SeamlessCrossMapOrders.CanBridgeTo(pawn, context.map);
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] FloatMenu cross-map option: pawn={pawn.LabelShort} ({pawn.KindLabel}) "
+                    + $"canBridgeTo(map {context.map.uniqueID})={canBridge}");
 
             if (canBridge)
             {

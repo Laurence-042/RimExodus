@@ -36,9 +36,16 @@ namespace RimExodus
                 Log.Warning("[RimExodus] Seamless transfer rejected: departure map invalid or same as arrival map.");
                 return false;
             }
-            if (pawn.Map != departureMap || pawn.Position != departureSpot.Position)
+            // 不校验 pawn 与 spot 的格距（教训勿回退）：Prefix 触发读 pather.nextCell，而原版
+            // pather 在路径重建/节点去重（SetupMoveIntoNextCell 的 ConsumeNextNode 双消费）后
+            // 可以合法地以"nextCell 距 pawn.Position ≥2 格"调用 TryEnterNextPathCell 并直接多格
+            // 跳入——"nextCell 恒相邻"假设不成立（实测被曼哈顿 ≤1 校验误拒）。
+            // 真正的不变量由调用方保证：触发器在 nextCell 上找到了该 spot（= 正在进入此格）；
+            // 坐标映射只依赖 spot（arrivalCell = spot.Position - offset），与 pawn 当前站哪无关。
+            if (pawn.Map != departureMap)
             {
-                Log.Warning("[RimExodus] Seamless transfer rejected: pawn is not on the departure spot.");
+                Log.Warning($"[RimExodus] Seamless transfer rejected: pawn (map {pawn.Map?.uniqueID}) "
+                    + $"is not on the departure spot's map ({departureMap.uniqueID}).");
                 return false;
             }
 
@@ -52,13 +59,6 @@ namespace RimExodus
             if (!arrivalCell.Walkable(arrivalMap))
             {
                 Log.Warning($"[RimExodus] Seamless transfer rejected: arrival cell {arrivalCell} on map {arrivalMap.uniqueID} is not walkable (overlap band should guarantee walkability).");
-                return false;
-            }
-
-            var targetTrigger = arrivalMap.GetComponent<SeamlessMapTransferTrigger>();
-            if (targetTrigger == null)
-            {
-                Log.Error("[RimExodus] Seamless transfer rejected: target map has no transfer trigger.");
                 return false;
             }
 
@@ -93,10 +93,6 @@ namespace RimExodus
                 pawn.drafter.Drafted = true;
                 pawn.drafter.FireAtWill = wasFireAtWill;
             }
-
-            // 必须在目标地图本 tick 扫描入口前写入，避免同 tick 立即弹回。
-            // 锁状态是 pawn 级的：pawn 只要还在接缝带上就不会再被任何接缝传送点触发传送。
-            targetTrigger.RecordArrival(pawn);
 
             if (RimExodusMod.Settings?.verboseLogging ?? false)
                 Log.Message($"[RimExodus] Seamless transfer: {pawn.LabelShort} "
