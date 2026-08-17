@@ -5,13 +5,14 @@ namespace RimExodus
     /// <summary>
     /// 无缝地块入口端点。
     ///
-    /// 架构（容纳投影扭曲）：传送点不再与对端 spot 双向互绑。每个 spot 记录指向的对端世界地块
+    /// 架构：传送点不与对端 spot 双向互绑。每个 spot 记录指向的对端世界地块
     /// <see cref="targetWorldTile"/>；邻居关系建立后，由 <see cref="SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals"/>
     /// 按 offset 算出"本格在对端地图的对应坐标"并缓存到 <see cref="cachedArrivalCell"/>。
     /// 之后传送触发与寻路查询都 O(1) 读缓存，不再现算 offset、不依赖对端 spot 是否存在。
     ///
-    /// 投影扭曲（相邻 tile 各自切平面基旋转）导致的共享边偏差，由接缝 2 格重叠带
-    /// （<see cref="SeamlessTileManager.SeamOverlap"/>）吸收。
+    /// 中点对齐的取整残差与投影残差（±1 格）由对侧 3 圈接缝带吸收：传送圈只有外侧 2 圈
+    /// （离散边圈 ∪ 带外圈），落点偏移最多落到对侧带内/带外圈——均为实地形，不进 void
+    /// （权威定义见 doc/接缝带定义.md）。
     /// </summary>
     public class CompSeamlessTileEnterSpot : ThingComp
     {

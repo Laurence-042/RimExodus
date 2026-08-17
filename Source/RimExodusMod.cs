@@ -99,10 +99,6 @@ namespace RimExodus
             listing.Label($"Seam override noise amplitude: {s.seamOverrideNoiseAmplitude:F2}");
             s.seamOverrideNoiseAmplitude = listing.Slider(s.seamOverrideNoiseAmplitude, 0f, 0.5f);
 
-            // 权重上限（1.0=关闭，0.9=默认）
-            listing.Label($"Seam override weight cap: {s.seamOverrideWeightCap:F2}");
-            s.seamOverrideWeightCap = listing.Slider(s.seamOverrideWeightCap, 0.5f, 1.0f);
-
             listing.End();
         }
     }

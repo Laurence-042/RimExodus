@@ -105,31 +105,16 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 判断 map 是否为锚点地图（玩家家园，IsPlayerHome）。
-        /// 用 IsPlayerHome 区分家园与地块（基础地图无 IsPocketMap 语义）。
-        /// 地块地图（MapParent_SeamlessTile）不是锚点；原生家园地图是锚点。
+        /// 判断 map 是否为家园地图（玩家最早落地的原版地图，IsPlayerHome）。
+        /// **无锚点特殊论（用户定夺 2026-08）**：家园图不特殊——天气按群系连通域共享
+        /// （<see cref="SeamlessWeatherClusterManager"/>），任何图都可作为域宿主。家园图仅有的
+        /// 差异是工程性的：邻居表/条带快照存于 SeamlessTileManager（MapComponent——原版
+        /// MapParent 无法挂我们的字段）、部分全局清扫挂它的组件 tick。用 IsPlayerHome 区分
+        /// 家园与地块（基础地图无 IsPocketMap 语义）。
         /// </summary>
         public static bool IsAnchorMap(Map map)
         {
             return map != null && map.IsPlayerHome && !(map.Parent is MapParent_SeamlessTile);
-        }
-
-        /// <summary>
-        /// 获取 map 用于 skyManager/weatherManager 共享的锚点地图（玩家家园）。
-        /// 家园地图自身返回自身；地块地图返回当前玩家家园地图（用于天气连续性共享）。
-        /// 阶段4前置：不再依赖 sourceMap（基础地图无此字段），改用 Find.CurrentMap 的家园查找。
-        /// </summary>
-        public static Map GetAnchorMap(Map map)
-        {
-            if (map == null) return null;
-            // 家园地图自身即锚点。
-            if (map.IsPlayerHome && !(map.Parent is MapParent_SeamlessTile)) return map;
-            // 地块地图：找当前玩家家园（任一 PlayerHome 且非地块）。
-            foreach (var m in Find.Maps)
-            {
-                if (m.IsPlayerHome && !(m.Parent is MapParent_SeamlessTile)) return m;
-            }
-            return null;
         }
 
         /// <summary>
@@ -150,6 +135,31 @@ namespace RimExodus
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// 统一取数入口：获取 worldTile 已生成地块的接缝条带快照（新图接缝混合的邻居参考数据）。
+        /// ① 活图在（Find.Maps 命中）→ 读活图存储位（生成期 CaptureAndStore 写入，数据最新）；
+        /// ② 无活图但 WorldObject 还在 → 读 WorldObject 上的快照（**地图滚动加载卸载的生命周期预埋**：
+        ///    未来卸 Map、留 WorldObject 时此路径自动接管；当前仅在过渡态命中）；
+        /// ③ 都没有（从未生成 / Dev 完全卸载已销毁 WorldObject）→ 返回 false（不参考，"完全卸载 = 从未出现过"）。
+        /// </summary>
+        public static bool TryGetNeighborSeamStrip(int worldTile, out SeamStripData strip)
+        {
+            strip = null;
+            if (worldTile < 0) return false;
+
+            if (TryGetMapByWorldTile(worldTile, out var map) && map != null && !map.Disposed)
+            {
+                strip = map.Parent is MapParent_SeamlessTile tileParent
+                    ? tileParent.seamStrip
+                    : map.GetComponent<SeamlessTileManager>()?.anchorSeamStrip;
+                return strip != null;
+            }
+
+            var parent = Find.World.worldObjects.MapParentAt(new PlanetTile(worldTile)) as MapParent_SeamlessTile;
+            strip = parent?.seamStrip;
+            return strip != null;
         }
     }
 }

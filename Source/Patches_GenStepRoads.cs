@@ -101,7 +101,7 @@ namespace RimExodus
 
             // 算该边接缝锚点格（多边形几何，不依赖传送点）。
             var exitCell = SeamlessPolygonGeometry.ComputeSeamCellForEdge(verts, bestEdge, mapSize, map,
-                SeamlessTileManager.SeamOverlap);
+                SeamlessTileManager.RoadAnchorInset);
             if (!exitCell.IsValid || !exitCell.InBounds(map)) return true;
 
             // 可达性校验，对齐原版 FindRoadExitCell 的两级语义：
@@ -210,7 +210,7 @@ namespace RimExodus
             for (var j = 0; j < verts.Count; j++)
             {
                 var anchor = SeamlessPolygonGeometry.ComputeSeamCellForEdge(verts, j, mapSize, map,
-                    SeamlessTileManager.SeamOverlap);
+                    SeamlessTileManager.RoadAnchorInset);
                 if (anchor.IsValid) anchors.Add(anchor);
             }
             if (anchors.Count == 0) return;

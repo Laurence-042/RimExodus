@@ -57,31 +57,46 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 计算从 sourceWorldTile 到 newWorldTile，新地块相对源地块的偏移。
-        /// offset = round(2 × (边中点 - 中心) - SeamOverlap × 方向单位向量)，边中点取自源地块多边形（内切圆模型）。
-        /// 边由 newWorldTile 在源地块邻居表中的位置确定。
-        /// 沿 offset 方向收缩 <see cref="SeamlessTileManager.SeamOverlap"/> 格，使邻居多边形相对源地图多叠 2 格（接缝重叠带），
-        /// 容纳投影扭曲。
+        /// 计算 sourceWorldTile（本地图）到 newWorldTile（邻居）的偏移（连续边中点对齐模型）。
+        ///
+        /// offset = round(midSource − midNew)：两端各用**自己**多边形上共享边的连续边中点。
+        /// 契约 neighborLocal + offset = myLocal（邻居格 → 本地格），要求共享边中点满足
+        /// midNew + offset = midSource，即 offset = midSource − midNew——渲染平移后两端
+        /// 连续边中点精确重合（浮点级），仅取整残差 ≤1 格/分量，由 3 圈接缝带吸收。
+        ///
+        /// 【为何弃用镜像假设（历史教训勿回退）】旧公式 round(2·(midA−centerA) − SeamOverlap·unit)
+        /// 只用源图多边形，隐含"邻居多边形 = 源多边形跨共享边的镜像"。实际两端多边形各自用
+        /// 自己 tile 中心的切平面基独立投影，同一条世界共享边在两端局部坐标系中的内切距
+        /// |mid−center| 不相等（顶点方向角间隔差 1° ≈ 内切距差 ~1 格）→ 系统性 ±1 格渲染错位
+        /// （2026-08 实测：聚焦 C 时 C 的接缝带比 A 背景内偏一格，赤道正北侧同样复现）。
+        /// 双端中点公式直接用两端真实内切距，系统误差归零。
+        ///
+        /// 公式天然对称：任一端计算结果一致（round(−x) = −round(x)），登记时只算一次取负即可。
+        /// 无 SeamOverlap 收缩——偏差吸收职责已移交 3 圈接缝带（传送圈仅外侧 2 圈 + 落点 ±1 格
+        /// 落对侧带内/带外圈均为实地形）。
         /// </summary>
-        public static IntVec3 ComputeNeighborOffset(int sourceWorldTile, int newWorldTile, Map originMap)
+        /// <param name="sourceWorldTile">本地图（originMap）的世界 tile。</param>
+        /// <param name="newWorldTile">邻居的世界 tile。</param>
+        /// <param name="originMap">本地图（提供本端尺寸）。</param>
+        /// <param name="newMap">邻居地图（提供对端尺寸；多跳补登记场景两端图都在。null 时假设与本端同尺寸）。</param>
+        public static IntVec3 ComputeNeighborOffset(int sourceWorldTile, int newWorldTile, Map originMap, Map newMap = null)
         {
-            var sourceSize = originMap.Size;
-            var verts = SeamlessPolygonGeometry.BuildPolygonVertices(sourceWorldTile, sourceSize.x);
-            if (verts.Count == 0) return IntVec3.Zero;
+            var sourceSize = originMap.Size.x;
+            var newSize = newMap?.Size.x ?? sourceSize;
 
-            var edgeIdx = WorldTileGeometry.FindNeighborIndex(sourceWorldTile, newWorldTile);
-            if (edgeIdx < 0) return IntVec3.Zero;
+            var sourceVerts = SeamlessPolygonGeometry.BuildPolygonVertices(sourceWorldTile, sourceSize);
+            var newVerts = SeamlessPolygonGeometry.BuildPolygonVertices(newWorldTile, newSize);
+            if (sourceVerts.Count < 3 || newVerts.Count < 3) return IntVec3.Zero;
 
-            var n = verts.Count;
-            var center = new Vector2(sourceSize.x * 0.5f, sourceSize.z * 0.5f);
-            var mid = (verts[edgeIdx] + verts[(edgeIdx + 1) % n]) * 0.5f;
-            var offsetVec = 2f * (mid - center);
-            // 沿 offset 方向收缩 SeamOverlap 格，形成接缝重叠带（容纳投影扭曲）。
-            var mag = offsetVec.magnitude;
-            if (mag > 1e-6f)
-            {
-                offsetVec -= offsetVec / mag * SeamlessTileManager.SeamOverlap;
-            }
+            // 共享边在各自多边形中的边索引（"边 j ↔ 邻居 j"，FindNeighborIndex 返回邻居序号即边索引）。
+            var edgeIdxSource = WorldTileGeometry.FindNeighborIndex(sourceWorldTile, newWorldTile);
+            var edgeIdxNew = WorldTileGeometry.FindNeighborIndex(newWorldTile, sourceWorldTile);
+            if (edgeIdxSource < 0 || edgeIdxNew < 0) return IntVec3.Zero;
+
+            var midSource = (sourceVerts[edgeIdxSource] + sourceVerts[(edgeIdxSource + 1) % sourceVerts.Count]) * 0.5f;
+            var midNew = (newVerts[edgeIdxNew] + newVerts[(edgeIdxNew + 1) % newVerts.Count]) * 0.5f;
+
+            var offsetVec = midSource - midNew;
             return new IntVec3(Mathf.RoundToInt(offsetVec.x), 0, Mathf.RoundToInt(offsetVec.y));
         }
 

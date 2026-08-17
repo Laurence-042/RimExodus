@@ -23,19 +23,13 @@ namespace RimExodus
         public int borderNoBuildDistance = 3;
 
         /// <summary>
-        /// 接缝覆写权重噪声幅度（0=关闭噪声，回到纯线性 w）。0.15 = w 上下抖动 ±0.15。
-        /// 在混合权重 w 上叠加低频空间 Perlin 噪声，dither 掉 GetMode 离散跳变，把规则等距过渡线
+        /// 接缝覆写权重噪声幅度（0=关闭噪声，回到纯线性 w）。0.15 = w 上下抖动 ±15%（乘性）。
+        /// 在衰减区混合权重上叠加低频空间 Perlin 噪声，dither 掉 GetMode 离散跳变，把规则等距过渡线
         /// 打散成自然弯曲斑块。种子基于 worldTile 稳定，同一地块多次生成噪声一致。
+        /// 只作用于衰减区（3 圈接缝带重构后重叠区 w=1 直接拷贝，不受噪声影响）。
         /// 设 0 可关闭对照验证效果。
         /// </summary>
         public float seamOverrideNoiseAmplitude = 0.15f;
-
-        /// <summary>
-        /// 接缝覆写权重上限（硬边界来源②修复）。最内圈（紧邻 void）的 w 不再硬夹到 1.0，
-        /// 而是 cap 到此值，系统性地保留 (1-wCap) 比例的 self 分布，避免最内圈形成硬边界。
-        /// 1.0 = 关闭（等同旧行为）。0.9 = 最内圈最多 90% 取邻居分布，保留 10% self。
-        /// </summary>
-        public float seamOverrideWeightCap = 0.9f;
 
         /// <summary>
         /// 海岸补铺：深水带宽度（格，到最近海洋边的距离 &lt; 此值铺深水）。0.15×mapSize 的比例。
@@ -62,7 +56,6 @@ namespace RimExodus
             Scribe_Values.Look(ref verboseLogging, "verboseLogging", false);
             Scribe_Values.Look(ref borderNoBuildDistance, "borderNoBuildDistance", 3);
             Scribe_Values.Look(ref seamOverrideNoiseAmplitude, "seamOverrideNoiseAmplitude", 0.15f);
-            Scribe_Values.Look(ref seamOverrideWeightCap, "seamOverrideWeightCap", 0.9f);
             Scribe_Values.Look(ref coastalEdgeDeepWaterDistance, "coastalEdgeDeepWaterDistance", 0.15f);
             Scribe_Values.Look(ref coastalEdgeShallowWaterDistance, "coastalEdgeShallowWaterDistance", 0.25f);
             Scribe_Values.Look(ref coastalEdgeBeachSandDistance, "coastalEdgeBeachSandDistance", 0.35f);

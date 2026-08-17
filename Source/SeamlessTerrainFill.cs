@@ -18,22 +18,27 @@ namespace RimExodus
     public static class SeamlessTerrainFill
     {
         /// <summary>
-        /// 备份基础地形 snapshot（void 裁切前的完整矩形 topGrid）并按六边形铺 void。
+        /// 备份基础快照（void 裁切前，平行三层：terrain / building / roof）并按接缝带几何铺 void。
         ///
         /// **两入口共用同一逻辑体**（归一点）：锚点家园 A 与邻接地块 B 的 void 铺设都走本方法。
-        /// snapshot 存储位置随载体类型自动选择（地块存 MapParent_SeamlessTile，
+        /// 快照存储位置随载体类型自动选择（地块存 MapParent_SeamlessTile，
         /// 锚点存 SeamlessTileManager），其余完全一致——避免两份重复的"备份+铺void"逻辑漂移。
         ///
-        /// snapshot 用途：供 <see cref="SeamlessSeamOverride"/> 卷积混合读取对端真实地形。
+        /// 三层同点位备份（均非序列化——跨读档的接缝参考由序列化的 SeamStripData 承担）。
+        /// void 铺设会清掉接缝带外格的岩体与屋顶，SeamStripData 对外条带格必须引用**原生**
+        /// 三层（同源）。**清理全部归 ApplyPolygonTerrain（依次清 roof → rock → terrain，
+        /// 用户定夺 2026-08）**：原生数据先落快照再被清理，时序天然安全。历史教训：曾在
+        /// order 200 patch 提前清岩，外条带原生岩体在备份前丢失 → 新图照抄区岩壁整齐切断。
         /// </summary>
         public static void BackupSnapshotAndApplyVoid(Map map, int worldTile)
         {
             if (map == null || worldTile < 0) return;
 
-            // 备份基础地形（void 裁切前的完整矩形 topGrid）。
             if (map.Parent is MapParent_SeamlessTile tile)
             {
                 tile.baseTerrainSnapshot = (TerrainDef[])map.terrainGrid.topGrid.Clone();
+                tile.baseBuildingSnapshot = BackupBuildingSnapshot(map);
+                tile.baseRoofSnapshot = BackupRoofSnapshot(map);
             }
             else
             {
@@ -41,6 +46,8 @@ namespace RimExodus
                 if (manager != null)
                 {
                     manager.anchorBaseTerrainSnapshot = (TerrainDef[])map.terrainGrid.topGrid.Clone();
+                    manager.anchorBaseBuildingSnapshot = BackupBuildingSnapshot(map);
+                    manager.anchorBaseRoofSnapshot = BackupRoofSnapshot(map);
                 }
             }
 
@@ -48,8 +55,47 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 按 worldTile 的六边形铺 void：六边形内（含边）非 void，六边形外 void。
+        /// 备份全图建筑层快照（格 → 岩石体 BuildingDef，null=无）。遍历 listerThings 而非逐格
+        /// GetEdifice（岩石数量级几千，远小于全图 62500 格）。
+        /// </summary>
+        private static ThingDef[] BackupBuildingSnapshot(Map map)
+        {
+            var defs = new ThingDef[map.Size.x * map.Size.z];
+            var indices = map.cellIndices;
+            foreach (var thing in map.listerThings.AllThings)
+            {
+                if (thing is not Building b || !thing.Spawned) continue;
+                if (b.def.building == null || b.def.building.naturalTerrain == null) continue;
+                var idx = indices.CellToIndex(thing.Position);
+                if (idx >= 0 && idx < defs.Length) defs[idx] = b.def;
+            }
+            return defs;
+        }
+
+        /// <summary>
+        /// 备份全图屋顶层快照（格 → RoofDef，null=无）。RoofGrid 内部数组私有，逐格 RoofAt
+        /// （生成期一次性全图遍历，可接受）。
+        /// </summary>
+        private static RoofDef[] BackupRoofSnapshot(Map map)
+        {
+            var defs = new RoofDef[map.Size.x * map.Size.z];
+            var indices = map.cellIndices;
+            var roofGrid = map.roofGrid;
+            foreach (var c in map.AllCells)
+            {
+                defs[indices.CellToIndex(c)] = roofGrid.RoofAt(c);
+            }
+            return defs;
+        }
+
+        /// <summary>
+        /// 按 worldTile 的接缝带几何铺 void：接缝带外（格中心在多边形外且 ∉ 接缝带 B）铺 void，
+        /// 其余（核心区 + 接缝带三圈，含带外圈）保持原生地形。
         /// void 格铺 RimExodus_Void 并清除其上的实体与 Pawn。
+        ///
+        /// 【新定义（doc/接缝带定义.md）】带外圈（离散边外侧一圈）从 void 变为实地形——
+        /// 传送圈 = 离散边圈 ∪ 带外圈（外侧 2 圈），3 圈带全实地形使传送落点 ±1 格偏差
+        /// （连续边中点对齐的取整残差）落在对侧带内/带外圈，不会传送到 void。
         /// </summary>
         public static void ApplyPolygonTerrain(Map map, int worldTile)
         {
@@ -63,13 +109,11 @@ namespace RimExodus
             }
 
             var size = map.Size;
-            var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, size.x);
-            if (verts.Count == 0) return;
+            var band = SeamlessPolygonGeometry.BuildSeamBand(worldTile, size.x);
 
-            // 逐格判定：格中心或 4 角任一在多边形内 → 非 void；否则 void。
-            // 格角检测保证：格面积与多边形有交集 → 非 void，消除边界附近的 void 孤岛（切断 region）。
-            // 不需要单独的 Bresenham 边格补丁——格角检测覆盖了边附近的格。
-            // 不查邻居——void 只取决于自己的六边形。
+            // 逐格判定：void = 接缝带外（格中心在多边形外且 ∉ B）。
+            // 防孤岛等价性：凸多边形下角在内的格必属 {中心在内} ∪ 离散边圈（⊆ B），
+            // 旧"中心或 4 角任一在内"角检测的非 void 集被 {中心在内} ∪ B 完全覆盖且多出带外圈（有意）。
             var voidCells = new List<IntVec3>();
 
             for (var x = 0; x < size.x; x++)
@@ -77,8 +121,7 @@ namespace RimExodus
                 for (var z = 0; z < size.z; z++)
                 {
                     var cell = new IntVec3(x, 0, z);
-                    if (SeamlessPolygonGeometry.IsCellInPolygon(verts, size.x, cell)) continue; // 多边形内（含边附近）：非 void
-                    voidCells.Add(cell);
+                    if (SeamlessPolygonGeometry.IsVoidCell(band, worldTile, size.x, cell)) voidCells.Add(cell);
                 }
             }
 
@@ -86,12 +129,23 @@ namespace RimExodus
             if (verbose)
                 Log.Message($"[RimExodus] ApplyPolygonTerrain worldTile={worldTile} map={map.uniqueID} size={size.x} voidCells={voidCells.Count} nonVoid={size.x*size.z - voidCells.Count}");
             var sw = verbose ? System.Diagnostics.Stopwatch.StartNew() : null;
-            long tClear = 0, tTerrain = 0, tEvac = 0, tClassify = 0;
+            long tClear = 0, tTerrain = 0, tEvac = 0, tClassify = 0, tRoof = 0;
             if (sw != null) { tClassify = sw.ElapsedMilliseconds; }
 
-            // 先清除虚空格上的实体（建筑/岩石/植物/物品等），再铺虚空地形。
+            // 依次清 roof → rock（实体）→ terrain（用户定夺 2026-08；快照已在备份后，时序安全）。
+            // 先清屋顶（RocksFromGrid 设的 RoofRockThick/Thin）。
+            foreach (var cell in voidCells)
+            {
+                if (map.roofGrid.RoofAt(cell) != null)
+                {
+                    map.roofGrid.SetRoof(cell, null);
+                }
+            }
+            if (sw != null) { tRoof = sw.ElapsedMilliseconds - tClassify; }
+
+            // 再清除虚空格上的实体（岩石 Building/植物/物品等），保留 Pawn（Pawn 单独处理）。
             ClearThingsOnCells(map, voidCells);
-            if (sw != null) { tClear = sw.ElapsedMilliseconds - tClassify; }
+            if (sw != null) { tClear = sw.ElapsedMilliseconds - tRoof - tClassify; }
 
             // 铺虚空地形：直接写 topGrid（公开字段 TerrainGrid.cs:13）跳过 SetTerrain 的重计算副作用，
             // 只保留渲染必需的 mesh 脏标记。void 地形 dontRender=true、passability=Impassable、不发光、

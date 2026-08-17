@@ -17,6 +17,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 文档索引：
 - `doc/无缝世界地块探索.md` — 长期设计与五阶段路线图。
   - 其中描述了核心交互场景，我们的最终目的是保证核心交互场景，因此实现过程中避免临时patch
+- `doc/接缝带定义.md` — **接缝带几何的权威定义**（连续边/离散边/3 圈接缝带/传送圈/void/offset 连续边中点对齐/SeamOverride 参考规则/地图生命周期数据链，状态定稿 2026-08）。
 - `doc/第一阶段-VMF调研.md` — VMF 源码调研、可复用能力和架构结论（PocketMap 路线已废弃，保留作历史调研）。
 - `doc/第二阶段-最小技术原型.md` — 矩形原型的实现进度、渲染验证。
 - `doc/第三阶段-六边形裁切.md` — 六边形多边形裁切、void 铺设、接缝带几何归一。
@@ -46,6 +47,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ### 基础地图对等架构（非口袋地图）
 - **所有地块都是基础地图**：`MapParent_SeamlessTile : MapParent`（原生基类，非 `PocketMapParent`）。`mapParent.Tile = 真实 PlanetTile`，`map.TileInfo` 自动读 `Find.WorldGrid[Tile]`（含真实 biome/hillness/mutators/rivers），原生 Coast/River/Delta 等 TileMutator 自然生效。
+- **无锚点特殊论（用户定夺 2026-08）**：家园图不特殊。天气按**群系连通域共享**（`SeamlessWeatherClusterManager`，GameComponent 全局注册机制）——同群系（PrimaryBiome）且世界图邻接连通的图共享一个天气源（宿主图的 sky/weather 三 manager），跨群系边界切断传递（雨林→温带→另一片不连通雨林 = 三个域）；宿主 = 域内最小 tileId 图（确定性，域结构不序列化，天气状态随宿主图存档、读档 FinalizeInit 重算重绑；图移除后 RebindAll 自动改绑——gravship 起飞销毁家园图无善后需求）。家园图仅剩工程性差异：邻居表/条带快照存 SeamlessTileManager（原版 MapParent 挂不了我们字段）、部分全局清扫挂其组件 tick。
 - 无 `sourceMap`/`IsPocketMap`/`pocketMaps` 语义。所有地块对等，通过直接邻居表维护关系。
 - 历史的 PocketMap 路线（`PocketMapParent`/`sourceMap` 宿主机制）已废弃，VMF 调研结论中相关描述仅作历史参考。
 
@@ -55,17 +57,25 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - 锚点地图（家园 A，普通 MapParent）的邻居表存于 `SeamlessTileManager.neighbors`（MapComponent）；地块地图存于 `MapParent_SeamlessTile.neighbors`。`SeamlessTileGraph`（静态）提供统一查询入口（`GetAllNeighbors`/`TryGetNeighborLinkByWorldTile`/`AreNeighbors`/`IsAnchorMap`），屏蔽存储位置差异。
 - `SeamlessNeighborRegistry`（静态）：邻居表登记工具（`RegisterNeighborBidirectional`/`SetNeighborOnMap`/`ComputeNeighborOffset`/`CleanupNeighborLinks`）。
 
-### 六边形裁切与 void（阶段3）
-- 内切圆顶点模型：多边形顶点 = 地图中心 + 0.5S × 顶点方向单位向量（方向来自世界地块真实顶点投影）。支持 N=5/6。
-- 三态几何：六边形内（非 void 无传送点）/ 六边形的边（非 void 有传送点）/ 六边形外（void）。**只看自己六边形**。
-- void 铺设：`SeamlessTerrainFill.ApplyPolygonTerrain` 用格角检测（`IsCellInPolygon`：格中心或 4 角任一在多边形内 → 非 void），消除孤岛。归一入口 `BackupSnapshotAndApplyVoid`（备份 snapshot + 调 ApplyPolygonTerrain）。
-- void 地形 `RimExodus_Void`：`passability=Impassable`、`dontRender=true`、`fertility=0`、不设 `forcePassableByFlyingPawns`。透明不可通行，消除重叠带视觉冲突。
-- 接缝带几何归一：`ComputeVoidBand`（`SeamlessPolygonGeometry`，"距 void 边界 N 格"的唯一实现，多轮膨胀，void 边界同源）。传送点带/接缝覆写混合带/边界带三者共用此实现。
+### 地图生命周期（现状 + 滚动加载卸载预埋）
+- **所有已生成地块图常驻 `Find.Maps`**：每 tick 全量模拟、随存档全量序列化（Game.ExposeData 无过滤）、读档原样恢复**不重新生成**（原版 GetOrGenerateMap 先 FindMap 复用）。"看不到"的邻居 = 非当前渲染但仍在 Find.Maps。无独立"休眠"机制（设计文档规划过冻结/卸载方案，未实现）。
+- **完全卸载只有 Dev Remove All Tile Maps**（`RemoveTileMap`）：销毁 Map **和** WorldObject（含接缝条带快照）= "从未出现过"。历史 bug 已修：`DeinitAndRemoveMap` 本身**不**销毁 WorldObject（原版行为），残留隐形 WorldObject 会与下次生成的对象重复——现在显式 `parent.Destroy()`。
+- **滚动加载卸载预埋**（未来休眠语义 = 卸 Map、留 WorldObject）：接缝参考数据 `SeamStripData` 挂 WorldObject，统一取数入口 `SeamlessTileGraph.TryGetNeighborSeamStrip` 已有 WorldObject 回落路径——届时参考链路零改动。
+- 原版上限：`Game.AddMap` 在 maps.Count > 127 报错（sbyte）——长途探索的已知约束，滚动卸载落地后解除。
+- 读档缺口已修：旧 `baseTerrainSnapshot` 非序列化且无重建 → 读档后新生成图的接缝混合静默失效（GetSnapshot null → continue）；序列化的 `SeamStripData` 解决。
 
-### 传送机制（阶段4b，容纳投影扭曲）
+### 六边形裁切与 void（阶段3；接缝带定义 2026-08 重构，权威定义 = `doc/接缝带定义.md`）
+- 圈层（从核心区向外）：**核心区 → 带内圈 → 离散边圈 → 带外圈 → void**，三圈合称接缝带 B。
+- **术语铁律**：不用"六边形外/内"指格集合（离散边格横跨连续边，内外归属歧义）；方向词用"接缝带内（核心侧）/接缝带外（void 侧）"；"格中心在多边形内/外"仅作标量判定。
+- 连续边 = 浮点多边形顶点线段（内切圆模型，顶点 = center + 0.5S × 顶点方向，N=5/6 通用）。离散边 D = 格方块与连续边线段相交（slab 法，含角点接触，过四格公共角时 2×2 格都入 D）的格。B = Cheb(D,1)（约 3 圈厚，切比雪夫膨胀填对角缝隙无洞）。**传送圈 = D ∪ 带外圈**（外侧 2 圈铺传送点，带内圈无传送点）。**void = 接缝带外**（格中心在多边形外且 ∉B）——带外圈为实地形（不再是 void），这是传送落点 ±1 格偏差不进 void 的关键（pawn 由内向外必先踩离散边圈 spot，落点偏移落对侧带内/带外圈均实地形）。防孤岛等价：凸多边形下角在内的格必属 {中心在内}∪D，取代旧"中心或 4 角任一在内"角检测。
+- `BuildSeamBand`（`SeamlessPolygonGeometry`，进程缓存键 (worldTile, mapSize)）是带几何唯一实现：void 铺设 / 传送圈铺设 / SeamOverride 混合范围与邻居参考判定 / 条带快照捕获共用。**清理全部归 1400 的 ApplyPolygonTerrain，依次清 roof → rock（实体）→ terrain**（用户定夺 2026-08；三层快照（terrain/building/roof）先备份再清理，时序天然安全）。**order 200 patch 已删除（勿回退）**：曾提前清 void 格岩体/屋顶——void 格含外条带，提前清理使 1400 才备份的原生数据丢失（岩壁整齐切断）。接缝带 B 上的岩石保留（自然地形，混合时按对端/地形增删；挡个别传送点是旧版一致的既有行为）。
+- void 铺设：`SeamlessTerrainFill.BackupSnapshotAndApplyVoid`（备份 snapshot + 按 `IsVoidCell` 铺 void）。void 地形 `RimExodus_Void`：`passability=Impassable`、`dontRender=true`、`fertility=0`。
+- `ComputeVoidBand`（读 terrainGrid void 实况的多轮膨胀）现仅剩 `SeamlessBorderLookup` 预加载带(15)/禁建带(3) 消费，自动适应新 void 形状。
+
+### 传送机制（阶段4b；接缝带定义 2026-08 重构）
 - `CompSeamlessTileEnterSpot`：`targetWorldTile`（标记对端）+ `cachedArrivalCell`/`hasArrival`（缓存对端坐标，不序列化）。废弃了旧的互绑 `CounterpartSpot`。
-- `SeamlessEnterSpotPlacer`（静态）：`PlaceEnterSpotsAllNeighbors`（复用 ComputeVoidBand 铺接缝带传送点）+ `RefreshEnterSpotArrivals`（邻居关系建立后按 offset 算缓存）。
-- `SeamOverlap=2` 接缝重叠带：`ComputeNeighborOffset` 算 offset 后沿其方向收缩 SeamOverlap 格，使邻居多边形相对当前地图多叠 2 格，吸收投影扭曲（相邻 tile 切平面基旋转，赤道→北极累积约 30°）。
+- `SeamlessEnterSpotPlacer`（静态）：`PlaceEnterSpotsAllNeighbors`（铺**传送圈** = 离散边圈 ∪ 带外圈，BuildSeamBand 纯几何。**无任何可通行性过滤（用户定夺 2026-08，勿回退为 cell.Standable 或地形 passability 判定）**——spot 是纯逻辑连接设施：能不能走由地形运行时决定，不能走 pawn 自然绕路（与地图中央的深水/岩石挡路同构），地形变化（挖岩石/铺桥/水位）后 spot 已在、即时可用；带内圈无传送点）+ `RefreshEnterSpotArrivals`（邻居关系建立后按 offset 算缓存）。
+- **offset = 连续边中点对齐**：`offset = round(midSource − midNew)`，两端各用自己多边形上共享边的连续边中点，渲染平移后两端连续边中点精确重合（浮点级），无收缩。**旧镜像假设公式（round(2·(midA−centerA) − SeamOverlap·unit)，只用源端几何）有系统性 ±1 格渲染错位，勿回退**——同一条世界共享边在两图投影的内切距不等（顶点方向角间隔差 1° ≈ 内切距差 ~1 格；2026-08 实测聚焦 C 时接缝带内偏一格，赤道正北侧同样复现）。取整残差 ≤1 格/分量由 3 圈接缝带吸收。公式天然对称（round(−x)=−round(x)），任一端算等值。旧常量 `SeamOverlap` 改名 `RoadAnchorInset`（值 2，仅剩道路锚点内偏语义）。
 - ~~防反弹：pawn 级锁~~ **已删除（阶段5 改传送许可登记制，无许可不传 + 撤离链 VisitedTiles 防回弹；锁的"站在任一传送点保持"语义会卡死沿相邻边带内行走的撤离者）**。事件驱动传送检测保留但**必须用 Prefix + `pather.nextCell`（即将进入的格），不能用 Postfix**——历史教训（勿回退）：进入终点格时原方法体内部同步跑 `PatherArrived → job 完成 → think tree 发新 job（Wait_Combat 等）→ StartJob 钩子清掉传送许可`，Postfix 永远晚于这条链，终点格传送永不触发（实测 Bridge issued 后紧跟 "Grant cleared by Wait_Combat"）；Prefix 还抢先于撤离 job 到达 toil 的原生 TryExitMap（对端已加载时撤离者应传送而非原生离场）。传送后 Prefix 以 **Map 前后变化**判定跳过原方法体（教训勿回退：不能用 `pawn.Spawned` 判定——传送后 pawn 在新图上仍 Spawned，旧图 path/nextCell 状态跑方法体必然错乱，实测每次传送当 tick NRE 于 `TryEnterNextPathCell`）。`TryTransferPawn` **不校验 pawn 与 spot 的格距**（教训勿回退：原版 pather 的 `SetupMoveIntoNextCell` 节点去重双消费 + 路径重建可合法产生"nextCell 距 pawn ≥2 格"的调用，曼哈顿 ≤1 校验会误拒；不变量由调用方保证——触发器在 nextCell 上找到该 spot 即"正在进入"），坐标映射只依赖 spot。
 
 ### 邻居预加载与异步加载（阶段4a）
@@ -74,24 +84,25 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `SeamlessBorderPreloader`/`SeamlessTilePreloader`：异步队列，下一 tick 消费。
 - **分帧增量生成**（`IncrementalMapGenerator`）：主线程每帧跑 1+ genStep，不暂停 tick、无进度画面。generating map 被 `Patches_IncrementalMapGen` patch 跳过 MapPreTick/MapPostTick/MapUpdate。纯 Thread/拆分式异步/LongEventHandler 均不可行（Rand/MapGenerator static 非 ThreadStatic + AddMap/genSteps/FinalizeInit 时序依赖）。
 
-### 接缝覆写卷积混合（阶段4 连续地形）
-- 各地块正常用原版噪声独立生成，只在接缝带做 terrainDef 过渡混合。不追求全局连续。
-- `SeamlessSeamOverride.ApplyOneWay`：3×3 卷积加权取众数 + 单向覆写（只改新生成 tile C，不改已生成邻居 A）。
-- **混合带由 A snapshot 决定（非 C 的 bandWidth）**：候选 = 凡 aCell 在 A 矩形内、映射 `cCell = aCell + offset` 落在 C 六边形内的格，含两段：① A 被 void 裁掉的条带格（A 六边形外）；② **SeamOverlap 重叠带**（aCell 在 A 六边形内的 2-3 格——offset 沿接缝收缩 SeamOverlap 格致 A 六边形投影叠进 C 六边形）。② 勿回退：候选收集若只收"A 六边形外"，重叠带是 C 原始地形，夹在"void 透出的 A 地形"与混合带之间成为未混合舌状条带（2026-08 探针实测：3 格 Soil 夹在两层 Slate 之间）。offset 平移约一图跨度，两六边形交集只有重叠带 → 候选集天然有界。混合带宽度 = A 被裁掉的实际深度 + 重叠带，无固定 bandWidth 配置。
-- 权重 w：`wCap × dSq/(dSq+dHex)` + 空间 Perlin 噪声 dither。dSq = aCell 到 A 方形边界切比雪夫格距（解析 `min(x,z,S-1-x,S-1-z)`），dHex = 到 A 六边形边欧氏垂距（无符号——重叠带 aCell 在六边形内侧同样贴边高 w，与 void 条带侧平滑衔接）。**逐格局部归一化，无全局统计量**——历史教训（勿回退）：前两代用"全图 void 最大深度"/"候选集 maxDepth"全局归一，都被 A 方形角落格污染（角落深度 40-68 格，且与接缝相邻的方形角落能绕六边形顶点投影进 C 侧向楔形区，"角落格投影后多被过滤"假设已被实测证伪——数据点 A(249,249)→C(59,146)，距 C 中心仅 ~69 格 ≪ 内切圆 ~108），maxDepth 被抬高 2-3 倍 → 整条带 w≥0.45、邻居众数全带通吃（A 全岩石时整条混合带被写成岩石）。逐格比例还保证窄条带区段接缝侧 w 同样接近 wCap。dSq 切比雪夫/dHex 欧氏度量混用为有意取舍（≤√2 单调偏差，dither 下不可见）。已知保留行为：顶点楔形区仍参与混合（贴 A 六边形边的角落格 w≈wCap，与侧向邻居的混合顺序相关），不做走廊限制。
-- **窄结构保护（权威元数据判据）**：3×3 众数卷积天然抹掉 ≤2 格宽线性结构（窗口内少数派）。①道路主判据（地形）：本格已是 `IsRoad`（HasTag Road）或 `bridge` 地形 → 跳过混合——路面可铺到距 A* 中线 2-3 格 + Bezier 偏离折线 3-4 格，仅靠路径缓冲会漏（实测 snapshot=BrokenAsphalt 的格被卷积成 Sand）。②道路兜底（路径缓冲）：`SeamlessRoadPaths`（`GenStep_Roads.Generate` Postfix 快照 static paths 到 MapComponent，防分帧增量生成下被其他地图清空）±3 格切比雪夫——覆盖 Gravel 等无 Road tag 路面。③水格：C 当前地形 `IsWater` 跳过（水的连续由 CoastalEdgeFill/river mutator 两端独立保证）。判据用生成期权威数据而非局部模式识别（细线检测无法区分 2 格宽土径和常规地形边缘条带——局部模式同构）。不做 A 侧结构继承。
-- 卷积采样源：self 用 C 当前 topGrid（裁切后真实状态），neighbor 用 A snapshot（裁切前完整地形，含 A 被裁掉部分的真实地形）。
-- GenStep 顺序：`CoastalEdgeFill(230)` → `SeamlessTile(1400, 备份snapshot+铺void)` → `SeamOverride(1410, 卷积覆写)` → `Fog(1500, 据最终地形揭雾)`。
-- 连续 Perlin 全局对齐方案已废弃（elevation 被组合器包裹无法叶子层对齐），代码在 `continuous-perlin` 分支。
+### 接缝覆写卷积混合（阶段4 连续地形；3 圈接缝带重构 2026-08，权威定义 = `doc/接缝带定义.md`）
+- 各地块正常用原版噪声独立生成，只在接缝带 B ∪ 过渡带 T 做 terrainDef 混合（**T 数据驱动**：邻居外条带 snapshot 投影覆盖处即过渡带，深至 `SeamTransitionWidth=7`，与外条带数据深度一致——固定窄过渡带会在覆盖区中部截断：A 侧数据还在、C 侧却不混合，2026-08 用户纠正）。**混合范围 = C 自己的带格显式枚举**（旧"从 A 全图 snapshot 枚举候选（cCell=aCell+offset 落 C 六边形内）"已废弃——A 方形角落格绕六边形顶点投影进 C 侧向楔形区的污染（实测数据点 A(249,249)→C(59,146)）结构性消失：只枚举 C 带格，每格反向找邻居参考）。
+- **参考源 = 所有已生成邻居的接缝条带快照**（`SeamStripData`，genStep 1410 末捕获，平行三层 terrain/building/roof）：B∪T 格存**最终实况**；接缝带外条带（B 向带外膨胀 `SeamTransitionWidth=7` 格）存**原生快照**（三层同源，1400 备份）。地块图挂 `MapParent_SeamlessTile.seamStrip`（WorldObject、序列化），锚点挂 `SeamlessTileManager.anchorSeamStrip`——地图滚动加载卸载预埋 + 读档缺口修复（见"地图生命周期"小节）。
+- **混合规则（用户定夺 2026-08，规则轴 = 本端圈层，对端只提供数据不参与规则判定，勿回退为"按对端圈层分规则"）**：**B_C（三圈）→ 三层字面照抄对端对应格**（a = c − offset，strip 有数据即抄地形/岩体/屋顶——岩体用对端 def 跨缝岩色连续，屋顶照抄对端原生岩顶 Thick/Thin 防裸顶岩壁，地形未变时岩体/屋顶同步仍执行，无任何地形例外；错位时 a 落在对端哪个圈层无所谓，照抄天然免疫错位——历史版本按 B_A/T_A/外条带/核心区四条判定需错位补偿补丁，已废弃）；**void_C → 不在枚举范围**（直接用自己的 void）；**T_C（过渡带，全深数据驱动）→ 卷积权重覆盖**（**源地图轴权重 w = dSq/(dSq+dOut)**：dOut = a 距源接缝带切比雪夫深度（贴缝≈0），dSq = a 到源方形边切比雪夫距离——接近源六边形权重高、到源方形边渐近 0，混合范围截止边界（源方形边）恰是权重归零处自然闭合；×乘性 dither 打散等值线。历史教训勿回退：曾按"本端距接缝带固定深度衰减 + 外条带限深 7 格"，数据边界处权重残值戛然而止，源方形边在 C 上投影成一条直线）。self+参考 3×3 分布 → 众数（地形走卷积混合）；**岩体/屋顶跟随主导参考（w 最大 cellRef）的 def**——与照抄区语义统一（离散层跟随参考；历史教训勿回退：地形驱动 spawn 会在参考无岩体处生成本端岩体，2026-08 用户实测不一致）。顶点楔形区（B_C 多邻居命中）卷积合成（各 w=1）。offset 现算与邻居表登记同公式恒等（genStep 期邻居表未登记——登记在 onComplete 晚于 genStep 链；运行时消费走邻居表）。
+- **平行双 snapshot（terrain/building，2026-08 归一）**：接缝参考数据是两层平行快照——terrain 层（TerrainDef）+ building 层（岩石体 BuildingDef，null=无），两层同点位、同来源、同查询（SeamStripData 的 terrainLookup/buildingLookup）。来源分两段：B∪T 格 = 混合后最终实况（1410 末捕获）；外条带格 = 原生快照（`baseTerrainSnapshot`/`baseBuildingSnapshot`，1400 同点位备份——void 铺设已清掉外条带岩体，用实况会把世界连续岩壁误判无岩体，2026-08 实测 (98,233) 岩壁断裂）。完全一致区（w=1）两层照抄对端：岩体 spawn **用对端 def**（跨缝岩色连续；原版岩石地形阈值 elevation≥0.61 与 Building 阈值 >0.7 不同的中间带状态也正确继承），地形未变时岩体同步仍执行；过渡带（w<1）岩体跟本端混合后地形走（RockDefAt 本图 def）。
+- **多邻居仲裁**（顶点楔形区）：各参考按 w 加权合成，Σw ≥ 1 时 self 权重 0——替代旧"串行后写者胜"。卷积：self 用 C 当前 topGrid 3×3（越界 clamp），neighbor 用快照稀疏字典 3×3（缺格跳过，水跳过）；N 路加权 → 众数（平局 defName 稳定决胜）。
+- **保护判据：只有道路，无地形例外（用户定夺 2026-08，勿回退）**：SeamOverride 只做三件事——按卷积权重覆盖、随机化边缘（dither）、道路修复。①本格 `IsRoad`/`bridge` → 跳过；②`SeamlessRoadPaths`（`GenStep_Roads.Generate` Postfix 快照 static paths 到 MapComponent，防分帧增量生成下被其他地图清空）±3 格切比雪夫缓冲兜底 Gravel 等无 Road tag 路面。**水体/沼泽等一切地形照常参与混合与直接拷贝**——对端是水体本端就是水体（参考位置由中点对齐保证精确；不能走 pawn 自然绕路；河/海走廊位置由 river patch 权威对齐，SeamOverride 管逐格地形一致，互补）。历史的水体例外（本格 IsWater 跳过、卷积跳水）是旧 offset ±2 格系统误差的补丁，中点对齐后不成立（还曾因 `HasTag("Water")` 前缀匹配误伤 Marsh 造成接缝断裂）。判据用生成期权威数据而非局部模式识别。不做 A 侧结构继承。
+- Perlin dither 只作用衰减区（乘性 `w×(1+n·amp)`，端点 0/1 不动）——完全一致区保持字面一致。旧 `seamOverrideWeightCap` 设置已删（w=1 直接拷贝 + 衰减公式自带上限，无消费者）。
+- GenStep 顺序：`CoastalEdgeFill(230)` → `SeamlessTile(1400, 备份snapshot+铺void)` → `SeamOverride(1410, 混合+捕获条带快照)` → `Fog(1500, 据最终地形揭雾)`。
+- 历史（勿回退参考）：旧 dSq/(dSq+dHex) 逐格局部归一权重（wCap=0.9）连同候选枚举方案一起废弃；更早的"全图 void 最大深度"/"候选集 maxDepth"全局归一被角落格污染的教训仍有效——新架构不再有全局统计量。连续 Perlin 全局对齐方案已废弃（elevation 被组合器包裹无法叶子层对齐），代码在 `continuous-perlin` 分支。
 
 ### 道路与河流接缝对齐（阶段4 连续地形）
-- **道路**（`Patches_GenStepRoads.cs`，order 390 内部）：①Prefix `FindRoadExitCell`（private）——道路出口格强制对齐到接缝锚点（边中点向内 SeamOverlap 格）。边匹配用 `FindRoadLinkEdgeByHeading`：**只遍历有 road link 的邻居**（GetRoadDef != null）做世界 heading 匹配——原版 `CalculateNeededRoads` 对多条路的 angle 加向量平均偏置+随机抖动（让方形边缘出口散开；两条路夹角 60° 时偏置可达 60°，推过邻居间隔错到隔壁边），被污染的 angle 不能信任，过滤到 road 邻居后偏置再大也命中正确 link。可达性检查用原版同款两级放宽（NoPassClosedDoors → PassAllDestroyableThings，**不能用 NoPassClosedDoorsOrWater**——比原版严，锚点被河挡住时误放行原版导致出口落回方形边）。②Postfix `ApplyDistanceField`——接缝锚点 ≤6 格且 fromRoad≤1.5 的格强制补铺主路面（原版双重随机抽签在 DirtPath/DirtRoad 中线留 ~11-14% 断格：接缝最后 3 格断概率 ~36%；StoneRoad 唯一实心 mult=0）。跳过条件含 `terrain.bridge`（已铺桥格——桥在 foundationGrid，TerrainAt 遮蔽返回 Bridge，tags 只有 Floor 无 Water/Road tag，没有此判据会把桥格 SetTerrain 成路面：topGrid 从水变土、桥塌后露出河里的路）；place 为 FlagstoneSandstone 时映射 rockDef（对齐原版区域岩色）。③Postfix `Generate`——快照 static `paths`（A* 路径节点）到 `SeamlessRoadPaths` MapComponent（防分帧增量生成下被其他地图清空），供 SeamOverride 道路保护用。
+- **道路**（`Patches_GenStepRoads.cs`，order 390 内部）：①Prefix `FindRoadExitCell`（private）——道路出口格强制对齐到接缝锚点（**统一工具 `ComputeSeamCellForEdge`**：边中点沿外法向的最外非 void 格 = 新 void 边界内侧第一格（带外圈），与带宽无关；道路 `RoadAnchorInset=0` 贴边——跨缝两侧路相接。历史：旧"边中点固定内偏 2 格"是旧抽象（void 边界=连续边）写死范围，接缝带定义变更后路出口距地图边缘 3-4 格跨缝断路，2026-08 修正）。边匹配用 `FindRoadLinkEdgeByHeading`：**只遍历有 road link 的邻居**（GetRoadDef != null）做世界 heading 匹配——原版 `CalculateNeededRoads` 对多条路的 angle 加向量平均偏置+随机抖动（让方形边缘出口散开；两条路夹角 60° 时偏置可达 60°，推过邻居间隔错到隔壁边），被污染的 angle 不能信任，过滤到 road 邻居后偏置再大也命中正确 link。可达性检查用原版同款两级放宽（NoPassClosedDoors → PassAllDestroyableThings，**不能用 NoPassClosedDoorsOrWater**——比原版严，锚点被河挡住时误放行原版导致出口落回方形边）。②Postfix `ApplyDistanceField`——接缝锚点 ≤6 格且 fromRoad≤1.5 的格强制补铺主路面（原版双重随机抽签在 DirtPath/DirtRoad 中线留 ~11-14% 断格：接缝最后 3 格断概率 ~36%；StoneRoad 唯一实心 mult=0）。跳过条件含 `terrain.bridge`（已铺桥格——桥在 foundationGrid，TerrainAt 遮蔽返回 Bridge，tags 只有 Floor 无 Water/Road tag，没有此判据会把桥格 SetTerrain 成路面：topGrid 从水变土、桥塌后露出河里的路）；place 为 FlagstoneSandstone 时映射 rockDef（对齐原版区域岩色）。③Postfix `Generate`——快照 static `paths`（A* 路径节点）到 `SeamlessRoadPaths` MapComponent（防分帧增量生成下被其他地图清空），供 SeamOverride 道路保护用。
 - **河流**（`Patches_TileMutatorRiver.cs`，order 220 内部，两个 patch 配合）：
   - Prefix `GetMapEdgeNodes`（protected，元组返回）：河端点 = 接缝边中点（`FindEdgeByWorldHeading` 精确邻居映射）**沿外法向延伸到方形矩形边**（解析 slab 求交）。**必须延伸到方形边**：停在边中点会在河源头后方留下无水走廊（岩石已被 order 200 patch 清掉、void 1400 才铺）→ 道路 A*(390) 第一级 `NoPassClosedDoorsOrWater`（一切水硬不可走）经走廊必然成功 → 路结构性绕经河源头（实测三叉河地图路绕北河口大转弯）。延伸后臂+方形边分割地图（原版语义），A* 只能涉水+铺桥。**宽度/水深由原版深度场自然延伸**（端点外延 → GenerateDepthMaps 的 GetTValue∈[0,1] 覆盖走廊，宽度噪声/水深分级全原版）——不自铺水带，无突变。
   - Postfix `GetDisplacedPoint`（protected virtual，返回 Vector2）：**压弯窗口**——原版弯曲偏移 = Perlin×幅度×bell(t)，端点外延后接缝处 tSeam≠0 → bell≠0 → 两侧独立 seed 接缝漂移 ±19-32 格。窗口把偏移乘 `clamp01((t-tSeamStart)/rise)×clamp01((tSeamEnd-t)/rise)`（tSeam = 各边中点在本线段的投影，边中点缓存 per worldTile）：走廊段偏移=0、接缝处有效 bell=0（对齐保持）、图内深处=原版行为。上下文（worldTile/mapSize）由 GetMapEdgeNodes Prefix 记 static（生成期单线程安全）。
   - 原生河 = 过随机中心(Rand 0.3-0.7×Size)的直线 + Perlin 弯曲（边缘漂移 ±11 格），两端只共享流向角——无原生对齐保证。Confluence 流入/流出支流各取元组一端连汇合点，与返回顺序 (heading反向端, heading正向端) 天然兼容。
-  - **走廊水的下游影响**：1400 被 void 覆盖（视觉河止于六边形边）；snapshot 含走廊水 → SeamOverride 的 `Convolve3x3` 跳过 IsWater 格（水不进分布，防混合带众数被卷成水）。
-- 共享几何：`SeamlessPolygonGeometry.FindEdgeByWorldHeading`（世界图方向角 → 邻居 → 边索引的**精确身份映射**：枚举世界邻居算 `GetHeadingFromTo(me, neighbor)` 匹配 angle，再用邻居索引直接映射边——"边 j ↔ GetTileNeighbors[j]"是传送点系统依赖的架构事实。**勿改回本地边中点角度近似**：六边形边方向离散 60° + 投影扭曲，会把"正南流向"锚到 SE/SW 边——用户实测南北河被画成东北-西南、下方地图连不上）+ `ComputeSeamCellForEdge`（边 → 接缝锚点格，offsetCells 参数：道路用 SeamOverlap、河流用 0）+ `DistanceToNearestEdge`（格 → 距最近边浮点距离）。
+  - **走廊水的下游影响**：1400 被 void 覆盖（视觉河止于接缝带外）；snapshot 含走廊水 → SeamOverride 无地形例外，走廊水照常参与混合（对端走廊水 ↔ 本端走廊水，接缝两侧一致）。
+- 共享几何：`SeamlessPolygonGeometry.FindEdgeByWorldHeading`（世界图方向角 → 邻居 → 边索引的**精确身份映射**：枚举世界邻居算 `GetHeadingFromTo(me, neighbor)` 匹配 angle，再用邻居索引直接映射边——"边 j ↔ GetTileNeighbors[j]"是传送点系统依赖的架构事实。**勿改回本地边中点角度近似**：六边形边方向离散 60° + 投影扭曲，会把"正南流向"锚到 SE/SW 边——用户实测南北河被画成东北-西南、下方地图连不上）+ `ComputeSeamCellForEdge`（**统一接缝锚点工具**：边 → 锚点格 = 边中点沿外法向最外非 void 格（新 void 边界内侧第一格）再内偏 offsetCells；基于 BuildSeamBand/IsVoidCell 唯一口径，与带宽无关）+ `DistanceToNearestEdge`（格 → 距最近边浮点距离）。
 - `RefineEndcap` 的 ≤5 格端点检查**不会**移动六边形内侧锚点（它只是"是否执行 endcap 重路由"的门槛，锚点距方形边 ~19 格 → 恒跳过）——已排除的嫌疑，勿再查。
 
 ### 建筑选址避开六边形边（阶段4b）
@@ -105,9 +116,9 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - **零邻居分支也必须清色**（曾经的历史 bug）：`cachedNeighbors.Count == 0` 时不能提前 return——否则清色被短路，void 带保留上一帧像素成红色拖影（新档锚点首生成/孤岛地块/Remove All Tile Maps/读档邻居未再生成四种场景）。零邻居时执行"清色-only"帧（不画邻居 mesh），同时 `commandBuffer.Clear()` 防邻居全部卸载后旧 buffer 逐帧重放已 Dispose 地图的 DrawMesh。
 
 ### 边缘行为统一（阶段4b）
-- 浅绿色 exit grid：`Patches_ExitMapGrid` Prefix 重建只标六边形接缝带（不标原版方形带）。
+- 浅绿色 exit grid：`Patches_ExitMapGrid` Prefix 重建只标传送圈传送点格（不标原版方形带）。
 - 根原语 patch：`Patches_CellFinder`（TryFindRandomEdgeCellWith/RandomEdgeCell）、`Patches_Reachability`（CanReachMapEdge）、`Patches_RCellFinder`（自构方形边的方法）。覆盖袭击入口/远行队出口/撤退/行人穿越。
-- `SeamlessEdgeCells`：接缝带格统一入口（复用传送点格集合）。
+- `SeamlessEdgeCells`：接缝带格统一入口（复用传送点格集合 = 传送圈的 Standable 格）。
 
 ### 跨图菜单与选中（阶段4b）
 - `Patches_FloatMenuMakerMap`：Prefix 接管跨图 FloatMenu 生成，`InjectCrossMapGotoOption` 按桥接可达性注入跨图 Goto 选项。
@@ -125,6 +136,22 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - 预加载排除传送点格（`SeamlessBorderPreloader.CheckPawnGoto` + `SeamlessEdgeCells.IsSeamEdgeCell` thingGrid O(1)）：征召 goto 传送点格 = 撤离意图，不触发对端生成。
 - 跨图指令主体（`SeamlessBoundaryRules.IsCrossMapOrderable`）：殖民者 / 殖民地机械族（`IsColonyMech`，保留原版 `!IsColonyMech` 不自行离图例外）/ 玩家阵营驯养动物。
 - 静态清扫挂在锚点地图 `SeamlessMapTransferTrigger.MapComponentTick`：Grants 失效/超时（6000 ticks 兜底，正常生命周期由 StartJob 替换清理）、游荡宽限检查、`SeamlessCrossMapOrders.PurgeInvalid`（pendingMenuTargets 死亡/转世界 pawn 泄漏）。
+
+## 当前待办（2026-08 接缝带重构后盘点）
+
+**临时（本轮重构的观察项/回归项，游戏内验证进行中）**：
+- 重开档全面回归：渲染对齐（聚焦 C 看 A 背景无系统内偏）、跨缝三层一致（地形/岩体/屋顶，含岩色与岩顶）、传送往返落点、读档后生成新图接缝混合仍工作、道路（锚点已改贴 void 边界）、河流接缝、撤离链/追击/跟随。
+- 植物层未纳入三层快照——接缝带树木/植被的跨缝一致性未处理（观察：跨缝树缺失/多余是否显眼，必要时作第四层加入 seamLayers）。
+- 顶点楔形区（B_C 多邻居命中）卷积合成（各 w=1）的视觉效果观察。
+- 条带快照存档增量观察：外条带全深后每图约 2-3 万格 ×4 列（terrain/building/roof/depth），存档增加约几百 KB/图——若超标做 def 索引压缩。
+- MutatorFinal(1600) 的 GeneratePostFog SetTerrain 覆写接缝（AncientUplink/InsectMegahive 任务地块）——已知瑕疵未处理。
+- Fog(1500) 对带外圈（新实地形）的揭雾验证；远行队进入出生点（Patches_CaravanEnterMap）与带外圈传送圈兼容回归。
+
+**路线图（主文档"当前阶段计划"）**：
+- 阶段5 剩余：跨地图寻路与射击（跨图 LOS/目标搜索/射击线/弹道）——未开始（边界行为/传送许可制已落地）。
+- 地图滚动加载卸载（休眠）：预埋已完成（SeamStripData 挂 WorldObject + TryGetNeighborSeamStrip 回落路径 + RemoveTileMap 语义二分），本体未实现（卸载时机/重入复用/渲染等 Find.Maps 消费方适配）。
+- `Game.AddMap` 127 图上限（sbyte）——依赖滚动卸载解除。
+- ~~锚点图销毁善后~~ **已消解（2026-08 天气域机制）**：天气改为群系连通域共享（无锚点依赖，宿主迁移由 RebindAll 自动处理）；gravship 销毁家园图的场景由 Manager.MapRemoved → RebindAll 覆盖，待游戏内验证。
 
 ## 存档兼容性说明
 

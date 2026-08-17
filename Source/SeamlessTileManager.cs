@@ -16,13 +16,15 @@ namespace RimExodus
     public class SeamlessTileManager : MapComponent
     {
         /// <summary>
-        /// 接缝重叠带宽度（格）。邻居多边形相对当前地图多叠这么多格。
-        /// 目的：容纳投影扭曲——相邻 tile 各自用自己中心的切平面基投影多边形，
-        /// 共享边在两端局部坐标系有旋转偏差（赤道→北极累积约 30°），2 格重叠带吸收此偏差，
-        /// 保证接缝处两端都有非 void 可站立格，传送落点安全、不漏 void 缝隙。
-        /// 传送点铺在各端自己的多边形边上，pawn 踩端 spot 经 offset 映射到对端时落在重叠带内。
+        /// 道路接缝锚点内偏格数（锚点 = 新 void 边界内侧第一格，再向地图中心偏移这么多格）。
+        /// 0 = 贴 void 边界（路铺到带外圈，跨缝两侧路相接）。锚点基位由
+        /// <see cref="SeamlessPolygonGeometry.ComputeSeamCellForEdge"/> 按接缝带几何计算（与带宽无关）。
+        ///
+        /// 【历史】旧名 SeamOverlap（语义"offset 收缩 2 格形成重叠带"）→ 曾改 RoadAnchorInset=2
+        /// （旧抽象下 = 贴旧 void 边）；接缝带定义变更后 void 边界退到带外圈外，固定内偏 2 格
+        /// 使路出口距地图边缘 3-4 格跨缝断路（2026-08 用户实测），锚点改为按带几何计算后归 0。
         /// </summary>
-        public const int SeamOverlap = 2;
+        public const int RoadAnchorInset = 0;
 
         /// <summary>
         /// 锚点地图（家园 A）的直接邻居表。口袋地图的邻居表存于自身的 MapParent_SeamlessTile。
@@ -36,9 +38,27 @@ namespace RimExodus
         /// <summary>
         /// 锚点地图的基础地形快照（阶段4 接缝覆写）：void 裁切前的完整矩形 topGrid。
         /// 在 GenStep_SeamlessTile（order=1400，Fog 之前）void 裁切之前备份（通过 BackupSnapshotAndApplyVoid 归一入口）。
-        /// 供接缝覆写卷积混合读取。非序列化。
+        /// 供接缝条带快照捕获读取。非序列化（生成期临时数据）。
         /// </summary>
         public TerrainDef[] anchorBaseTerrainSnapshot;
+
+        /// <summary>
+        /// 锚点地图的原生建筑快照（与 <see cref="anchorBaseTerrainSnapshot"/> 同点位备份、非序列化）。
+        /// 见 <see cref="MapParent_SeamlessTile.baseBuildingSnapshot"/>。
+        /// </summary>
+        public ThingDef[] anchorBaseBuildingSnapshot;
+
+        /// <summary>
+        /// 锚点地图的原生屋顶快照（与 <see cref="anchorBaseBuildingSnapshot"/> 同点位备份、非序列化）。
+        /// 见 <see cref="MapParent_SeamlessTile.baseRoofSnapshot"/>。
+        /// </summary>
+        public RoofDef[] anchorBaseRoofSnapshot;
+
+        /// <summary>
+        /// 锚点地图的接缝条带快照（见 <see cref="SeamStripData"/>）。锚点=家园常驻不卸载，
+        /// 挂 MapComponent 即可（地块图的快照挂 WorldObject 以存活于地图卸载）。
+        /// </summary>
+        public SeamStripData anchorSeamStrip;
 
         /// <summary>延迟开档初始化的 tick 计数（MapGenerated 时 mapBeingGenerated 可能仍非空，需延迟到下一 tick 调 TrySetupOnStart）。</summary>
         private int pendingAutoGenerateTicks = -1;
@@ -59,6 +79,7 @@ namespace RimExodus
             base.ExposeData();
             Scribe_Values.Look(ref setupOnStartDone, "setupOnStartDone");
             Scribe_Values.Look(ref pendingAutoGenerateTicks, "pendingAutoGenerateTicks", -1);
+            Scribe_Deep.Look(ref anchorSeamStrip, "anchorSeamStrip");
 
             if (Scribe.mode == LoadSaveMode.Saving)
             {
@@ -251,10 +272,9 @@ namespace RimExodus
             var mapParent = (MapParent_SeamlessTile)WorldObjectMaker.MakeWorldObject(def);
             mapParent.worldTile = newWorldTile;
             // 阶段4前置：基础地图。mapParent.Tile 必须设为真实 PlanetTile，
-            // 这样 map.TileInfo 自动读 Find.WorldGrid[Tile]（含真实 biome/hilliness/mutators/rivers），
+            // 这样 map.TileInfo 自动读 Find.WorldGrid[Tile]（含真实 biome/hillness/mutators/rivers），
             // 原生 Coast/River/Delta 等 TileMutator 自然生效，无需 InjectRealTileInfo。
             mapParent.Tile = new PlanetTile(newWorldTile);
-            var anchorMap = SeamlessTileGraph.GetAnchorMap(map) ?? map;
             var hostOffset = SeamlessNeighborRegistry.ComputeNeighborOffset(sourceWorldTile, newWorldTile, map);
             var sourceWorldTileCapture = sourceWorldTile;
             var originMapCapture = map;
@@ -286,11 +306,9 @@ namespace RimExodus
                     {
                         Find.World.worldObjects.Add(interiorMap.Parent);
                     }
-                    // sky/weather 共享：基础地图原生会自建独立 manager。
-                    // 原型阶段尝试共享锚点 manager（若运行时异常则注释掉，让各地块天气独立）。
-                    interiorMap.skyManager = anchorMap.skyManager;
-                    interiorMap.weatherDecider = anchorMap.weatherDecider;
-                    interiorMap.weatherManager = anchorMap.weatherManager;
+                    // 天气共享：按群系连通域绑定（全局天气状态注册机制——同群系邻接连通的图共享
+                    // 一个天气源，宿主=域内最小 tileId 图；无锚点特殊论，家园图不特殊）。
+                    SeamlessWeatherClusterManager.BindMap(interiorMap);
                     SeamlessNeighborRegistry.RegisterNeighborBidirectional(originMapCapture, mapParent, sourceWorldTileCapture, newWorldTile, hostOffset);
                     // 不刷新 originMapCapture 的 void——锚点 map 的 void 在 TrySetupOnStart 时已铺好，
                     // void 只看自己的多边形（不因邻居关系变化而变）。每次生成邻居都 RefreshMapVoid(锚点)
@@ -359,7 +377,7 @@ namespace RimExodus
                     $"with existing map {existingMap.uniqueID}(wt={existingWorldTile}) as direct neighbors.");
 
             // 计算 offset（existing 相对 origin）。两端须在世界网格上互为邻居。
-            var offset = SeamlessNeighborRegistry.ComputeNeighborOffset(sourceWorldTile, existingWorldTile, originMap);
+            var offset = SeamlessNeighborRegistry.ComputeNeighborOffset(sourceWorldTile, existingWorldTile, originMap, existingMap);
             var existingParent = existingMap.info.parent;
 
             // 双向登记邻居表（复用 RegisterNeighborBidirectional 逻辑）。
@@ -379,7 +397,12 @@ namespace RimExodus
             SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(existingMap);
         }
 
-        /// <summary>卸载一个无缝地块地图，并清理邻居表中的双向引用。</summary>
+        /// <summary>
+        /// 卸载一个无缝地块地图：清理邻居表双向引用、移除地图、销毁 WorldObject。
+        /// "完全卸载 = 从未出现过"：WorldObject（含接缝条带快照）一并销毁，不留休眠数据，
+        /// 同 tile 再次预加载将全新生成。（与未来"滚动卸载保留 WorldObject"的休眠语义二分，
+        /// 届时只需跳过 Destroy 并让 <see cref="SeamlessTileGraph"/> 的 WorldObject 查询路径接管参考数据。）
+        /// </summary>
         public void RemoveTileMap(MapParent_SeamlessTile parent)
         {
             if (parent == null) return;
@@ -388,9 +411,24 @@ namespace RimExodus
             if (interiorMap != null)
             {
                 SeamlessNeighborRegistry.CleanupNeighborLinks(parent);
-                // WorldObject 由 DeinitAndRemoveMap 触发 MapParent 销毁时清理。
+                // 第二参 false：DeinitAndRemoveMap 本身不销毁 WorldObject（原版行为），
+                // 由下方显式 Destroy 统一处理（历史 bug：注释曾误以为它会清理 WorldObject，
+                // 实际残留隐形 WorldObject，且下次生成同 tile 会产生重复对象）。
                 Current.Game.DeinitAndRemoveMap(interiorMap, false);
             }
+            if (!parent.Destroyed)
+            {
+                parent.Destroy();
+            }
+            // 天气域重算：被卸载的图可能是某域宿主，成员改绑新宿主。
+            SeamlessWeatherClusterManager.RebindAll();
+        }
+
+        /// <summary>本图被移除时重算天气域（覆盖家园图被原版销毁的场景，如 gravship 起飞——无锚点善后）。</summary>
+        public override void MapRemoved()
+        {
+            base.MapRemoved();
+            SeamlessWeatherClusterManager.RebindAll();
         }
     }
 }

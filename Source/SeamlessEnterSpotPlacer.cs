@@ -14,30 +14,26 @@ namespace RimExodus
     {
         /// <summary>
         /// 沿地图全部世界邻居边预铺单端传送点（阶段4a 预铺 + 阶段4b 传送机制重构）。
-        /// 枚举"接缝带"——到最近 void 格的切比雪夫距离 ∈ {1, 2} 的非 void 格（即紧贴 void 的
-        /// <see cref="SeamlessTileManager.SeamOverlap"/> 格宽环形带：最外圈 + 次外圈）。每个格按"最近多边形边 j"
-        /// 分组确定 <see cref="CompSeamlessTileEnterSpot.targetWorldTile"/>（= 该边对应的世界邻居 tile）。
-        /// spot 预铺时 hasArrival 默认 false；邻居加载后由 <see cref="RefreshEnterSpotArrivals"/>
-        /// 用 offset 算对端坐标并缓存到 spot（cachedArrivalCell），废弃了旧的互绑模式。
+        /// 铺设范围 = **传送圈**（接缝带的外侧 2 圈 = 离散边圈 ∪ 带外圈，权威定义见
+        /// doc/接缝带定义.md 与 <see cref="SeamlessPolygonGeometry.BuildSeamBand"/>）。
+        /// 每个格按"最近多边形边 j"分组确定 <see cref="CompSeamlessTileEnterSpot.targetWorldTile"/>
+        /// （= 该边对应的世界邻居 tile）。spot 预铺时 hasArrival 默认 false；邻居加载后由
+        /// <see cref="RefreshEnterSpotArrivals"/> 用 offset 算对端坐标并缓存到 spot（cachedArrivalCell）。
         ///
         /// 幂等：已存在同位置 spot 不重复铺。锚点和地块都适用（不依赖 MapParent 类型）。
         ///
-        /// **接缝带宽度 = SeamOverlap（2）格（关键设计）**：两端各有 2 格宽的 spot 带，通过
-        /// <see cref="SeamlessNeighborRegistry.ComputeNeighborOffset"/> 的 offset 重叠时，实际接缝落在两端 2 格带的中线上——
-        /// 接缝上两端都有 spot。投影必然扭曲（相邻 tile 切平面基有旋转，赤道→北极累积约 30°），
-        /// 2 格宽的 spot 带互相覆盖吸收此偏移：即使两端 spot 因投影旋转错开 ≤2 格，落点仍能落在
-        /// 对端 spot 带内，不会漏到无 spot 的内部或 void。这正是"传送点带本身 SeamOverlap 格宽"
-        /// 的含义（旧的"沿边 Bresenham 单线 / 不铺两层"描述已废弃）。
+        /// 【传送圈为何只有外侧 2 圈（带内圈无传送点）】落点 = spot − offset 的取整残差 ±1 格
+        /// 会被对侧 3 圈接缝带吸收：pawn 由内向外正常移动必先踩离散边圈 spot（更靠内），
+        /// 落点理想在对侧离散边圈，偏移最多落到对侧带内圈/带外圈——均为实地形，不进 void。
+        /// 若带内圈也有传送点，站带内圈传送的落点偏移可能越过对侧带外圈落进 void。
         ///
-        /// **几何一致性**：spot 带复用 <see cref="SeamlessPolygonGeometry.ComputeVoidBand"/>（多轮膨胀，
-        /// "距 void 边界 ≤ SeamOverlap 格"的唯一实现），与 SeamOverride 混合带、BorderLookup 边界带
-        /// 同一实现、同一 void 边界口径（<see cref="SeamlessTerrainFill.ApplyPolygonTerrain"/> 铺 void 用的
-        /// 格角检测），杜绝"spot 几何 vs void 边界"两套口径错配。
+        /// **几何口径**：纯接缝带几何（BuildSeamBand，不读 terrainGrid 的 void 实况），
+        /// 与 void 铺设（ApplyPolygonTerrain 同一带缓存）天然同口径。
+        /// **无任何可通行性过滤（用户定夺 2026-08，勿回退）**：spot 是纯逻辑连接设施，铺满
+        /// 传送圈——能不能走由地形运行时决定（不能走 pawn 自然绕路，与地图中央的深水/岩石
+        /// 挡路同构），地形变化（挖岩石/铺桥/水位）后 spot 已在、即时可用。
         ///
-        /// **调用时机**：必须在 <see cref="SeamlessTerrainFill.ApplyPolygonTerrain"/> 之后调用——
-        /// 本方法通过 ComputeVoidBand 读 terrainGrid 判定 void。ApplyPolygonTerrain 会清空 void 格上的实体，
-        /// 若在它之前铺 spot，spot 会被清空逻辑销毁。GenerateTileMap 内部保证此顺序（GenStep 含 ApplyPolygonTerrain
-        /// 在 MapGenerator.GenerateMap 内执行，之后才调本方法）。
+        /// **调用时机**：任意时刻可调（不读 terrainGrid）；现状调用点在生成完成后（幂等）。
         /// </summary>
         public static void PlaceEnterSpotsAllNeighbors(Map targetMap, int worldTile)
         {
@@ -59,21 +55,27 @@ namespace RimExodus
             var neighborWorldTiles = new List<int>(worldNeighbors.Count);
             foreach (var nt in worldNeighbors) neighborWorldTiles.Add(nt.tileId);
 
-            // 接缝带 = 到最近 void 格的切比雪夫距离 ∈ {1..SeamOverlap} 的非 void 格。
-            // 复用 ComputeVoidBand（与 SeamOverride 混合带、BorderLookup 边界带同一实现）——
-            // 消除旧的自建平移法 inBand 掩码，保证"距 void 边界 N 格"语义唯一实现。
-            // ComputeVoidBand 直接读 terrainGrid 判 void，返回 cell → 最近边对应的邻居 worldTile。
-            var band = new Dictionary<IntVec3, int>();
-            SeamlessPolygonGeometry.ComputeVoidBand(targetMap, SeamlessTileManager.SeamOverlap, neighborWorldTiles, band);
+            var mapSize = targetMap.Size.x;
+            var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize);
+            if (verts.Count < 3) return;
 
-            if (band.Count == 0) return;
+            // 传送圈 = 离散边圈 ∪ 带外圈（接缝带几何缓存）。
+            var band = SeamlessPolygonGeometry.BuildSeamBand(worldTile, mapSize);
+            if (band.TransportRing.Count == 0) return;
 
             var placed = 0;
-            foreach (var kv in band)
+            foreach (var cell in band.TransportRing)
             {
-                var cell = kv.Key;
-                var neighborWorldTile = kv.Value;
+                // 按最近多边形边分组确定目标邻居。
+                var edgeIdx = SeamlessPolygonGeometry.FindClosestEdgeIndex(verts, cell.x + 0.5f, cell.z + 0.5f);
+                var neighborWorldTile = edgeIdx >= 0 && edgeIdx < neighborWorldTiles.Count ? neighborWorldTiles[edgeIdx] : -1;
                 if (neighborWorldTile < 0) continue;
+
+                // **不做任何可通行性预判（勿加 Standable/地形 passability 过滤）**：
+                // 传送点只是连接两个地图的逻辑设施，能不能走由地形运行时决定——不能走 pawn
+                // 自然绕路，与地图中央出现深水/岩石挡路同构（用户定夺 2026-08）。任何预判
+                // 都在重复地形系统的职责，且地形变化（挖岩石/铺桥/水位）后会造成"该格能走
+                // 但没 spot"的永久断裂。传送执行处的 Walkable 检查是最后防线。
 
                 // 幂等查重：该格已有同 def spot 则跳过。
                 var existing = targetMap.thingGrid.ThingsListAtFast(cell);

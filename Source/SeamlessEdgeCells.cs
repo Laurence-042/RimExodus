@@ -5,15 +5,16 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// 六边形接缝带格的统一访问入口。本类是"所有边缘行为改用六边形边缘"策略的几何根基：
-    /// 把"传送点格集合"作为六边形边缘带的权威定义，供 <see cref="Patches_CellFinder"/>/
+    /// 接缝带格的统一访问入口。本类是"所有边缘行为改用接缝带"策略的几何根基：
+    /// 把"传送点格集合"作为接缝带的权威定义，供 <see cref="Patches_CellFinder"/>/
     /// <see cref="Patches_Reachability"/>/ <see cref="Patches_ExitMapGrid"/> 复用，
     /// 避免每处 patch 各自遍历 <c>listerThings</c>。
     ///
     /// 设计：传送点（<c>RimExodus_SeamlessEnterSpot</c>）由 <see cref="SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors"/>
-    /// 沿六边形 <c>SeamOverlap</c>=2 宽接缝带铺设（铺设时过了 Standable 校验、排除 void），
-    /// 因此传送点格集合 = "可站立的非 void 六边形接缝带"，与 <see cref="ExitMapGrid"/> 标记的
-    /// exit cell 集合同源。复用传送点格而非重新跑 <c>ComputeVoidBand</c>，保证唯一口径。
+    /// 沿传送圈（离散边圈 ∪ 带外圈，接缝带外侧 2 圈，见 doc/接缝带定义.md）铺设
+    /// （铺设时过了 Standable 校验），因此传送点格集合 = "可站立的传送圈"，
+    /// 与 <see cref="ExitMapGrid"/> 标记的 exit cell 集合同源。复用传送点格而非重新跑带几何，
+    /// 保证唯一口径。
     ///
     /// 缓存：按 (map.uniqueID, spot 数量) 失效。spot 铺设/邻居加载后数量变化即重建。
     /// </summary>

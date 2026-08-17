@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using RimWorld;
 using RimWorld.Planet;
@@ -8,66 +9,130 @@ using Verse.Noise;
 namespace RimExodus
 {
     /// <summary>
-    /// 接缝覆写：相邻地块地图在混合带做 terrainDef 卷积混合。
+    /// 接缝覆写（新架构：3 圈接缝带 + 连续边中点对齐 + 接缝条带快照参考，权威定义见 doc/接缝带定义.md）。
     ///
-    /// 【混合带由 neighbor snapshot 决定（核心设计）】
-    /// 决定"哪些格需要混合"的不是 self（新生成 tile）自身的某个固定 bandWidth，
-    /// 而是 neighbor（已生成邻居）侧与接缝相关的两段区域，snapshot（void 裁切前备份的
-    /// 完整矩形 topGrid）里都有真实地形：
-    /// ① neighbor 被 void 裁掉的条带（六边形外、矩形内）——正是 self 接缝处应该"继承"的地形；
-    /// ② SeamOverlap 重叠带——ComputeNeighborOffset 沿接缝方向收缩 SeamOverlap 格，使
-    ///   neighbor 六边形投影多叠进 self 六边形 2-3 格（吸收投影扭曲）。这段格的 aCell 在
-    ///   neighbor 六边形内（neighbor 可见区）。不混合的话它是 self 原始地形，夹在"void 透出
-    ///   的 neighbor 地形"与"混合带"之间，成为未混合舌状条带（2026-08 探针实测：
-    ///   3 格 Soil 夹在两层 Slate 之间）。
-    /// 两段合并即：凡 aCell 在 neighbor 矩形内、映射 cCell = aCell + offset 落在 self
-    /// 六边形内的格都参与混合。offset 平移量约为地图跨度，neighbor 六边形投影与 self
-    /// 六边形的交集只有重叠带那 2-3 格——候选集天然有界，不会扩散到全图。
-    /// 混合带宽度 = neighbor 被裁掉的实际深度 + 重叠带，无固定 bandWidth 配置。
+    /// 【混合范围】枚举 C（新生成 tile）自己的接缝带 B ∪ 过渡带 T（显式几何集合，
+    /// <see cref="SeamlessPolygonGeometry.BuildSeamBand"/> 缓存）。旧方案"从 A 全图 snapshot 枚举候选"
+    /// 已废弃——A 方形角落格绕六边形顶点投影进 C 侧向楔形区的污染结构性消失（只枚举 C 的带格，
+    /// 每格反向找邻居参考）。带外圈（新定义下为实地形）也参与混合，跨缝两侧地形成对一致。
     ///
-        /// 【w 归一化必须逐格局部（两代方案的教训）】第一代用全图 void 条带最大深度、第二代用
-        /// 候选集最大深度（maxDepth）归一——两者都被 A 方形角落格污染：角落深度可达 40-68 格
-        /// （远超接缝边中点 ~17 格），且与接缝相邻的方形角落能绕过六边形顶点投影进 C 六边形的
-        /// 侧向楔形区（"角落格投影到 C 后多在 C 六边形外被过滤"的假设已被实测证伪），
-        /// maxDepth 被抬高 2-3 倍 → 整条混合带 w≥0.45、邻居众数全带通吃（A 全岩石时混合带被
-        /// 整条写成岩石）。现行方案 dSq/(dSq+dHex) 逐格比例（见下），无全局统计量，此类污染
-        /// 结构性不可能。
+    /// 【混合规则（用户定夺 2026-08，规则轴 = 本端圈层，对端只提供数据不参与规则判定）】
+    /// - **B_C（接缝带三圈）→ 字面照抄对端对应格**：a = c − offset，strip 有数据即抄地形与岩体
+    ///   （岩体用对端 def——跨缝岩色连续；地形未变时岩体同步仍执行）。无任何地形例外（对端是
+    ///   Marsh/深水本端就是——不能走 pawn 自然绕路）。错位时 a 落在对端哪个圈层无所谓，
+    ///   strip 覆盖 B_A∪T_A∪外条带，照抄天然免疫错位（历史：按对端圈层分规则的版本需要
+    ///   B_A/T_A/外条带/核心区四条判定 + 错位补偿补丁，已废弃勿回退）；
+    /// - **void_C → 不在枚举范围**（直接用自己的 void）；
+    /// - **T_C（过渡带）→ 卷积权重覆盖（源地图轴权重）**：过渡带数据驱动（a 在邻居 strip 内
+    ///   即参与，外条带数据全深到源方形边）。w = dSq/(dSq+dOut)——dOut = a 距源接缝带切比雪夫
+    ///   深度（贴缝≈0），dSq = a 到源方形边切比雪夫距离：**接近源六边形权重高，到源方形边
+    ///   权重渐近 0**——混合范围截止边界（源方形边）恰好是权重归零处，自然闭合无锐利边缘；
+    ///   乘性 dither（端点 0/1 不动）打散等值线。历史教训（勿回退）：曾按"本端距接缝带固定
+    ///   深度衰减 + 外条带限深 7 格"，数据边界处权重残值戛然而止，源方形边在 C 上投影成
+    ///   一条直线。self 分布（C 当前 topGrid 3×3）+ 各参考分布（strip 3×3）→ 众数覆写；
+    ///   **岩体/屋顶跟随主导参考（w 最大）的 def**——与照抄区语义统一（地形走卷积混合，
+    ///   离散层跟随参考；地形驱动 spawn 会在参考无岩体处生成本端岩体，2026-08 用户实测）。
+    /// 顶点楔形区（B_C 多邻居命中）保留卷积合成（几何模糊地带，各 w=1）。
     ///
-    /// 【窄结构保护（权威元数据判据，非局部模式识别）】3×3 众数卷积天然抹掉 ≤2 格宽的
-    /// 线性结构（窗口内少数派）。保护规则：
-    /// - 道路（双层判据）：①本格已是 IsRoad/bridge 地形精确跳过；②<see cref="SeamlessRoadPaths"/>
-    ///   （GenStep_Roads A* 路径快照）±3 格切比雪夫缓冲兜底 Gravel 等无 Road tag 路面。
-    ///   生成器自己知道路在哪，零歧义；从局部地形模式反推（"细线检测"）无法区分
-    ///   2 格宽土径和常规地形的边缘条带（局部模式同构）。
-    /// - 水格：C 当前地形 IsWater 跳过。水的连续由 CoastalEdgeFill(230)/river mutator
-    ///   按世界图两端独立保证，不需要 SeamOverride 继承。
-    /// 只要 road/river 的生成对齐正确，两端自然衔接——SeamOverride 不做 A 侧结构继承。
+    /// 【参考源（所有已生成邻居）】经统一入口 <see cref="SeamlessTileGraph.TryGetNeighborSeamStrip"/>
+    /// 取接缝条带快照（活图优先，地图卸载后 WorldObject 回落——滚动加载卸载预埋）。
+    /// offset 现算（<see cref="SeamlessNeighborRegistry.ComputeNeighborOffset"/>，与邻居表登记
+    /// 同公式恒等）——genStep 1410 运行时邻居表尚未登记（RegisterNeighborBidirectional 在
+    /// onComplete，晚于整个 genStep 链），运行时消费方（传送/渲染）才走邻居表。
     ///
-    /// 【单向】只改 C（新生成 tile），不改 A（已生成 tile 保持原样）。
-    /// A 生成时 C 还不存在，A 没参考任何人——这是自然的。
+    /// 【保护判据：只有道路，无地形例外（用户定夺 2026-08，勿回退）】SeamOverride 只做三件事：
+    /// 按卷积权重覆盖、随机化边缘（dither）、道路修复（保护）。唯一例外是道路——路是 1-2 格
+    /// 窄结构，3×3 众数卷积必然抹掉（窗口内少数派），且路由 A* 权威生成：①本格 IsRoad/bridge
+    /// 跳过；②<see cref="SeamlessRoadPaths"/> ±3 格切比雪夫缓冲兜底无 tag 路面。水体、沼泽等
+    /// 一切地形照常参与混合与拷贝——参考位置由连续边中点对齐保证精确，对端是水体本端就是
+    /// 水体（不能走 pawn 自然绕路）；河/海走廊位置由 river patch 端点对齐权威保证。历史的
+    /// 水体例外（本格 IsWater 跳过、卷积采样跳水）是旧 offset ±2 格系统误差下"防水蔓延"
+    /// 的补丁，中点对齐后不成立（其间还因 HasTag 前缀匹配误伤 Marsh 造成接缝断裂）。
     ///
-    /// 【为什么卷积】terrainDef 离散，不能直接加权平均。卷积把每个 cell 的 terrainDef
-    /// 变成"周围 3×3 邻域的 terrainDef 分布"，分布可以加权平均，再取众数 → 平滑过渡。
+    /// 【三层归一框架（用户定夺 2026-08）】terrain/building/roof 三层共用同一混合框架：
+    /// 照抄区 = 每层读对端参考值（<see cref="seamLayers"/>.ReadStrip）→ 与本端不同（ReadLocal）则写
+    /// （Write，委托内含必要守卫）；卷积区 = terrain（唯一连续层）走加权众数，离散层跟随主导
+    /// 参考。层差异全部收在 <see cref="seamLayers"/> 的三个委托里，新增层只需追加一项。
     ///
-        /// 【权重 w】w = wCap × dSq/(dSq+dHex)：dSq = aCell 到 A 方形边界的切比雪夫格距（解析），
-        /// dHex = 到 A 六边形边的欧氏垂距。贴 A 六边形边（紧贴 A 可见区域）→ w≈wCap（强继承
-        /// A snapshot，代表性越强），贴方形外缘 → w≈0（弱继承）。逐格局部归一化还保证窄条带
-        /// 区段接缝侧 w 同样接近 wCap（连续性沿整条边一致，与条带深浅无关），深角落格只压低
-        /// 自己的 w。dSq 切比雪夫 / dHex 欧氏的度量混用为有意取舍：≤√2 单调偏差，dither 下不可见。
+    /// 【单向】只改 C，不改 A（先生成者原生，后生成者服从——A 生成时 C 还不存在是自然序）。
     ///
-    /// 【权重噪声】w 是纯线性距离函数时，GetMode 离散跳变会在带内形成规则等距的过渡线。
-    /// 在 w 上叠加低频空间 Perlin 噪声（基于 worldTile 稳定 seed，幅度可配 seamOverrideNoiseAmplitude），
-    /// dither 掉离散跳变 → 过渡线变弯曲不规则斑块。Clamp01 保证不破坏总体单调趋势。
-    ///
-    /// 【兼容性】不碰 elevation/fertility grid、不碰 genStep 内部逻辑。
-    /// 纯 terrainDef snapshot 操作，兼容所有地形扩展 mod。河流/海岸（mutator/TerrainPatchMaker 改的
-    /// terrainGrid）在备份时已包含，卷积自然覆盖。
+    /// 【为什么卷积】terrainDef 离散，不能直接加权平均。卷积把每格 terrainDef 变成
+    /// "周围 3×3 邻域的 terrainDef 分布"，分布可以加权平均，再取众数 → 平滑过渡。
     /// </summary>
     public static class SeamlessSeamOverride
     {
+        /// <summary>邻居参考源（生成期预收集，静态复用避免分配）。规则轴=本端圈层，对端带几何不参与。</summary>
+        private struct NeighborRef
+        {
+            public int worldTile;
+            public IntVec3 offset;
+            public SeamStripData strip;
+        }
+
+        /// <summary>单格的邻居参考（对齐格 a + 权重 + 所属邻居；三层的参考值经 <see cref="seamLayers"/> 的 ReadStrip 按层现读）。</summary>
+        private struct CellRef
+        {
+            public float w;
+            public NeighborRef owner;
+            public IntVec3 aCell;
+        }
+
         /// <summary>
-        /// 对 map 的所有已加载邻居做单向接缝覆写（只改 map 自身，不改邻居）。
-        /// 在 GenStep_SeamOverride.Generate 里调用（order=1410，void 裁切 1400 之后、Fog 1500 之前）。
+        /// 混合层操作集（**三层归一框架**，用户定夺 2026-08）：terrain/building/roof 三层共用同一
+        /// 混合框架（照抄 = 读对端参考值 → 与本端不同则写；卷积区见主循环），层差异全部收进委托：
+        /// <see cref="ReadLocal"/>（读本端）、<see cref="ReadStrip"/>（读对端条带参考）、<see cref="Write"/>
+        /// （写本端，委托内部含必要守卫——如岩石 spawn 的 existing==null 检查、屋顶判等）。
+        /// 新增层（如植物）只需在此追加一项。
+        /// </summary>
+        private sealed class SeamLayer
+        {
+            public readonly string Name;
+            /// <summary>读本端当前值。</summary>
+            public readonly Func<Map, IntVec3, Def> ReadLocal;
+            /// <summary>读对端条带参考值。</summary>
+            public readonly Func<SeamStripData, IntVec3, Def> ReadStrip;
+            /// <summary>写本端。</summary>
+            public readonly Action<Map, IntVec3, Def> Write;
+
+            public SeamLayer(string name, Func<Map, IntVec3, Def> readLocal,
+                Func<SeamStripData, IntVec3, Def> readStrip, Action<Map, IntVec3, Def> write)
+            {
+                Name = name;
+                ReadLocal = readLocal;
+                ReadStrip = readStrip;
+                Write = write;
+            }
+        }
+
+        /// <summary>三层实例：terrain（连续层，卷积区走加权众数）/ building（岩石体 def）/ roof（RoofDef）。</summary>
+        private static readonly SeamLayer[] seamLayers =
+        {
+            new("terrain",
+                (m, c) => m.terrainGrid.topGrid[m.cellIndices.CellToIndex(c)],
+                (s, a) => s.terrainLookup.TryGetValue(a, out var t) ? t : null,
+                (m, c, v) =>
+                {
+                    m.terrainGrid.topGrid[m.cellIndices.CellToIndex(c)] = (TerrainDef)v;
+                    m.mapDrawer.MapMeshDirty(c, MapMeshFlagDefOf.Terrain, regenAdjacentCells: false, regenAdjacentSections: false);
+                }),
+            new("building",
+                (m, c) => SeamStripData.RockDefAt(m, c),
+                (s, a) => s.buildingLookup.TryGetValue(a, out var b) ? b : null,
+                (m, c, v) => SyncRockBuildingTo(m, c, (ThingDef)v, out _)),
+            new("roof",
+                (m, c) => m.roofGrid.RoofAt(c),
+                (s, a) => s.roofLookup.TryGetValue(a, out var r) ? r : null,
+                (m, c, v) => SyncRoofTo(m, c, (RoofDef)v)),
+        };
+
+        private static readonly List<NeighborRef> neighborRefs = new();
+        private static readonly HashSet<IntVec3> bandCells = new();
+        private static readonly List<CellRef> cellRefs = new();
+        private static readonly List<(Dictionary<TerrainDef, float> dist, float w)> blendParts = new();
+
+        /// <summary>
+        /// 对 map 的所有已生成邻居做单向接缝覆写（只改 map 自身，不改邻居）。
+        /// 在 GenStep_SeamOverride.Generate 里调用（order=1410，接缝带 void 裁切 1400 之后、Fog 1500 之前）。
         /// </summary>
         public static void ApplyOneWay(Map map, int worldTile)
         {
@@ -75,10 +140,9 @@ namespace RimExodus
 
             var mapSize = map.Size.x;
 
-            // 权重噪声：低频空间 Perlin，dither 掉 GetMode 离散跳变（把规则等距过渡线打散成弯曲斑块）。
-            // 基于 worldTile 的稳定 seed → 同一地块多次生成噪声一致，不同地块噪声不同。
-            // 频率 0.04 让带内能跨约 1 个噪声周期，相邻格噪声值接近（空间相关），不会逐格雪花。
-            // 幅度可配（seamOverrideNoiseAmplitude，默认 0.15，0=关闭）。
+            // 权重噪声：低频空间 Perlin，dither 掉衰减区 GetMode 离散跳变（把规则等距过渡线
+            // 打散成弯曲斑块）。基于 worldTile 的稳定 seed → 同一地块多次生成噪声一致。
+            // 只作用于 w<1 的衰减区（完全一致区保持字面一致）。
             var noiseAmp = RimExodusMod.Settings?.seamOverrideNoiseAmplitude ?? 0.15f;
             Perlin weightNoise = null;
             if (noiseAmp > 0f)
@@ -86,22 +150,13 @@ namespace RimExodus
                 weightNoise = new Perlin(0.04f, 2.0, 0.5, 4, worldTile * 31 + 7919, QualityMode.Medium);
             }
 
-            // 本端多边形顶点 + 世界邻居列表。
-            var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize);
-            if (verts.Count < 3) return;
-
-            var worldNeighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
-            var neighborWorldTiles = new List<int>(worldNeighbors.Count);
-            foreach (var nt in worldNeighbors) neighborWorldTiles.Add(nt.tileId);
+            var band = SeamlessPolygonGeometry.BuildSeamBand(worldTile, mapSize);
+            if (band.Band.Count == 0) return;
 
             var voidDef = DefDatabase<TerrainDef>.GetNamedSilentFail("RimExodus_Void");
-            var terrainGrid = map.terrainGrid;
             var cellIndices = map.cellIndices;
-            var topGrid = terrainGrid.topGrid;
+            var topGrid = map.terrainGrid.topGrid;
             var mapDrawer = map.mapDrawer;
-            // 硬边界来源②修复：最内圈 w 不再硬夹到 1.0，cap 到此值系统保留 (1-wCap) self 分布。
-            var wCap = Mathf.Clamp01(RimExodusMod.Settings?.seamOverrideWeightCap ?? 0.9f);
             var verbose = RimExodusMod.Settings?.verboseLogging ?? false;
             var written = 0;
 
@@ -109,107 +164,192 @@ namespace RimExodus
             // 窄路（1-2 格宽）在 3×3 卷积里永远是少数派，不保护会被周围地形卷没。
             var roadGuard = BuildRoadGuard(map);
 
-            foreach (var neighborTile in neighborWorldTiles)
+            CollectNeighborRefs(map, worldTile);
+            if (neighborRefs.Count == 0) return;
+
+            // 主循环：枚举 C 的接缝带 B ∪ 过渡带 T。**规则轴 = 本端圈层**（对端只提供数据，
+            // 不参与规则判定——错位天然免疫）：
+            // - B_C（三圈）→ 字面照抄对端对应格的地形与岩体（a = c − offset，strip 有数据即抄）；
+            // - T_C（过渡带）→ 卷积权重覆盖（w 按本端过渡深度衰减 + dither）；
+            // - void_C → 不在枚举范围（直接用自己的 void）。
+            // 顶点楔形区（B_C 多邻居命中）保留卷积合成（几何模糊地带，各 w=1）。
+            bandCells.Clear();
+            bandCells.UnionWith(band.Band);
+            bandCells.UnionWith(band.TransitionBand);
+
+            foreach (var cCell in bandCells)
             {
-                // 邻居是否已加载。
-                if (!SeamlessTileGraph.TryGetMapByWorldTile(neighborTile, out var neighborMap)) continue;
-                if (neighborMap == null || neighborMap.Disposed || neighborMap == map) continue;
+                var cIdx = cellIndices.CellToIndex(cCell);
+                var localTerrain = topGrid[cIdx];
+                if (localTerrain == null || (voidDef != null && localTerrain == voidDef)) continue;
 
-                // 邻居 snapshot（void 裁切前的完整矩形 topGrid）。
-                var neighborSnapshot = GetSnapshot(neighborMap);
-                if (neighborSnapshot == null) continue;
+                // 道路保护①（地形判据，精确）：本格已是路/桥地形 → 不混合。窄路（1-2 格宽）
+                // 在 3×3 卷积里永远是少数派，混合必然失真；路面可铺到距 A* 中线 2-3 格处
+                // （材质曲线 fromRoad≤1.4 + 抗锯齿）+ Bezier 偏离折线最多 3-4 格，仅靠路径
+                // 缓冲判据会漏（用户实测：snapshot=BrokenAsphalt 的格被卷成 Sand）。
+                if (localTerrain.IsRoad || localTerrain.bridge) continue;
+                // 道路保护②（路径缓冲判据，兜底）：A* 路径 ±3 格内的格不混合——覆盖
+                // Gravel 等无 Road tag 的路面（曲线同样到 fromRoad 1.4）。
+                if (roadGuard.Contains(cCell)) continue;
 
-                // offset：本端 cell = 邻居 cell + offset。故邻居 cell = 本端 cell - offset，本端 cell = 邻居 cell + offset。
-                var offset = SeamlessNeighborRegistry.ComputeNeighborOffset(worldTile, neighborTile, map);
-                if (offset == IntVec3.Zero) continue;
+                var inBand = band.Band.Contains(cCell);
 
-                var neighborSize = neighborMap.Size.x;
+                if (!CollectCellRefs(cCell, inBand, weightNoise, noiseAmp)) continue;
 
-                // neighbor（邻居）的多边形顶点——用于算 aCell 到 neighbor 六边形边的距离（权重 dHex）。
-                var neighborVerts = SeamlessPolygonGeometry.BuildPolygonVertices(neighborTile, neighborSize);
-                if (neighborVerts.Count < 3) continue;
-
-                // 第一遍：收集候选混合格（映射 cCell 落在 self 可见区域内的 aCell）。
-                // 不区分 aCell 在 neighbor 六边形内还是外——void 条带与 SeamOverlap 重叠带
-                // 都收（见文件头：漏掉重叠带会在接缝处留下 2-3 格未混合舌状条带）。
-                // 候选集不做走廊/角落限制：A 方形角落格能绕过六边形顶点投影进 C 六边形的侧向
-                // 楔形区（实测数据点 A(249,249)→C(59,146)，距 C 中心仅 ~69 格 ≪ 内切圆 ~108 格），
-                // 会进候选集——w 已是逐格局部归一化（见第二遍），角落深格只压低自己的 w，
-                // 不影响其他格的权重。
-                candidates.Clear();
-                foreach (var aCell in CellRect.WholeMap(neighborMap))
+                if (inBand && cellRefs.Count == 1)
                 {
-                    // 映射到 C。
-                    var cCell = new IntVec3(aCell.x + offset.x, 0, aCell.z + offset.z);
-                    if (!cCell.InBounds(map)) continue;
-                    // 只混合 self 可见区域（self 六边形内）。六边形外是 self 的 void，不混合。
-                    if (!SeamlessPolygonGeometry.IsCellInPolygon(verts, mapSize, cCell)) continue;
-
-                    candidates.Add((aCell, cCell, SeamlessPolygonGeometry.DistanceToNearestEdge(neighborVerts, aCell)));
+                    // 接缝带照抄区：三层统一框架——每层读对端参考值，与本端不同则写。
+                    // 无任何地形例外（对端是 Marsh/深水本端就是——不能走 pawn 自然绕路）；
+                    // 岩体用对端 def（跨缝岩色连续，"岩石地形无岩体"中间带状态正确继承）；
+                    // 屋顶照抄对端原生岩顶（Thick/Thin，不裸顶）。地形未变时岩体/屋顶同步仍执行。
+                    var ref0 = cellRefs[0];
+                    var anyWritten = false;
+                    foreach (var layer in seamLayers)
+                    {
+                        var target = layer.ReadStrip(ref0.owner.strip, ref0.aCell);
+                        if (ReferenceEquals(target, layer.ReadLocal(map, cCell))) continue;
+                        layer.Write(map, cCell, target);
+                        anyWritten = true;
+                    }
+                    if (anyWritten) written++;
                 }
-                if (candidates.Count == 0) continue;
-
-                // 第二遍：混合。
-                foreach (var (aCell, cCell, distToEdge_A) in candidates)
+                else
                 {
-                    var cIdx = cellIndices.CellToIndex(cCell);
-                    var localTerrain = topGrid[cIdx];
-                    if (localTerrain == null || (voidDef != null && localTerrain == voidDef)) continue;
+                    // 过渡带（或顶点楔形多参考）：terrain 是唯一连续层，走卷积加权众数；
+                    // 离散层（building/roof）无法加权，跟随主导参考（w 最大）的 def——
+                    // 仅在 terrain 被参考覆写时同步（地形没变 = 本端已与参考一致或参考权重弱，
+                    // 不动离散层）。历史教训（2026-08 用户实测）：地形驱动 spawn 会在参考
+                    // 无岩体处生成本端岩体——离散层必须跟随参考而非地形。
+                    CollectBlendParts(topGrid, mapSize, voidDef, cCell);
+                    if (blendParts.Count == 0) continue;
+                    var blended = BlendDistributions(blendParts);
+                    var chosenTerrain = GetMode(blended);
+                    if (chosenTerrain == null || ReferenceEquals(chosenTerrain, seamLayers[0].ReadLocal(map, cCell))) continue;
 
-                    // 道路保护①（地形判据，精确）：本格已是路/桥地形 → 不混合。窄路（1-2 格宽）
-                    // 在 3×3 卷积里永远是少数派，混合必然失真；路面可铺到距 A* 中线 2-3 格处
-                    // （材质曲线 fromRoad≤1.4 + 抗锯齿）+ Bezier 偏离折线最多 3-4 格，仅靠路径
-                    // 缓冲判据会漏（用户实测：snapshot=BrokenAsphalt 的格被卷积成 Sand）。
-                    if (localTerrain.IsRoad || localTerrain.bridge) continue;
-                    // 道路保护②（路径缓冲判据，兜底）：A* 路径 ±3 格内的格不混合——覆盖
-                    // Gravel 等无 Road tag 的路面（曲线同样到 fromRoad 1.4）。
-                    if (roadGuard.Contains(cCell)) continue;
-                    // 河流/海岸保护：C 的水格不混合。水的连续性由 CoastalEdgeFill(230) 和
-                    // river mutator 按世界图两端独立保证，不需要 SeamOverride 继承。
-                    if (localTerrain.IsWater) continue;
-
-                    // w 权重：逐格局部归一化 aCell 的带内相对位置。
-                    // dSq = 到 neighbor 方形边界的切比雪夫格距（解析），distToEdge_A = 到 neighbor
-                    // 六边形边的欧氏垂距（无符号——重叠带内侧与 void 条带外侧同样"贴边"）。
-                    // 贴六边形边 → w≈wCap（强继承 neighbor snapshot，含重叠带贴缝格），贴方形外缘 → w≈0。
-                    // 无全局 maxDepth（弃用原因见文件头）：角落深格只压低自己的 w。
-                    // 分母守卫：六边形顶点贴方形边时 dSq 与 dHex 同时≈0，取 w=0。
-                    var dSq = Mathf.Min(Mathf.Min(aCell.x, aCell.z),
-                        Mathf.Min(neighborSize - 1 - aCell.x, neighborSize - 1 - aCell.z));
-                    var wBase = (dSq + distToEdge_A) > 1e-3f
-                        ? wCap * (dSq / (dSq + distToEdge_A))
-                        : 0f;
-                    // 叠加空间噪声：w' = clamp01(wBase + n×amp)，n∈[-1,1]。clamp01 保证 w∈[0,1]，
-                    // 不破坏"靠近边偏邻居、深入 void 偏 self"的总体单调，只是把过渡线抖弯。
-                    var w = weightNoise != null
-                        ? Mathf.Clamp01(wBase + (float)weightNoise.GetValue(cCell) * noiseAmp)
-                        : wBase;
-
-                    // 3×3 卷积：self 用 C 当前 topGrid（裁切后真实状态），neighbor 用 A snapshot（裁切前完整地形）。
-                    var selfDist = Convolve3x3(topGrid, mapSize, voidDef, cCell);
-                    var neighborDist = Convolve3x3(neighborSnapshot, neighborSize, null, aCell);
-                    if (selfDist == null || neighborDist == null) continue;
-
-                    var blended = BlendDistributions(neighborDist, selfDist, w);
-                    var chosen = GetMode(blended);
-                    if (chosen == null || chosen == localTerrain) continue;
-
-                    topGrid[cIdx] = chosen;
-                    mapDrawer.MapMeshDirty(cCell, MapMeshFlagDefOf.Terrain, regenAdjacentCells: false, regenAdjacentSections: false);
-                    SyncRockBuilding(map, cCell, chosen, out _);
+                    seamLayers[0].Write(map, cCell, chosenTerrain);
+                    var dominant = DominantRef(cellRefs);
+                    for (var i = 1; i < seamLayers.Length; i++)
+                    {
+                        seamLayers[i].Write(map, cCell, seamLayers[i].ReadStrip(dominant.owner.strip, dominant.aCell));
+                    }
                     written++;
-
-                    if (verbose)
-                        Log.Message($"[RimExodus] SeamOverride cCell={cCell} aCell={aCell} wBase={wBase:F3} w={w:F3} distEdge={distToEdge_A:F1} dSq={dSq} local={localTerrain.defName} chosen={chosen.defName}");
                 }
             }
 
+            // 逐格诊断不打日志（B∪T 数千格会刷屏）——用 Dev 探针 InspectSnapshotAtPosition 单格重放。
             if (verbose)
-                Log.Message($"[RimExodus] SeamOverride map={map.uniqueID}(wt={worldTile}) written={written} cells.");
+                Log.Message($"[RimExodus] SeamOverride map={map.uniqueID}(wt={worldTile}) refs={neighborRefs.Count} written={written} cells.");
         }
 
-        /// <summary>候选混合格缓存（aCell, cCell, distToEdge_A），复用避免每邻居分配。</summary>
-        private static readonly List<(IntVec3 aCell, IntVec3 cCell, float dist)> candidates = new();
+        /// <summary>
+        /// 预收集参考源到 <see cref="neighborRefs"/>：C 的每个世界邻居中"已生成"
+        /// （<see cref="SeamlessTileGraph.TryGetNeighborSeamStrip"/> 命中接缝条带快照）的邻居，
+        /// 附 offset（现算，与邻居表登记同公式恒等）与邻居带几何。
+        /// </summary>
+        private static void CollectNeighborRefs(Map map, int worldTile)
+        {
+            neighborRefs.Clear();
+            var worldNeighbors = new List<PlanetTile>();
+            Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
+            foreach (var nt in worldNeighbors)
+            {
+                var neighborTile = nt.tileId;
+                if (neighborTile == worldTile) continue;
+                if (!SeamlessTileGraph.TryGetNeighborSeamStrip(neighborTile, out var strip)) continue;
+                if (strip == null || strip.terrainLookup == null || strip.terrainLookup.Count == 0) continue;
+
+                var offset = SeamlessNeighborRegistry.ComputeNeighborOffset(worldTile, neighborTile, map);
+                if (offset == IntVec3.Zero) continue;
+
+                neighborRefs.Add(new NeighborRef
+                {
+                    worldTile = neighborTile,
+                    offset = offset,
+                    strip = strip
+                });
+            }
+        }
+
+        /// <summary>
+        /// 收集 cCell 的各邻居参考到 <see cref="cellRefs"/>（复用 <see cref="neighborRefs"/>），
+        /// 返回是否有参考。**规则轴 = 本端圈层**（用户定夺 2026-08）：
+        /// - c ∈ B_C（照抄区）：命中 = a 在邻居 strip 内（有数据即命中，不看对端圈层），
+        ///   w = 1（仅多命中合成时用到）——错位时 a 落在对端哪个圈层都无所谓，strip 有数据就抄；
+        /// - c ∈ T_C（卷积区）：w = dSq/(dSq+dOut)（源地图轴：接近源六边形高 → 源方形边 0）
+        ///   ×乘性 dither。
+        /// </summary>
+        private static bool CollectCellRefs(IntVec3 cCell, bool inBand, Perlin weightNoise, float noiseAmp)
+        {
+            cellRefs.Clear();
+            foreach (var nref in neighborRefs)
+            {
+                // 契约 neighborLocal + offset = myLocal → 邻居格 a = c − offset。
+                var aCell = new IntVec3(cCell.x - nref.offset.x, 0, cCell.z - nref.offset.z);
+                // 命中判定用 terrain 层的 ReadStrip（terrain 无参考价值的格不入 strip）。
+                if (seamLayers[0].ReadStrip(nref.strip, aCell) == null) continue;
+
+                float wRaw;
+                if (inBand)
+                {
+                    wRaw = 1f;
+                }
+                else
+                {
+                    // T_C 卷积区权重（**源地图轴**，用户定夺 2026-08 勿回退为本端深度衰减）：
+                    // a 接近源六边形（接缝带）→ 高；a 逼近源方形边 → 渐近 0。
+                    // dOut = a 距源接缝带的切比雪夫深度（B/T=0），dSq = a 到源方形边的切比雪夫距离。
+                    // w = dSq/(dSq+dOut)：贴缝（dOut≈0）→ 1；源方形边（dSq=0）→ 0——混合范围的
+                    // 截止边界（A 方形边）恰好是权重归零处，自然闭合无锐利边缘（历史教训：
+                    // 按本端固定深度衰减 + 外条带限深 7 格，数据边界处权重残值 ~0.14 戛然而止，
+                    // 源方形边在 C 上投影成一条直线）。乘性 dither（端点 0/1 不动）打散等值线。
+                    var nSize = nref.strip.mapSize;
+                    var dSq = Mathf.Min(Mathf.Min(aCell.x, aCell.z),
+                        Mathf.Min(nSize - 1 - aCell.x, nSize - 1 - aCell.z));
+                    var dOut = nref.strip.depthLookup.TryGetValue(aCell, out var d) ? d : 0;
+                    var wBase = (dSq + dOut) > 1e-3f ? (float)dSq / (dSq + dOut) : 0f;
+                    wRaw = weightNoise != null
+                        ? Mathf.Clamp01(wBase * (1f + (float)weightNoise.GetValue(cCell) * noiseAmp))
+                        : wBase;
+                    if (wRaw <= 0f) continue;
+                }
+
+                cellRefs.Add(new CellRef { w = wRaw, owner = nref, aCell = aCell });
+            }
+            return cellRefs.Count > 0;
+        }
+
+        /// <summary>权重最大的参考（卷积区离散层跟随它）。</summary>
+        private static CellRef DominantRef(List<CellRef> refs)
+        {
+            var best = refs[0];
+            for (var i = 1; i < refs.Count; i++)
+            {
+                if (refs[i].w > best.w) best = refs[i];
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// 组装卷积合成输入到 <see cref="blendParts"/>：self 分布（C 当前 topGrid，selfW>0 时）+
+        /// 各邻居参考分布（快照稀疏字典 3×3 采样）。
+        /// </summary>
+        private static void CollectBlendParts(TerrainDef[] topGrid, int mapSize, TerrainDef voidDef, IntVec3 cCell)
+        {
+            blendParts.Clear();
+            var totalW = 0f;
+            foreach (var r in cellRefs) totalW += r.w;
+            var selfW = Mathf.Clamp01(1f - totalW);
+            if (selfW > 0f)
+            {
+                var selfDist = Convolve3x3(topGrid, mapSize, voidDef, cCell);
+                if (selfDist != null) blendParts.Add((selfDist, selfW));
+            }
+            foreach (var r in cellRefs)
+            {
+                var refDist = Convolve3x3FromStrip(r.owner.strip.terrainLookup, r.aCell);
+                if (refDist != null) blendParts.Add((refDist, r.w));
+            }
+        }
 
         /// <summary>
         /// 构建 C 的道路路径缓冲保护集：<see cref="SeamlessRoadPaths"/> 快照的 A* 路径节点，
@@ -246,25 +386,13 @@ namespace RimExodus
         /// </summary>
         private const int RoadGuardRadius = 3;
 
-        /// <summary>获取 map 的基础地形 snapshot（地块从 MapParent_SeamlessTile，锚点从 Manager）。</summary>
-        private static TerrainDef[] GetSnapshot(Map map)
-        {
-            if (map.Parent is MapParent_SeamlessTile tile) return tile.baseTerrainSnapshot;
-            var manager = map.GetComponent<SeamlessTileManager>();
-            return manager?.anchorBaseTerrainSnapshot;
-        }
-
         /// <summary>
-        /// 3×3 卷积：统计 centerCell 周围 3×3 邻域（含自身）每种 terrainDef 的出现次数。
-        /// 越界格 clamp 到边界格（硬边界来源①修复：不再 skip，假设边界外与边界格同地形，
-        /// 消除 snapshot 矩形边界处卷积窗口截断导致的残缺分布）。
-        /// void 格跳过（voidDef != null 时，地形数组里可能含 void 的格不参与统计——用于 C 当前 topGrid）。
-        /// **水格跳过**：河走廊延伸水/海岸水会大片出现在 A 的 void 条带 snapshot 里，
-        /// 不跳过的话混合带众数可能被卷成水——水的连续性由 river/CoastalEdgeFill 两端
-        /// 独立保证，卷积不采样水。
-        /// 返回归一化占比（和=1）。
+        /// 3×3 卷积（数组源，self 用）：统计 center 周围 3×3 邻域（含自身）每种 terrainDef 的占比。
+        /// 越界格 clamp 到边界格（假设边界外与边界格同地形，消除矩形边界处窗口截断）。
+        /// void 格跳过（C 当前 topGrid 可能含 void）。**无地形例外**——水体照常参与分布
+        /// （对端是水体本端就是水体，岸线由卷积窗口自然平滑过渡）。
+        /// 返回归一化占比（和=1），total=0 返回 null。
         /// </summary>
-        /// <param name="voidDef">void TerrainDef，null 表示该数组无 void（如 A snapshot 是裁切前备份）。</param>
         private static Dictionary<TerrainDef, float> Convolve3x3(TerrainDef[] snapshot, int mapSize, TerrainDef voidDef, IntVec3 center)
         {
             var counts = new Dictionary<TerrainDef, int>();
@@ -274,7 +402,6 @@ namespace RimExodus
             {
                 for (var dz = -1; dz <= 1; dz++)
                 {
-                    // 来源①修复：越界 clamp 到边界格（而非 skip），避免 snapshot 矩形边界处窗口截断。
                     var nx = center.x + dx;
                     if (nx < 0) nx = 0; else if (nx >= mapSize) nx = mapSize - 1;
                     var nz = center.z + dz;
@@ -283,7 +410,6 @@ namespace RimExodus
                     var t = snapshot[idx];
                     if (t == null) continue;
                     if (voidDef != null && t == voidDef) continue;
-                    if (t.IsWater) continue;
                     counts.TryGetValue(t, out var c);
                     counts[t] = c + 1;
                     total++;
@@ -297,23 +423,47 @@ namespace RimExodus
             return result;
         }
 
-        /// <summary>加权混合两个分布：result[t] = distA[t] × w + distB[t] × (1-w)。</summary>
-        private static Dictionary<TerrainDef, float> BlendDistributions(
-            Dictionary<TerrainDef, float> distA, Dictionary<TerrainDef, float> distB, float w)
+        /// <summary>
+        /// 3×3 卷积（稀疏字典源，邻居参考用）：采样接缝条带快照 lookup 中 center 周围 3×3 邻域。
+        /// 条带是带状区域，窗口越出区域的格跳过（不 clamp——条带外无数据，与数组源的矩形边界
+        /// 语义不同）。**无地形例外**（同 <see cref="Convolve3x3"/>，水体照常参与）。
+        /// total=0 返回 null。
+        /// </summary>
+        private static Dictionary<TerrainDef, float> Convolve3x3FromStrip(Dictionary<IntVec3, TerrainDef> lookup, IntVec3 center)
+        {
+            Dictionary<TerrainDef, int> counts = null;
+            var total = 0;
+
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                for (var dz = -1; dz <= 1; dz++)
+                {
+                    if (!lookup.TryGetValue(new IntVec3(center.x + dx, 0, center.z + dz), out var t) || t == null) continue;
+                    counts ??= new Dictionary<TerrainDef, int>();
+                    counts.TryGetValue(t, out var c);
+                    counts[t] = c + 1;
+                    total++;
+                }
+            }
+
+            if (total == 0) return null;
+            var result = new Dictionary<TerrainDef, float>(counts.Count);
+            foreach (var kv in counts)
+                result[kv.Key] = (float)kv.Value / total;
+            return result;
+        }
+
+        /// <summary>N 路分布加权混合：result[t] = Σ dist_i[t] × w_i（加权和可能 >1，GetMode 只比较相对大小）。</summary>
+        private static Dictionary<TerrainDef, float> BlendDistributions(List<(Dictionary<TerrainDef, float> dist, float w)> parts)
         {
             var result = new Dictionary<TerrainDef, float>();
-            var oneMinusW = 1f - w;
-            foreach (var kv in distA)
+            foreach (var (dist, w) in parts)
             {
-                var v = kv.Value * w;
-                distB.TryGetValue(kv.Key, out var bv);
-                result[kv.Key] = v + bv * oneMinusW;
-            }
-            // distB 中有但 distA 中没有的。
-            foreach (var kv in distB)
-            {
-                if (!result.ContainsKey(kv.Key))
-                    result[kv.Key] = kv.Value * oneMinusW;
+                foreach (var kv in dist)
+                {
+                    result.TryGetValue(kv.Key, out var v);
+                    result[kv.Key] = v + kv.Value * w;
+                }
             }
             return result;
         }
@@ -339,199 +489,127 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 岩石类 TerrainDef 集合（延迟初始化）。岩石 TerrainDef = 某 BuildingDef 的 building.naturalTerrain
-        /// （GenStep_Terrain 在 elevation≥0.61 格铺这种地形，对应 RocksFromGrid spawn 的岩石 Building）。
-        /// 用于 SyncRockBuilding 同步岩石 Building 与地形一致。
-        /// </summary>
-        private static HashSet<TerrainDef> rockTerrains;
-        private static bool IsRockTerrain(TerrainDef t)
-        {
-            if (t == null) return false;
-            if (rockTerrains == null)
-            {
-                rockTerrains = new HashSet<TerrainDef>();
-                foreach (var def in DefDatabase<ThingDef>.AllDefs)
-                {
-                    if (def.building != null && def.building.naturalTerrain != null)
-                        rockTerrains.Add(def.building.naturalTerrain);
-                }
-            }
-            return rockTerrains.Contains(t);
-        }
-
-        /// <summary>
         /// 探针重放（只读诊断，不写任何 grid）：对单个 cell 重跑 <see cref="ApplyOneWay"/> 的混合判定，
-        /// 返回多行诊断文本（无前导换行，调用方拼进自己的 StringBuilder）。
-        /// 供 InspectSnapshotAtPosition（Dev ToolMap）使用——放在本类内部是为了直接复用
-        /// Convolve3x3/BlendDistributions/GetMode/BuildRoadGuard，重放与真实逻辑共享同一份代码，
-        /// 不会因复刻而漂移。
+        /// 返回多行诊断文本（无前导换行，调用方拼进自己的 StringBuilder）。供 InspectSnapshotAtPosition
+        /// （Dev ToolMap）使用——复用 Convolve3x3/Convolve3x3FromStrip/BlendDistributions/GetMode/
+        /// BuildRoadGuard/CollectNeighborRefs，重放与真实逻辑共享同一份代码，不会因复刻而漂移。
         ///
-        /// 失真声明：self 侧 3×3 采样自当前 topGrid（生成后的状态，生成期已被覆写的格 local=覆写后值，
-        /// 生成期原始值见探针上半段 "self snapshot" 行）；neighbor 侧 3×3 采样自 snapshot（裁切前备份，
-        /// 不可变，与生成时完全一致）。故重放回答的是"以当前状态再跑一次会怎样"，
-        /// 而非生成那一刻的历史。
+        /// 失真声明：self 侧 3×3 采样自当前 topGrid（生成后的状态），neighbor 侧采样自接缝条带快照
+        /// （生成期定格，不可变）。故重放回答的是"以当前状态再跑一次会怎样"，而非生成那一刻的历史。
         /// </summary>
         public static string DescribeCellMixing(Map map, int worldTile, IntVec3 cell)
         {
             var sb = new System.Text.StringBuilder();
             var mapSize = map.Size.x;
-            var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize);
-            if (verts.Count < 3)
-                return "  == SeamOverride 重放 ==\n  (polygon verts < 3, 无法重放)";
+            var band = SeamlessPolygonGeometry.BuildSeamBand(worldTile, mapSize);
 
             var voidDef = DefDatabase<TerrainDef>.GetNamedSilentFail("RimExodus_Void");
             var cIdx = map.cellIndices.CellToIndex(cell);
             var localTerrain = map.terrainGrid.topGrid[cIdx];
 
-            // 与 ApplyOneWay 同源的权重参数（同 seed 的 Perlin → 同噪声值；设置实时读取）。
+            sb.AppendLine("  == SeamOverride 重放（3 圈接缝带架构，只读） ==");
+            sb.AppendLine("  (重放 = 以当前状态再跑一次：self 卷积采样用当前 topGrid——若与 self snapshot 不同，说明生成期已被混合覆写)");
+            sb.AppendLine($"  本格地形: {localTerrain?.defName ?? "(null)"}");
+
+            // 圈分类（权威定义见 doc/接缝带定义.md）。规则轴 = 本端圈层：
+            // B_C（三圈）→ 照抄区；T_C → 卷积区。
+            var inBand = band.Band.Contains(cell);
+            if (band.OuterRing.Contains(cell)) sb.AppendLine("  圈层: 带外圈（B_C 照抄区；传送圈，格中心在多边形外）");
+            else if (band.DiscreteEdge.Contains(cell)) sb.AppendLine("  圈层: 离散边圈（B_C 照抄区；传送圈，横跨连续边）");
+            else if (band.InnerRing.Contains(cell)) sb.AppendLine("  圈层: 带内圈（B_C 照抄区；无传送点，格中心在多边形内）");
+            else if (band.TransitionDepth.TryGetValue(cell, out var td)) sb.AppendLine($"  圈层: 过渡带 T_C 深度 {td}（卷积区，源地图轴权重）");
+            else
+            {
+                sb.AppendLine("  圈层: 接缝带 ∪ 过渡带之外（void/核心区）→ 不参与混合");
+                return sb.ToString().TrimEnd();
+            }
+
+            var roadComp = map.GetComponent<SeamlessRoadPaths>();
+            var roadGuard = BuildRoadGuard(map);
+            if (roadComp == null || roadComp.paths.Count == 0)
+                sb.AppendLine("  (注意: SeamlessRoadPaths 为空——本图无路，或读档后快照丢失，道路保护②判据可能失真)");
+
+            // 跳过保护（与 ApplyOneWay 主循环同序逐条判定）。只有道路保护——无地形例外。
+            var skipReason =
+                localTerrain == null || localTerrain == voidDef ? "localTerrain 为 null/void" :
+                localTerrain.IsRoad || localTerrain.bridge ? "道路保护①(IsRoad/bridge 地形判据)" :
+                roadGuard.Contains(cell) ? "道路保护②(A* 路径 ±3 格缓冲)" : null;
+            if (skipReason != null)
+            {
+                sb.AppendLine($"  在混合范围内，但被跳过: {skipReason} → 不参与混合");
+                return sb.ToString().TrimEnd();
+            }
+
+            // 邻居参考（与 ApplyOneWay 同源逻辑）。
             var noiseAmp = RimExodusMod.Settings?.seamOverrideNoiseAmplitude ?? 0.15f;
             Perlin weightNoise = null;
             if (noiseAmp > 0f)
                 weightNoise = new Perlin(0.04f, 2.0, 0.5, 4, worldTile * 31 + 7919, QualityMode.Medium);
-            var wCap = Mathf.Clamp01(RimExodusMod.Settings?.seamOverrideWeightCap ?? 0.9f);
 
-            var roadComp = map.GetComponent<SeamlessRoadPaths>();
-            var roadGuard = BuildRoadGuard(map);
-
-            sb.AppendLine("  == SeamOverride 重放（只读；self 侧=当前 topGrid 生成后状态，snapshot 侧与生成时一致） ==");
-            if (roadComp == null || roadComp.paths.Count == 0)
-                sb.AppendLine("  (注意: SeamlessRoadPaths 为空——本图无路，或读档后快照丢失，道路保护②判据可能失真)");
-
-            // 邻居循环顺序与 ApplyOneWay 相同（世界邻居表顺序）；同一 cCell 被多个邻居宣称时
-            // ApplyOneWay 按此顺序逐邻居写入，后写者胜。
-            var worldNeighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
-
-            var claimers = 0;
-            var writers = 0;
-            string lastWriteDesc = null;
-            foreach (var nt in worldNeighbors)
+            CollectNeighborRefs(map, worldTile);
+            if (neighborRefs.Count == 0)
             {
-                var neighborTile = nt.tileId;
-                if (!SeamlessTileGraph.TryGetMapByWorldTile(neighborTile, out var neighborMap)) continue;
-                if (neighborMap == null || neighborMap.Disposed || neighborMap == map) continue;
-                var neighborSnapshot = GetSnapshot(neighborMap);
-                if (neighborSnapshot == null) continue;
-                var offset = SeamlessNeighborRegistry.ComputeNeighborOffset(worldTile, neighborTile, map);
-                if (offset == IntVec3.Zero) continue;
-                var neighborSize = neighborMap.Size.x;
-                var neighborVerts = SeamlessPolygonGeometry.BuildPolygonVertices(neighborTile, neighborSize);
-                if (neighborVerts.Count < 3) continue;
-
-                var aCell = new IntVec3(cell.x - offset.x, 0, cell.z - offset.z);
-                sb.AppendLine($"  -- neighbor wt={neighborTile}  aCell=({aCell.x},{aCell.z})");
-
-                // 混合带判定（与第一遍候选收集同条件：aCell 在 neighbor 矩形内 + cell 在 self 六边形内，
-                // 不区分 aCell 在 neighbor 六边形内外——重叠带也收）。
-                if (!aCell.InBounds(neighborMap))
-                {
-                    sb.AppendLine("     不在混合带: aCell 越界");
-                    continue;
-                }
-                if (!SeamlessPolygonGeometry.IsCellInPolygon(verts, mapSize, cell))
-                {
-                    sb.AppendLine("     不在混合带: cell 在 self 六边形外（void）");
-                    continue;
-                }
-                claimers++;
-
-                // 跳过保护（与第二遍混合循环同序逐条判定）。
-                var skipReason =
-                    localTerrain == null || (voidDef != null && localTerrain == voidDef) ? "localTerrain 为 null/void" :
-                    localTerrain.IsRoad || localTerrain.bridge ? "道路保护①(IsRoad/bridge 地形判据)" :
-                    roadGuard.Contains(cell) ? "道路保护②(A* 路径 ±3 格缓冲)" :
-                    localTerrain.IsWater ? "水格保护(IsWater)" : null;
-                if (skipReason != null)
-                {
-                    sb.AppendLine($"     在混合带内，但被跳过: {skipReason} → 不参与混合");
-                    continue;
-                }
-
-                // 权重链（与第二遍同公式；分母守卫同款）。
-                var distToEdge_A = SeamlessPolygonGeometry.DistanceToNearestEdge(neighborVerts, aCell);
-                var dSq = Mathf.Min(Mathf.Min(aCell.x, aCell.z),
-                    Mathf.Min(neighborSize - 1 - aCell.x, neighborSize - 1 - aCell.z));
-                var wBase = (dSq + distToEdge_A) > 1e-3f
-                    ? wCap * (dSq / (dSq + distToEdge_A))
-                    : 0f;
-                var noiseVal = weightNoise != null ? (float)weightNoise.GetValue(cell) : 0f;
-                var w = weightNoise != null ? Mathf.Clamp01(wBase + noiseVal * noiseAmp) : wBase;
-                sb.AppendLine($"     在混合带内。dSq={dSq} distEdge={distToEdge_A:F2} wCap={wCap:F2} → wBase={wBase:F3}");
-                if (weightNoise != null)
-                    sb.AppendLine($"     noise={noiseVal:F3} amp={noiseAmp:F2} → w=clamp01(wBase+n·amp)={w:F3}");
-                else
-                    sb.AppendLine($"     噪声关闭(amp=0) → w=wBase={wBase:F3}");
-
-                // 3×3 卷积输入（原始地形，含被跳过/clamp 的格）。
-                sb.Append(FormatWindow3x3("neighbor snapshot 3×3（裁切前，与生成时一致）", neighborSnapshot, neighborSize, null, aCell));
-                sb.Append(FormatWindow3x3("self 3×3 (当前 topGrid，生成后状态)", map.terrainGrid.topGrid, mapSize, voidDef, cell));
-
-                var selfDist = Convolve3x3(map.terrainGrid.topGrid, mapSize, voidDef, cell);
-                var neighborDist = Convolve3x3(neighborSnapshot, neighborSize, null, aCell);
-                if (selfDist == null || neighborDist == null)
-                {
-                    sb.AppendLine("     卷积分布为空(total=0) → 跳过");
-                    continue;
-                }
-
-                sb.AppendLine($"     neighborDist: {FormatDist(neighborDist)}");
-                sb.AppendLine($"     selfDist:     {FormatDist(selfDist)}");
-                var blended = BlendDistributions(neighborDist, selfDist, w);
-                sb.AppendLine($"     blend(neighbor×w + self×(1-w), w={w:F3}): {FormatDist(blended)}");
-
-                var chosen = GetMode(blended);
-                if (chosen == null)
-                    sb.AppendLine("     chosen=null → 不覆写");
-                else if (chosen == localTerrain)
-                    sb.AppendLine($"     chosen={chosen.defName} == local → 不覆写（本端保持 {localTerrain.defName}）");
-                else
-                {
-                    writers++;
-                    lastWriteDesc = $"{localTerrain.defName} → {chosen.defName}（经 neighbor wt={neighborTile}）";
-                    sb.AppendLine($"     chosen={chosen.defName} != local → 会覆写: {localTerrain.defName} → {chosen.defName}");
-                }
+                sb.AppendLine("  → 无已生成邻居（无接缝条带快照）→ 不混合");
+                return sb.ToString().TrimEnd();
             }
 
-            if (claimers == 0)
-                sb.AppendLine("  → 无任何已加载邻居宣称此格（不参与混合）");
-            else if (claimers > 1)
-                sb.AppendLine($"  → {claimers} 个邻居宣称此格：ApplyOneWay 按上述顺序逐邻居写入，后写者胜" +
-                    (writers > 0 ? $"，最终生效 = {lastWriteDesc}" : "，但均未产生覆写"));
-            else if (writers > 0)
-                sb.AppendLine($"  → 最终生效 = {lastWriteDesc}");
+            // CollectCellRefs 走静态 cellRefs——探针调用后其内容对下一次 ApplyOneWay 无影响
+            //（ApplyOneWay 每格先 Clear），此处直接读结果。
+            if (!CollectCellRefs(cell, inBand, weightNoise, noiseAmp))
+            {
+                sb.AppendLine("  → 无邻居参考此格（对齐格不在任何邻居 strip 内）→ 保持原生");
+                return sb.ToString().TrimEnd();
+            }
+
+            foreach (var r in cellRefs)
+            {
+                var terrain = seamLayers[0].ReadStrip(r.owner.strip, r.aCell)?.defName ?? "(null)";
+                var building = seamLayers[1].ReadStrip(r.owner.strip, r.aCell)?.defName ?? "无";
+                var roof = seamLayers[2].ReadStrip(r.owner.strip, r.aCell)?.defName ?? "无";
+                sb.AppendLine($"  -- 邻居 wt={r.owner.worldTile}  aCell=({r.aCell.x},{r.aCell.z}) 参考地形={terrain} 岩体={building} 屋顶={roof} w={r.w:F3}");
+            }
+
+            if (inBand && cellRefs.Count == 1)
+            {
+                var ref0 = cellRefs[0];
+                var parts = new List<string>();
+                foreach (var layer in seamLayers)
+                {
+                    var target = layer.ReadStrip(ref0.owner.strip, ref0.aCell);
+                    var local = layer.ReadLocal(map, cell);
+                    parts.Add(target == null
+                        ? $"{layer.Name}=无"
+                        : $"{layer.Name}={target.defName}{(ReferenceEquals(target, local) ? "(同本端)" : $"({local?.defName ?? "无"}→)")}");
+                }
+                sb.AppendLine($"  → B_C 照抄区: 三层统一同步 {string.Join(" ", parts)}");
+                return sb.ToString().TrimEnd();
+            }
+
+            // 卷积合成重放（T_C，或 B_C 顶点楔形多参考）。
+            CollectBlendParts(map.terrainGrid.topGrid, mapSize, voidDef, cell);
+            if (blendParts.Count == 0)
+            {
+                sb.AppendLine("  → 卷积分布全空(total=0) → 跳过");
+                return sb.ToString().TrimEnd();
+            }
+
+            var totalW2 = 0f;
+            foreach (var r in cellRefs) totalW2 += r.w;
+            sb.AppendLine($"  合成{(inBand ? "(B_C 顶点多参考)" : "(T_C 卷积)")}: Σw={totalW2:F2} → selfW={Mathf.Clamp01(1f - totalW2):F2}，{blendParts.Count} 路分布：");
+            foreach (var (dist, w) in blendParts)
+                sb.AppendLine($"    ×w={w:F3}: {FormatDist(dist)}");
+
+            var blended = BlendDistributions(blendParts);
+            sb.AppendLine($"    blend: {FormatDist(blended)}");
+            var chosen = GetMode(blended);
+            if (chosen == null)
+                sb.AppendLine("  → chosen=null → 不覆写");
+            else if (chosen == localTerrain)
+                sb.AppendLine($"  → chosen={chosen.defName} == local(当前) → 不覆写（当前值已与混合结果一致）");
+            else
+                sb.AppendLine($"  → 会覆写: {localTerrain.defName} → {chosen.defName}");
 
             return sb.ToString().TrimEnd();
-        }
-
-        /// <summary>
-        /// 格式化 3×3 卷积窗口的原始地形（Convolve3x3 的采样源，含被跳过/clamp 的格）。
-        /// 每格 [defName]，后缀标记：× = 卷积跳过（null/void/water），→ = 越界 clamp 至边界格采样。
-        /// 不依赖等宽字体对齐（日志窗口非 monospace），行内以空格分隔。
-        /// </summary>
-        private static string FormatWindow3x3(string label, TerrainDef[] grid, int mapSize, TerrainDef voidDef, IntVec3 center)
-        {
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"     {label}:");
-            for (var dz = -1; dz <= 1; dz++)
-            {
-                sb.Append("       ");
-                for (var dx = -1; dx <= 1; dx++)
-                {
-                    // 与 Convolve3x3 相同的 clamp 规则，保证展示与采样一致。
-                    var nx = center.x + dx;
-                    if (nx < 0) nx = 0; else if (nx >= mapSize) nx = mapSize - 1;
-                    var nz = center.z + dz;
-                    if (nz < 0) nz = 0; else if (nz >= mapSize) nz = mapSize - 1;
-                    var t = grid[nz * mapSize + nx];
-                    var marker = "";
-                    if (t == null || (voidDef != null && t == voidDef) || t.IsWater) marker = "×";
-                    if (nx != center.x + dx || nz != center.z + dz) marker += "→";
-                    sb.Append($"[{t?.defName ?? "(null)"}{marker}] ");
-                }
-                sb.AppendLine();
-            }
-            sb.AppendLine("       (× = 卷积跳过 null/void/water；→ = 越界格 clamp 至边界格采样)");
-            return sb.ToString();
         }
 
         /// <summary>分布格式化：按占比降序拼接 defName=0.xxx。</summary>
@@ -543,32 +621,42 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 同步 cell 上的岩石 Building 与 TerrainDef 一致。out action: 1=spawn, -1=destroy, 0=无操作。
+        /// 同步 cell 屋顶到目标 def（照抄区/卷积区均直接跟随参考——岩壁带原生岩顶 Thick/Thin，
+        /// 不裸顶；null → 清顶。C 是新生成图无玩家屋顶，直接同步安全）。
         /// </summary>
-        private static void SyncRockBuilding(Map map, IntVec3 cell, TerrainDef chosen, out int action)
+        private static void SyncRoofTo(Map map, IntVec3 cell, RoofDef roofDef)
+        {
+            if (map.roofGrid.RoofAt(cell) != roofDef)
+            {
+                map.roofGrid.SetRoof(cell, roofDef);
+            }
+        }
+
+        /// <summary>
+        /// 同步 cell 上的岩石 Building 到**目标 def**（照抄区=单参考 def；卷积区=主导参考 def）：
+        /// rockDef != null 且无岩石 → spawn 该 def（跨缝岩色连续）；
+        /// rockDef == null 且有岩石 → Destroy(Vanish)。
+        /// out action: 1=spawn, -1=destroy, 0=无操作。
+        /// </summary>
+        private static void SyncRockBuildingTo(Map map, IntVec3 cell, ThingDef rockDef, out int action)
         {
             action = 0;
             var existing = cell.GetEdifice(map);
             var hasRockBuilding = existing != null && existing.def.building != null && existing.def.building.naturalTerrain != null;
-            var wantRock = IsRockTerrain(chosen);
 
-            if (wantRock && !hasRockBuilding)
+            if (rockDef != null && !hasRockBuilding)
             {
-                // chosen 是岩石类但无岩石 Building → spawn。
+                // 需要岩石但无岩石 Building → spawn。
                 // 只在无 edifice 的格 spawn（避免覆盖已存在的非岩石 edifice）。
                 if (existing == null)
                 {
-                    var rockDef = GenStep_RocksFromGrid.RockDefAt(cell);
-                    if (rockDef != null)
-                    {
-                        GenSpawn.Spawn(rockDef, cell, map);
-                        action = 1;
-                    }
+                    GenSpawn.Spawn(rockDef, cell, map);
+                    action = 1;
                 }
             }
-            else if (!wantRock && hasRockBuilding)
+            else if (rockDef == null && hasRockBuilding)
             {
-                // chosen 是非岩石但有岩石 Building → 清除（Vanish 无掉落）。
+                // 不需要岩石但有岩石 Building → 清除（Vanish 无掉落）。
                 existing.Destroy(DestroyMode.Vanish);
                 action = -1;
             }

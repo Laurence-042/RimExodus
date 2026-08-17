@@ -109,13 +109,12 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 调试工具（Dev 地图工具）：点击地图格，输出该格的 snapshot 值 + SeamOverride 混合时引用的邻居格信息。
+        /// 调试工具（Dev 地图工具）：点击地图格，输出该格的 snapshot 值 + 接缝条带快照 + SeamOverride 混合时引用的邻居格信息。
         /// 用于精确定位"某格 snapshot 是水/沙，但被邻居土卷积成了泥"等海岸侵蚀问题。
-        /// 输出 self snapshot（本地 snapshot 在该格的值）vs neighbor snapshot（邻居对应格的值），
+        /// 输出 self snapshot（本地 snapshot 在该格的值）vs neighbor（邻居对应格的条带快照值），
         /// 以及 NeighborLink offset、邻居对应格坐标（与传送点同源，已验证正确）。
-        /// 末尾附 <see cref="SeamlessSeamOverride.DescribeCellMixing"/> 重放段：逐已加载邻居给出
-        /// 混合带归属、跳过保护、权重链（dSq/distEdge/wBase/噪声/w）、snapshot 与 self 的 3×3
-        /// 卷积输入、混合分布与覆写判定（不覆写 / 会覆写 local → chosen）。
+        /// 末尾附 <see cref="SeamlessSeamOverride.DescribeCellMixing"/> 重放段：圈层归属、跳过保护、
+        /// 各邻居参考（重叠带 w=1 完全一致 / 外条带深度衰减）、卷积分布与覆写判定。
         /// </summary>
         [DebugAction(Category, "Inspect Snapshot At Position", false, false, false, false, false, 0, false,
             actionType = DebugActionType.ToolMap, allowedGameStates = AllowedGameStates.PlayingOnMap)]
@@ -143,7 +142,7 @@ namespace RimExodus
             var sb = new System.Text.StringBuilder();
             sb.AppendLine($"[RimExodus-SnapshotInspect] cell=({cell.x},{cell.z}) wt={worldTile}");
             sb.AppendLine($"  current topGrid: {TerrainName(currentTerrain)}");
-            sb.AppendLine($"  self snapshot:   {TerrainName(selfSnapDef)}{(selfSnapDef != null && currentTerrain != null && selfSnapDef != currentTerrain ? "  <<< DIFFERS from topGrid" : "")}");
+            sb.AppendLine($"  self snapshot:   {TerrainName(selfSnapDef)}{(selfSnapDef != null && currentTerrain != null && selfSnapDef != currentTerrain ? "  <<< DIFFERS from topGrid（原生与当前不同：若本格在混合范围内，通常是生成期 SeamOverride 已把原生覆写成了当前值——重放的 self 采样用的就是当前值）" : "")}");
 
             if (worldTile < 0)
             {
@@ -202,10 +201,23 @@ namespace RimExodus
                     var nIdx = neighborMap.cellIndices.CellToIndex(neighborCell);
                     var neighborSnapDef = (neighborSnapshot != null && nIdx < neighborSnapshot.Length) ? neighborSnapshot[nIdx] : null;
                     sb.AppendLine($"    neighbor snapshot: {TerrainName(neighborSnapDef)}");
+
+                    // 邻居接缝条带快照在对应格的值（SeamOverride 实际参考源：B_A=最终值 / 外条带=原生值）。
+                    if (SeamlessTileGraph.TryGetNeighborSeamStrip(neighborWorldTile, out var nStrip) && nStrip.terrainLookup != null)
+                    {
+                        nStrip.terrainLookup.TryGetValue(neighborCell, out var stripDef);
+                        nStrip.buildingLookup.TryGetValue(neighborCell, out var stripRock);
+                        nStrip.roofLookup.TryGetValue(neighborCell, out var stripRoof);
+                        sb.AppendLine($"    neighbor seam-strip: {TerrainName(stripDef)}  岩体={stripRock?.defName ?? "无"}  屋顶={stripRoof?.defName ?? "无"}{(stripDef == null ? "  (不在条带区域)" : "")}");
+                    }
+                    else
+                    {
+                        sb.AppendLine("    neighbor seam-strip: 无快照（未生成或无数据）");
+                    }
                 }
             }
 
-            // SeamOverride 混合重放（逐已加载邻居：混合带归属/跳过保护/权重链/3×3 卷积输入/覆写判定）。
+            // SeamOverride 混合重放（圈层归属/跳过保护/各邻居参考权重/卷积分布/覆写判定）。
             sb.Append(SeamlessSeamOverride.DescribeCellMixing(map, worldTile, cell));
 
             Log.Message(sb.ToString().TrimEnd());

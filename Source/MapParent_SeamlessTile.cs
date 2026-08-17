@@ -45,11 +45,36 @@ namespace RimExodus
         /// <summary>
         /// 基础地形快照（阶段4 接缝覆写）：void 裁切前的完整矩形地形备份。
         /// 在 GenStep_SeamlessTile（order=1400）开头备份，此时 Plants/Animals/Snow 已跑完（Fog 1500 之前），topGrid 接近最终。
-        /// 供接缝覆写卷积混合读取——邻居 tile 的 snapshot 包含它被 void 切掉的六边形外区域，
-        /// 正是本 tile 这侧的地形。
-        /// 非序列化：生成期临时数据，读档后由 SeamlessTileManager 重建（锚点）或重新生成（口袋）。
+        /// 供接缝条带快照捕获（SeamStripData.CaptureAndStore 读外条带格的原生值）。
+        /// 非序列化：生成期临时数据，读档后由 SeamlessTileManager 重建（锚点）或重新生成（地块）——
+        /// 跨读档的接缝参考由 <see cref="seamStrip"/>（序列化）承担。
         /// </summary>
         public TerrainDef[] baseTerrainSnapshot;
+
+        /// <summary>
+        /// 原生建筑快照（岩石体 BuildingDef，null=无；与 <see cref="baseTerrainSnapshot"/> 同点位
+        /// 备份、非序列化）。与地形快照平行的第二层：void 铺设会清除接缝带外格上的岩体，
+        /// 接缝条带快照对外条带格必须引用**原生**两层（同源），否则世界连续的岩壁会被误判
+        /// 无岩体（2026-08 实测：(98,233) 连续岩壁到该格突然消失）。存 BuildingDef 而非 bool：
+        /// 完全一致区 spawn 用对端岩石 def，跨缝岩色也连续。
+        /// </summary>
+        public ThingDef[] baseBuildingSnapshot;
+
+        /// <summary>
+        /// 原生屋顶快照（RoofDef，null=无；与 <see cref="baseTerrainSnapshot"/> 同点位备份、非序列化）。
+        /// 第三平行层：void 铺设会清掉接缝带外格的屋顶，外条带参考须用原生屋顶——否则对侧
+        /// 照抄区"有岩石没有 roof"（岩壁裸顶，不挡雨/视觉突兀）。
+        /// </summary>
+        public RoofDef[] baseRoofSnapshot;
+
+        /// <summary>
+        /// 接缝条带快照（接缝带 B ∪ 过渡带 T 最终值 + 接缝带外条带原生值）。
+        /// 挂在 WorldObject 上（非 Map）：随存档序列化，**地图卸载后数据存活**——
+        /// 地图滚动加载卸载的生命周期预埋（未来卸 Map、留 WorldObject 时，
+        /// SeamlessTileGraph.TryGetNeighborSeamStrip 的 WorldObject 回落路径自动接管）。
+        /// Dev 完全卸载（RemoveTileMap）销毁本对象即数据消失（"完全卸载 = 从未出现过"）。
+        /// </summary>
+        public SeamStripData seamStrip;
 
         public override string Label => "Seamless Tile Map";
 
@@ -69,6 +94,7 @@ namespace RimExodus
             Scribe_Values.Look(ref worldTile, "worldTile", -1);
             Scribe_Values.Look(ref autoFocused, "autoFocused", false);
             Scribe_Values.Look(ref tileOrigin, "tileOrigin", Vector2.zero);
+            Scribe_Deep.Look(ref seamStrip, "seamStrip");
 
             // 邻居表序列化：用 IExposable 的 NeighborLink 列表。
             if (Scribe.mode == LoadSaveMode.Saving)
