@@ -37,7 +37,7 @@ namespace RimExodus
     /// 【参考源（所有已生成邻居）】经统一入口 <see cref="SeamlessTileGraph.TryGetNeighborSeamStrip"/>
     /// 取接缝条带快照（活图优先，地图卸载后 WorldObject 回落——滚动加载卸载预埋）。
     /// offset 现算（<see cref="SeamlessNeighborRegistry.ComputeNeighborOffset"/>，与邻居表登记
-    /// 同公式恒等）——genStep 1410 运行时邻居表尚未登记（RegisterNeighborBidirectional 在
+    /// 同公式恒等）——genStep 392 运行时邻居表尚未登记（RegisterNeighborBidirectional 在
     /// onComplete，晚于整个 genStep 链），运行时消费方（传送/渲染）才走邻居表。
     ///
     /// 【保护判据：只有道路，无地形例外（用户定夺 2026-08，勿回退）】SeamOverride 只做三件事：
@@ -132,7 +132,8 @@ namespace RimExodus
 
         /// <summary>
         /// 对 map 的所有已生成邻居做单向接缝覆写（只改 map 自身，不改邻居）。
-        /// 在 GenStep_SeamOverride.Generate 里调用（order=1410，接缝带 void 裁切 1400 之后、Fog 1500 之前）。
+        /// 在 GenStep_SeamOverride.Generate 里调用（order=392，接缝带 void 裁切 391 之后、
+        /// Settlement 400 与 Fog 1500 之前）。
         /// </summary>
         public static void ApplyOneWay(Map map, int worldTile)
         {

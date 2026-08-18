@@ -11,8 +11,8 @@ namespace RimExodus
     /// 每个地块独立按自己的六边形铺 void：六边形内（含边）非 void，六边形外 void。
     /// 不看邻居——两个地图各自独立铺 void，重叠区的 void 在对方地图上恰好是非 void。
     /// 传送点铺在自己六边形的边经过的格子上（含边判定 → 非 void）。
-    /// 供 GenStep_SeamlessTile（order=1400）调用，该 genStep 通过 XML patch 注入到所有
-    /// 玩家可进入的 MapGeneratorDef（Base_Player / Base_Faction / Encounter）。邻居地块（MapParent_SeamlessTile）
+    /// 供 GenStep_SeamlessTile（order=391，Roads 之后、Settlement 之前）调用，该 genStep 通过 XML patch
+    /// 注入到所有玩家可进入的 MapGeneratorDef（Base_Player / Base_Faction / Encounter）。邻居地块（MapParent_SeamlessTile）
     /// 的 mapGenerator 也是 Base_Player，与锚点家园 A 同链。
     /// </summary>
     public static class SeamlessTerrainFill
@@ -151,7 +151,7 @@ namespace RimExodus
             // 只保留渲染必需的 mesh 脏标记。void 地形 dontRender=true、passability=Impassable、不发光、
             // 不是水、layerable=false。SetTerrain 的 DoTerrainChangedEffects 把 mesh 标记（必需）和
             // pathGrid/waterBodyTracker 重算（非必需且耗时）混在一起，21000 次 × 副作用 = 5.7 秒。
-            // 这里只做 mesh 标记，pathGrid 由 FinalizeInit 全量重算覆盖。
+            // 这里只做 mesh 标记 + 下方的 pathGrid 全量刷新。
             // regenAdjacentCells=false：void 格大面积连续，邻格也是 void 或边格，不需逐格扩散 dirty 标记，
             // FinalizeInit 的 RegenerateEverythingNow 会全量重建 mesh。
             var terrainGrid = map.terrainGrid;
@@ -166,7 +166,18 @@ namespace RimExodus
             }
             if (sw != null) { tTerrain = sw.ElapsedMilliseconds - tClear - tClassify; }
 
-            // 清除生成在虚空格上的 Pawn。
+            // pathGrid 必须在此即时全量刷新（勿删，2026-08 历史教训）：Walkable/Standable 读的是
+            // PathGrid 缓存数组（GenGrid.Walkable → pathGrid.WalkableFast），不读 terrainGrid——
+            // 直写 topGrid 后若等 FinalizeInit 才重算，本 genStep(391) 与 FinalizeInit 之间的所有
+            // 步骤（Settlement 400 / Plants 900 / Animals 1200 / Fog 1500 / 威胁步骤 1600）全部
+            // 拿着"void 可走"的旧缓存选址，动物/pawn 照落 void（2026-08 实测动物站 void 即此机理）。
+            // 全图重算与 FinalizeInit(Map.cs:804) 同款（生成期无脏位模式，真实重算），一次性成本；
+            // 当年规避的 5.7 秒是 DoTerrainChangedEffects 全副作用路径（waterBodyTracker/逐格植物销毁），
+            // 与这一条重算调用无关。
+            map.pathing.RecalculateAllPerceivedPathCosts();
+
+            // 纯防御：清除生成在虚空格上的 Pawn。order=391 时图上正常无 pawn（Settlement 400+/ScenParts 875+
+            // 都在本步之后），保留兜底以防 mod 化 genStep 等异常来源；pathGrid 已在上一步刷新，判定可靠。
             EvacuatePawnsOnCells(map, voidCells);
             if (sw != null)
             {
@@ -177,13 +188,12 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 清除指定格集合上的所有实体（建筑/岩石/植物/物品/草丛等），保留 Pawn（Pawn 单独处理）。
+        /// 清除指定格集合上的所有实体（岩石 Building/植物/物品/草丛等），保留 Pawn（Pawn 单独处理）。
         ///
-        /// **当前时序下的实际工作量**：void 在 order=1400（Fog 之前）铺，此时 Plants(900)/Animals(1200)/Snow(1150) 已 spawn。
-        /// - 岩石 Building：Patch_GenStep_RocksFromGrid（Postfix，order=200）已提前清除（用 IsCellInPolygon 算
-        ///   将来 void 格），故本方法处理岩石时基本为空操作。
-        /// - 植物/物品：Plants(900) spawn 在将来 void 格上的会被本方法实际清理（Destroy Vanish）。
-        /// 因此本方法不是空操作——主要清理植物和散落物品。清理开销在生成时一次性发生。
+        /// **当前时序下的实际工作量**：void 在 order=391（Roads 之后、Settlement 之前）铺。此时
+        /// RocksFromGrid(200) 的岩石已 spawn 在将来 void 格上，是本方法的主要清理对象；
+        /// Plants(900)/Animals(1200) 在本步之后、于最终地形上生成（void fertility=0 / Standable=false
+        /// 天然跳过 void 格），不再需要事后清理。清理开销在生成时一次性发生。
         /// </summary>
         private static void ClearThingsOnCells(Map map, List<IntVec3> cells)
         {
@@ -216,7 +226,12 @@ namespace RimExodus
             }
         }
 
-        /// <summary>把生成在虚空格上的 Pawn 移到最近的可通行格（避免它们卡在不可通行地形上）。</summary>
+        /// <summary>
+        /// 把生成在虚空格上的 Pawn 移到最近的可通行格（避免它们卡在不可通行地形上）。
+        /// order=391 下图上正常无 pawn，纯防御路径（见调用处注释）。前提：调用前 pathGrid 已刷新——
+        /// 历史教训勿回退：旧序（1400）直写 topGrid 后未刷新 pathGrid，Walkable 读旧缓存且径向
+        /// 搜索首候选即 pawn 自身格，判"可走"→ 撤离原地空转，动物留在 void 上。
+        /// </summary>
         private static void EvacuatePawnsOnCells(Map map, List<IntVec3> cells)
         {
             if (cells.Count == 0) return;
@@ -236,6 +251,7 @@ namespace RimExodus
                 var dest = FindNearestWalkable(map, pawn.Position, 10);
                 if (dest.IsValid)
                 {
+                    // 直写 Position 安全：Thing.Position setter 自动在 thingGrid/coverGrid 重注册（Pawn 无覆写）。
                     pawn.Position = dest;
                 }
                 else
@@ -243,6 +259,10 @@ namespace RimExodus
                     if (!pawn.RaceProps.Humanlike)
                     {
                         pawn.Destroy(DestroyMode.Vanish);
+                    }
+                    else
+                    {
+                        Log.Warning($"[RimExodus] Humanlike pawn {pawn.LabelShort} has no walkable cell within 10 of {pawn.Position} after void fill; leaving in place.");
                     }
                 }
             }

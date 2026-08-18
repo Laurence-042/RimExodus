@@ -10,7 +10,7 @@ namespace RimExodus
     /// 建筑选址避开六边形边缘：三个 patch 覆盖全部建筑选址根原语。
     ///
     /// 【为什么】六边形可活动区内接于方形地图（边中点距方形边 ~17 格，顶点处 0 格），
-    /// order 1400 会把六边形外铺 void + 清实体。原版建筑选址全部按**方形边界**收缩
+    /// order 391 会把六边形外铺 void + 清实体。原版建筑选址全部按**方形边界**收缩
     /// （如 <c>GenStep_Settlement.CanScatterAt</c> 的 <c>BoundsRect(12)</c>——距方形边 12 格
     /// 的候选位置在六边形边中点方向仍跨六边形边），不感知六边形 → 建筑被 void 切半。
     ///
@@ -28,12 +28,14 @@ namespace RimExodus
     ///   是 void，判 Invalid 语义正确）。
     ///
     /// 【守卫】<c>worldTile &lt; 0</c> 防御性放行（异常态），正常地图一律生效——所有地图
-    /// 一视同仁（见 AGENTS.md 铁律）。几何判定用多边形顶点（BuildPolygonVertices），order
-    /// 400-970 期间即可用，不依赖 order 1400 的 void 状态（勿用 SeamlessEdgeCells.HasSeamEdge，
-    /// 那是运行时接缝带入口）。
+    /// 一视同仁（见 AGENTS.md 铁律）。几何判定用多边形顶点（BuildPolygonVertices），纯几何、
+    /// 与地形实况无关（2026-08 起 void 已在 391 先于选址铺好，但几何判定与其等价且不读地形，
+    /// 保持确定性与低开销；勿用 SeamlessEdgeCells.HasSeamEdge，那是运行时接缝带入口、
+    /// 传送点在全部 genStep 之后才铺）。
     ///
     /// 【残余缺口（接受）】<c>GenStep_Outpost.GetOutpostRect</c> 贴附矩形、
-    /// <c>GenStep_Settlement.GenerateLandingPadNearby</c>——锚点已安全后贴边矩形溢出概率低，先观察。
+    /// <c>GenStep_Settlement.GenerateLandingPadNearby</c>——锚点已安全后贴边矩形溢出概率低，先观察
+    /// （2026-08 void 提前后这些缺口处地板可盖住混合带结果，观察项见 SeamlessTileGenerator.xml）。
     /// </summary>
     internal static class BuildingPlacementConstants
     {

@@ -9,7 +9,7 @@ namespace RimExodus
     ///
     /// 顺序紧随 MutatorPostTerrain(220，原版 Coast mutator 铺海水/沙滩) 之后、Plants(900) 之前。
     /// 补原生 Coast mutator 漏铺的海洋边——原版用"平均海岸角度"，多面环海时只铺一面海；
-    /// 本 genStep 按每条海洋邻居边独立铺。铺的水在六边形外部分随后由 void(1400) 裁掉。
+    /// 本 genStep 按每条海洋邻居边独立铺。铺的水在六边形外部分随后由 void(391) 裁掉。
     ///
     /// **为什么提前到 230（此前在 1801）**：让补铺的水在 Plants(900) 之前就位——植物 spawn 时
     /// 水格 fertility=0 被 CheckSpawnWildPlantAt 跳过，避免"植物先 spawn 在土地上、随后被水覆盖导致浮在水上"。

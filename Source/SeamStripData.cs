@@ -11,7 +11,7 @@ namespace RimExodus
     /// roof 层（RoofDef，null=无）——三层同点位、同来源、同生命周期，消费方对三层做同样的
     /// 查询（无单层特判）。
     ///
-    /// 【用途】新地图 C 生成时（GenStep 1410）参考所有已生成邻居的接缝状态：
+    /// 【用途】新地图 C 生成时（GenStep 392）参考所有已生成邻居的接缝状态：
     /// - B ∪ T 格：接缝混合完成后的**最终实况**（重叠区"三层完全一致"的参考源）；
     /// - 接缝带外条带格（void 侧浅层）：void 裁切前的**原生快照**（过渡混合参考源，权重随
     ///   深度衰减）——三层都取原生（同源；岩体/屋顶实况已被 void 铺设清除，不可用）。
@@ -95,9 +95,9 @@ namespace RimExodus
         /// 锚点图 → SeamlessTileManager.anchorSeamStrip）。幂等（覆盖旧快照）。
         ///
         /// 三层同来源分两段：B∪T → 最终实况（topGrid + 岩石 edifice def + RoofAt）；
-        /// 外条带 → 原生快照（baseTerrain/baseBuilding/baseRoofSnapshot，1400 同点位备份）。
+        /// 外条带 → 原生快照（baseTerrain/baseBuilding/baseRoofSnapshot，391 同点位备份）。
         ///
-        /// 调用时机：GenStep_SeamOverride.Generate（1410）末尾——此时接缝混合已完成。
+        /// 调用时机：GenStep_SeamOverride.Generate（392）末尾——此时接缝混合已完成。
         /// </summary>
         public static void CaptureAndStore(Map map, int worldTile)
         {
@@ -151,7 +151,7 @@ namespace RimExodus
                 Add(kv.Key, topGrid[cellIndices.CellToIndex(kv.Key)], RockDefAt(map, kv.Key), roofGrid.RoofAt(kv.Key), kv.Value);
             }
 
-            // 接缝带外条带（void 侧）：原生快照三层（1400 备份，同源），**全深到方形边**
+            // 接缝带外条带（void 侧）：原生快照三层（391 备份，同源），**全深到方形边**
             // （权重衰减参考数据：接近源六边形高 → 源方形边 0，数据必须覆盖到边）。
             foreach (var kv in band.OuterStripDepth)
             {

@@ -44,7 +44,10 @@ namespace RimExodus
 
         /// <summary>
         /// 基础地形快照（阶段4 接缝覆写）：void 裁切前的完整矩形地形备份。
-        /// 在 GenStep_SeamlessTile（order=1400）开头备份，此时 Plants/Animals/Snow 已跑完（Fog 1500 之前），topGrid 接近最终。
+        /// 在 GenStep_SeamlessTile（order=391）开头备份——此时全部基础地形写入步骤（Terrain 210 /
+        /// Coast 220 / CoastalEdgeFill 230 / Roads 390）已跑完，Plants(900)/Animals(1200) 尚未
+        /// （它们不写 topGrid）；400+ 的 BaseGen 地板写入被选址 patch 拦在接缝带之外（残余缺口见
+        /// SeamlessTileGenerator.xml 观察项）。
         /// 供接缝条带快照捕获（SeamStripData.CaptureAndStore 读外条带格的原生值）。
         /// 非序列化：生成期临时数据，读档后由 SeamlessTileManager 重建（锚点）或重新生成（地块）——
         /// 跨读档的接缝参考由 <see cref="seamStrip"/>（序列化）承担。

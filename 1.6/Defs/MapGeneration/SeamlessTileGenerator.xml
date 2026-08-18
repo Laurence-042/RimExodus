@@ -21,20 +21,27 @@
         TileMutatorWorker_Coast 无 GenerateFinal 方法，不会在后续 MutatorFinal(1600) 覆盖。
         RocksFromGrid(200) 在 230 之前，岩石山已 spawn 为 edifice，CoastalEdgeFill 的 Stone+edifice
         守门正常工作。
-      RimExodus_SeamlessTile    (1400)：备份 snapshot（void 裁切前的完整矩形 topGrid）+ 按六边形铺 void。
-        snapshot 在 1400 Clone，能记录 230 铺的海岸水（含六边形外，供邻居 SeamOverride 卷积用）。
-      RimExodus_SeamOverride    (1410)：混合带卷积混合（读两端 snapshot，写本端 topGrid）。
+      RimExodus_SeamlessTile    (391)：备份 snapshot（void 裁切前的完整矩形 topGrid）+ 按六边形铺 void
+        + pathGrid 全量刷新。snapshot 在 391 Clone，能记录 210/220/230/390 铺的地形（基础地形与道路）。
+      RimExodus_SeamOverride    (392)：混合带卷积混合（读两端 snapshot，写本端 topGrid）+ pathGrid 刷新。
 
-    **为什么 SeamlessTile/SeamOverride 在 Fog(1500) 之前**：让 GenStep_Fog 的 flood-fill 基于
-    void 裁切 + SeamOverride 覆写后的【最终地形】算可达性——void 外（六边形外条带）不可通行→
-    不揭雾，与实际渲染（void 透明）和寻路（void 不可通行）一致。若放在 Fog 之后（旧 1802/1803），
-    Fog 会据完整矩形地形揭雾，把之后变 void 的条带也揭了，揭雾状态与实际地形不符。
-    查证 MutatorFinal(1600) 的 GeneratePostFog 对多数 mutator 不覆盖 terrainGrid（Coast 无
-    GeneratePostFog 重写，River 只建 lookup texture）。例外：TileMutatorWorker_AncientUplink 铺
-    AncientTile、TileMutatorWorker_InsectMegahive 铺 InsectSludge/rock——这些罕见任务地块上
-    SeamOverride(1410) 的覆写会被 1600 覆盖（已知小瑕疵）。此外 order 400+ 的 Settlement/site
-    BaseGen 地板（SymbolResolver_FloorFill→SetTerrain）会写 topGrid，这是 snapshot 必须在 1400
-    （而非 391-399）备份的核心原因，详见 doc/地图生成步骤.md。
+    **为什么 SeamlessTile/SeamOverride 在 391/392（Settlement(400) 之前，2026-08 反转旧 1400/1410）**：
+    让 Settlement(400) 及之后的全部步骤在最终地形上工作——Plants(900) 的 fertility 门、Animals(1200)
+    与威胁步骤(1600) 的 Standable 门天然跳过 void 格（前提：直写 topGrid 后即调 pathing.
+    RecalculateAllPerceivedPathCosts，Walkable/Standable 读 PathGrid 缓存而非 terrainGrid）。
+    旧序 1400/1410 下 Animals(1200) 先在将来 void 格上合法生成、再靠撤离兜底，撤离曾因 pathGrid
+    过期失效（动物站 void 的历史 bug，2026-08 修正）。Fog(1500) 仍在两步之后，据最终地形揭雾不变。
+    副作用（预期收益）：Patches_TerrainGrid 的 void 守卫（当前是 void 时拦新 SetTerrain）在生成期
+    从空操作变为生效，400+ 的地板/污染地形写入无法在 void 格上打洞。
+
+    **旧否决理由的重新评估（2026-08，详见 doc/地图生成步骤.md）**：旧文档以"Settlement/site BaseGen
+    地板写 topGrid，snapshot 必须在其后备份；FloorFill 会覆盖混合带"为由否决 391-399。今天选址
+    patch（ScatterEdgeMargin=20 / ClearRectMargin=10）已把结构推离六边形边，快照的游戏逻辑消费面
+    仅剩 void 侧外条带（SeamStripData.CaptureAndStore），地板写入被拦在带外。残余风险记观察项：
+    ①贴附矩形（GetOutpostRect）/降落平台残余缺口处地板可盖混合结果（旧序相反：混合盖地板）；
+    ②Harbor 桥等 400-1400 地形写入不再进外条带快照（跨缝复制行为有变化）；③污染地块(890)的
+    污染变体发生在混合之后，带格与对端可能不一致；④completelyIgnoreFertility 植物不受肥力门
+    约束可能漏进 void（原 1400 序靠事后清理兜住）。MutatorFinal(1600) 覆写接缝的已知瑕疵与顺序无关，仍存在。
 
     **守卫**：genStep 类内部用 GetMapWorldTile(map) >= 0 守卫，任何有合法 worldTile 的地图都走完整链。
   -->
@@ -54,7 +61,7 @@
 
   <GenStepDef>
     <defName>RimExodus_SeamlessTile</defName>
-    <order>1400</order>
+    <order>391</order>
     <genStep Class="RimExodus.GenStep_SeamlessTile"/>
     <modExtensions>
       <li Class="MapPreview.GenStepProperties" MayRequire="m00nl1ght.MapPreview">
@@ -65,7 +72,7 @@
 
   <GenStepDef>
     <defName>RimExodus_SeamOverride</defName>
-    <order>1410</order>
+    <order>392</order>
     <genStep Class="RimExodus.GenStep_SeamOverride"/>
     <modExtensions>
       <li Class="MapPreview.GenStepProperties" MayRequire="m00nl1ght.MapPreview">

@@ -21,8 +21,8 @@ namespace RimExodus
     /// "FalloffAtAngle 噪声值"。只改非 Stone 格（避免覆盖岩石山），用 MapGenUtility 取 biome 对应
     /// 水地形（兼容 mod 自定义水地形）。
     ///
-    /// **必须铺全部格（含六边形外），不加 IsCellInPolygon 守卫**：snapshot 在 void 铺设（1400）之前
-    /// Clone，六边形外格的 snapshot 值会被邻居 SeamOverride（1410）读取做卷积混合。若只铺六边形内，
+    /// **必须铺全部格（含六边形外），不加 IsCellInPolygon 守卫**：snapshot 在 void 铺设（391）之前
+    /// Clone，六边形外格的 snapshot 值会被邻居 SeamOverride（392）读取做卷积混合。若只铺六边形内，
     /// 六边形外保持原生 Coast mutator 的地形（离海岸远 → 土），snapshot 六边形外 = 土 → SeamOverride
     /// 把土卷积进邻居接缝；且六边形边界处 CoastalEdgeFill 铺的水（内）与原生地形（外）不连续，
     /// 产生断崖式突变（内深水 → 外泥土）。六边形外的水/沙会在 void 铺设时被 void 覆盖（topGrid 不受影响），
@@ -31,8 +31,8 @@ namespace RimExodus
     /// **调用时机**（order=230）：紧随原版 Coast mutator（MutatorPostTerrain, order=220）之后、Plants(900) 之前。
     /// 提前到 230（此前在 1801）是为了让补铺的水在 Plants(900) 之前就位——植物 spawn 时水格 fertility=0
     /// 被 CheckSpawnWildPlantAt 跳过，避免"植物先 spawn 在土地上、随后被水覆盖导致浮在水上"。
-    /// 必须在 void 铺设（<see cref="SeamlessTerrainFill.ApplyPolygonTerrain"/>, 1400）之前——
-    /// 铺的水在六边形外部分随后由 void 覆盖（但 snapshot 在 1400 Clone 时已记录海岸地形）。
+    /// 必须在 void 铺设（<see cref="SeamlessTerrainFill.ApplyPolygonTerrain"/>, 391）之前——
+    /// 铺的水在六边形外部分随后由 void 覆盖（但 snapshot 在 391 Clone 时已记录海岸地形）。
     /// 本类补铺 Coast mutator 漏掉的海洋边；重叠区都是水，无冲突。
     /// </summary>
     public static class CoastalEdgeFill
@@ -99,7 +99,7 @@ namespace RimExodus
                 {
                     var cell = new IntVec3(x, 0, z);
                     // 铺全部格（含六边形外）。
-                    // 六边形外的格在 void 铺设（1400）时会被 void 覆盖，但 snapshot 在 void 之前 Clone，
+                    // 六边形外的格在 void 铺设（391）时会被 void 覆盖，但 snapshot 在 void 之前 Clone，
                     // 故六边形外的海岸地形（水/沙）会保留在 snapshot 里，供邻居 SeamOverride 卷积用。
                     // 若只铺六边形内，六边形边界处 CoastalEdgeFill 铺的水与六边形外原生 Coast mutator
                     // 铺的地形不连续，产生断崖式突变（内深水 → 外泥土）。

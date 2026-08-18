@@ -37,7 +37,7 @@ namespace RimExodus
 
         /// <summary>
         /// 锚点地图的基础地形快照（阶段4 接缝覆写）：void 裁切前的完整矩形 topGrid。
-        /// 在 GenStep_SeamlessTile（order=1400，Fog 之前）void 裁切之前备份（通过 BackupSnapshotAndApplyVoid 归一入口）。
+        /// 在 GenStep_SeamlessTile（order=391）void 裁切之前备份（通过 BackupSnapshotAndApplyVoid 归一入口）。
         /// 供接缝条带快照捕获读取。非序列化（生成期临时数据）。
         /// </summary>
         public TerrainDef[] anchorBaseTerrainSnapshot;
@@ -156,10 +156,10 @@ namespace RimExodus
         /// 若 ModSettings.preloadAllNeighborsOnStart 为 true，则额外加载全部世界邻居地块（高配玩家流畅体验）。
         /// 否则不生成邻居，等 pawn 接近边界时事件驱动加载。
         ///
-        /// **void 铺设不在此处**：锚点 void 已由 RimExodus_SeamlessTile genStep（order=1400，Fog 之前）铺设，
+        /// **void 铺设不在此处**：锚点 void 已由 RimExodus_SeamlessTile genStep（order=391）铺设，
         /// 通过 XML patch 注入到 Base_Player，与邻接地块走完全相同的 genStep 链（不再依赖 Harmony Postfix）。
         /// 此前这里是 MapGenerated 后延迟 1 tick 的"后补"铺 void（RefreshMapVoid），会真实删除已生成的
-        /// 岩石/植物/玩家建造（落石/切断建筑），已废弃。anchorBaseTerrainSnapshot 备份在 genStep 1400 完成。
+        /// 岩石/植物/玩家建造（落石/切断建筑），已废弃。anchorBaseTerrainSnapshot 备份在 genStep 391 完成。
         /// </summary>
         private void TrySetupOnStart()
         {

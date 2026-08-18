@@ -12,7 +12,7 @@ namespace RimExodus
     /// 本地图道路 A* 路径快照（MapComponent，非序列化——生成期数据）。
     ///
     /// <c>GenStep_Roads.paths</c> 是 static，每次任何地图的 <c>Generate</c> 开头 <c>paths.Clear()</c>。
-    /// 分帧增量生成（IncrementalMapGenerator）下，本地图 Roads(390) 与 SeamOverride(1410) 之间
+    /// 分帧增量生成（IncrementalMapGenerator）下，本地图 Roads(390) 与 SeamOverride(392) 之间
     /// 隔多帧，期间另一张地图开始生成会把 static 清空。故 Postfix 在 Roads 跑完后立即快照到
     /// map 本地，供 SeamOverride 识别"本地图的道路格"（保护路不被接缝卷积抹掉）。
     /// </summary>
@@ -56,7 +56,7 @@ namespace RimExodus
     /// 选在目标方向对应的六边形接缝带上，而非原版方形地图边缘。
     ///
     /// 【为什么需要这个 patch】
-    /// <c>GenStep_Roads</c>（order=390）在 void 铺设（<c>RimExodus_SeamlessTile</c>, order=1400）
+    /// <c>GenStep_Roads</c>（order=390）在 void 铺设（<c>RimExodus_SeamlessTile</c>, order=391）
     /// **之前**执行。此时传送点尚未铺设 → <see cref="SeamlessEdgeCells.HasSeamEdge"/> 返回 false →
     /// <see cref="Patches_CellFinder"/> 放行原版方形边缘 → 道路出口格被选在方形地图边缘（将来多为 void）
     /// → 被 void 覆盖 + 两端不对齐。本 patch 直接用多边形几何算接缝锚点，不依赖传送点，

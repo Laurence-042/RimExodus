@@ -12,8 +12,9 @@ namespace RimExodus
     ///
     /// 设计：传送点（<c>RimExodus_SeamlessEnterSpot</c>）由 <see cref="SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors"/>
     /// 沿传送圈（离散边圈 ∪ 带外圈，接缝带外侧 2 圈，见 doc/接缝带定义.md）铺设
-    /// （铺设时过了 Standable 校验），因此传送点格集合 = "可站立的传送圈"，
-    /// 与 <see cref="ExitMapGrid"/> 标记的 exit cell 集合同源。复用传送点格而非重新跑带几何，
+    /// （**无可通行性过滤**，用户定夺 2026-08——spot 是纯逻辑连接设施，能不能走由地形运行时决定；
+    /// 传送圈是 3 圈接缝带内的实地形，非 void 格），传送点格集合与
+    /// <see cref="ExitMapGrid"/> 标记的 exit cell 集合同源。复用传送点格而非重新跑带几何，
     /// 保证唯一口径。
     ///
     /// 缓存：按 (map.uniqueID, spot 数量) 失效。spot 铺设/邻居加载后数量变化即重建。

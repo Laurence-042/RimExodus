@@ -11,11 +11,12 @@ namespace RimExodus
     /// "接缝边中点沿外法向延伸到方形边"，并用压弯窗口保住接缝对齐。
     ///
     /// 【为什么端点要延伸到方形边（而非停在边中点）】
-    /// 河端点若停在六边形边中点，河源头后方（边中点到方形边 ~15-40 格）会出现无水走廊——
-    /// order 200 patch 已清掉六边形外岩石、void 1400 才铺，道路 A*（order 390）的第一级
-    /// NoPassClosedDoorsOrWater（一切水=硬不可走）经走廊直接成功 → 路**必然**绕经河源头
-    /// （实测：三叉河地图的路绕到北河口再大转弯）。端点延伸到方形边后，臂+方形边把地图
-    /// 真正分割成两半（原版语义），A* 无任何绕行路径 → 第二级正常涉水过河+铺桥。
+    /// 河端点若停在六边形边中点，河源头后方（边中点到方形边 ~15-40 格）会出现无水走廊。
+    /// 道路 A*（order 390）先于 void(391) 跑：无岩走廊（旧序 order=200 提前清岩时期）第一级
+    /// NoPassClosedDoorsOrWater（一切水=硬不可走）直接穿过 → 路**必然**绕经河源头（历史实测：
+    /// 三叉河地图的路绕到北河口再大转弯）；现行时序下岩石要到 391 的 ClearThingsOnCells 才清、
+    /// 走廊有岩，但第二级 PassAllDestroyableThings 同样会挖岩绕行。端点延伸到方形边后，
+    /// 臂+方形边把地图真正分割成两半（原版语义），A* 无任何绕行路径 → 第二级正常涉水过河+铺桥。
     ///
     /// 【尽量用原版生成（避免宽度/水深突变）】
     /// 端点外延后，深度场（GenerateDepthMaps 按 GetTValue∈[0,1] 判定）、宽度噪声
@@ -33,8 +34,8 @@ namespace RimExodus
     /// 流入流出支流）都按 IsFlowingAToB 的整数度容差决定 start/end 顺序——角度差几度时
     /// 交换 start/end，只影响流向标记，河形由对称 bell 决定不受影响。
     ///
-    /// 【时序】river 在 order 220（MutatorPostTerrain）生成，早于 void(1400)。走廊段的
-    /// 河水在 1400 被 void 覆盖（视觉上河止于六边形边），snapshot（void 前 Clone）含水——
+    /// 【时序】river 在 order 220（MutatorPostTerrain）生成，早于 void(391)。走廊段的
+    /// 河水在 391 被 void 覆盖（视觉上河止于六边形边），snapshot（void 前 Clone）含水——
     /// SeamOverride 的 Convolve3x3 跳过 IsWater 格，走廊水不污染混合带。
     ///
     /// 【守卫】<c>worldTile &lt; 0</c> 是防御性放行（防异常态），正常地图一律走接缝对齐
