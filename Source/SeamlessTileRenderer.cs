@@ -9,10 +9,14 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// 将当前地图的直接邻居地块作为背景绘制（对称架构）。
-    /// 邻居地形/建筑在原版当前地图之前提交，绘制完成后只清除深度，
-    /// 从而让当前地图可靠覆盖重叠带，同时保留当前地图边界外的邻居颜色。
-    /// 对称性：聚焦任意图块时，其所有直接邻居（含锚点和口袋）都会被绘制。
+        /// 将当前地图的直接邻居地块作为背景绘制（对称架构）。
+        /// 邻居地形/建筑/光照遮罩/战雾在原版当前地图之前提交，绘制完成后只清除深度，
+        /// 从而让当前地图可靠覆盖重叠带，同时保留当前地图边界外的邻居颜色。
+        /// 对称性：聚焦任意图块时，其所有直接邻居（含锚点和口袋）都会被绘制。
+        /// 光照天色分层（2026-08）：LightOverlay shader 的天色染色走材质 color alpha、
+        /// glow/roof 走顶点色，两通道独立（实验验证）——邻图 overlay 用 (1,1,1,0) 克隆材质
+        /// 做纯数据层，天色由"当前图 overlay（自己方形内）+ 全零顶点 quad（邻图非重叠 L 形区）"
+        /// 各管一块，消除 void 透明圈 sky² 双染暗带。
     /// </summary>
     public class SeamlessTileRenderer : MapComponent
     {
@@ -23,6 +27,19 @@ namespace RimExodus
 
         private static readonly AccessTools.FieldRef<Section, List<SectionLayer>> layersRef =
             AccessTools.FieldRefAccess<Section, List<SectionLayer>>("layers");
+
+        /// <summary>
+        /// 邻图光照"纯数据层"材质：克隆 LightOverlay 后 color=(1,1,1,0)。
+        /// 材质 alpha 只关天色染色，顶点色的 glow 加光与岩顶黑暗独立保留
+        /// （2026-08 游戏内实验验证：灯晕在/岩顶黑在/户外不随昼夜变暗；
+        /// 原版先例 SkyManager.cs:49 disableSkyLighting 群设置同款开关）。
+        /// </summary>
+        private static Material neighborGlowOnlyMat;
+
+        /// <summary>(0,0,0,0) 顶点色的单位 quad——顶点零值在 LightOverlay shader 里的语义
+        /// 不是透传而是"按材质色染天色"（原版 MapDrawLayer_ExteriorLightingOverlay 同款手法，
+        /// 专门用来给图外区域染昼夜色）。天色分层的天色 quad 用它。</summary>
+        private static Mesh skyTintQuadMesh;
 
         private static SeamlessTileRenderer activeRenderer;
 
@@ -192,8 +209,9 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 收集邻居地图的地形层（SectionLayer_Terrain）、静态物层（SectionLayer_ThingsGeneral）
-        /// 和战雾层（SectionLayer_FogOfWar），用 offset 平移矩阵提交到 CommandBuffer。
+        /// 收集邻居地图的地形层（SectionLayer_Terrain）、静态物层（SectionLayer_ThingsGeneral）、
+        /// 光照遮罩层（SectionLayer_LightingOverlay）和战雾层（SectionLayer_FogOfWar），
+        /// 用 offset 平移矩阵提交到 CommandBuffer。
         /// 视区裁剪：只提交与当前相机视区相交的 section（镜像 MapDrawer.DrawMapMesh 的做法），
         /// 邻居地图通常只有约一半可见，跳过不可见 section 显著减少 draw call。
         /// </summary>
@@ -232,9 +250,102 @@ namespace RimExodus
 
                     CollectLayer(section, matrix, typeof(SectionLayer_Terrain));
                     CollectLayer(section, matrix, typeof(SectionLayer_ThingsGeneral));
+                    CollectLayer(section, matrix, typeof(SectionLayer_LightingOverlay), NeighborGlowOnlyMaterial);
                     CollectLayer(section, matrix, typeof(SectionLayer_FogOfWar));
                 }
             }
+
+            // 天色分层（见类头注释）：邻图 overlay 已换 (1,1,1,0) 材质（只出 glow/roof），
+            // 非重叠区（邻图方形 − 当前图方形，L 形 ≤4 个矩形）的天色由全零顶点 quad 补染。
+            CollectSkyTintRects(neighborMap, offsetInt, offsetVec);
+        }
+
+        private static Material NeighborGlowOnlyMaterial
+        {
+            get
+            {
+                if (neighborGlowOnlyMat == null)
+                {
+                    neighborGlowOnlyMat = new Material(MatBases.LightOverlay)
+                    {
+                        name = "RimExodus_NeighborGlowOnly",
+                        color = new Color(1f, 1f, 1f, 0f)
+                    };
+                }
+
+                return neighborGlowOnlyMat;
+            }
+        }
+
+        private static Mesh SkyTintQuadMesh
+        {
+            get
+            {
+                if (skyTintQuadMesh == null)
+                {
+                    skyTintQuadMesh = new Mesh { name = "RimExodus_SkyTintQuad" };
+                    skyTintQuadMesh.vertices = new[]
+                    {
+                        new Vector3(-0.5f, 0f, -0.5f),
+                        new Vector3(-0.5f, 0f, 0.5f),
+                        new Vector3(0.5f, 0f, 0.5f),
+                        new Vector3(0.5f, 0f, -0.5f)
+                    };
+                    var clear = new Color32(0, 0, 0, 0);
+                    skyTintQuadMesh.colors32 = new[] { clear, clear, clear, clear };
+                    skyTintQuadMesh.triangles = new[] { 0, 1, 2, 0, 2, 3 };
+                }
+
+                return skyTintQuadMesh;
+            }
+        }
+
+        /// <summary>
+        /// 天色 quad：邻图方形 − 当前图方形的 L 形区域（最多 4 个矩形），每矩形一个全零顶点
+        /// quad 配共享 MatBases.LightOverlay（每帧被当前图 SkyManager 染天色，与当前图恒一致）。
+        /// 与邻图 glow 数据层、当前图 overlay 三者分工：当前图方形内的天色由当前图 overlay 独担
+        /// （含 void 透明圈），邻图非重叠区由本 quad 独担——任意像素天色恰好一层，消除 void
+        /// 透明圈的 sky² 双染暗带（2026-08 分层修复）。
+        /// </summary>
+        private void CollectSkyTintRects(Map neighborMap, IntVec3 offsetInt, Vector3 offsetVec)
+        {
+            var size = neighborMap.Size;
+
+            // 当前图方形平移到邻图坐标（hostCell = neighborCell + offset → 原点 = -offset），
+            // 与邻图方形求交得 overlap（两同尺寸方形平移交集，矩形）。
+            var overlapMinX = Math.Max(0, -offsetInt.x);
+            var overlapMinZ = Math.Max(0, -offsetInt.z);
+            var overlapMaxX = Math.Min(size.x, size.x - offsetInt.x);
+            var overlapMaxZ = Math.Min(size.z, size.z - offsetInt.z);
+            if (overlapMinX >= overlapMaxX || overlapMinZ >= overlapMaxZ)
+            {
+                return; // 方形不相交（防御；中点对齐下必然相交）。
+            }
+
+            var y = AltitudeLayer.LightingOverlay.AltitudeFor();
+            // L 形拆矩形：左右余条全高，上下余条限 overlap 的 x 范围（避免重复覆盖角部）。
+            AddSkyTintQuad(0, 0, overlapMinX, size.z, y, offsetVec);
+            AddSkyTintQuad(overlapMaxX, 0, size.x - overlapMaxX, size.z, y, offsetVec);
+            AddSkyTintQuad(overlapMinX, 0, overlapMaxX - overlapMinX, overlapMinZ, y, offsetVec);
+            AddSkyTintQuad(overlapMinX, overlapMaxZ, overlapMaxX - overlapMinX, size.z - overlapMaxZ, y, offsetVec);
+        }
+
+        private void AddSkyTintQuad(int minX, int minZ, int width, int height, float y, Vector3 offsetVec)
+        {
+            if (width <= 0 || height <= 0)
+            {
+                return;
+            }
+
+            var center = new Vector3(minX + width / 2f + offsetVec.x, y, minZ + height / 2f + offsetVec.z);
+            drawCommands.Add(new TerrainDrawCommand
+            {
+                mesh = SkyTintQuadMesh,
+                material = MatBases.LightOverlay,
+                matrix = Matrix4x4.TRS(center, Quaternion.identity, new Vector3(width, 1f, height)),
+                renderQueue = MatBases.LightOverlay.renderQueue,
+                sequence = nextSequence++
+            });
         }
 
         private static void EnsureSectionsGenerated(Section[,] sections)
@@ -259,14 +370,23 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 收集指定精确类型的 SectionLayer 的 submesh。
+        /// 收集指定精确类型的 SectionLayer 的 submesh。materialOverride 非空时替换 subMesh 材质提交。
         /// 必须用精确类型匹配：
         /// - SectionLayer_Watergen 继承自 SectionLayer_Terrain，但只能绘制到水深子相机，绝不能提交主相机。
         /// - SectionLayer_FogOfWar 现在收集：fog 层 mesh 顶点是绝对世界坐标（同 Terrain），可被 offset 矩阵正确平移；
         ///   全探索 section 的 fog submesh 被 Regenerate 设 disabled，下方 disabled 检查会跳过，零开销。
+        /// - SectionLayer_LightingOverlay 必须收集，但材质必须换成 NeighborGlowOnlyMaterial（color=(1,1,1,0)，
+        ///   只保留顶点色的 glow 加光与岩顶黑暗、天色染色归零）：原版亮度 = albedo × 该层顶点色 × 材质天色。
+        ///   当前图 overlay 的 mesh 覆盖全图方形（含 void 格——其 (0,0,0,0) 顶点的语义是"按天色染色"而非
+        ///   透传），若邻图 overlay 也用原材质，void 透明圈会被两层天色各染一次 = sky² 双染暗带。分层后：
+        ///   天色染色只由"当前图 overlay（自己方形内）+ 天色 quad（邻图非重叠 L 形区）"各管一块，
+        ///   glow/roof 数据层不受影响——重叠区两图 glow 叠加 = 跨缝照明（物理合理，接受）；void 格无
+        ///   roof，岩顶不会双份。glow/roof 脏标记（Roofs|GroundGlow）由 EnsureSectionsGenerated 的
+        ///   RegenerateAllLayers 连带重建消化。可见性开关 DebugViewSettings.drawLightingOverlay 经
+        ///   下方 layer.Visible 检查自动尊重。
         /// - 仍不收集 SunShadows/Gas 等有 shadow/grid 依赖且不适合偏移绘制的层。
         /// </summary>
-        private void CollectLayer(Section section, Matrix4x4 matrix, Type layerType)
+        private void CollectLayer(Section section, Matrix4x4 matrix, Type layerType, Material materialOverride = null)
         {
             var layers = layersRef(section);
             if (layers == null)
@@ -291,7 +411,7 @@ namespace RimExodus
                     drawCommands.Add(new TerrainDrawCommand
                     {
                         mesh = subMesh.mesh,
-                        material = subMesh.material,
+                        material = materialOverride ?? subMesh.material,
                         matrix = matrix,
                         renderQueue = subMesh.material.renderQueue,
                         sequence = nextSequence++
