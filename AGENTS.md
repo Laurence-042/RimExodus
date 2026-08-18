@@ -130,6 +130,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ### 跨图菜单与选中（阶段4b）
 - `Patches_FloatMenuMakerMap`：Prefix 接管跨图 FloatMenu 生成，`InjectCrossMapGotoOption` 按桥接可达性注入跨图 Goto 选项。
+- **跨图选点 = 双侧代价场联合最优（2026-08，跨图 A* 仅单跳——用户定夺，`doc/第二阶段-最小技术原型.md` 的"不做多跳地图图"约束继续有效）**：`SeamlessCrossMapOrders.TryFindBestBridgeSpot` 对候选 spot 取 C1（本图 pawn→spot 代价场）+ C2（对图 dest→落点代价场）总和最小者（平手取 C1 小；无有限 total 回退最小 C1，保持旧"走到最近可达点后停下"降级）——单跳总代价在过缝点处可分解，等价两图缝零代价边后的全局最优过缝点。代价场 = `SeamlessPathCostField`（Dijkstra；口径对齐原版 PathFinderJob 基础层：PathGrid 缓存成本 + pawn 移动 tick 步进 + 对角切角，**刻意不复刻逐请求层**——关门/挡路 pawn/水/fence 只影响选点近似精度，段内执行仍原版 A*）；落点不可走的 spot 自然得 ∞ 被避开（旧版要到传送瞬间才发现）。`CanBridgeTo` 菜单热路径无目标格，仍用 `TryFindNearestReachableBridgeSpot` 轻量最近可达探测，不跑场。
 - `SeamlessSelectionTracker`：跨切图的选中保持集（解决切图 ClearSelection 丢选中）。
 - `SeamlessCameraFocus`：首个殖民者跨图自动聚焦 + 无感相机（切图后用 SetRootPosAndSize 同时恢复位置+缩放）。
 

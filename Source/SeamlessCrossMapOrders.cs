@@ -73,7 +73,7 @@ namespace RimExodus
 
         private static bool TryBridgeJob(Pawn pawn, Map targetMap, IntVec3 targetLocalCell)
         {
-            if (!TryFindNearestReachableBridgeSpot(pawn, targetMap, out var exitSpot))
+            if (!TryFindBestBridgeSpot(pawn, targetMap, targetLocalCell, out var exitSpot, out var costDebug))
             {
                 if (RimExodusMod.Settings?.verboseLogging ?? false)
                     Log.Message($"[RimExodus] Cross-map move rejected: no reachable seamless enter spot bridges map {pawn.Map.uniqueID} to map {targetMap.uniqueID}.");
@@ -94,8 +94,110 @@ namespace RimExodus
 
             if (RimExodusMod.Settings?.verboseLogging ?? false)
                 Log.Message($"[RimExodus] Bridge issued: {pawn.LabelShort} on map {pawn.Map.uniqueID} "
-                    + $"-> spot {exitSpot.Position}, final dest map {targetMap.uniqueID} cell {targetLocalCell}.");
+                    + $"-> spot {exitSpot.Position} ({costDebug}), final dest map {targetMap.uniqueID} cell {targetLocalCell}.");
             return true;
+        }
+
+        /// <summary>
+        /// 单跳跨图选点（跨图 A*，用户定夺 2026-08 仅单跳、不做多跳地图图）：
+        /// 对候选 spot 取 total = C1(本图 pawn→spot) + C2(对图 dest→落点) 的最小者——
+        /// 单跳总代价在过缝点处可分解，这等价于两图在 spot↔落点缝零代价边后的全局最优过缝点。
+        /// 平手取 C1 小者（早过缝，稳定决胜）。回退链：无有限 total（对端落点不可走或 dest 不可达）
+        /// → 最小 C1（保持"走到最近可达点后停下"的降级）；C1 全 ∞ → false（本图无任何可达 spot）。
+        /// 代价口径见 <see cref="SeamlessPathCostField"/>；段内执行仍由原版 A* 完成。
+        /// </summary>
+        private static bool TryFindBestBridgeSpot(Pawn pawn, Map toMap, IntVec3 destCell, out Thing exitSpot, out string costDebug)
+        {
+            exitSpot = null;
+            costDebug = null;
+            var fromMap = pawn.Map;
+            // 消费可能晚于登记（pending 点击跨 tick 存活，期间目标图可能被休眠删除策略 Dispose），
+            // 代价场要读对图 PathGrid 的 NativeArray，必须挡在已 Dispose 的图外。
+            if (toMap == null || toMap.Disposed)
+            {
+                return false;
+            }
+
+            var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
+            if (enterSpotDef == null)
+            {
+                return false;
+            }
+
+            var toMapWorldTile = SeamlessTileRegistry.GetMapWorldTile(toMap);
+
+            // 候选与 TryFindNearestReachableBridgeSpot 同源：本图上指向 toMap 的已缓存 spot（def 索引 O(1)）。
+            var spots = new List<Thing>();
+            var arrivals = new List<IntVec3>();
+            foreach (var thing in fromMap.listerThings.ThingsOfDef(enterSpotDef))
+            {
+                var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
+                if (comp == null || !comp.hasArrival || comp.targetWorldTile != toMapWorldTile)
+                {
+                    continue;
+                }
+                spots.Add(thing);
+                arrivals.Add(comp.cachedArrivalCell);
+            }
+            if (spots.Count == 0)
+            {
+                return false;
+            }
+
+            var spotCells = new List<IntVec3>(spots.Count);
+            foreach (var spot in spots)
+            {
+                spotCells.Add(spot.Position);
+            }
+
+            // 双侧代价场：本图从 pawn 出发到各 spot；对图从 dest 出发到各落点（反向泛洪即"落点→dest"成本）。
+            var costs1 = SeamlessPathCostField.FloodCosts(fromMap, pawn.Position, spotCells, pawn);
+            var costs2 = SeamlessPathCostField.FloodCosts(toMap, destCell, arrivals, pawn);
+
+            int bestIdx = -1;
+            long bestTotal = long.MaxValue;
+            long bestC1 = long.MaxValue;
+            int fallbackIdx = -1;
+            long fallbackC1 = long.MaxValue;
+            for (int i = 0; i < spots.Count; i++)
+            {
+                long c1 = costs1[i];
+                if (c1 == int.MaxValue)
+                {
+                    continue;
+                }
+                if (c1 < fallbackC1)
+                {
+                    fallbackC1 = c1;
+                    fallbackIdx = i;
+                }
+                long c2 = costs2[i];
+                if (c2 == int.MaxValue)
+                {
+                    continue;
+                }
+                long total = c1 + c2;
+                if (total < bestTotal || (total == bestTotal && c1 < bestC1))
+                {
+                    bestTotal = total;
+                    bestC1 = c1;
+                    bestIdx = i;
+                }
+            }
+
+            if (bestIdx >= 0)
+            {
+                exitSpot = spots[bestIdx];
+                costDebug = $"C1={costs1[bestIdx]} C2={costs2[bestIdx]} total={bestTotal} of {spots.Count} spots";
+                return true;
+            }
+            if (fallbackIdx >= 0)
+            {
+                exitSpot = spots[fallbackIdx];
+                costDebug = $"fallback C1-only={fallbackC1} of {spots.Count} spots, dest unreachable from all arrivals";
+                return true;
+            }
+            return false;
         }
 
         /// <summary>清除已失效 pawn 的待处理点击登记（死亡/销毁/离场后残留，防过期记录影响后续 Goto）。</summary>
@@ -135,6 +237,8 @@ namespace RimExodus
         /// 返回第一个 pawn 能到达的。满铺接缝后候选很多，最近的通常可达即返回。
         /// 候选判定：传送点的 <see cref="CompSeamlessTileEnterSpot.hasArrival"/> 且
         /// <see cref="CompSeamlessTileEnterSpot.targetWorldTile"/> 等于 toMap 的 worldTile（O(1) 读缓存/字段）。
+        /// 仅供 <see cref="CanBridgeTo"/> 菜单探测（无目标格的轻量最近口径，菜单热路径不跑代价场）；
+        /// 实际跨图指令的选点走 <see cref="TryFindBestBridgeSpot"/> 联合最优。
         /// </summary>
         private static bool TryFindNearestReachableBridgeSpot(Pawn pawn, Map toMap, out Thing exitSpot)
         {
