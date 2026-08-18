@@ -108,6 +108,72 @@ namespace RimExodus
             Log.Message($"[RimExodus] Removed {toRemove.Count} seamless tile maps.");
         }
 
+        /// <summary>手动休眠当前图（软休眠验证：不 tick、不显示为邻接地图、无访问入口，内容完好）。</summary>
+        [DebugAction(Category, "Sleep Current Map (Dormancy)", allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void SleepCurrentMap()
+        {
+            var map = Find.CurrentMap;
+            if (map == null) return;
+            if (!SeamlessDormancyManager.IsDormant(map))
+            {
+                SeamlessDormancyManager.Sleep(map, "dev command (Sleep Current Map)");
+            }
+            else
+            {
+                Log.Message($"[RimExodus] Map {map.uniqueID} is already dormant.");
+            }
+        }
+
+        /// <summary>手动唤醒当前图（若休眠中）。注意：切图到休眠图会经 CurrentMap setter 自动唤醒。</summary>
+        [DebugAction(Category, "Wake Current Map (Dormancy)", allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void WakeCurrentMap()
+        {
+            var map = Find.CurrentMap;
+            if (map == null) return;
+            if (SeamlessDormancyManager.IsDormant(map))
+            {
+                SeamlessDormancyManager.Wake(map, "dev command (Wake Current Map)");
+            }
+            else
+            {
+                Log.Message($"[RimExodus] Map {map.uniqueID} is not dormant.");
+            }
+        }
+
+        /// <summary>强制删除当前图的地块 Map（销毁 Map+WorldObject；等同 governor 的删除路径）。</summary>
+        [DebugAction(Category, "Force Delete Current Tile Map", allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void ForceDeleteCurrentTileMap()
+        {
+            var map = Find.CurrentMap;
+            if (!(map?.Parent is MapParent_SeamlessTile parent))
+            {
+                Log.Message("[RimExodus] Current map is not a seamless tile map (won't delete anchor/other maps).");
+                return;
+            }
+            map.GetComponent<SeamlessTileManager>()?.RemoveTileMap(parent);
+            Log.Message($"[RimExodus] Deleted tile map wt={parent.worldTile}.");
+        }
+
+        /// <summary>休眠状态报告：活跃/休眠图数、地图总数（127 上限余量）、governor 设置。</summary>
+        [DebugAction(Category, "Dormancy Report", allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void DormancyReport()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[RimExodus Dormancy Report]");
+            sb.AppendLine($"  maps total: {Find.Maps.Count} (Game.AddMap limit 127)");
+            var dormant = 0;
+            var tiles = 0;
+            foreach (var m in Find.Maps)
+            {
+                if (m.Parent is MapParent_SeamlessTile) tiles++;
+                if (SeamlessDormancyManager.IsDormant(m)) dormant++;
+            }
+            sb.AppendLine($"  tile maps: {tiles}   dormant: {dormant}");
+            var s = RimExodusMod.Settings;
+            sb.AppendLine($"  governor: enabled={s?.dormancyEnabled ?? true} sleepHops={s?.dormancySleepHops ?? 2} deleteHops={s?.dormancyDeleteHops ?? 3}");
+            Log.Message(sb.ToString().TrimEnd());
+        }
+
         /// <summary>
         /// 调试工具（Dev 地图工具）：点击地图格，输出该格的 snapshot 值 + 接缝条带快照 + SeamOverride 混合时引用的邻居格信息。
         /// 用于精确定位"某格 snapshot 是水/沙，但被邻居土卷积成了泥"等海岸侵蚀问题。

@@ -22,14 +22,9 @@ namespace RimExodus
 
         public override void MapComponentTick()
         {
-            // 静态登记表的周期清扫只在锚点地图跑（家园常驻），避免每张地图重复。
-            // 用 IsAnchorMap 判断家园（基础地图无 IsPocketMap 语义）。
-            if (SeamlessTileGraph.IsAnchorMap(map))
-            {
-                SeamlessSelectionTracker.PurgeInvalid();
-                SeamlessTransferGrants.TickSweep();
-                SeamlessCrossMapOrders.PurgeInvalid();
-            }
+            // 历史职责迁移（2026-08 软休眠）：静态登记表的周期清扫原挂"仅锚点图 tick"——
+            // 家园无玩家 pawn 时可随软休眠冻结，锚点 tick 不再可靠，已迁至
+            // SeamlessDormancyGovernor（GameComponent 恒 tick）。本组件不再承担全局清扫。
         }
 
         /// <summary>

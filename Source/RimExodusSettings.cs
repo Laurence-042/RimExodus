@@ -49,6 +49,24 @@ namespace RimExodus
         /// </summary>
         public float coastalEdgeBeachSandDistance = 0.35f;
 
+        /// <summary>
+        /// 地图软休眠总开关（2026-08 滚动休眠）。false 时 governor 只做唤醒保活，不休眠/不删除。
+        /// 见 <see cref="SeamlessDormancyGovernor"/>。
+        /// </summary>
+        public bool dormancyEnabled = true;
+
+        /// <summary>
+        /// 距所有玩家 pawn 至少跨图 N 次才能到达的图进入休眠（软休眠：不 tick、不显示为邻接地图、
+        /// 无地图访问入口，内容完好）。下限 2——相邻图必须活跃（玩家跨图躲追击的 exploit 防线）。
+        /// </summary>
+        public int dormancySleepHops = 2;
+
+        /// <summary>
+        /// 距所有玩家 pawn 至少跨图 N 次才能到达的**地块图**被删除（销毁 Map+WorldObject，下次进入
+        /// 走生成链重建；锚点/家园图永不删除）。必须大于 sleepHops。
+        /// </summary>
+        public int dormancyDeleteHops = 3;
+
         public override void ExposeData()
         {
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
@@ -59,6 +77,9 @@ namespace RimExodus
             Scribe_Values.Look(ref coastalEdgeDeepWaterDistance, "coastalEdgeDeepWaterDistance", 0.15f);
             Scribe_Values.Look(ref coastalEdgeShallowWaterDistance, "coastalEdgeShallowWaterDistance", 0.25f);
             Scribe_Values.Look(ref coastalEdgeBeachSandDistance, "coastalEdgeBeachSandDistance", 0.35f);
+            Scribe_Values.Look(ref dormancyEnabled, "dormancyEnabled", true);
+            Scribe_Values.Look(ref dormancySleepHops, "dormancySleepHops", 2);
+            Scribe_Values.Look(ref dormancyDeleteHops, "dormancyDeleteHops", 3);
             base.ExposeData();
         }
     }

@@ -98,6 +98,18 @@ namespace RimExodus
             // 权重噪声幅度（0=关闭噪声，0.15=默认）
             listing.Label($"Seam override noise amplitude: {s.seamOverrideNoiseAmplitude:F2}");
             s.seamOverrideNoiseAmplitude = listing.Slider(s.seamOverrideNoiseAmplitude, 0f, 0.5f);
+            listing.Gap();
+
+            // 地图滚动休眠（2026-08）：距离策略见 SeamlessDormancyGovernor。
+            listing.CheckboxLabeled("Map dormancy (rolling sleep/delete)", ref s.dormancyEnabled);
+            listing.Gap();
+
+            listing.Label($"Dormancy sleep hops: {s.dormancySleepHops} (maps ≥ this many hops from all player pawns sleep)");
+            s.dormancySleepHops = (int)listing.Slider(s.dormancySleepHops, 2, 6);
+            listing.Gap();
+
+            listing.Label($"Dormancy delete hops: {s.dormancyDeleteHops} (tile maps ≥ this many hops get deleted)");
+            s.dormancyDeleteHops = (int)listing.Slider(s.dormancyDeleteHops, 3, 8);
 
             listing.End();
         }

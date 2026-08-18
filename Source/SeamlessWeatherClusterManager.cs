@@ -14,9 +14,12 @@ namespace RimExodus
     /// skyManager/weatherDecider/weatherManager 实例）；**宿主 = 域内最小 tileId 的图**
     /// （确定性选择——域结构不序列化，天气状态随宿主图序列化，读档后 FinalizeInit 重算重绑）。
     ///
-    /// 【绑定方式】manager 字段替换（map.skyManager = host.skyManager 等）——宿主图 tick 自己的
-    /// manager（域内天气推进的唯一驱动），成员图读共享实例渲染；成员自身被替换掉的旧 manager
-    /// 仍在自己 components 里 tick（冗余但无害）。
+    /// 【绑定方式】manager 字段替换（map.skyManager = host.skyManager 等）。三件套均非 MapComponent
+    /// （WeatherManager/WeatherDecider/SkyManager 是普通类，不在 components 列表），tick/update 由
+    /// 每张图的 MapPostTick/MapUpdate **走自己字段**调用——域内所有图的字段指向同一实例，任一活跃
+    /// 成员都在推进它（软休眠图被跳过 MapPostTick 不参与，实例由成员字段引用保持存活）。
+    /// 成员被替换掉的旧实例无人引用（GC 回收，不 tick、无冗余）。共享实例被多图重复 tick 的
+    /// N 倍速问题由 <see cref="Patches_WeatherCluster"/> 的幂等守卫修复。
     ///
     /// 【触发】新图生成 onComplete（<see cref="BindMap"/>）；读档 FinalizeInit（<see cref="RebindAll"/>）；
     /// 任何图移除后（<see cref="SeamlessTileManager.RemoveTileMap"/> / Manager 的 MapRemoved →
@@ -39,6 +42,14 @@ namespace RimExodus
         /// <summary>
         /// 绑定一张图到它的群系连通域（新图生成 onComplete 调用；幂等——已是宿主或已绑定则无操作）。
         /// 域内无其他图时本图即新域第一张（用自己的默认 manager，无需绑定）。
+        ///
+        /// 【机理勘误 2026-08】共享实例的推进**不依赖宿主图**：WeatherManager/WeatherDecider/
+        /// SkyManager 均非 MapComponent，tick/update 由每张图的 MapPostTick/MapUpdate **走自己字段**
+        /// 调用——域内所有图的字段指向同一实例，任一活跃成员都在推进它，实例由成员字段引用保持存活。
+        /// 因此宿主休眠/换宿主**既不冻结也不跳变**（旧论断"宿主图 tick 是唯一驱动"是错误心智模型，
+        /// 勿回退为"宿主必须活跃"的过滤——无行为差异且制造宿主特殊性错觉）。宿主的唯一实义：
+        /// 存档时该图存这套实例的状态副本（各成员都存同一份，读档后 RebindAll 择一恢复共享）+
+        /// 新成员 BindMap 读谁的字段（域内字段全指同一实例，读谁都一样）。
         /// </summary>
         public static void BindMap(Map map)
         {
@@ -82,7 +93,9 @@ namespace RimExodus
                 MarkBiomeComponent(root, nextId++, componentOf);
             }
 
-            // 每分量内最小 tileId 的图为宿主，成员绑定到它。
+            // 每分量内最小 tileId 的图为宿主，成员绑定到它。勘误 2026-08：见 BindMap 注释——
+            // 共享实例由各活跃成员图走自己字段推进（与宿主活跃与否无关），此处不过滤休眠图；
+            // 换宿主不换实例（域内成员字段本就全指同一实例），无冻结、无跳变。
             var hostOf = new Dictionary<int, Map>();
             foreach (var kv in mapsByTile)
             {

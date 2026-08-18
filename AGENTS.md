@@ -24,6 +24,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `doc/第四阶段-连续地形.md` — 连续地形调研（四项可行性分级）、接缝覆写卷积混合（E 节）、分帧增量生成。
 - `doc/第四阶段a-预加载与传送机制.md` — 邻居预加载、多跳传送点、异步加载、传送机制重构、边缘 patch 统一。
 - `doc/边界行为表.md` — 传送点/接缝带行为规范（主体 × 移动来源全枚举，状态定稿 2026-08；阶段5 边界行为的权威规格，由 `doc/gen_边界行为表.py` 生成）。
+- `doc/地图滚动休眠.md` — **地图滚动生命周期的权威文档**（软休眠/唤醒/删除三态、距离策略、tick 分发查证、口径变化，已实现 2026-08）。
 - `doc/地图生成步骤.md` — RimWorld 完整 genStep 执行顺序（含 RimExodus 注入点：230 海岸补铺 / 1400 铺 void + 备份 snapshot / 1410 接缝覆写 / Harmony patch 在 200 预清岩石、390 道路锚点对齐）。
 - `doc/用可重叠正方形承载六边形网格的空间映射方案.md` — 六边形网格的空间映射理论。
 
@@ -47,7 +48,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ### 基础地图对等架构（非口袋地图）
 - **所有地块都是基础地图**：`MapParent_SeamlessTile : MapParent`（原生基类，非 `PocketMapParent`）。`mapParent.Tile = 真实 PlanetTile`，`map.TileInfo` 自动读 `Find.WorldGrid[Tile]`（含真实 biome/hillness/mutators/rivers），原生 Coast/River/Delta 等 TileMutator 自然生效。
-- **无锚点特殊论（用户定夺 2026-08）**：家园图不特殊。天气按**群系连通域共享**（`SeamlessWeatherClusterManager`，GameComponent 全局注册机制）——同群系（PrimaryBiome）且世界图邻接连通的图共享一个天气源（宿主图的 sky/weather 三 manager），跨群系边界切断传递（雨林→温带→另一片不连通雨林 = 三个域）；宿主 = 域内最小 tileId 图（确定性，域结构不序列化，天气状态随宿主图存档、读档 FinalizeInit 重算重绑；图移除后 RebindAll 自动改绑——gravship 起飞销毁家园图无善后需求）。家园图仅剩工程性差异：邻居表/条带快照存 SeamlessTileManager（原版 MapParent 挂不了我们字段）、部分全局清扫挂其组件 tick。
+- **无锚点特殊论（用户定夺 2026-08）**：家园图不特殊。天气按**群系连通域共享**（`SeamlessWeatherClusterManager`，GameComponent 全局注册机制）——同群系（PrimaryBiome）且世界图邻接连通的图共享一个天气源（域内最小 tileId 图创建的那套 sky/weather 三 manager 实例，字段替换共享；"宿主"纯是工程叫法——实例随谁创建/存档，非地图地位特殊，换宿主不换实例、无跳变，机理勘误见"地图生命周期"小节），跨群系边界切断传递（雨林→温带→另一片不连通雨林 = 三个域）；域结构不序列化，读档 FinalizeInit 重算重绑；图移除后 RebindAll 自动改绑——gravship 起飞销毁家园图无善后需求。家园图仅剩工程性差异：邻居表/条带快照存 SeamlessTileManager（原版 MapParent 挂不了我们字段）、全局清扫原挂其组件 tick（2026-08 已迁 SeamlessDormancyGovernor）。
 - 无 `sourceMap`/`IsPocketMap`/`pocketMaps` 语义。所有地块对等，通过直接邻居表维护关系。
 - 历史的 PocketMap 路线（`PocketMapParent`/`sourceMap` 宿主机制）已废弃，VMF 调研结论中相关描述仅作历史参考。
 
@@ -57,12 +58,16 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - 锚点地图（家园 A，普通 MapParent）的邻居表存于 `SeamlessTileManager.neighbors`（MapComponent）；地块地图存于 `MapParent_SeamlessTile.neighbors`。`SeamlessTileGraph`（静态）提供统一查询入口（`GetAllNeighbors`/`TryGetNeighborLinkByWorldTile`/`AreNeighbors`/`IsAnchorMap`），屏蔽存储位置差异。
 - `SeamlessNeighborRegistry`（静态）：邻居表登记工具（`RegisterNeighborBidirectional`/`SetNeighborOnMap`/`ComputeNeighborOffset`/`CleanupNeighborLinks`）。
 
-### 地图生命周期（现状 + 滚动加载卸载预埋）
-- **所有已生成地块图常驻 `Find.Maps`**：每 tick 全量模拟、随存档全量序列化（Game.ExposeData 无过滤）、读档原样恢复**不重新生成**（原版 GetOrGenerateMap 先 FindMap 复用）。"看不到"的邻居 = 非当前渲染但仍在 Find.Maps。无独立"休眠"机制（设计文档规划过冻结/卸载方案，未实现）。
-- **完全卸载只有 Dev Remove All Tile Maps**（`RemoveTileMap`）：销毁 Map **和** WorldObject（含接缝条带快照）= "从未出现过"。历史 bug 已修：`DeinitAndRemoveMap` 本身**不**销毁 WorldObject（原版行为），残留隐形 WorldObject 会与下次生成的对象重复——现在显式 `parent.Destroy()`。
-- **滚动加载卸载预埋**（未来休眠语义 = 卸 Map、留 WorldObject）：接缝参考数据 `SeamStripData` 挂 WorldObject，统一取数入口 `SeamlessTileGraph.TryGetNeighborSeamStrip` 已有 WorldObject 回落路径——届时参考链路零改动。
-- 原版上限：`Game.AddMap` 在 maps.Count > 127 报错（sbyte）——长途探索的已知约束，滚动卸载落地后解除。
-- 读档缺口已修：旧 `baseTerrainSnapshot` 非序列化且无重建 → 读档后新生成图的接缝混合静默失效（GetSnapshot null → continue）；序列化的 `SeamStripData` 解决。
+### 地图生命周期（软休眠滚动模型，已实现 2026-08；权威文档 = `doc/地图滚动休眠.md`）
+- **软休眠（用户定夺 2026-08，勿回退为"卸 Map"方案）**：休眠图的 **Map 对象保留在 `Find.Maps` 不卸载**，照常随档全量序列化（存档零额外机制，建筑/物品完好）。休眠只意味三件事：不 tick（`Patches_Dormancy` 跳过 MapPreTick/MapPostTick/MapUpdate + `Find.TickManager.RemoveAllFromMap` 摘全局 Thing tick——原版 tick 表按 TickerType 全局分桶不按地图分组，只跳 Map 方法停不掉 Thing）；不作为邻接地图显示（`SeamlessTileGraph` 邻接/已加载口径过滤休眠：渲染零邻居清色帧、传送点 hasArrival 失效、跨图菜单关闭、撤离链 tier0 视对端"未加载"——NPC 不唤醒跟丢/原生离场，用户定夺防级联唤醒）；无地图访问入口（殖民者栏的地图分组框——原版 CheckRecacheEntries 每图一组、无 pawn 也画空分组框可点击切图，**必须 `Patch_ColonistBar_CheckRecacheEntries` Postfix 过滤**（重编 group 须用 Entry 构造器重建：reorderAction 闭包捕获构造时 group）；Sleep/Wake 收尾 `MarkColonistsDirty`；休眠图殖民者尸体 entry 一并隐藏，接受；世界地图"查看地图"gizmo 保留为显式唤醒入口）。**唤醒 = 一切进图路径汇聚的 `Game.CurrentMap` setter Prefix 同步 Wake**（重注册 spawnedThings 的 tick，轻量无生成）；边界预加载带（CheckPawnGoto 休眠分支）与 governor 距离回落兜底。**休眠状态不序列化**：读档后全活跃（tick 注册由 FinalizeLoading 重 spawn 恢复），governor 首轮重新收敛。
+- **距离策略（`SeamlessDormancyGovernor`，GameComponent 每 600 ticks）**：源 = 所有玩家阵营 pawn 所在图，世界网格 BFS 拓扑距离。有玩家 pawn → 永不休眠/删除（**仅玩家 pawn 保护**，相邻图因玩家踏入自动距离 0，天然防"跨图躲追击"）；距离 ≥2（sleepHops）休眠；距离 ≥3（deleteHops）且**地块图**→ 删除；锚点/家园图永不删除（WorldObject 是原版殖民地对象）；CurrentMap 无条件保活。设置：`dormancyEnabled`/`dormancySleepHops`(下限2)/`dormancyDeleteHops`。
+- **删除 = `RemoveTileMap`**（销毁 Map + WorldObject = "从未出现过"，下次进入走生成链重建；开头 `SeamlessDormancyManager.Forget` 防集合持已 Dispose Map 引用）。Dev Remove All Tile Maps / Force Delete 同路径。图量 ≤ 以玩家为球心的 deleteHops 跳球（默认 ≤37 图），`Game.AddMap` 127 上限（sbyte）的实际压力由此解除。
+- **生成守卫（勿删，会断点）**：`GenerateTileMap` 入口用 `worldObjects.MapParentAt` 查休眠 parent——查到则 Wake + 补登记并返回，**绝不 MakeWorldObject 新建**（`TryGetMapByWorldTile` 被休眠口径过滤后查不到休眠图，不拦会造同 tile 双 parent）。
+- **`TryGetNeighborSeamStrip` 刻意不过滤休眠**（数据查询 ≠ 邻接交互，快照不因休眠失效）；WorldObject 回落路径保留（历史"硬卸载"预埋，将来若做仍零改动）。
+- **天气域与休眠的交互（2026-08 机理勘误，勿回退为"宿主必须活跃"过滤）**：共享实例的推进**不依赖宿主图**——WeatherManager/WeatherDecider/SkyManager 均非 MapComponent，tick/update 由每张图的 MapPostTick/MapUpdate **走自己字段**调用，域内所有图的字段指向同一实例，任一活跃成员都在推进它（软休眠图被跳过 MapPostTick 不参与，实例由成员字段引用保持存活）。因此宿主休眠/换宿主**既不冻结也不跳变**（旧论断"宿主图 tick 是唯一驱动"是错误心智模型）。真 bug 是共享实例被多图重复推进（N 张活跃图 = N 倍速，curWeatherAge 每 tick +N），由 `Patches_WeatherCluster` 的实例级幂等守卫修复（同 tick/同帧第二次调用跳过，ConditionalWeakTable 弱键）。宿主的唯一实义：存档时谁存这套实例的状态副本 + 新成员 BindMap 读谁的字段。
+- **incident 过滤**：`Storyteller.AllIncidentTargets` Postfix 剔除休眠图（防袭击打到冻结图）；`RandomPlayerHomeMap` 等消费面大的 getter 不 patch（误伤风险，观察项）。
+- 历史修正：全局静态清扫（Selection/Grants/CrossMapOrders）已从"仅锚点图 MapComponentTick"迁至 `SeamlessDormancyGovernor.GameComponentTick`（家园无玩家 pawn 时可休眠，锚点 tick 不再可靠）。
+- 历史保留：旧"硬休眠（卸 Map 留 WorldObject）"仅作预埋（SeamStripData 挂 WorldObject 即其遗产）；读档缺口（baseTerrainSnapshot 非序列化）已由 `SeamStripData` 解决。
 
 ### 六边形裁切与 void（阶段3；接缝带定义 2026-08 重构，权威定义 = `doc/接缝带定义.md`）
 - 圈层（从核心区向外）：**核心区 → 带内圈 → 离散边圈 → 带外圈 → void**，三圈合称接缝带 B。
@@ -135,7 +140,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - **游荡兜底**：Pursue/Follow 落地 NPC（传送时 lord 已被 Notify_PawnLost 剥离、无 duty）若无目标会永久滞留——600 ticks 宽限内重新接战/有 lord 则解除，超时转入撤离链跑出世界（排除来向 tile）。
 - 预加载排除传送点格（`SeamlessBorderPreloader.CheckPawnGoto` + `SeamlessEdgeCells.IsSeamEdgeCell` thingGrid O(1)）：征召 goto 传送点格 = 撤离意图，不触发对端生成。
 - 跨图指令主体（`SeamlessBoundaryRules.IsCrossMapOrderable`）：殖民者 / 殖民地机械族（`IsColonyMech`，保留原版 `!IsColonyMech` 不自行离图例外）/ 玩家阵营驯养动物。
-- 静态清扫挂在锚点地图 `SeamlessMapTransferTrigger.MapComponentTick`：Grants 失效/超时（6000 ticks 兜底，正常生命周期由 StartJob 替换清理）、游荡宽限检查、`SeamlessCrossMapOrders.PurgeInvalid`（pendingMenuTargets 死亡/转世界 pawn 泄漏）。
+- 静态清扫（Grants 失效/超时（6000 ticks 兜底，正常生命周期由 StartJob 替换清理）、游荡宽限检查、`SeamlessCrossMapOrders.PurgeInvalid`（pendingMenuTargets 死亡/转世界 pawn 泄漏））**已迁至 `SeamlessDormancyGovernor.GameComponentTick`**（2026-08 软休眠：原挂"仅锚点图 tick"，家园无玩家 pawn 时可休眠不再可靠）。
 
 ## 当前待办（2026-08 接缝带重构后盘点）
 
@@ -146,11 +151,12 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - 条带快照存档增量观察：外条带全深后每图约 2-3 万格 ×4 列（terrain/building/roof/depth），存档增加约几百 KB/图——若超标做 def 索引压缩。
 - MutatorFinal(1600) 的 GeneratePostFog SetTerrain 覆写接缝（AncientUplink/InsectMegahive 任务地块）——已知瑕疵未处理。
 - Fog(1500) 对带外圈（新实地形）的揭雾验证；远行队进入出生点（Patches_CaravanEnterMap）与带外圈传送圈兼容回归。
+- 软休眠回归（2026-08 新增，清单见 `doc/地图滚动休眠.md` 第五节）：跑图 3 跳后休眠/走近唤醒、休眠图邻接显示/访问入口关闭（含顶部殖民者栏分组框）、休眠期间存档读档收敛、追击者不跨休眠缝、家园全员远行冻结/回家恢复、Dev Force Delete 后重走生成链、天气域幂等守卫生效（同域多活跃图天气演化不再 N 倍速）、远行队进入已删除 tile 的 parent 类型缺口（原版 GetOrGenerateMap 用原版 def 建 parent——删除策略放大出现率，必要时 patch）。
 
 **路线图（主文档"当前阶段计划"）**：
 - 阶段5 剩余：跨地图寻路与射击（跨图 LOS/目标搜索/射击线/弹道）——未开始（边界行为/传送许可制已落地）。
-- 地图滚动加载卸载（休眠）：预埋已完成（SeamStripData 挂 WorldObject + TryGetNeighborSeamStrip 回落路径 + RemoveTileMap 语义二分），本体未实现（卸载时机/重入复用/渲染等 Find.Maps 消费方适配）。
-- `Game.AddMap` 127 图上限（sbyte）——依赖滚动卸载解除。
+- ~~地图滚动加载卸载（休眠）~~ **已实现（2026-08 软休眠，`doc/地图滚动休眠.md`）**：休眠/唤醒/删除三态 + 距离策略自动调度 + Dev 工具落地；游戏内回归进行中（测试清单见该文档第五节）。
+- `Game.AddMap` 127 图上限（sbyte）——实际压力已由删除策略解除（图量 ≤ deleteHops 跳球）；上限本身仍在（软休眠不卸 Map）。
 - ~~锚点图销毁善后~~ **已消解（2026-08 天气域机制）**：天气改为群系连通域共享（无锚点依赖，宿主迁移由 RebindAll 自动处理）；gravship 销毁家园图的场景由 Manager.MapRemoved → RebindAll 覆盖，待游戏内验证。
 
 ## 存档兼容性说明

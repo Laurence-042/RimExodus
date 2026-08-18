@@ -262,6 +262,31 @@ namespace RimExodus
                 return null;
             }
 
+            // 休眠守卫（2026-08 软休眠，勿删）：TryGetMapByWorldTile 已被休眠口径过滤，查不到休眠图；
+            // 但休眠图的 Map 和 WorldObject 都还在（软休眠不卸载）——若不在此拦截，下面
+            // MakeWorldObject 会造出同 tile 的第二个 parent（邻居表分裂、存档脏数据）。
+            // 唤醒是同步轻量操作，直接唤醒并补登记邻居即可。
+            var dormantParent = Find.World.worldObjects.MapParentAt(new PlanetTile(newWorldTile)) as MapParent_SeamlessTile;
+            if (dormantParent != null)
+            {
+                var dormantMap = dormantParent.Map;
+                if (dormantMap != null && !dormantMap.Disposed)
+                {
+                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                        Log.Message($"[RimExodus] World tile {newWorldTile} has a dormant map {dormantMap.uniqueID}, waking instead of generating.");
+                    SeamlessDormancyManager.Wake(dormantMap, "generation guard (dormant parent exists, prevent duplicate WorldObject)");
+                    EnsureNeighborRegistered(map, sourceWorldTile, dormantMap, newWorldTile);
+                    return null;
+                }
+                // WorldObject 在但 Map 不在（软休眠下理论不可达；历史 RemoveTileMap bug 曾残留
+                // 隐形 WorldObject）——防御：销毁残留后继续走生成。
+                if (!dormantParent.Destroyed)
+                {
+                    Log.Warning($"[RimExodus] World tile {newWorldTile} has an orphan WorldObject without a map, destroying it before generation.");
+                    dormantParent.Destroy();
+                }
+            }
+
             var def = DefDatabase<WorldObjectDef>.GetNamedSilentFail("RimExodus_SeamlessTileMap");
             if (def == null)
             {
@@ -399,9 +424,9 @@ namespace RimExodus
 
         /// <summary>
         /// 卸载一个无缝地块地图：清理邻居表双向引用、移除地图、销毁 WorldObject。
-        /// "完全卸载 = 从未出现过"：WorldObject（含接缝条带快照）一并销毁，不留休眠数据，
-        /// 同 tile 再次预加载将全新生成。（与未来"滚动卸载保留 WorldObject"的休眠语义二分，
-        /// 届时只需跳过 Destroy 并让 <see cref="SeamlessTileGraph"/> 的 WorldObject 查询路径接管参考数据。）
+        /// "删除 = 从未出现过"：WorldObject（含接缝条带快照）一并销毁，同 tile 再次预加载将全新生成。
+        /// 与软休眠（<see cref="SeamlessDormancyManager"/>，2026-08）二分：休眠 = 一切保留只停模拟与显示；
+        /// 删除 = 本方法（滚动距离策略的终点，governor 距离 ≥ deleteHops 时调用）。
         /// </summary>
         public void RemoveTileMap(MapParent_SeamlessTile parent)
         {
@@ -410,6 +435,8 @@ namespace RimExodus
             var interiorMap = parent.Map;
             if (interiorMap != null)
             {
+                // 从休眠集合移除（图即将 Dispose，防引用泄漏；对活跃图无操作）。
+                SeamlessDormancyManager.Forget(interiorMap);
                 SeamlessNeighborRegistry.CleanupNeighborLinks(parent);
                 // 第二参 false：DeinitAndRemoveMap 本身不销毁 WorldObject（原版行为），
                 // 由下方显式 Destroy 统一处理（历史 bug：注释曾误以为它会清理 WorldObject，

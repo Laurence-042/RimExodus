@@ -54,6 +54,15 @@ namespace RimExodus
                 return;
             }
 
+            // 邻居图存在但休眠（link 查询被休眠口径过滤）：同步唤醒（轻量——恢复 tick 注册 +
+            // 邻接显示，无生成），玩家继续走近的过程即邻接恢复的过程。StartJob 调用栈内安全
+            // （RegisterAllTickabilityFor 与原版 tick 中途 spawn 同源安全）。
+            if (SeamlessDormancyManager.TryWakeByWorldTile(worldTile, $"border preload band (pawn {pawn.LabelShort} goto {targetCell})"))
+            {
+                Log.Message($"[RimExodus] CheckPawnGoto: neighbor worldTile {worldTile} was dormant, woke it up.");
+                return;
+            }
+
             Log.Message($"[RimExodus] CheckPawnGoto: pawn {pawn.LabelShort} target {targetCell} in border band, " +
                 $"queuing preload for neighbor worldTile {worldTile}.");
             // 不在 StartJob 调用栈内同步生成（会阻塞当前 tick 数百毫秒），登记到延迟队列，

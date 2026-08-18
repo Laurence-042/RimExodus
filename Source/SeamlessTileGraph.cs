@@ -42,7 +42,9 @@ namespace RimExodus
             if (link?.neighbor == null) return false;
 
             var neighborMap = link.neighbor.Map;
-            if (neighborMap == null || neighborMap.Disposed) return false;
+            // 休眠过滤（2026-08 软休眠）：休眠邻居不算"有效邻接"——渲染不画其背景、
+            // 传送点坐标缓存（hasArrival）失效、跨图菜单关闭。link 本身保留（唤醒后即恢复）。
+            if (neighborMap == null || neighborMap.Disposed || SeamlessDormancyManager.IsDormant(neighborMap)) return false;
 
             info = new NeighborInfo
             {
@@ -83,7 +85,8 @@ namespace RimExodus
             {
                 if (link?.neighbor == null) continue;
                 var neighborMap = link.neighbor.Map;
-                if (neighborMap == null || neighborMap.Disposed) continue;
+                // 休眠过滤：见 TryGetNeighborLinkByWorldTile——休眠邻居不进枚举（渲染/相机/选中随之退化）。
+                if (neighborMap == null || neighborMap.Disposed || SeamlessDormancyManager.IsDormant(neighborMap)) continue;
                 result.Add(new NeighborInfo
                 {
                     map = neighborMap,
@@ -118,9 +121,14 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 全局查询：指定 worldTile 是否已有任意已加载的地图（含锚点和所有口袋），不限于直接邻居。
+        /// 全局查询：指定 worldTile 是否已有任意**活跃**的地图（含锚点和所有地块），不限于直接邻居。
         /// 遍历 Find.Maps（含所有已加载地图），用 SeamlessTileRegistry.GetMapWorldTile 统一取 worldTile。
         /// 用于预加载去重：A 和 C 虽非直接邻居（隔了 B），但 A 的地图已存在，从 C 预加载 A 的 worldTile 时应复用而非重复生成。
+        ///
+        /// 休眠口径（2026-08 软休眠）：休眠图虽仍在 Find.Maps，但本查询视为"未加载"——全 mod
+        /// "对端已加载"判定的统一语义源（撤离链 tier0 / 传送许可对端校验 / 预加载去重）。
+        /// 消费方若需要感知休眠图的存在（如生成守卫防重复 WorldObject），请直接查
+        /// Find.World.worldObjects.MapParentAt 或 <see cref="SeamlessDormancyManager.TryWakeByWorldTile"/>。
         /// </summary>
         public static bool TryGetMapByWorldTile(int worldTile, out Map existing)
         {
@@ -130,6 +138,7 @@ namespace RimExodus
             {
                 if (SeamlessTileRegistry.GetMapWorldTile(map) == worldTile)
                 {
+                    if (SeamlessDormancyManager.IsDormant(map)) continue;
                     existing = map;
                     return true;
                 }
@@ -139,18 +148,21 @@ namespace RimExodus
 
         /// <summary>
         /// 统一取数入口：获取 worldTile 已生成地块的接缝条带快照（新图接缝混合的邻居参考数据）。
-        /// ① 活图在（Find.Maps 命中）→ 读活图存储位（生成期 CaptureAndStore 写入，数据最新）；
-        /// ② 无活图但 WorldObject 还在 → 读 WorldObject 上的快照（**地图滚动加载卸载的生命周期预埋**：
-        ///    未来卸 Map、留 WorldObject 时此路径自动接管；当前仅在过渡态命中）；
-        /// ③ 都没有（从未生成 / Dev 完全卸载已销毁 WorldObject）→ 返回 false（不参考，"完全卸载 = 从未出现过"）。
+        /// ① 图在 Find.Maps（**含休眠图**——本方法是数据查询而非邻接交互，快照数据不因休眠失效；
+        ///    地块图快照挂 WorldObject、锚点快照挂 MapComponent（软休眠不销毁 Map，组件仍在），
+        ///    两条路径读到的都是同一份生成期捕获数据）；
+        /// ② 图不在（未来"卸 Map 留 WorldObject"的滚动卸载语义）但 WorldObject 还在 → 读 WorldObject 快照；
+        /// ③ 都没有（从未生成 / 删除已销毁 WorldObject）→ 返回 false（不参考，"删除 = 从未出现过"）。
+        /// 刻意不走 <see cref="TryGetMapByWorldTile"/>（那是休眠过滤后的交互口径）。
         /// </summary>
         public static bool TryGetNeighborSeamStrip(int worldTile, out SeamStripData strip)
         {
             strip = null;
             if (worldTile < 0) return false;
 
-            if (TryGetMapByWorldTile(worldTile, out var map) && map != null && !map.Disposed)
+            foreach (var map in Find.Maps)
             {
+                if (SeamlessTileRegistry.GetMapWorldTile(map) != worldTile || map.Disposed) continue;
                 strip = map.Parent is MapParent_SeamlessTile tileParent
                     ? tileParent.seamStrip
                     : map.GetComponent<SeamlessTileManager>()?.anchorSeamStrip;
