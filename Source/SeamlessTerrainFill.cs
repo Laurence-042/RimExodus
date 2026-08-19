@@ -189,7 +189,7 @@ namespace RimExodus
             {
                 tEvac = sw.ElapsedMilliseconds - tTerrain - tClear - tClassify;
                 sw.Stop();
-                Log.Message($"[RimExodus] ApplyPolygonTerrain timings: classify={tClassify}ms clear={tClear}ms terrain={tTerrain}ms evac={tEvac}ms");
+                Log.Message($"[RimExodus] ApplyPolygonTerrain timings: classify={tClassify}ms roof={tRoof}ms clear={tClear}ms terrain={tTerrain}ms evac={tEvac}ms");
             }
         }
 
@@ -200,12 +200,27 @@ namespace RimExodus
         /// RocksFromGrid(200) 的岩石已 spawn 在将来 void 格上，是本方法的主要清理对象；
         /// Plants(900)/Animals(1200) 在本步之后、于最终地形上生成（void fertility=0 / Standable=false
         /// 天然跳过 void 格），不再需要事后清理。清理开销在生成时一次性发生。
+        ///
+        /// **批量注销（2026-08 O(n²) 修复，"暂存清空"法，勿回退为逐 thing 直接 Destroy）**：
+        /// per-thing Destroy→DeSpawn 的列表注销是 O(n²)——ThingOwner.Remove（spawnedThings）=
+        /// Contains 头扫 + LastIndexOf 尾扫 + RemoveAt 搬移各 O(n)；ListerThings.Remove =
+        /// per-def 列表线性删 + 每个匹配 ThingRequestGroup 的组列表各删一遍。实测 52µs/thing
+        /// @ spawnedTotal=5.4k（岩少图）、~140µs @ ~3 万（岩多图 clear=2.4s）——单件成本随列表
+        /// 总长增长，是二次方特征；岩石生成是 List.Add O(1)，删除是线性查找+搬移，即"生成快删除慢"。
+        /// 修复：销毁前把两个热点容器的**活列表**（全公开访问器：InnerListForReading / ThingsOfDef /
+        /// ThingsInGroup 返回 live 引用，零反射）复制暂存并 Clear——销毁循环里 DeSpawn 的 Remove
+        /// 全部命中"空表不含"O(1) 早退，其余 DeSpawn 副作用（fog/roof/glow 通知、pathGrid 单格
+        /// 重算、comps 等）原样执行，语义不变；结束后幸存者按原顺序装回（O(n) 总量）。
+        /// 仅生成期安全：清空窗口内无并发 Spawn（DoLeavingsFor 在 MapInitializing 早退、岩石无
+        /// 附件级联），stateHashByGroup 不补偿（生成期无消费缓存，FinalizeInit 后缓存全新建）。
         /// </summary>
         private static void ClearThingsOnCells(Map map, List<IntVec3> cells)
         {
             if (cells.Count == 0) return;
 
             var cellSet = new HashSet<IntVec3>(cells);
+            var verbose = RimExodusMod.Settings?.verboseLogging ?? false;
+            var sw = verbose ? System.Diagnostics.Stopwatch.StartNew() : null;
 
             var toDestroy = new List<Thing>();
             foreach (var thing in map.listerThings.AllThings)
@@ -217,10 +232,123 @@ namespace RimExodus
                     toDestroy.Add(thing);
                 }
             }
+            var tEnumerate = sw?.ElapsedMilliseconds ?? 0;
+            // spawnedThings 总量（销毁前）——历史 O(n²) 的 n（保留作回归观测）。
+            var spawnedTotal = map.spawnedThings.Count;
 
+            if (toDestroy.Count > 0)
+            {
+                var spawnedOwner = map.spawnedThings as ThingOwner<Thing>;
+                if (spawnedOwner != null)
+                {
+                    // ==== 暂存清空热点容器 ====
+                    // 结构铁律（2026-08 事故教训，勿改）：暂存/清空/销毁**全部**在 try 内、finally 恢复——
+                    // 事故：组枚举碰 ThingsInGroup(Undefined) 抛 InvalidOperationException，抛点在 try 外的
+                    // 暂存段 → spawnedThings/def 列表已 Clear 但恢复代码永不执行 → 注册表以清空态泄漏，
+                    // 后续 genStep 在损坏注册表上运行（BaseGen RemoveAt 越界、Rand 栈不配平），且异常
+                    // 中断 ApplyPolygonTerrain 后半段 → void 未铺、边界带（读 void 实况）为空。
+                    var removed = new HashSet<Thing>(toDestroy);
+                    List<Thing> spawnedLive = null;
+                    List<Thing> spawnedSaved = null;
+                    var defLive = new List<List<Thing>>();
+                    var defSaved = new List<List<Thing>>();
+                    var groupLive = new List<List<Thing>>();
+                    var groupSaved = new List<List<Thing>>();
+                    try
+                    {
+                        spawnedLive = spawnedOwner.InnerListForReading;
+                        spawnedSaved = new List<Thing>(spawnedLive);
+                        spawnedLive.Clear();
+
+                        var defsToClear = new HashSet<ThingDef>();
+                        foreach (var t in toDestroy) defsToClear.Add(t.def);
+                        foreach (var def in defsToClear)
+                        {
+                            var live = map.listerThings.ThingsOfDef(def);
+                            if (!ContainsAnyTarget(live, removed)) continue;
+                            defLive.Add(live);
+                            defSaved.Add(new List<Thing>(live));
+                            live.Clear();
+                        }
+
+                        foreach (var group in ThingListGroupHelper.AllGroups)
+                        {
+                            // Undefined 组原版从不触碰（Includes 恒 false），ThingsInGroup 对其抛
+                            // "Invalid ThingRequest"（AllGroups 含全部枚举值，Undefined 排第一）。
+                            if (group == ThingRequestGroup.Undefined) continue;
+                            List<Thing> live;
+                            try
+                            {
+                                live = map.listerThings.ThingsInGroup(group);
+                            }
+                            catch (System.InvalidOperationException)
+                            {
+                                continue; // 未知无效组防御：跳过即可，该组不含任何东西
+                            }
+                            if (!ContainsAnyTarget(live, removed)) continue;
+                            groupLive.Add(live);
+                            groupSaved.Add(new List<Thing>(live));
+                            live.Clear();
+                        }
+
+                        DestroyAll(toDestroy);
+                    }
+                    finally
+                    {
+                        // 幸存者按原顺序装回。双重过滤：removed（本批销毁/DeSpawn 的）与 Destroyed
+                        // （防御级联销毁；注意 DeSpawn 分支非 Destroyed，必须靠 removed 过滤）。
+                        // 任何一步暂存失败/销毁异常，已装填的 saved 部分也会在此恢复。
+                        if (spawnedLive != null)
+                            foreach (var t in spawnedSaved)
+                                if (!removed.Contains(t) && !t.Destroyed) spawnedLive.Add(t);
+                        RestoreList(defLive, defSaved, removed);
+                        RestoreList(groupLive, groupSaved, removed);
+                    }
+                }
+                else
+                {
+                    // 理论不可达（Map 构造用 ThingOwner<Thing>）：回落旧路径，宁可慢不可错。
+                    Log.Warning("[RimExodus] ClearThingsOnCells: spawnedThings is not ThingOwner<Thing>, fallback to per-thing Destroy.");
+                    DestroyAll(toDestroy);
+                }
+            }
+
+            if (sw != null)
+            {
+                sw.Stop();
+                var tDestroy = sw.ElapsedMilliseconds - tEnumerate;
+                Log.Message($"[RimExodus] ClearThingsOnCells: things={toDestroy.Count} spawnedTotal={spawnedTotal} " +
+                            $"enumerate={tEnumerate}ms destroy={tDestroy}ms " +
+                            $"({(toDestroy.Count > 0 ? (double)tDestroy * 1000 / toDestroy.Count : 0):F0}µs/thing)");
+            }
+        }
+
+        /// <summary>列表是否包含任意待销毁目标（null/空表/无交集返回 false，跳过暂存）。</summary>
+        private static bool ContainsAnyTarget(List<Thing> list, HashSet<Thing> removed)
+        {
+            if (list == null || list.Count == 0) return false;
+            foreach (var t in list)
+                if (removed.Contains(t))
+                    return true;
+            return false;
+        }
+
+        private static void RestoreList(List<List<Thing>> liveLists, List<List<Thing>> savedLists, HashSet<Thing> removed)
+        {
+            for (var i = 0; i < liveLists.Count; i++)
+                foreach (var t in savedLists[i])
+                    if (!removed.Contains(t) && !t.Destroyed)
+                        liveLists[i].Add(t);
+        }
+
+        /// <summary>逐 thing 销毁（Vanish）；holdingOwner 在 Destroy 前清空以对齐旧路径时序
+        /// （旧路径 DeSpawn 的 ThingOwner.Remove 会清它；暂存清空后 Remove 早退走不到）。</summary>
+        private static void DestroyAll(List<Thing> toDestroy)
+        {
             foreach (var thing in toDestroy)
             {
                 // 用 Destroy（Vanish）彻底移除；对 destroyable=false 的（如 SteamGeyser）改用 DeSpawn。
+                thing.holdingOwner = null;
                 if (thing.def.destroyable)
                 {
                     thing.Destroy(DestroyMode.Vanish);

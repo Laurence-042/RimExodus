@@ -104,6 +104,11 @@ namespace RimExodus
         {
             if (built && !force) return;
 
+            // verbose 计时（2026-08 收尾段用时统计）：本方法在生成完成后的下一 tick 执行，
+            // 两次全图带扫描（ComputeVoidBand）是 FinishGeneration 之后的残余长尾。
+            var sw = (RimExodusMod.Settings?.verboseLogging ?? false)
+                ? System.Diagnostics.Stopwatch.StartNew() : null;
+
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
             if (worldTile < 0)
             {
@@ -156,7 +161,8 @@ namespace RimExodus
             if (RimExodusMod.Settings?.verboseLogging ?? false)
                 Log.Message($"[RimExodus] SeamlessBorderLookup built for map {map.uniqueID} (worldTile={worldTile}, " +
                     $"preloadBand={preloadBandWidth} cells={borderCells.Count}, " +
-                    $"noBuildBand={noBuildBandWidth} cells={noBuildBandCells.Count}).");
+                    $"noBuildBand={noBuildBandWidth} cells={noBuildBandCells.Count}, " +
+                    $"elapsed={sw?.ElapsedMilliseconds ?? 0}ms).");
         }
     }
 }

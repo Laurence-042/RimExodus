@@ -327,14 +327,22 @@ namespace RimExodus
                     // 阶段4前置：基础地图，不加入 pocketMaps（那是口袋地图列表）。
                     // 基础地图由 Current.Game.AddMap（IncrementalMapGenerator 内部）加入 Find.Maps，
                     // 且 WorldObject 由 worldObjects.Add 注册到世界视图。
+                    // 逐子步计时（verbose，2026-08）：本回调在 FinishGeneration 单帧内执行，
+                    // 耗时计入 FinishGeneration timings 的 onComplete 段；此处拆出各子步。
+                    var timer = SectionTimer.StartIf(RimExodusMod.Settings?.verboseLogging ?? false);
+                    long tWorldAdd, tWeatherBind, tRegister, tPlaceOrigin, tRefreshOrigin, tRefreshNew, tAutoConnect;
+
                     if (!Find.World.worldObjects.Contains(interiorMap.Parent))
                     {
                         Find.World.worldObjects.Add(interiorMap.Parent);
                     }
+                    tWorldAdd = timer?.Section() ?? 0;
                     // 天气共享：按群系连通域绑定（全局天气状态注册机制——同群系邻接连通的图共享
                     // 一个天气源，宿主=域内最小 tileId 图；无锚点特殊论，家园图不特殊）。
                     SeamlessWeatherClusterManager.BindMap(interiorMap);
+                    tWeatherBind = timer?.Section() ?? 0;
                     SeamlessNeighborRegistry.RegisterNeighborBidirectional(originMapCapture, mapParent, sourceWorldTileCapture, newWorldTile, hostOffset);
+                    tRegister = timer?.Section() ?? 0;
                     // 不刷新 originMapCapture 的 void——锚点 map 的 void 在 TrySetupOnStart 时已铺好，
                     // void 只看自己的多边形（不因邻居关系变化而变）。每次生成邻居都 RefreshMapVoid(锚点)
                     // 会重新清锚点 void 格上玩家游戏期间生长的植物/掉落物（耗时 12-23 秒）。
@@ -343,12 +351,19 @@ namespace RimExodus
                     // 注释），此处不再重复；originMap 生成期 1490 已铺过全部邻居方向的点，此处补铺
                     // 纯防御（幂等）。
                     SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(originMapCapture, sourceWorldTileCapture);
+                    tPlaceOrigin = timer?.Section() ?? 0;
                     SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(originMapCapture);
+                    tRefreshOrigin = timer?.Section() ?? 0;
                     SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(interiorMap);
+                    tRefreshNew = timer?.Section() ?? 0;
                     AutoConnectWorldNeighbors(interiorMap, newWorldTile);
+                    tAutoConnect = timer?.Section() ?? 0;
 
-                    if (RimExodusMod.Settings?.verboseLogging ?? false)
-                        Log.Message($"[RimExodus] Incremental generation post-config done for tile {newWorldTile} map {interiorMap.uniqueID}.");
+                    if (timer != null)
+                        Log.Message($"[RimExodus] Incremental generation post-config for tile {newWorldTile} map {interiorMap.uniqueID}: " +
+                                    $"worldAdd={tWorldAdd}ms weatherBind={tWeatherBind}ms registerNeighbor={tRegister}ms " +
+                                    $"placeOriginSpots={tPlaceOrigin}ms refreshOriginArrivals={tRefreshOrigin}ms refreshNewArrivals={tRefreshNew}ms " +
+                                    $"autoConnect={tAutoConnect}ms.");
 
                     // 清理防重入锁（分帧生成完成）。
                     ClearGeneratingTile(newWorldTile);

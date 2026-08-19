@@ -37,6 +37,11 @@ namespace RimExodus
         private Action<Map> onComplete;
         private bool finalizing;
 
+        // ===== 全程计时（verbose 诊断，2026-08：genStep 后收尾长尾用时统计）=====
+        private float startRealtime;   // Start 同步段起点（Time.realtimeSinceStartup），总算 wall 时长。
+        private int startTickGame;     // Start 时刻 GenTicks.TicksGame，总算生成消耗的 tick 数。
+        private double totalGenStepMs; // genStep CPU 耗时累加（仅 verbose 时累加，供 FinishGeneration 总摘要）。
+
         // ===== 可分帧 genStep 状态（Plants 等重 genStep 跨帧执行）=====
         /// <summary>当前 genStep 是否正在进行中（跨帧），null=未在进行。</summary>
         private SubStepState subStepState;
@@ -49,6 +54,8 @@ namespace RimExodus
             public float densityFactor;
             public float desiredPlants;
             public int randSeed; // 该 genStep 的 Rand.Seed（每帧恢复，保证可复现）。
+            public double cpuMs; // verbose 计时：跨多次 RunSubStepChunk 调用累计的 CPU 耗时（不含帧间等待）。
+            public int nextProgressLog; // 进度日志的下一个阈值（batchSize 不再整除 10000，改累进）。
         }
 
         // ===== 反射缓存（MapGenerator private static 访问）=====
@@ -99,6 +106,7 @@ namespace RimExodus
                 return false;
             }
 
+            var prepStartRealtime = UnityEngine.Time.realtimeSinceStartup;
             try
             {
                 // ===== 准备阶段（复刻 MapGenerator.GenerateMap :82-185 的前半段）=====
@@ -214,13 +222,16 @@ namespace RimExodus
                     comp.currentStepIndex = 0;
                     comp.baseSeed = seed;
                     comp.onComplete = onComplete;
+                    comp.startRealtime = prepStartRealtime;
+                    comp.startTickGame = GenTicks.TicksGame;
                     current = comp;
 
                     newMap.areaManager.AddStartingAreas();
                     newMap.weatherDecider.StartInitialWeather();
 
                     if (RimExodusMod.Settings?.verboseLogging ?? false)
-                        Log.Message($"[RimExodus] IncrementalMapGenerator started: map={newMap.uniqueID}, genSteps={orderedSteps.Count}, seed={seed}.");
+                        Log.Message($"[RimExodus] IncrementalMapGenerator started: map={newMap.uniqueID}, genSteps={orderedSteps.Count}, seed={seed}, " +
+                                    $"prep={(UnityEngine.Time.realtimeSinceStartup - prepStartRealtime) * 1000f:F0}ms.");
 
                     return true;
                 }
@@ -270,7 +281,14 @@ namespace RimExodus
                         // 跨帧执行 Plants 的 cell 循环。
                         var done = RunSubStepChunk(frameStart);
                         if (!done) return; // 本帧预算耗尽，下一帧继续。
-                        // Plants 全部完成。
+                        // Plants 全部完成：分帧步不经过 RunOneGenStep（无 per-step 计时），
+                        // 此处补齐——CPU 累计进总摘要并出一条与其他 genStep 同格式的日志。
+                        if (RimExodusMod.Settings?.verboseLogging ?? false)
+                        {
+                            totalGenStepMs += subStepState.cpuMs;
+                            Log.Message($"[RimExodus] GenStep [{currentStepIndex}/{genSteps.Count}] " +
+                                        $"{genSteps[currentStepIndex].def.defName} {subStepState.cpuMs:F0}ms (split-frame)");
+                        }
                         subStepState = null;
                     }
                     else
@@ -314,6 +332,7 @@ namespace RimExodus
                 densityFactor = spawner.CurrentPlantDensityFactor,
                 desiredPlants = spawner.CurrentWholeMapNumDesiredPlants,
                 randSeed = Gen.HashCombineInt(baseSeed, GetSeedPartFor(stepIndex)),
+                nextProgressLog = 10000,
             };
             if (RimExodusMod.Settings?.verboseLogging ?? false)
                 Log.Message($"[RimExodus] Plants genStep: starting split-frame execution (totalCells={subStepState.totalCells}, density={subStepState.densityFactor}).");
@@ -329,43 +348,69 @@ namespace RimExodus
             var map = generatingMap;
             var spawner = map.wildPlantSpawner;
             var state = subStepState;
-            const int batchSize = 2000; // 每批 cell 数（每批用独立 Rand seed）。
+            // 每批 cell 数（每批用独立 Rand seed）。2026-08 从 2000 降到 64：实测 CheckSpawnWildPlantAt
+            // 平均 ~85µs/格（肥沃格候选植物 + 簇距离计算贵），2000 格/批 ≈ 170ms/帧——8ms 预算被超
+            // 20 倍，"分帧"名存实亡（每 tick 2 批 = 340ms 巨型 tick，游戏 ~1.6tps 爬行）。64 格 ≈
+            // 5.4ms 平均/批，预算真正生效；代价是总 wall 拉长（CPU 总量不变，5.3s CPU / 8ms 每帧
+            // ≈ 660+ 帧），分帧设计本意即平滑优先于速度。
+            const int batchSize = 64;
+            // verbose 计时：本方法每次调用执行一段（同步无等待），elapsed 累计进 state.cpuMs，
+            // 完成时由 TickGeneration 计入 totalGenStepMs——分帧步的 CPU 不含帧间等待。
+            var sw = RimExodusMod.Settings?.verboseLogging ?? false
+                ? System.Diagnostics.Stopwatch.StartNew() : null;
 
-            while (state.cellIndex < state.totalCells)
+            try
             {
-                // 时间预算检查。
-                var elapsedMs = (UnityEngine.Time.realtimeSinceStartup - frameStart) * 1000f;
-                if (elapsedMs >= TimeBudgetMs) return false;
-
-                // 计算本批范围。
-                var batchEnd = System.Math.Min(state.cellIndex + batchSize, state.totalCells);
-                var batchIndex = state.cellIndex / batchSize;
-
-                // 每批用独立 Rand seed（保证跨帧 Rand 独立，每批可复现）。
-                Rand.PushState();
-                try
+                while (state.cellIndex < state.totalCells)
                 {
-                    Rand.Seed = Gen.HashCombineInt(state.randSeed, batchIndex);
-                    for (var i = state.cellIndex; i < batchEnd; i++)
+                    // 时间预算检查。
+                    var elapsedMs = (UnityEngine.Time.realtimeSinceStartup - frameStart) * 1000f;
+                    if (elapsedMs >= TimeBudgetMs) return false;
+
+                    // 计算本批范围。
+                    var batchEnd = System.Math.Min(state.cellIndex + batchSize, state.totalCells);
+                    var batchIndex = state.cellIndex / batchSize;
+
+                    // 每批用独立 Rand seed（保证跨帧 Rand 独立，每批可复现）。
+                    Rand.PushState();
+                    try
                     {
-                        var cell = map.cellsInRandomOrder.Get(i);
-                        // ChanceToSkip=0.001f（99.9% 不跳过），这里直接处理所有格（跳过 Rand.Chance 优化）。
-                        spawner.CheckSpawnWildPlantAt(cell, state.densityFactor, state.desiredPlants, setRandomGrowth: true);
+                        Rand.Seed = Gen.HashCombineInt(state.randSeed, batchIndex);
+                        for (var i = state.cellIndex; i < batchEnd; i++)
+                        {
+                            var cell = map.cellsInRandomOrder.Get(i);
+                            // ChanceToSkip=0.001f（99.9% 不跳过），这里直接处理所有格（跳过 Rand.Chance 优化）。
+                            spawner.CheckSpawnWildPlantAt(cell, state.densityFactor, state.desiredPlants, setRandomGrowth: true);
+                        }
+                    }
+                    finally
+                    {
+                        Rand.PopState();
+                    }
+                    state.cellIndex = batchEnd;
+
+                    // 注意括号：?? 优先级低于 &&，历史上写作 `a ?? false && c` 时解析为
+                    // `a ?? (false && c)`——verbose 开启后每批都打日志（节流失效），2026-08 修正。
+                    // 阈值用累进（batchSize=64 不整除 10000，取模判定会永不触发）。
+                    if ((RimExodusMod.Settings?.verboseLogging ?? false) && state.cellIndex >= state.nextProgressLog)
+                    {
+                        Log.Message($"[RimExodus] Plants genStep: {state.cellIndex}/{state.totalCells} cells processed.");
+                        state.nextProgressLog += 10000;
                     }
                 }
-                finally
-                {
-                    Rand.PopState();
-                }
-                state.cellIndex = batchEnd;
 
-                if (RimExodusMod.Settings?.verboseLogging ?? false && state.cellIndex % 10000 == 0)
-                    Log.Message($"[RimExodus] Plants genStep: {state.cellIndex}/{state.totalCells} cells processed.");
+                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    Log.Message($"[RimExodus] Plants genStep: done ({state.totalCells} cells).");
+                return true;
             }
-
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
-                Log.Message($"[RimExodus] Plants genStep: done ({state.totalCells} cells).");
-            return true;
+            finally
+            {
+                if (sw != null)
+                {
+                    sw.Stop();
+                    state.cpuMs += sw.Elapsed.TotalMilliseconds;
+                }
+            }
         }
 
         /// <summary>跑一个 genStep（复刻 GenerateContentsIntoMap:319-344）。</summary>
@@ -408,7 +453,10 @@ namespace RimExodus
             }
             sw?.Stop();
             if (sw != null)
+            {
+                totalGenStepMs += sw.Elapsed.TotalMilliseconds;
                 Log.Message($"[RimExodus] GenStep [{currentStepIndex}/{genSteps.Count}] {step.def.defName} {sw.ElapsedMilliseconds}ms");
+            }
         }
 
         /// <summary>完成阶段：FinalizeInit + 清理 + onComplete（复刻 GenerateMap:188-223）。</summary>
@@ -416,18 +464,43 @@ namespace RimExodus
         {
             finalizing = true; // 让 IsGenerating 返回 false（map 可被 tick/渲染了）。
 
+            // 收尾段计时（verbose，2026-08）：genStep 链跑完后的单帧长尾拆解。FinalizeInit 内部的
+            // 三个全图级重活（pathGrid 重算 / region 重建 / mesh 全量重建）由 Patches_MapGenTiming
+            // 单独出日志；onComplete 内的 RimExodus 邻居登记链由 SeamlessTileManager 回调内部计时。
+            var timer = SectionTimer.StartIf(RimExodusMod.Settings?.verboseLogging ?? false);
+            long tScenario, tFinalizeInit, tMapComponents, tParentPost, tPostInit, tOnComplete;
+
             try
             {
                 Find.Scenario.PostMapGenerate(generatingMap);
+                tScenario = timer?.Section() ?? 0;
+
                 generatingMap.FinalizeInit();
+                tFinalizeInit = timer?.Section() ?? 0;
+
                 MapComponentUtility.MapGenerated(generatingMap);
+                tMapComponents = timer?.Section() ?? 0;
+
                 generatingMap.Parent?.PostMapGenerate();
+                tParentPost = timer?.Section() ?? 0;
+
                 MapGeneratorPostInitFor(generatingMap);
+                tPostInit = timer?.Section() ?? 0;
 
                 onComplete?.Invoke(generatingMap);
+                tOnComplete = timer?.Section() ?? 0;
 
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
-                    Log.Message($"[RimExodus] IncrementalMapGenerator finished: map={generatingMap.uniqueID}.");
+                if (timer != null)
+                {
+                    Log.Message($"[RimExodus] FinishGeneration timings: map={generatingMap.uniqueID} " +
+                                $"scenario={tScenario}ms finalizeInit={tFinalizeInit}ms mapComponents={tMapComponents}ms " +
+                                $"parentPostMapGenerate={tParentPost}ms postMapInitialized={tPostInit}ms onComplete={tOnComplete}ms " +
+                                $"total={tScenario + tFinalizeInit + tMapComponents + tParentPost + tPostInit + tOnComplete}ms.");
+                    // wall 与 genStepCpu 的差值 = 分帧时间预算（8ms/帧）+ tick/渲染摊薄的成本。
+                    Log.Message($"[RimExodus] Map generation total: map={generatingMap.uniqueID} " +
+                                $"wall={(UnityEngine.Time.realtimeSinceStartup - startRealtime) * 1000f:F0}ms " +
+                                $"ticks={GenTicks.TicksGame - startTickGame} genSteps={genSteps.Count} genStepCpu={totalGenStepMs:F0}ms.");
+                }
             }
             catch (Exception ex)
             {
