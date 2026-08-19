@@ -2,7 +2,7 @@
 <Patch>
 
   <!--
-    RimExodus 统一注入：给所有玩家可进入的原版 MapGeneratorDef 追加三个 RimExodus genStep，
+    RimExodus 统一注入：给所有玩家可进入的原版 MapGeneratorDef 追加四个 RimExodus genStep，
     使 Base_Player（玩家家园/锚点 A，同时也是邻接地块 B 的 mapGenerator）、Base_Faction（派系基地）、
     Encounter（遭遇/fallback）走完全相同的海岸补铺 → void+snapshot → SeamOverride 链。
 
@@ -20,18 +20,23 @@
     **执行顺序**由 GenStepDef.order 决定（非 xml 列表序）：
       RimExodus_CoastalEdgeFill (230，紧随 MutatorPostTerrain/原版 Coast mutator 220) →
       RimExodus_SeamlessTile (391, void+snapshot+pathGrid 刷新，Roads 390 后、Settlement 400 前) →
-      RimExodus_SeamOverride (392, 混合+pathGrid 刷新) → Fog(1500)
+      RimExodus_SeamOverride (392, 混合+pathGrid 刷新) →
+      RimExodus_EnterSpots (1490, 铺传送点) → Fog(1500)
     CoastalEdgeFill 提前到 230（此前在 1801）是为了让补铺的水在 Plants(900) 之前就位，避免植物浮在水上。
     SeamlessTile/SeamOverride 在 391/392（2026-08 从 1400/1410 再提前）：Settlement 及之后全部步骤在
     最终地形上工作（Plants 肥力门/Animals 与威胁步骤 Standable 门天然跳过 void——动物站 void 历史 bug
     根治）；Fog(1500) 仍在其后，flood-fill 基于最终地形算可达性（void 外条带不可达→不揭雾）。
     时序演变与残余风险详见 doc/地图生成步骤.md 反转节。
+    EnterSpots 在 1490（Fog 前，2026-08 从 onComplete 提前）：Fog 的 UnfogMapFromEdge fallback 的三级
+    候选依赖 CanReachMapEdge/TryFindRandomEdgeCellWith 的接缝语义 patch，而 patch 以"传送点已铺"
+    （HasSeamEdge）为门——点在 onComplete 才铺时 Fog 走原版方形边缘语义，裁切图上恒不可达 →
+    零揭雾、整图全雾（偶发全雾成因之一）。
 
     **守卫**：genStep 类内部用 GetMapWorldTile(map) >= 0 守卫，任何有合法 worldTile 的地图都走完整链。
     RimExodus 的核心交互是全局无缝——任何玩家进入的地图都应当连续、void 也切、传送点也放。
 
-    三个 GenStepDef（RimExodus_CoastalEdgeFill/RimExodus_SeamlessTile/RimExodus_SeamOverride）
-    已在 Defs/MapGeneration/SeamlessTileGenerator.xml 定义，此处只引用 defName。
+  四个 GenStepDef（RimExodus_CoastalEdgeFill/RimExodus_SeamlessTile/RimExodus_SeamOverride/RimExodus_EnterSpots）
+  已在 Defs/MapGeneration/SeamlessTileGenerator.xml 定义，此处只引用 defName。
     RimWorld 先加载所有 mod 的 Defs 再跑 PatchOperation，引用时 GenStepDef 已存在。
   -->
 
@@ -42,6 +47,7 @@
       <li>RimExodus_CoastalEdgeFill</li>
       <li>RimExodus_SeamlessTile</li>
       <li>RimExodus_SeamOverride</li>
+      <li>RimExodus_EnterSpots</li>
     </value>
   </Operation>
 
@@ -52,6 +58,7 @@
       <li>RimExodus_CoastalEdgeFill</li>
       <li>RimExodus_SeamlessTile</li>
       <li>RimExodus_SeamOverride</li>
+      <li>RimExodus_EnterSpots</li>
     </value>
   </Operation>
 
@@ -62,6 +69,7 @@
       <li>RimExodus_CoastalEdgeFill</li>
       <li>RimExodus_SeamlessTile</li>
       <li>RimExodus_SeamOverride</li>
+      <li>RimExodus_EnterSpots</li>
     </value>
   </Operation>
 

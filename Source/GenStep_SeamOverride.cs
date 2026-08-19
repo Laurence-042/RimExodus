@@ -40,6 +40,38 @@ namespace RimExodus
             // （如混合出水/去水）后必须刷新 pathGrid——后续 Plants(900)/Animals(1200) 的 Standable/Walkable
             // 读 PathGrid 缓存而非 terrainGrid，不刷新会把 pawn/植物放到混合后的水格上。
             map.pathing.RecalculateAllPerceivedPathCosts();
+
+            // 预设 PlayerStartSpot（2026-08，勿删）：FindPlayerStartSpot(850) 的选址 validator 含
+            // district.TouchesMapEdge（直读 District 属性，不经 CanReachMapEdge patch），void 裁切图
+            // （方形边缘全 void → 无 region touches 方形边）上恒 false → 选址必然 1000 次采样全拒、
+            // 走原版 fallback（每图一条红字 "Found no good central spot" + PlayerStartSpot = 随机格）。
+            // 在此预设（原版"上游已设则跳过选址"守卫，GenStep_Labyrinth 设 Zero 的同款先例）让揭雾
+            // 根确定为六边形中心附近的无顶可站格。判据用实况（方形四角已是 void）而非地图类型——
+            // 未裁切的图放行原生选址。必须在上面 pathGrid 刷新之后（StandableCellNear 读 PathGrid 缓存）。
+            if (!MapGenerator.PlayerStartSpotValid && MapCornersAreVoid(map))
+            {
+                var spot = CellFinder.StandableCellNear(map.Center, map, 30f, c => !c.Roofed(map));
+                if (spot.IsValid)
+                    MapGenerator.PlayerStartSpot = spot;
+                // 找不到则不设：FindPlayerStartSpot 自身的 fallback（随机格）兜底，Fog 的
+                // UnfogMapFromEdge 分支由 GenStep_EnterSpots(1490) 提前铺点后的接缝语义 patch 兜底。
+            }
+        }
+
+        /// <summary>
+        /// 方形地图四角格是否已是 RimExodus_Void（= 六边形 void 裁切已发生）。
+        /// 四角离六边形边界最远（内切模型顶点仅触边中点），裁切后必为 void、未裁切必为普通地形——
+        /// 用作"本图已走 RimExodus 裁切链"的实况判定（几何事实，非地图类型区分）。
+        /// </summary>
+        private static bool MapCornersAreVoid(Map map)
+        {
+            var voidDef = DefDatabase<TerrainDef>.GetNamedSilentFail("RimExodus_Void");
+            if (voidDef == null) return false;
+            int max = map.Size.x - 1;
+            return map.terrainGrid.TerrainAt(new IntVec3(0, 0, 0)) == voidDef
+                && map.terrainGrid.TerrainAt(new IntVec3(max, 0, 0)) == voidDef
+                && map.terrainGrid.TerrainAt(new IntVec3(0, 0, max)) == voidDef
+                && map.terrainGrid.TerrainAt(new IntVec3(max, 0, max)) == voidDef;
         }
     }
 }

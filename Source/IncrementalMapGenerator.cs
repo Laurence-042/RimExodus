@@ -113,6 +113,14 @@ namespace RimExodus
                 // 预览不同 → 预览地形和实际生成完全对不上（包括非混合带部分）。A 走原生 MapGenerator 不受影响。
                 int seed = Gen.HashCombineInt(Find.World.info.Seed, mapParent.Tile.GetHashCode());
                 ClearWorkingDataStatic();
+                // 复刻原版 GenerateMap 开头的跨图 static 重置（MapGenerator.cs:83-85，ClearWorkingData
+                // 本身不动这两个字段）：PlayerStartSpot/rootsToUnfog 是进程级共享，本类分帧跨多张图
+                // 生成，不重置则上一张图的坐标残留——FindPlayerStartSpot(850) 的"已设跳过"守卫直接
+                // 跳过本图选址，GenStep_Fog(1500) 用他图坐标揭雾（坐标落 MakeFog 建筑时零揭雾→整图
+                // 全雾，2026-08 偶发全雾成因）；rootsToUnfog 残留则在本图按他图坐标乱揭。原生
+                // GenerateMap 交错插入时其开头也会重置，本行保证增量路径独立于交错也干净开局。
+                MapGenerator.PlayerStartSpot = IntVec3.Invalid;
+                MapGenerator.rootsToUnfog.Clear();
                 // 外层 Rand 状态保护：Start 的同步段（ConstructComponents + 组装 genStep + RockNoises.Init）
                 // 不跨帧，用 PushState/Seed/PopState 包裹，复刻原版 GenerateMap 顶部的 seed 设置。
                 // 关键：Rand.Seed = seed 把 iterations 清零，使 FillComponents 入口 iterations 干净（MapPreview

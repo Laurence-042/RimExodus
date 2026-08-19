@@ -2,7 +2,7 @@
 <Defs>
 
   <!--
-    RimExodus 无缝地块三个 GenStepDef（不再有独立 MapGeneratorDef）。
+    RimExodus 无缝地块四个 GenStepDef（不再有独立 MapGeneratorDef）。
 
     **邻居地块复用原版 Base_Player MapGeneratorDef**：WorldObjects.xml 的 RimExodus_SeamlessTileMap
     <mapGenerator> 指向 Base_Player（与 Gravship 地表降落、远行队扎营定居共用同一条链）。
@@ -24,6 +24,11 @@
       RimExodus_SeamlessTile    (391)：备份 snapshot（void 裁切前的完整矩形 topGrid）+ 按六边形铺 void
         + pathGrid 全量刷新。snapshot 在 391 Clone，能记录 210/220/230/390 铺的地形（基础地形与道路）。
       RimExodus_SeamOverride    (392)：混合带卷积混合（读两端 snapshot，写本端 topGrid）+ pathGrid 刷新。
+      RimExodus_EnterSpots     (1490)：铺传送点（从 onComplete 提前）。必须在 Fog(1500) 之前——
+        Fog 的 UnfogMapFromEdge 分支依赖 CanReachMapEdge/TryFindRandomEdgeCellWith 的接缝语义 patch，
+        而这些 patch 以"传送点已铺"（HasSeamEdge = listerThings 实况）为门；点在 onComplete 才铺时
+        Fog 拿到的是原版方形边缘语义，在裁切图上恒不可达 → 三级候选全败 → 整图全雾（2026-08 偶发
+        全雾成因之一）。铺点后 Fog/威胁步骤(1600) 期间 patch 即生效；400-1490 期间行为与旧序一致。
 
     **为什么 SeamlessTile/SeamOverride 在 391/392（Settlement(400) 之前，2026-08 反转旧 1400/1410）**：
     让 Settlement(400) 及之后的全部步骤在最终地形上工作——Plants(900) 的 fertility 门、Animals(1200)
@@ -79,6 +84,13 @@
         <includeInPreviews>true</includeInPreviews>
       </li>
     </modExtensions>
+  </GenStepDef>
+
+  <!-- 传送点铺设：不进 MapPreview 预览（预览只关心地形，铺 thing 无意义）。 -->
+  <GenStepDef>
+    <defName>RimExodus_EnterSpots</defName>
+    <order>1490</order>
+    <genStep Class="RimExodus.GenStep_EnterSpots"/>
   </GenStepDef>
 
 </Defs>

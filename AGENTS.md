@@ -25,7 +25,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `doc/第四阶段a-预加载与传送机制.md` — 邻居预加载、多跳传送点、异步加载、传送机制重构、边缘 patch 统一。
 - `doc/边界行为表.md` — 传送点/接缝带行为规范（主体 × 移动来源全枚举，状态定稿 2026-08；阶段5 边界行为的权威规格，由 `doc/gen_边界行为表.py` 生成）。
 - `doc/地图滚动休眠.md` — **地图滚动生命周期的权威文档**（软休眠/唤醒/删除三态、距离策略、tick 分发查证、口径变化，已实现 2026-08）。
-- `doc/地图生成步骤.md` — RimWorld 完整 genStep 执行顺序（含 RimExodus 注入点：230 海岸补铺 / 391 铺 void + 备份 snapshot + pathGrid 刷新 / 392 接缝覆写 + pathGrid 刷新 / Harmony patch 在 220 河流端点对齐、390 道路锚点对齐）。
+- `doc/地图生成步骤.md` — RimWorld 完整 genStep 执行顺序（含 RimExodus 注入点：230 海岸补铺 / 391 铺 void + 备份 snapshot + pathGrid 刷新 / 392 接缝覆写 + pathGrid 刷新 + 预设 StartSpot / 1490 铺传送点 / Harmony patch 在 220 河流端点对齐、390 道路锚点对齐）。
 - `doc/用可重叠正方形承载六边形网格的空间映射方案.md` — 六边形网格的空间映射理论。
 
 ## 依赖引用目录
@@ -81,6 +81,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 ### 传送机制（阶段4b；接缝带定义 2026-08 重构）
 - `CompSeamlessTileEnterSpot`：`targetWorldTile`（标记对端）+ `cachedArrivalCell`/`hasArrival`（缓存对端坐标，不序列化）。废弃了旧的互绑 `CounterpartSpot`。
 - `SeamlessEnterSpotPlacer`（静态）：`PlaceEnterSpotsAllNeighbors`（铺**传送圈** = 离散边圈 ∪ 带外圈，BuildSeamBand 纯几何。**无任何可通行性过滤（用户定夺 2026-08，勿回退为 cell.Standable 或地形 passability 判定）**——spot 是纯逻辑连接设施：能不能走由地形运行时决定，不能走 pawn 自然绕路（与地图中央的深水/岩石挡路同构），地形变化（挖岩石/铺桥/水位）后 spot 已在、即时可用；带内圈无传送点）+ `RefreshEnterSpotArrivals`（邻居关系建立后按 offset 算缓存）。
+- **铺点时机 = GenStep 1490（Fog(1500) 之前，2026-08 从 onComplete 提前，勿回退）**：`GenStep_EnterSpots` 在生成链内铺本图全部邻居方向的点（幂等）；onComplete 只剩 originMap 防御性补铺 + `RefreshEnterSpotArrivals`（依赖邻居表 offset，必须在登记后）。提前的硬理由：Fog 的 `UnfogMapFromEdge` fallback 三级候选都要过 `CanReachMapEdge`/`TryFindRandomEdgeCellWith`，这些 patch 以 `HasSeamEdge`（listerThings 传送点实况）为门——点在 onComplete 才铺时 Fog 在生成期走原版方形边缘语义，裁切图（方形边缘全 void）上 `District.TouchesMapEdge` 恒 false → 三级候选结构性全败 → 零揭雾、**整图全雾**（2026-08 偶发全雾 bug 成因之一）。铺在 1490 而非 392：400-1490 期间保持 patch 未生效（与旧序一致）零回归，Plants/Animals 生成时传送圈格上无 thing。道路 patch(390) 仍不能用 `SeamlessEdgeCells`（1490 > 390，纯几何算锚点不变）。
 - **offset = 连续边中点对齐**：`offset = round(midSource − midNew)`，两端各用自己多边形上共享边的连续边中点，渲染平移后两端连续边中点精确重合（浮点级），无收缩。**旧镜像假设公式（round(2·(midA−centerA) − SeamOverlap·unit)，只用源端几何）有系统性 ±1 格渲染错位，勿回退**——同一条世界共享边在两图投影的内切距不等（顶点方向角间隔差 1° ≈ 内切距差 ~1 格；2026-08 实测聚焦 C 时接缝带内偏一格，赤道正北侧同样复现）。取整残差 ≤1 格/分量由 3 圈接缝带吸收。公式天然对称（round(−x)=−round(x)），任一端算等值。旧常量 `SeamOverlap` 改名 `RoadAnchorInset`（值 2，仅剩道路锚点内偏语义）。
 - ~~防反弹：pawn 级锁~~ **已删除（阶段5 改传送许可登记制，无许可不传 + 撤离链 VisitedTiles 防回弹；锁的"站在任一传送点保持"语义会卡死沿相邻边带内行走的撤离者）**。事件驱动传送检测保留但**必须用 Prefix + `pather.nextCell`（即将进入的格），不能用 Postfix**——历史教训（勿回退）：进入终点格时原方法体内部同步跑 `PatherArrived → job 完成 → think tree 发新 job（Wait_Combat 等）→ StartJob 钩子清掉传送许可`，Postfix 永远晚于这条链，终点格传送永不触发（实测 Bridge issued 后紧跟 "Grant cleared by Wait_Combat"）；Prefix 还抢先于撤离 job 到达 toil 的原生 TryExitMap（对端已加载时撤离者应传送而非原生离场）。传送后 Prefix 以 **Map 前后变化**判定跳过原方法体（教训勿回退：不能用 `pawn.Spawned` 判定——传送后 pawn 在新图上仍 Spawned，旧图 path/nextCell 状态跑方法体必然错乱，实测每次传送当 tick NRE 于 `TryEnterNextPathCell`）。`TryTransferPawn` **不校验 pawn 与 spot 的格距**（教训勿回退：原版 pather 的 `SetupMoveIntoNextCell` 节点去重双消费 + 路径重建可合法产生"nextCell 距 pawn ≥2 格"的调用，曼哈顿 ≤1 校验会误拒；不变量由调用方保证——触发器在 nextCell 上找到该 spot 即"正在进入"），坐标映射只依赖 spot。
 
@@ -89,6 +90,9 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `SeamlessBorderLookup`（MapComponent）：边界带速查表 `Dictionary<IntVec3,int>`，O(1) 查询。
 - `SeamlessBorderPreloader`/`SeamlessTilePreloader`：异步队列，下一 tick 消费。
 - **分帧增量生成**（`IncrementalMapGenerator`）：主线程每帧跑 1+ genStep，不暂停 tick、无进度画面。generating map 被 `Patches_IncrementalMapGen` patch 跳过 MapPreTick/MapPostTick/MapUpdate。纯 Thread/拆分式异步/LongEventHandler 均不可行（Rand/MapGenerator static 非 ThreadStatic + AddMap/genSteps/FinalizeInit 时序依赖）。
+- **Start 必须重置 `MapGenerator.PlayerStartSpot = Invalid` + `rootsToUnfog.Clear()`（2026-08 教训，勿删）**：这俩是进程级 static 且 `ClearWorkingData` 不动它们（原版 `GenerateMap` 开头显式重置，MapGenerator.cs:83-85）。不重置则上一张图的坐标残留：`GenStep_FindPlayerStartSpot(850)` 的"已设跳过"守卫跳过本图选址，`GenStep_Fog(1500)` 用**他图坐标**揭雾——坐标落 MakeFog 建筑且 5 格内无无顶可站格时 `StandableCellNear` 返回 Invalid → 零揭雾 → 整图全雾（2026-08 偶发全雾成因之二）；`rootsToUnfog` 残留则本图按他图坐标乱揭。
+- **392 末预设 PlayerStartSpot（2026-08，勿删）**：选址 validator（CellFinderLoose.TryFindCentralCell）含 `district.TouchesMapEdge`——**直读 District 属性、不经 CanReachMapEdge patch**，裁切图上恒 false → 选址必然 1000 次采样全拒走 fallback（每图一条红字 "Found no good central spot" + 随机格）。392 末（pathGrid 刷新后，StandableCellNear 读缓存）在"已裁切实况判定（四角格是 void）+ 未设守卫"下预设六边形中心附近无顶可站格——原版"上游已设则跳过选址"守卫（GenStep_Labyrinth 设 Zero 同款先例）消红字、揭雾根确定。锚点图同链受益：出生点从 fallback 随机格变为中心格（用户定夺 2026-08）。揭雾全链：392 预设（主）→ 850 fallback 随机格（预设失败兜底）→ UnfogMapFromEdge（invalid 时，1490 铺点后接缝语义可成功）。
+- **已知范围外缺口（2026-08 记录，未修）**：①增量分帧与原生 `MapGenerator.GenerateMap` 可交错插入（无双向互斥）——原生开头会 reset `playerStartSpotInt`/清 `data` 字典/RockNoises，进行中增量图的后续 genStep 读 data NRE 被 `RunOneGenStep` catch 吞掉（地图质量 bug，症状不止 fog；上述重置+预设+铺点已把 fog 症状兜住）。②`IncrementalMapGenerator.Start` 内层 catch（AddStartingAreas/StartInitialWeather 失败）不清静态 `current` → `IsAnyGenerating` 永真、后续生成全拒；静态 `current` 读档不清理（换档后驱动旧对象）。
 
 ### 接缝覆写卷积混合（阶段4 连续地形；3 圈接缝带重构 2026-08，权威定义 = `doc/接缝带定义.md`）
 - 各地块正常用原版噪声独立生成，只在接缝带 B ∪ 过渡带 T 做 terrainDef 混合（**T 数据驱动**：邻居外条带 snapshot 投影覆盖处即过渡带，深至 `SeamTransitionWidth=7`，与外条带数据深度一致——固定窄过渡带会在覆盖区中部截断：A 侧数据还在、C 侧却不混合，2026-08 用户纠正）。**混合范围 = C 自己的带格显式枚举**（旧"从 A 全图 snapshot 枚举候选（cCell=aCell+offset 落 C 六边形内）"已废弃——A 方形角落格绕六边形顶点投影进 C 侧向楔形区的污染（实测数据点 A(249,249)→C(59,146)）结构性消失：只枚举 C 带格，每格反向找邻居参考）。
@@ -98,7 +102,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - **多邻居仲裁**（顶点楔形区）：各参考按 w 加权合成，Σw ≥ 1 时 self 权重 0——替代旧"串行后写者胜"。卷积：self 用 C 当前 topGrid 3×3（越界 clamp），neighbor 用快照稀疏字典 3×3（缺格跳过，水跳过）；N 路加权 → 众数（平局 defName 稳定决胜）。
 - **保护判据：只有道路，无地形例外（用户定夺 2026-08，勿回退）**：SeamOverride 只做三件事——按卷积权重覆盖、随机化边缘（dither）、道路修复。①本格 `IsRoad`/`bridge` → 跳过；②`SeamlessRoadPaths`（`GenStep_Roads.Generate` Postfix 快照 static paths 到 MapComponent，防分帧增量生成下被其他地图清空）±3 格切比雪夫缓冲兜底 Gravel 等无 Road tag 路面。**水体/沼泽等一切地形照常参与混合与直接拷贝**——对端是水体本端就是水体（参考位置由中点对齐保证精确；不能走 pawn 自然绕路；河/海走廊位置由 river patch 权威对齐，SeamOverride 管逐格地形一致，互补）。历史的水体例外（本格 IsWater 跳过、卷积跳水）是旧 offset ±2 格系统误差的补丁，中点对齐后不成立（还曾因 `HasTag("Water")` 前缀匹配误伤 Marsh 造成接缝断裂）。判据用生成期权威数据而非局部模式识别。不做 A 侧结构继承。
 - Perlin dither 只作用衰减区（乘性 `w×(1+n·amp)`，端点 0/1 不动）——完全一致区保持字面一致。旧 `seamOverrideWeightCap` 设置已删（w=1 直接拷贝 + 衰减公式自带上限，无消费者）。
-- GenStep 顺序：`CoastalEdgeFill(230)` → `SeamlessTile(391, 备份snapshot+铺void+pathGrid刷新)` → `SeamOverride(392, 混合+捕获条带快照+pathGrid刷新)` → `Fog(1500, 据最终地形揭雾)`。2026-08 从 1400/1410 提前（理由与残余风险见"六边形裁切与 void"节及 `doc/地图生成步骤.md` 反转节）。
+- GenStep 顺序：`CoastalEdgeFill(230)` → `SeamlessTile(391, 备份snapshot+铺void+pathGrid刷新)` → `SeamOverride(392, 混合+捕获条带快照+pathGrid刷新+预设PlayerStartSpot)` → `EnterSpots(1490, 铺传送点)` → `Fog(1500, 揭雾)`. 2026-08 从 1400/1410 提前（理由与残余风险见"六边形裁切与 void"节及 `doc/地图生成步骤.md` 反转节）；1490/392 预设/Start 重置的 fog 全链成因与勿回退要点见"传送机制"与"邻居预加载与异步加载"节。
 - 历史（勿回退参考）：旧 dSq/(dSq+dHex) 逐格局部归一权重（wCap=0.9）连同候选枚举方案一起废弃；更早的"全图 void 最大深度"/"候选集 maxDepth"全局归一被角落格污染的教训仍有效——新架构不再有全局统计量。连续 Perlin 全局对齐方案已废弃（elevation 被组合器包裹无法叶子层对齐），代码在 `continuous-perlin` 分支。
 
 ### 道路与河流接缝对齐（阶段4 连续地形）
@@ -114,7 +118,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 ### 建筑选址避开六边形边（阶段4b）
 - **问题**：原版建筑选址全按方形边界收缩（如 `GenStep_Settlement.CanScatterAt` 的 `BoundsRect(12)`），不感知六边形（边中点距方形边 ~17 格）→ 建筑锚点跨六边形边 → order 391 铺 void 时被切半。
 - **三个 patch**（`Patches_BuildingPlacement.cs`，覆盖全部选址根原语）：①Prefix `GenStep_Scatterer.CanScatterAt`（protected virtual，字符串声明特性；子类 base 调用命中）——锚点六边形外或距边 <20 格（=最大建筑半宽 19+1，Settlement 38×38）拒绝，上层 1000 次重试消化（安全区约占方形 55-60%）。②Postfix `MapGenUtility.GetClearRects`——过滤四角+边中点距边 <10 格或六边形外的矩形（清晰矩形路：Outpost/AncientComplex/Gravcore/SurveySite/Harbor 等；Burst 内核不可 patch，此托管入口是唯一可行点）。③Postfix `CellFinder.RandomNotEdgeCell`——采样六边形外 → Invalid（FindPlayerStartSpot tightness 降级兜底 + 运行时 CompDeepScanner/incident）。
-- 几何判定用 `BuildPolygonVertices` 纯几何（不读地形实况、与 void 铺设时机无关——2026-08 起 void(391) 虽先于选址铺好，几何判定与其等价），勿用 `HasSeamEdge`（运行时传送点入口，传送点在整条 genStep 链之后才铺、生成期恒 false）。
+- 几何判定用 `BuildPolygonVertices` 纯几何（不读地形实况、与 void 铺设时机无关——2026-08 起 void(391) 虽先于选址铺好，几何判定与其等价），勿用 `HasSeamEdge`（传送点 1490 才铺，400-970 的选址期恒 false）。
 - 残余缺口（接受）：`GetOutpostRect` 贴附矩形、`GenerateLandingPadNearby`——锚点已安全后溢出概率低，观察（2026-08 void 提前后这些缺口处地板可盖住混合带结果，旧序相反，见 `doc/地图生成步骤.md` 反转节观察项）。
 
 ### void 渲染与邻居背景（`SeamlessTileRenderer`）
@@ -149,6 +153,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 ## 当前待办（2026-08 接缝带重构后盘点）
 
 **临时（本轮重构的观察项/回归项，游戏内验证进行中）**：
+- **偶发全雾修复回归（2026-08，本轮）**：连续生成/预加载多张邻居图不再出现全雾图（void 背景中邻图可见）；日志无 "Found no good central spot" 红字（开档锚点图 + 每张地块图）；传送点提前到 1490 后传送触发/预加载排除（IsSeamEdgeCell）/exit grid/袭击入口行为无回归；MutatorFinal(1600)/威胁步骤在传送点已铺状态下正常；锚点图出生点=中心附近（行为变化，用户已接受）。
 - **genStep 提前回归（2026-08 新增，void/混合 1400/1410→391/392）**：动物不落 void（本轮修复主目标）、动物密度正常、接缝混合/岩色/屋顶跨缝一致、Settlement/site 布局正常、Fog(1500) 揭雾、manhunter/mech 任务图 pawn 不落 void、生成耗时无感（两次全图 pathGrid 重算）。
 - **genStep 提前新增观察项（2026-08）**：Harbor 桥跨缝行为（外条带快照不再含 400-1400 地形写入）、污染地块接缝两侧污染变体一致性、`completelyIgnoreFertility` 植物是否漏进 void（肥力门对它们无效，新序无事后清理）、贴附矩形/降落平台残余缺口处"地板盖混合"（旧序相反）、MapPreview 预览链 order 变化。
 - 重开档全面回归：渲染对齐（聚焦 C 看 A 背景无系统内偏）、跨缝三层一致（地形/岩体/屋顶，含岩色与岩顶）、传送往返落点、读档后生成新图接缝混合仍工作、道路（锚点已改贴 void 边界）、河流接缝、撤离链/追击/跟随。

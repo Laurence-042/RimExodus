@@ -338,8 +338,11 @@ namespace RimExodus
                     // 不刷新 originMapCapture 的 void——锚点 map 的 void 在 TrySetupOnStart 时已铺好，
                     // void 只看自己的多边形（不因邻居关系变化而变）。每次生成邻居都 RefreshMapVoid(锚点)
                     // 会重新清锚点 void 格上玩家游戏期间生长的植物/掉落物（耗时 12-23 秒）。
+                    // interiorMap 自己的传送点由 GenStep_EnterSpots(1490) 在生成链内、Fog(1500) 之前铺
+                    // （Fog 的 UnfogMapFromEdge fallback 依赖接缝语义 patch 在生成期生效，详见该 genStep
+                    // 注释），此处不再重复；originMap 生成期 1490 已铺过全部邻居方向的点，此处补铺
+                    // 纯防御（幂等）。
                     SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(originMapCapture, sourceWorldTileCapture);
-                    SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(interiorMap, newWorldTile);
                     SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(originMapCapture);
                     SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(interiorMap);
                     AutoConnectWorldNeighbors(interiorMap, newWorldTile);
