@@ -1,3 +1,0 @@
-优化地图加载提示，或者优化加载
-
-SeamOverride似乎遗漏了 压埋的钢铁 之类的非岩石building，需要对应'snapshot层
