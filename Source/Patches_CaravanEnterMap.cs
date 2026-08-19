@@ -26,6 +26,9 @@ namespace RimExodus
             CaravanDropInventoryMode dropInventoryMode, bool draftColonists,
             System.Predicate<IntVec3> extraCellValidator)
         {
+            // 远行队进图 = 源集合变化（caravan 消耗、pawn 落图）：请求 governor 尽快重算距离。
+            SeamlessDormancyGovernor.RequestSweepSoonStatic();
+
             // 对所有有 RimExodus 传送点的地图生效（含锚点 A）；其他地图放行原方法。
             if (!SeamlessExitSpotFinder.HasRimExodusEnterSpots(map)) return true;
 
@@ -57,6 +60,20 @@ namespace RimExodus
                 if (spot.Position.Standable(targetMap)) return spot.Position;
             }
             return IntVec3.Invalid;
+        }
+    }
+
+    /// <summary>
+    /// 远行队组队完成离图（2026-08）：原版在远行队成立时调 parent 的 Notify_CaravanFormed——
+    /// 源图可能就此失去全部玩家 pawn，请求 governor 尽快重算距离（下一安全 tick，
+    /// 不在回调里直接睡/删图，见 SeamlessDormancyGovernor.RequestSweepSoon 的时序约束注释）。
+    /// </summary>
+    [HarmonyPatch(typeof(MapParent), nameof(MapParent.Notify_CaravanFormed))]
+    static class Patch_MapParent_NotifyCaravanFormed
+    {
+        static void Postfix()
+        {
+            SeamlessDormancyGovernor.RequestSweepSoonStatic();
         }
     }
 }

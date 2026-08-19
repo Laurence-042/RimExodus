@@ -8,8 +8,11 @@ namespace RimExodus
     /// <summary>
     /// 地图滚动休眠调度器（用户定夺 2026-08）。
     ///
-    /// 【距离策略】源 = 所有玩家阵营 spawned pawn 所在图的 tile（含锚点图——玩家在家时家园即源）。
-    /// 世界网格 BFS 跳数（GetTileNeighbors，纯拓扑、不依赖图加载状态）：
+        /// 【距离策略】源 = 所有玩家阵营 spawned pawn 所在图的 tile（含锚点图——玩家在家时家园即源）
+        /// ∪ 玩家阵营远行队所在 tile（2026-08：用户原则"距离对全部 pawn 成立"——远行队里的 pawn
+        /// 也在世界网格上占一个 tile）。世界网格 BFS 跳数（GetTileNeighbors，纯拓扑、不依赖图加载
+        /// 状态）；每轮现算、无维护状态——源每刻在动（pawn 跨缝 / caravan 逐 tile 移动），任何预算好
+        /// 的距离表写完即过期，实时查询不可能脏：
     /// - 图上有玩家 pawn → 永不休眠、永不删除（保护判据，"仅玩家 pawn 保护"——玩家踏入即距离 0，
     ///   天然满足"相邻图不休眠防跨图躲追击"）；
     /// - 距离 &lt; sleepHops（默认 2）→ 活跃（距离 0/1）；
@@ -51,6 +54,23 @@ namespace RimExodus
             Sweep();
         }
 
+        /// <summary>
+        /// 请求尽快扫描（事件触发入口，2026-08）：pawn 跨缝传送完成 / 远行队组队离图 / 远行队进图
+        /// 三类 pawn 变动把休眠决策提前到即时（600 ticks 周期保留兜底——远行队逐 tile 移动靠周期采样）。
+        /// 刻意只置零计数器、不在事件回调里直接 Sweep：Sleep 要摘全局 tick 表，落在 thing tick 遍历
+        /// 中途不安全（doc/地图滚动休眠.md 2.1 时序约束），GameComponentTick 是安全执行点。
+        /// </summary>
+        public void RequestSweepSoon()
+        {
+            nextSweepTick = 0;
+        }
+
+        /// <summary>静态便捷入口（事件处调用；无实例时静默跳过）。</summary>
+        public static void RequestSweepSoonStatic()
+        {
+            Current.Game?.GetComponent<SeamlessDormancyGovernor>()?.RequestSweepSoon();
+        }
+
         private void Sweep()
         {
             if (Find.WorldGrid == null || Faction.OfPlayerSilentFail == null) return;
@@ -79,6 +99,22 @@ namespace RimExodus
                     }
                 }
             }
+
+            // 远行队也是源（2026-08）：玩家阵营 caravan 的 tile 并入（实时查询——caravan 每刻移动，
+            // 事件登记必滞后）。修复"全员远行 → 源空"的结构性炸弹：源空时下方 BFS 距离表恒空，
+            // 所有管辖图落进 d=MaxValue≥deleteHops 的删除分支，只有 CurrentMap/锚点靠保活幸存（纯运气）。
+            var caravans = Find.WorldObjects.Caravans;
+            for (var i = 0; i < caravans.Count; i++)
+            {
+                if (caravans[i].Faction == Faction.OfPlayer)
+                {
+                    sources.Add(caravans[i].Tile.tileId);
+                }
+            }
+
+            // 空源守卫（勿删）：无任何玩家 pawn（全员死亡等异常态）本轮不睡不删——
+            // 与其按"无穷远"处理不如保守跳过，状态由源恢复后的下轮扫描收敛。
+            if (sources.Count == 0) return;
 
             // 世界网格 BFS：源出发的跳数表（纯拓扑——路径可以穿过任何图，与加载状态无关）。
             var dist = new Dictionary<int, int>();

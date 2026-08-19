@@ -381,7 +381,7 @@ namespace RimExodus
         /// 遍历 map 对应 worldTile 的世界邻居列表，对每个已加载（TryGetMapByWorldTile 命中）但尚未与 map 建立直接邻居关系的地图，
         /// 调 EnsureNeighborRegistered 补登记。使新地块加载时自动与所有相邻的已加载地块连接（渲染/寻路即用）。
         /// </summary>
-        private static void AutoConnectWorldNeighbors(Map map, int worldTile)
+        internal static void AutoConnectWorldNeighbors(Map map, int worldTile)
         {
             if (map == null || worldTile < 0) return;
             var worldNeighbors = new List<PlanetTile>();

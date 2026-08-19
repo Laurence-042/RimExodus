@@ -135,6 +135,8 @@ namespace RimExodus
                 Find.Selector.Select(pawn, playSound: false, forceDesignatorDeselect: false);
             }
             SeamlessTransferGrants.NotifyPawnTransferred(pawn, departureMap, departureSpot, arrivalMap, grant);
+            // 源集合变化（离图端可能失去最后一个玩家 pawn）：请求 governor 尽快重算距离。
+            SeamlessDormancyGovernor.RequestSweepSoonStatic();
         }
     }
 }
