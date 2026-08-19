@@ -174,7 +174,11 @@ namespace RimExodus
             // 全图重算与 FinalizeInit(Map.cs:804) 同款（生成期无脏位模式，真实重算），一次性成本；
             // 当年规避的 5.7 秒是 DoTerrainChangedEffects 全副作用路径（waterBodyTracker/逐格植物销毁），
             // 与这一条重算调用无关。
-            map.pathing.RecalculateAllPerceivedPathCosts();
+            // MapPreview 预览图例外（2026-08）：预览图的 Map 组件被 MapPreview 裁剪（FillComponents
+            // transpiler 过滤，Reachability 不在白名单 → null），刷新在 NotifyCellDirtied 第一行
+            // NRE；预览不消费 pathGrid，跳过（见 SeamlessMapPreviewCompat）。
+            if (!SeamlessMapPreviewCompat.IsGeneratingPreviewOnCurrentThread)
+                map.pathing.RecalculateAllPerceivedPathCosts();
 
             // 纯防御：清除生成在虚空格上的 Pawn。order=391 时图上正常无 pawn（Settlement 400+/ScenParts 875+
             // 都在本步之后），保留兜底以防 mod 化 genStep 等异常来源；pathGrid 已在上一步刷新，判定可靠。

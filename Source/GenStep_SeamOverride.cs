@@ -34,6 +34,14 @@ namespace RimExodus
             if (worldTile < 0) return;
 
             SeamlessSeamOverride.ApplyOneWay(map, worldTile);
+
+            // MapPreview 预览（后台线程，2026-08）：本步之后的三个动作都是真实图专用——
+            // ①条带快照存 WorldObject/锚点组件（预览图 parent null，捕获即白干）；
+            // ②pathGrid 刷新在预览图上 NRE（组件被 MapPreview 裁剪，见 SeamlessMapPreviewCompat）；
+            // ③预设 PlayerStartSpot 写进程级 static，预览线程写会与主线程竞态。
+            // 混合本身（ApplyOneWay，上方）保留——预览要显示接缝混合后的地形。
+            if (SeamlessMapPreviewCompat.IsGeneratingPreviewOnCurrentThread) return;
+
             SeamStripData.CaptureAndStore(map, worldTile);
 
             // 混合同样直写 topGrid（SeamlessSeamOverride 写地形只打 mesh 脏标记），带格地形变更

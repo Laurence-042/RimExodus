@@ -33,6 +33,10 @@ namespace RimExodus
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
             if (worldTile < 0) return;
 
+            // MapPreview 预览（后台线程）不铺点：预览不消费传送点（def 未加 includeInPreviews，
+            // 此处为双保险——真跑也只是浪费，GenSpawn 在预览图上行为未验证）。
+            if (SeamlessMapPreviewCompat.IsGeneratingPreviewOnCurrentThread) return;
+
             SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(map, worldTile);
         }
     }
