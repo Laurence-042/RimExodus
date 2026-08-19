@@ -7,7 +7,7 @@ namespace RimExodus
 {
     /// <summary>
     /// 接缝条带快照：一张地图"接缝带 B ∪ 过渡带 T ∪ 接缝带外条带"区域的定格地形、建筑、屋顶记录。
-    /// **平行三层**：terrain 层（TerrainDef）、building 层（岩石体 BuildingDef，null=无）、
+    /// **平行三层**：terrain 层（TerrainDef）、building 层（岩石体 BuildingDef=自然岩石+矿石，null=无）、
     /// roof 层（RoofDef，null=无）——三层同点位、同来源、同生命周期，消费方对三层做同样的
     /// 查询（无单层特判）。
     ///
@@ -38,7 +38,7 @@ namespace RimExodus
         /// <summary>terrain 层：与 cells 一一对应（B∪T 格=最终值；外条带格=原生值）。</summary>
         public List<TerrainDef> terrains;
 
-        /// <summary>building 层：与 cells 一一对应的岩石体 BuildingDef（null=无岩体）。跨缝 spawn 用对端 def——岩色也连续。</summary>
+        /// <summary>building 层：与 cells 一一对应的岩石体 BuildingDef（自然岩石 + 矿石 isResourceRock，null=无）。跨缝 spawn 用对端 def——岩色/矿脉也连续。</summary>
         public List<ThingDef> buildings;
 
         /// <summary>roof 层：与 cells 一一对应的 RoofDef（null=无屋顶）。照抄区屋顶照抄对端——岩壁带原生岩顶（Thick/Thin），不裸顶。</summary>
@@ -50,7 +50,7 @@ namespace RimExodus
         /// <summary>cell → terrain 查询字典（非序列化，重建）。</summary>
         [NonSerialized] public Dictionary<IntVec3, TerrainDef> terrainLookup;
 
-        /// <summary>cell → 岩石 BuildingDef 查询字典（非序列化，重建；无记录 = null）。</summary>
+        /// <summary>cell → 岩石体 BuildingDef 查询字典（非序列化，重建；无记录 = null；岩石体含矿石）。</summary>
         [NonSerialized] public Dictionary<IntVec3, ThingDef> buildingLookup;
 
         /// <summary>cell → RoofDef 查询字典（非序列化，重建；无记录 = null）。</summary>
@@ -178,11 +178,14 @@ namespace RimExodus
                 Log.Message($"[RimExodus] SeamStripData captured: map={map.uniqueID}(wt={worldTile}) cells={cells.Count}");
         }
 
-        /// <summary>格上的岩石体 BuildingDef（edifice 是岩石体则返回其 def，否则 null）。SeamOverride 层委托共用。</summary>
+        /// <summary>格上的岩石体 BuildingDef（自然岩石 + 矿石，edifice 是岩石体则返回其 def，否则 null）。SeamOverride 层委托共用。</summary>
         internal static ThingDef RockDefAt(Map map, IntVec3 c)
         {
+            // 判据必须用 isNaturalRock 而非 naturalTerrain != null：引擎只给 isNaturalRock && !isResourceRock
+            // 的 def 赋 naturalTerrain（TerrainDefGenerator_Stone），矿石（MineableSteel 压埋钢铁等）会被
+            // naturalTerrain 判据漏掉（2026-08 修复）。
             var edifice = c.GetEdifice(map);
-            return edifice != null && edifice.def.building != null && edifice.def.building.naturalTerrain != null
+            return edifice != null && edifice.def.building != null && edifice.def.building.isNaturalRock
                 ? edifice.def
                 : null;
         }

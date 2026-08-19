@@ -55,8 +55,8 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 备份全图建筑层快照（格 → 岩石体 BuildingDef，null=无）。遍历 listerThings 而非逐格
-        /// GetEdifice（岩石数量级几千，远小于全图 62500 格）。
+        /// 备份全图建筑层快照（格 → 岩石体 BuildingDef，自然岩石 + 矿石，null=无）。遍历 listerThings
+        /// 而非逐格 GetEdifice（岩石数量级几千，远小于全图 62500 格）。
         /// </summary>
         private static ThingDef[] BackupBuildingSnapshot(Map map)
         {
@@ -65,7 +65,9 @@ namespace RimExodus
             foreach (var thing in map.listerThings.AllThings)
             {
                 if (thing is not Building b || !thing.Spawned) continue;
-                if (b.def.building == null || b.def.building.naturalTerrain == null) continue;
+                // 判据 isNaturalRock（自然岩石与矿石同 true）；naturalTerrain 只盖非矿石天然岩
+                // （TerrainDefGenerator_Stone 赋值规则），矿石须走 isNaturalRock（2026-08 修复）。
+                if (b.def.building == null || !b.def.building.isNaturalRock) continue;
                 var idx = indices.CellToIndex(thing.Position);
                 if (idx >= 0 && idx < defs.Length) defs[idx] = b.def;
             }

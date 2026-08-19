@@ -634,21 +634,25 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 同步 cell 上的岩石 Building 到**目标 def**（照抄区=单参考 def；卷积区=主导参考 def）：
-        /// rockDef != null 且无岩石 → spawn 该 def（跨缝岩色连续）；
-        /// rockDef == null 且有岩石 → Destroy(Vanish)。
-        /// out action: 1=spawn, -1=destroy, 0=无操作。
+        /// 同步 cell 上的岩石体 Building（自然岩石 + 矿石）到**目标 def**（照抄区=单参考 def；卷积区=主导参考 def）：
+        /// rockDef != null 且无岩体 → spawn 该 def（跨缝岩色/矿脉连续）；
+        /// rockDef == null 且有岩体 → Destroy(Vanish)；
+        /// rockDef != null 且有岩体但 def 不同 → 替换（Destroy(Vanish)+spawn）——矿 lump 边界两侧
+        /// def 必不同，不替换则跨缝"铁矿紧邻花岗岩"断裂残留（2026-08 修复；自然岩岩色跨缝替换同受益）。
+        /// out action: 1=spawn, -1=destroy, 2=replace, 0=无操作。
         /// </summary>
         private static void SyncRockBuildingTo(Map map, IntVec3 cell, ThingDef rockDef, out int action)
         {
             action = 0;
             var existing = cell.GetEdifice(map);
-            var hasRockBuilding = existing != null && existing.def.building != null && existing.def.building.naturalTerrain != null;
+            // 判据 isNaturalRock（自然岩石与矿石同 true）；naturalTerrain 只盖非矿石天然岩
+            // （TerrainDefGenerator_Stone 赋值规则），矿石须走 isNaturalRock（2026-08 修复）。
+            var hasRockBuilding = existing != null && existing.def.building != null && existing.def.building.isNaturalRock;
 
             if (rockDef != null && !hasRockBuilding)
             {
-                // 需要岩石但无岩石 Building → spawn。
-                // 只在无 edifice 的格 spawn（避免覆盖已存在的非岩石 edifice）。
+                // 需要岩体但无岩体 Building → spawn。
+                // 只在无 edifice 的格 spawn（避免覆盖已存在的非岩体 edifice）。
                 if (existing == null)
                 {
                     GenSpawn.Spawn(rockDef, cell, map);
@@ -657,9 +661,17 @@ namespace RimExodus
             }
             else if (rockDef == null && hasRockBuilding)
             {
-                // 不需要岩石但有岩石 Building → 清除（Vanish 无掉落）。
+                // 不需要岩体但有岩体 Building → 清除（Vanish 无掉落）。
                 existing.Destroy(DestroyMode.Vanish);
                 action = -1;
+            }
+            else if (rockDef != null && existing.def != rockDef)
+            {
+                // 两侧都有岩体但 def 不同 → 替换（Vanish 无掉落、不吐矿；392 时点 C 图 edifice 只有
+                // RocksFromGrid 产物，无覆盖后续建筑的风险）。
+                existing.Destroy(DestroyMode.Vanish);
+                GenSpawn.Spawn(rockDef, cell, map);
+                action = 2;
             }
         }
 
