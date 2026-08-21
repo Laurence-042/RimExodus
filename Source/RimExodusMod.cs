@@ -25,6 +25,21 @@ namespace RimExodus
             var harmony = new Harmony("RimExodus.SeamlessWorld");
             harmony.PatchAll();
 
+            // 绑定核对（2026-08，配合离线验证器甄别 CLR 伪迹 vs 死代码）：GetPatchedMethods 列出
+            // 本 harmony 实例实际绑定的方法（真实 Mono 运行时结果，不受离线 CLR 伪迹影响）。
+            // 离线验证器的 9 个伪迹失败 patch（GetClearRects/SelectInternal/SetTerrain/MapPreTick·MapUpdate/
+            // RecalculateAllPerceivedPathCosts/SkyManagerUpdate）若不在此列 = 游戏内也没绑上 = 真死代码。
+            var patchedCount = 0;
+            var verbose = Settings?.verboseLogging ?? false;
+            foreach (var method in harmony.GetPatchedMethods())
+            {
+                patchedCount++;
+                if (verbose)
+                    Log.Message("[RimExodus]   patched: " + method.DeclaringType?.FullName + "::" + method.Name);
+            }
+            Log.Message($"[RimExodus] Harmony patches applied to {patchedCount} methods"
+                + (verbose ? " (list above)" : " (enable verbose logging for the list)."));
+
             // 显式 patch CellFinder.TryFindRandomEdgeCellWith 的 4 参数重载（out 参数需 MakeByRefType()，
             // [HarmonyPatch] 特性无法声明，故在 PatchAll 之外手动绑定）。
             var target = AccessTools.Method(typeof(CellFinder), nameof(CellFinder.TryFindRandomEdgeCellWith),
@@ -110,6 +125,10 @@ namespace RimExodus
 
             listing.Label($"Dormancy delete hops: {s.dormancyDeleteHops} (tile maps ≥ this many hops get deleted)");
             s.dormancyDeleteHops = (int)listing.Slider(s.dormancyDeleteHops, 3, 8);
+            listing.Gap();
+
+            // 跨图索敌与射击（阶段5）：总开关，false 时战斗语义回到原版。
+            listing.CheckboxLabeled("Cross-map targeting & shooting", ref s.crossMapCombatEnabled);
 
             listing.End();
         }

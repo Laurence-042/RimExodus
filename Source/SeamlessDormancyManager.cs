@@ -94,11 +94,15 @@ namespace RimExodus
         /// <summary>
         /// 按 worldTile 唤醒休眠图（边界预加载带/生成守卫用）：WorldObject 在且带休眠 Map 则唤醒。
         /// 返回 false = 该 tile 无图或图本就活跃（调用方据此走"入队生成"路径）。
+        /// 类型通用化（2026-08，勿回退为 as MapParent_SeamlessTile）：认任意 MapParent——家园
+        /// 锚点图的原生 parent 不是 SeamlessTile，按 SeamlessTile 转型会让本查询对它失明（false），
+        /// 边界带命中即入队生成，撞上生成守卫的同款类型盲就会造出重复家园图（"没有特殊地图"铁律：
+        /// 守卫不得按 parent 类型区分处理）。
         /// </summary>
         public static bool TryWakeByWorldTile(int worldTile, string reason)
         {
             if (worldTile < 0 || Find.World == null) return false;
-            var parent = Find.World.worldObjects.MapParentAt(new RimWorld.Planet.PlanetTile(worldTile)) as MapParent_SeamlessTile;
+            var parent = Find.World.worldObjects.MapParentAt(new RimWorld.Planet.PlanetTile(worldTile));
             var map = parent?.Map;
             if (map == null || map.Disposed) return false;
             if (!IsDormant(map)) return false;

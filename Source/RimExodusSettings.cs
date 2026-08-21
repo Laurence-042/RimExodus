@@ -67,6 +67,12 @@ namespace RimExodus
         /// </summary>
         public int dormancyDeleteHops = 3;
 
+        /// <summary>
+        /// 跨图索敌与射击（阶段5）：跨缝 LOS/目标搜索/射击线/弹道交接的总开关。
+        /// false 时一切战斗语义回到原版（跨图目标不可射、邻图敌人不可见）。便于 A/B 回归。
+        /// </summary>
+        public bool crossMapCombatEnabled = true;
+
         public override void ExposeData()
         {
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
@@ -80,6 +86,7 @@ namespace RimExodus
             Scribe_Values.Look(ref dormancyEnabled, "dormancyEnabled", true);
             Scribe_Values.Look(ref dormancySleepHops, "dormancySleepHops", 2);
             Scribe_Values.Look(ref dormancyDeleteHops, "dormancyDeleteHops", 3);
+            Scribe_Values.Look(ref crossMapCombatEnabled, "crossMapCombatEnabled", true);
             base.ExposeData();
         }
     }

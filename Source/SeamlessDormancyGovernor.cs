@@ -47,7 +47,6 @@ namespace RimExodus
             // GameComponent 恒 tick，与一切地图的活跃状态解耦。
             SeamlessSelectionTracker.PurgeInvalid();
             SeamlessTransferGrants.TickSweep();
-            SeamlessCrossMapOrders.PurgeInvalid();
 
             if (Find.TickManager.TicksGame < nextSweepTick) return;
             nextSweepTick = Find.TickManager.TicksGame + SweepIntervalTicks;

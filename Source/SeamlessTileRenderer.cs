@@ -105,6 +105,7 @@ namespace RimExodus
             {
                 CollectNeighborLayers(neighbor.map, neighbor.offset, neighbor.offset.ToVector3(), hostViewRect);
                 DrawNeighborPawns(neighbor.map, neighbor.offset.ToVector3(), hostViewRect);
+                DrawNeighborProjectiles(neighbor.map, neighbor.offset.ToVector3(), hostViewRect);
             }
 
             if (drawCommands.Count == 0)
@@ -149,6 +150,37 @@ namespace RimExodus
                 catch (Exception ex)
                 {
                     Log.ErrorOnce($"[RimExodus] Failed to draw seamless neighbor pawn {pawn}: {ex}", pawn.thingIDNumber ^ 0x5eaf00d);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 邻居地图上的弹丸（阶段5 跨缝交接的对侧段 / 邻图射手发射的本侧段）同样不会被
+        /// 当前地图绘制——与 DrawNeighborPawns 同法：DrawPos + offset 平移后立即绘制。
+        /// 交接瞬间两侧绘制坐标一致（统一坐标连续），视觉无跳变。
+        /// 弹丸列表来自 listerThings 的 ThingRequestGroup.Projectile 缓存（零分配迭代）。
+        /// </summary>
+        private static void DrawNeighborProjectiles(Map neighborMap, Vector3 offset, CellRect hostViewRect)
+        {
+            var projectiles = neighborMap.listerThings.ThingsInGroup(ThingRequestGroup.Projectile);
+            for (var i = 0; i < projectiles.Count; i++)
+            {
+                var thing = projectiles[i];
+                if (thing.Destroyed) continue;
+                try
+                {
+                    var drawPos = thing.DrawPos + offset;
+                    if (!hostViewRect.Contains(new IntVec3(
+                            Mathf.FloorToInt(drawPos.x), 0, Mathf.FloorToInt(drawPos.z))))
+                    {
+                        continue;
+                    }
+
+                    thing.DrawNowAt(drawPos);
+                }
+                catch (Exception ex)
+                {
+                    Log.ErrorOnce($"[RimExodus] Failed to draw seamless neighbor projectile {thing}: {ex}", thing.thingIDNumber ^ 0x5eaf01);
                 }
             }
         }

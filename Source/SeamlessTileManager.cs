@@ -262,28 +262,42 @@ namespace RimExodus
                 return null;
             }
 
-            // 休眠守卫（2026-08 软休眠，勿删）：TryGetMapByWorldTile 已被休眠口径过滤，查不到休眠图；
-            // 但休眠图的 Map 和 WorldObject 都还在（软休眠不卸载）——若不在此拦截，下面
-            // MakeWorldObject 会造出同 tile 的第二个 parent（邻居表分裂、存档脏数据）。
-            // 唤醒是同步轻量操作，直接唤醒并补登记邻居即可。
-            var dormantParent = Find.World.worldObjects.MapParentAt(new PlanetTile(newWorldTile)) as MapParent_SeamlessTile;
-            if (dormantParent != null)
+            // 休眠/占位守卫（2026-08 软休眠 + 同日类型通用化，勿删）：TryGetMapByWorldTile 已被
+            // 休眠口径过滤，查不到休眠图；但休眠图的 Map 和 WorldObject 都还在（软休眠不卸载）——
+            // 若不在此拦截，下面 MakeWorldObject 会造出同 tile 的第二个 parent（邻居表分裂、存档脏数据）。
+            // 类型通用化（勿回退为 as MapParent_SeamlessTile）：家园锚点图的原生 parent 不是
+            // SeamlessTile，旧转型令守卫失明——家园休眠时预加载家园 tile 会走完整生成链造出
+            // 重复家园图（2026-08 实测，"没有特殊地图"铁律）。现认任意 MapParent：
+            // 有活 Map（休眠图）→ 唤醒 + 补登记，不生成；MapParent_SeamlessTile 无 Map（历史
+            // RemoveTileMap 残留孤儿）→ 销毁后继续生成（原防御）；其他 parent 无 Map（原版
+            // 定居点等占位）→ tile 已被占，不生成也不销毁。
+            var existingParent = Find.World.worldObjects.MapParentAt(new PlanetTile(newWorldTile));
+            if (existingParent != null)
             {
-                var dormantMap = dormantParent.Map;
-                if (dormantMap != null && !dormantMap.Disposed)
+                var liveMap = existingParent.Map;
+                if (liveMap != null && !liveMap.Disposed)
                 {
                     if (RimExodusMod.Settings?.verboseLogging ?? false)
-                        Log.Message($"[RimExodus] World tile {newWorldTile} has a dormant map {dormantMap.uniqueID}, waking instead of generating.");
-                    SeamlessDormancyManager.Wake(dormantMap, "generation guard (dormant parent exists, prevent duplicate WorldObject)");
-                    EnsureNeighborRegistered(map, sourceWorldTile, dormantMap, newWorldTile);
+                        Log.Message($"[RimExodus] World tile {newWorldTile} already has a live map {liveMap.uniqueID} "
+                            + $"(parent {existingParent.def.defName}), waking/skipping instead of generating.");
+                    SeamlessDormancyManager.Wake(liveMap, "generation guard (parent exists, prevent duplicate WorldObject)");
+                    EnsureNeighborRegistered(map, sourceWorldTile, liveMap, newWorldTile);
                     return null;
                 }
-                // WorldObject 在但 Map 不在（软休眠下理论不可达；历史 RemoveTileMap bug 曾残留
-                // 隐形 WorldObject）——防御：销毁残留后继续走生成。
-                if (!dormantParent.Destroyed)
+                if (existingParent is MapParent_SeamlessTile)
                 {
-                    Log.Warning($"[RimExodus] World tile {newWorldTile} has an orphan WorldObject without a map, destroying it before generation.");
-                    dormantParent.Destroy();
+                    // WorldObject 在但 Map 不在（软休眠下理论不可达；历史 RemoveTileMap bug 曾残留
+                    // 隐形 WorldObject）——防御：销毁残留后继续走生成。
+                    if (!existingParent.Destroyed)
+                    {
+                        Log.Warning($"[RimExodus] World tile {newWorldTile} has an orphan WorldObject without a map, destroying it before generation.");
+                        existingParent.Destroy();
+                    }
+                }
+                else
+                {
+                    Log.Warning($"[RimExodus] World tile {newWorldTile} is occupied by {existingParent.def.defName} without a live map, skip generation.");
+                    return null;
                 }
             }
 

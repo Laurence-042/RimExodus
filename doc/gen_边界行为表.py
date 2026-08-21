@@ -149,7 +149,7 @@ SOURCES = [
             "unloaded": ACT_NOTHING,
             "preload": {"spot": "否", "band": "否"},
             "vanilla": "无事",
-            "patch": "新增（需 patch 识别敌方+战斗 job，允许借传送点跨图追击）",
+            "patch": "已实现（2026-08 阶段5：TryRegisterCombatStepTransfer——NPC 战斗体+战斗 job（AttackMelee/AttackStatic/战斗 lord duty 下 Goto）+追击目标在对端图才即席 Pursue 许可；远程追击扫描 MarkPursuers 扩展 AttackStatic（还能跨缝射则原地打））",
         },
     ),
     (

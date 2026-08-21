@@ -6,72 +6,20 @@ using Verse.AI;
 namespace RimExodus
 {
     /// <summary>
-    /// 跨地图移动指令的桥接逻辑。
-    /// 前端（<see cref="Patch_FloatMenuMakerMap_GetOptions"/>）在解析出真正的 Map + 局部坐标后，
-    /// 用 <see cref="RecordPendingTarget"/> 登记"这个 Pawn 下一次 Goto Job 真正想去哪"；
-    /// 后端（<see cref="Patch_Pawn_JobTracker_StartJob"/>）消费这条记录，如果跨图，
-    /// 就把原始 Job 替换成"先走到桥接传送点"的两段式方案。
+    /// 跨地图移动指令的桥接引擎（2026-08 架构重构后 = 纯执行层）：
+    /// 下发入口 = 公共函数层（Patches_CrossMapCommon 的 PawnGotoAction 桥接 / StartPath 跨图
+    /// 包装）与菜单可达性探测（CanBridgeTo）。选项产出全部原生（点击重放，Patches_ClickReplay），
+    /// 本类不再参与菜单生成。
     /// </summary>
     public static class SeamlessCrossMapOrders
     {
-        private readonly struct PendingTarget
-        {
-            public readonly Map Map;
-            public readonly IntVec3 Cell;
-
-            public PendingTarget(Map map, IntVec3 cell)
-            {
-                Map = map;
-                Cell = cell;
-            }
-        }
-
-        private static readonly Dictionary<Pawn, PendingTarget> pendingMenuTargets = new Dictionary<Pawn, PendingTarget>();
-
-        public static void RecordPendingTarget(Pawn pawn, Map map, IntVec3 cell)
-        {
-            if (pawn == null || map == null)
-            {
-                return;
-            }
-
-            pendingMenuTargets[pawn] = new PendingTarget(map, cell);
-        }
-
         /// <summary>
-        /// 在 Pawn_JobTracker.StartJob 之前拦截跨地图 Goto Job。
-        /// 返回 true 表示已经接管（原始 Job 不应再执行）。
+        /// 跨图移动下发：单跳联合最优选点（<see cref="TryFindBestBridgeSpot"/>）+ Bridge 许可
+        /// （绑定 exitSpot + 携带最终目的地）+ TransitTag Goto（踩点凭许可传送，传送后由
+        /// 许可携带的最终目的地/NextJob 续程）。失败 = 本图无任何可达桥接点，调用方据此禁用选项。
+        /// nextJob 非空 = StartPath 跨图包装路径（传送后续跑原 job，玩家点击下令的任意 job 通用）。
         /// </summary>
-        public static bool TryInterceptJob(Pawn pawn, Job newJob)
-        {
-            if (pawn == null || newJob == null || newJob.def != JobDefOf.Goto)
-            {
-                return false;
-            }
-
-            if (!pendingMenuTargets.TryGetValue(pawn, out var pending))
-            {
-                return false;
-            }
-
-            // 无论是否命中桥接条件，都只消费一次，避免过期记录影响后续无关的 Job。
-            pendingMenuTargets.Remove(pawn);
-
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
-                Log.Message($"[RimExodus] TryInterceptJob: consumed pending goto for {pawn.LabelShort} "
-                    + $"(pending map {pending.Map?.uniqueID ?? -1} cell {pending.Cell}, pawn map {pawn.Map?.uniqueID ?? -1}).");
-
-            // 目标地图内部会按可站立格重新选点（不一定等于原始点击格），因此不能按 Cell 精确匹配，
-            // 只要该 Pawn 存在跨地图的待处理点击、且这是紧随其后的一个 Goto 单，就当作同一次指令。
-            if (pending.Map == pawn.Map)
-            {
-                return false;
-            }
-
-            return TryBridgeJob(pawn, pending.Map, pending.Cell);
-        }
-
-        private static bool TryBridgeJob(Pawn pawn, Map targetMap, IntVec3 targetLocalCell)
+        internal static bool TryBridgeJob(Pawn pawn, Map targetMap, IntVec3 targetLocalCell, Job nextJob = null)
         {
             if (!TryFindBestBridgeSpot(pawn, targetMap, targetLocalCell, out var exitSpot, out var costDebug))
             {
@@ -80,13 +28,11 @@ namespace RimExodus
                 return false;
             }
 
-            // 阶段5：桥接登记为 Bridge 传送许可（绑定 exitSpot + 携带最终目的地，吸收原
-            // SeamlessCrossMapPendingDestinations），下发的 Goto 用 TransitTag 自标识为许可驱动 job。
-            // 踩点时凭许可传送（无许可不传），传送消费后由许可携带的最终目的地续程。
             var grant = SeamlessTransferGrants.Create(pawn, SeamlessTransferGrants.GrantKind.Bridge);
             grant.BoundSpot = exitSpot.Position;
             grant.FinalDestMap = targetMap;
             grant.FinalDestCell = targetLocalCell;
+            grant.NextJob = nextJob;
 
             var job = JobMaker.MakeJob(JobDefOf.Goto, exitSpot.Position);
             job.dutyTag = SeamlessTransferGrants.TransitTag;
@@ -111,7 +57,7 @@ namespace RimExodus
             exitSpot = null;
             costDebug = null;
             var fromMap = pawn.Map;
-            // 消费可能晚于登记（pending 点击跨 tick 存活，期间目标图可能被休眠删除策略 Dispose），
+            // 菜单生成与选项执行之间目标图可能被休眠删除策略 Dispose，
             // 代价场要读对图 PathGrid 的 NativeArray，必须挡在已 Dispose 的图外。
             if (toMap == null || toMap.Disposed)
             {
@@ -198,28 +144,6 @@ namespace RimExodus
                 return true;
             }
             return false;
-        }
-
-        /// <summary>清除已失效 pawn 的待处理点击登记（死亡/销毁/离场后残留，防过期记录影响后续 Goto）。</summary>
-        public static void PurgeInvalid()
-        {
-            if (pendingMenuTargets.Count == 0) return;
-
-            List<Pawn> stale = null;
-            foreach (var pair in pendingMenuTargets)
-            {
-                var pawn = pair.Key;
-                // !Spawned 覆盖"原生离场转世界 pawn"（非 Destroyed 但不再跑 job，登记会永久残留）。
-                if (pawn == null || pawn.Destroyed || pawn.Dead || !pawn.Spawned)
-                {
-                    stale ??= new List<Pawn>();
-                    stale.Add(pawn);
-                }
-            }
-            if (stale != null)
-            {
-                foreach (var pawn in stale) pendingMenuTargets.Remove(pawn);
-            }
         }
 
         /// <summary>
