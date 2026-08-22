@@ -16,7 +16,7 @@ namespace RimExodus
     /// B∪T 最终值 + 接缝带外条带原生值，供后续新生成的邻居图参考（跨读档持久——
     /// 读档后 baseTerrainSnapshot 为 null 的问题由序列化的条带快照解决）。
     ///
-    /// 单向覆写：只改本端（新生成 tile），不改已生成邻居。锚点地图 A 生成时无已生成邻居
+    /// 单向覆写：只改本端（新生成 tile），不改已生成邻居。原生 parent 图（家园等）生成时无已生成邻居
     /// → ApplyOneWay 空操作，但条带快照仍捕获（供未来邻居参考）。
     ///
     /// 实际逻辑委托 <see cref="SeamlessSeamOverride"/>。本类只做 genStep 壳 + worldTile 提取。
@@ -36,7 +36,7 @@ namespace RimExodus
             SeamlessSeamOverride.ApplyOneWay(map, worldTile);
 
             // MapPreview 预览（后台线程，2026-08）：本步之后的三个动作都是真实图专用——
-            // ①条带快照存 WorldObject/锚点组件（预览图 parent null，捕获即白干）；
+            // ①条带快照存储（预览图 parent null，捕获即白干）；
             // ②pathGrid 刷新在预览图上 NRE（组件被 MapPreview 裁剪，见 SeamlessMapPreviewCompat）；
             // ③预设 PlayerStartSpot 写进程级 static，预览线程写会与主线程竞态。
             // 混合本身（ApplyOneWay，上方）保留——预览要显示接缝混合后的地形。

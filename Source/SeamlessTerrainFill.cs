@@ -12,17 +12,18 @@ namespace RimExodus
     /// 不看邻居——两个地图各自独立铺 void，重叠区的 void 在对方地图上恰好是非 void。
     /// 传送点铺在自己六边形的边经过的格子上（含边判定 → 非 void）。
     /// 供 GenStep_SeamlessTile（order=391，Roads 之后、Settlement 之前）调用，该 genStep 通过 XML patch
-    /// 注入到所有玩家可进入的 MapGeneratorDef（Base_Player / Base_Faction / Encounter）。邻居地块（MapParent_SeamlessTile）
-    /// 的 mapGenerator 也是 Base_Player，与锚点家园 A 同链。
+    /// 注入到所有玩家可进入的 MapGeneratorDef（Base_Player / Base_Faction / Encounter）。
+    /// 地块图与原生 parent 图（家园/原生家族）走完全相同的 genStep 链。
     /// </summary>
     public static class SeamlessTerrainFill
     {
         /// <summary>
         /// 备份基础快照（void 裁切前，平行三层：terrain / building / roof）并按接缝带几何铺 void。
         ///
-        /// **两入口共用同一逻辑体**（归一点）：锚点家园 A 与邻接地块 B 的 void 铺设都走本方法。
-        /// 快照存储位置随载体类型自动选择（地块存 MapParent_SeamlessTile，
-        /// 锚点存 SeamlessTileManager），其余完全一致——避免两份重复的"备份+铺void"逻辑漂移。
+        /// **两入口共用同一逻辑体**（归一点）：原生 parent 图（家园/原生家族）与地块图的 void 铺设
+        /// 都走本方法。快照存储载体由 <see cref="SeamlessMapData.SetBaseSnapshots"/> 统一屏蔽
+        /// （地块图存 MapParent_SeamlessTile 字段，原生图存 SeamlessTileManager 组件），
+        /// 其余完全一致——避免两份重复的"备份+铺void"逻辑漂移。
         ///
         /// 三层同点位备份（均非序列化——跨读档的接缝参考由序列化的 SeamStripData 承担）。
         /// void 铺设会清掉接缝带外格的岩体与屋顶，SeamStripData 对外条带格必须引用**原生**
@@ -34,22 +35,10 @@ namespace RimExodus
         {
             if (map == null || worldTile < 0) return;
 
-            if (map.Parent is MapParent_SeamlessTile tile)
-            {
-                tile.baseTerrainSnapshot = (TerrainDef[])map.terrainGrid.topGrid.Clone();
-                tile.baseBuildingSnapshot = BackupBuildingSnapshot(map);
-                tile.baseRoofSnapshot = BackupRoofSnapshot(map);
-            }
-            else
-            {
-                var manager = map.GetComponent<SeamlessTileManager>();
-                if (manager != null)
-                {
-                    manager.anchorBaseTerrainSnapshot = (TerrainDef[])map.terrainGrid.topGrid.Clone();
-                    manager.anchorBaseBuildingSnapshot = BackupBuildingSnapshot(map);
-                    manager.anchorBaseRoofSnapshot = BackupRoofSnapshot(map);
-                }
-            }
+            SeamlessMapData.SetBaseSnapshots(map,
+                (TerrainDef[])map.terrainGrid.topGrid.Clone(),
+                BackupBuildingSnapshot(map),
+                BackupRoofSnapshot(map));
 
             ApplyPolygonTerrain(map, worldTile);
         }

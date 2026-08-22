@@ -5,8 +5,8 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// 群系连通域天气共享（全局天气状态注册机制，用户定夺 2026-08——**无锚点特殊论**：
-    /// 家园图不特殊，任何图都可作为域宿主；旧"锚点图天气共享"已废弃）。
+    /// 群系连通域天气共享（全局天气状态注册机制，用户定夺 2026-08——**无家园特殊论**：
+    /// 家园图不特殊，任何图都可作为域宿主；旧"家园图专属天气共享"已废弃）。
     ///
     /// 【机制】天气共享域 = 世界图上"同群系（biome）且邻接连通"的 tile 分量中**有图**的成员集合。
     /// 例：赤道雨林 A—C 相邻同群系 → 同域；往北走到温带森林 D → 新域；再往东走到与 A—C
@@ -22,9 +22,9 @@ namespace RimExodus
     /// N 倍速问题由 <see cref="Patches_WeatherCluster"/> 的幂等守卫修复。
     ///
     /// 【触发】新图生成 onComplete（<see cref="BindMap"/>）；读档 FinalizeInit（<see cref="RebindAll"/>）；
-    /// 任何图移除后（<see cref="SeamlessTileManager.RemoveTileMap"/> / Manager 的 MapRemoved →
-    /// <see cref="RebindAll"/>——宿主销毁时成员自动改绑新宿主。gravship 起飞销毁家园图的场景
-    /// 由此覆盖，无需任何"锚点善后"）。
+    /// 任何图移除后（<see cref="SeamlessTileManager.RemoveTileMap"/> / RemoveRollingMap / Manager 的
+    /// MapRemoved → <see cref="RebindAll"/>——宿主销毁时成员自动改绑新宿主。gravship 起飞销毁家园图的场景
+    /// 由此覆盖，无需任何"家园善后"）。
     ///
     /// 【注册】Game.FillComponents 反射自动实例化所有 GameComponent 子类，无需 XML def。
     /// </summary>

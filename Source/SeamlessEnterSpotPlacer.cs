@@ -20,7 +20,7 @@ namespace RimExodus
         /// （= 该边对应的世界邻居 tile）。spot 预铺时 hasArrival 默认 false；邻居加载后由
         /// <see cref="RefreshEnterSpotArrivals"/> 用 offset 算对端坐标并缓存到 spot（cachedArrivalCell）。
         ///
-        /// 幂等：已存在同位置 spot 不重复铺。锚点和地块都适用（不依赖 MapParent 类型）。
+        /// 幂等：已存在同位置 spot 不重复铺。原生 parent 图和地块图都适用（不依赖 MapParent 类型）。
         ///
         /// 【传送圈为何只有外侧 2 圈（带内圈无传送点）】落点 = spot − offset 的取整残差 ±1 格
         /// 会被对侧 3 圈接缝带吸收：pawn 由内向外正常移动必先踩离散边圈 spot（更靠内），

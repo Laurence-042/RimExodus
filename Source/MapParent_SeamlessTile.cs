@@ -34,8 +34,8 @@ namespace RimExodus
         /// <summary>
         /// 该地块在全局平面坐标系里的原点（阶段4 接缝覆写预留）。
         ///
-        /// 锚点 tile（玩家家园）的 tileOrigin 固定为 (0,0)。
-        /// 口袋 tile 的 tileOrigin = 源 tile 的 tileOrigin + ComputeNeighborOffset（生成时确定）。
+        /// 原生 parent 图（玩家家园/原生家族）作为生成链源点时 tileOrigin 固定为 (0,0)。
+        /// 地块 tile 的 tileOrigin = 源 tile 的 tileOrigin + ComputeNeighborOffset（生成时确定）。
         /// 多跳场景（A→B→C）沿邻居链自然累加。
         ///
         /// 当前暂无消费者（连续 Perlin 方案已回退）。接缝覆写 genStep 将用它确定接缝位置。
@@ -49,7 +49,7 @@ namespace RimExodus
         /// （它们不写 topGrid）；400+ 的 BaseGen 地板写入被选址 patch 拦在接缝带之外（残余缺口见
         /// SeamlessTileGenerator.xml 观察项）。
         /// 供接缝条带快照捕获（SeamStripData.CaptureAndStore 读外条带格的原生值）。
-        /// 非序列化：生成期临时数据，读档后由 SeamlessTileManager 重建（锚点）或重新生成（地块）——
+        /// 非序列化：生成期临时数据，读档后为 null（原生图快照存组件、亦同）——
         /// 跨读档的接缝参考由 <see cref="seamStrip"/>（序列化）承担。
         /// </summary>
         public TerrainDef[] baseTerrainSnapshot;
@@ -131,7 +131,7 @@ namespace RimExodus
             return null;
         }
 
-        /// <summary>设置指向 worldTile 的邻居连接（覆盖或新增）。neighbor 可为锚点 MapParent 或 MapParent_SeamlessTile。</summary>
+        /// <summary>设置指向 worldTile 的邻居连接（覆盖或新增）。neighbor 可为原生 parent MapParent（家园 Settlement 等）或 MapParent_SeamlessTile。</summary>
         public void SetNeighbor(int worldTile, MapParent neighbor, IntVec3 offset)
         {
             neighbors.RemoveAll(n => n != null && n.worldTile == worldTile);
@@ -151,7 +151,7 @@ namespace RimExodus
     /// <summary>
     /// 一条直接邻居连接：邻居地块引用 + 该邻居相对本地块的偏移 + 对应世界邻居 tile。
     /// 偏移语义：邻居本地坐标 + offset = 本地块坐标系的坐标（绘制邻居内容时平移用）。
-    /// neighbor 类型为 MapParent 基类，可容纳锚点地图（如 Settlement）和无缝地块 MapParent_SeamlessTile。
+    /// neighbor 类型为 MapParent 基类，可容纳原生 parent 地图（如家园 Settlement）和无缝地块 MapParent_SeamlessTile。
     /// worldTile 是该邻居在世界地图上的 tile id，作为邻居表主键（稳定，无角度歧义）。
     /// </summary>
     public class NeighborLink : IExposable
@@ -159,7 +159,7 @@ namespace RimExodus
         /// <summary>该邻居在世界地图上的 tile id（主键）。</summary>
         public int worldTile;
 
-        /// <summary>邻居地块的 MapParent 引用（锚点或无缝地块）。</summary>
+        /// <summary>邻居地块的 MapParent 引用（原生 parent 图或无缝地块）。</summary>
         public MapParent neighbor;
 
         /// <summary>邻居相对本地块的偏移（邻居本地 → 本地块）。</summary>

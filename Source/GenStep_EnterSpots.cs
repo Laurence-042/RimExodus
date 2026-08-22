@@ -17,7 +17,7 @@ namespace RimExodus
     /// 铺在 1490 后 Fog(1500)/MutatorFinal(1600) 期间接缝语义 patch（Patches_Reachability/
     /// Patches_CellFinder）即已生效；400-1490 期间行为与旧序一致（点尚未铺），零回归。
     ///
-    /// 铺设幂等（同格查重），onComplete 对 originMap 的补铺调用与锚点图 TrySetupOnStart 的
+    /// 铺设幂等（同格查重），onComplete 对 originMap 的补铺调用与原生图 SetupNativeParentMap 的
     /// 调用保留不冲突。RefreshEnterSpotArrivals 仍留 onComplete——它依赖邻居表 offset
     /// （RegisterNeighborBidirectional 在 genStep 链之后登记）。
     ///

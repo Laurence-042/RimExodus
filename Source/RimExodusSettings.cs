@@ -13,7 +13,7 @@ namespace RimExodus
         /// </summary>
         public int borderPreloadDistance = 15;
 
-        /// <summary>开档时是否预加载锚点地块的全部世界邻居。</summary>
+        /// <summary>开档时是否预加载玩家家园地块的全部世界邻居。</summary>
         public bool preloadAllNeighborsOnStart = false;
 
         /// <summary>详细诊断日志开关。</summary>
@@ -62,8 +62,9 @@ namespace RimExodus
         public int dormancySleepHops = 2;
 
         /// <summary>
-        /// 距所有玩家 pawn 至少跨图 N 次才能到达的**地块图**被删除（销毁 Map+WorldObject，下次进入
-        /// 走生成链重建；锚点/家园图永不删除）。必须大于 sleepHops。
+        /// 距所有玩家 pawn 至少跨图 N 次才能到达的受管辖图被删除（地块图销毁 Map+WorldObject、
+        /// 下次进入走生成链重建；原生家族延迟执行原版删除偏好——Settlement 删图留对象等；
+        /// 玩家家园（IsPlayerHome）不休眠不删除）。必须大于 sleepHops。
         /// </summary>
         public int dormancyDeleteHops = 3;
 

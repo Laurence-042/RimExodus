@@ -89,6 +89,8 @@ namespace RimExodus
             var manager = CurrentManager;
             if (manager == null) return;
 
+            // 本工具的显式范围 = 仅地块图（快速清场用）；原生家族图的删除走 governor/
+            // Force Delete（RemoveRollingMap 统一入口）——此处类型过滤是工具范围选择，非特权判定。
             var currentMap = Find.CurrentMap;
             var neighbors = SeamlessTileGraph.GetAllNeighbors(currentMap);
             var toRemove = new List<MapParent_SeamlessTile>();
@@ -140,18 +142,19 @@ namespace RimExodus
             }
         }
 
-        /// <summary>强制删除当前图的地块 Map（销毁 Map+WorldObject；等同 governor 的删除路径）。</summary>
+        /// <summary>强制删除当前受管辖图（地块图销毁 Map+WorldObject；原生家族延迟原版偏好；等同 governor 的删除路径；家园/未管辖图拒绝）。</summary>
         [DebugAction(Category, "Force Delete Current Tile Map", allowedGameStates = AllowedGameStates.PlayingOnMap)]
         private static void ForceDeleteCurrentTileMap()
         {
             var map = Find.CurrentMap;
-            if (!(map?.Parent is MapParent_SeamlessTile parent))
+            if (!SeamlessMapGovernance.CanRollingDelete(map))
             {
-                Log.Message("[RimExodus] Current map is not a seamless tile map (won't delete anchor/other maps).");
+                Log.Message("[RimExodus] Current map is not rolling-deletable (player home or unmanaged map).");
                 return;
             }
-            map.GetComponent<SeamlessTileManager>()?.RemoveTileMap(parent);
-            Log.Message($"[RimExodus] Deleted tile map wt={parent.worldTile}.");
+            var tile = SeamlessTileRegistry.GetMapWorldTile(map);
+            map.GetComponent<SeamlessTileManager>()?.RemoveRollingMap(map.Parent);
+            Log.Message($"[RimExodus] Deleted rolling map wt={tile}.");
         }
 
         /// <summary>休眠状态报告：活跃/休眠图数、地图总数（127 上限余量）、governor 设置。</summary>
@@ -162,13 +165,13 @@ namespace RimExodus
             sb.AppendLine("[RimExodus Dormancy Report]");
             sb.AppendLine($"  maps total: {Find.Maps.Count} (Game.AddMap limit 127)");
             var dormant = 0;
-            var tiles = 0;
+            var governed = 0;
             foreach (var m in Find.Maps)
             {
-                if (m.Parent is MapParent_SeamlessTile) tiles++;
+                if (SeamlessMapGovernance.IsGoverned(m)) governed++;
                 if (SeamlessDormancyManager.IsDormant(m)) dormant++;
             }
-            sb.AppendLine($"  tile maps: {tiles}   dormant: {dormant}");
+            sb.AppendLine($"  governed maps (tile ∪ native family): {governed}   dormant: {dormant}");
             var s = RimExodusMod.Settings;
             sb.AppendLine($"  governor: enabled={s?.dormancyEnabled ?? true} sleepHops={s?.dormancySleepHops ?? 2} deleteHops={s?.dormancyDeleteHops ?? 3}");
             Log.Message(sb.ToString().TrimEnd());
@@ -196,12 +199,8 @@ namespace RimExodus
             var idx = cellIndices.CellToIndex(cell);
             var currentTerrain = map.terrainGrid.topGrid[idx];
 
-            // 本地 snapshot（地块读 MapParent_SeamlessTile，锚点读 Manager）。
-            TerrainDef[] selfSnapshot = null;
-            if (map.Parent is MapParent_SeamlessTile tile)
-                selfSnapshot = tile.baseTerrainSnapshot;
-            else
-                selfSnapshot = map.GetComponent<SeamlessTileManager>()?.anchorBaseTerrainSnapshot;
+            // 本地 snapshot（载体差异由 SeamlessMapData 屏蔽）。
+            var selfSnapshot = SeamlessMapData.GetBaseTerrainSnapshot(map);
 
             var selfSnapDef = (selfSnapshot != null && idx < selfSnapshot.Length) ? selfSnapshot[idx] : null;
 
@@ -257,12 +256,8 @@ namespace RimExodus
                     var neighborCurrent = neighborMap.terrainGrid.topGrid[neighborMap.cellIndices.CellToIndex(neighborCell)];
                     sb.AppendLine($"    neighbor current:  {TerrainName(neighborCurrent)}");
 
-                    // 邻居对应格在邻居 snapshot 的值。
-                    TerrainDef[] neighborSnapshot = null;
-                    if (neighborMap.Parent is MapParent_SeamlessTile neighborTile)
-                        neighborSnapshot = neighborTile.baseTerrainSnapshot;
-                    else
-                        neighborSnapshot = neighborMap.GetComponent<SeamlessTileManager>()?.anchorBaseTerrainSnapshot;
+                    // 邻居对应格在邻居 snapshot 的值（载体差异由 SeamlessMapData 屏蔽）。
+                    var neighborSnapshot = SeamlessMapData.GetBaseTerrainSnapshot(neighborMap);
 
                     var nIdx = neighborMap.cellIndices.CellToIndex(neighborCell);
                     var neighborSnapDef = (neighborSnapshot != null && nIdx < neighborSnapshot.Length) ? neighborSnapshot[nIdx] : null;

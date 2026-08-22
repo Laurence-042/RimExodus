@@ -25,8 +25,9 @@ namespace RimExodus
     /// FinalizeLoading 的重 spawn 完成），<see cref="SeamlessDormancyGovernor"/> 首轮扫描
     /// 重新收敛（≥休眠跳数的图转入休眠）。因此不存在"读档时 CurrentMap 处于休眠"的窗口问题。
     ///
-    /// 【与删除的二分】删除 = <see cref="SeamlessTileManager.RemoveTileMap"/>（销毁 Map +
-    /// WorldObject，下次进入走生成链重建）；休眠 = 本类（一切保留，只停模拟与显示）。
+    /// 【与删除的二分】删除 = <see cref="SeamlessTileManager.RemoveRollingMap"/>（地块图销毁 Map +
+    /// WorldObject，下次进入走生成链重建；原生家族延迟执行原版删除偏好）；休眠 = 本类
+    /// （一切保留，只停模拟与显示）。
     /// </summary>
     public static class SeamlessDormancyManager
     {
@@ -94,8 +95,8 @@ namespace RimExodus
         /// <summary>
         /// 按 worldTile 唤醒休眠图（边界预加载带/生成守卫用）：WorldObject 在且带休眠 Map 则唤醒。
         /// 返回 false = 该 tile 无图或图本就活跃（调用方据此走"入队生成"路径）。
-        /// 类型通用化（2026-08，勿回退为 as MapParent_SeamlessTile）：认任意 MapParent——家园
-        /// 锚点图的原生 parent 不是 SeamlessTile，按 SeamlessTile 转型会让本查询对它失明（false），
+        /// 类型通用化（2026-08，勿回退为 as MapParent_SeamlessTile）：认任意 MapParent——玩家
+        /// 家园图的原生 parent 不是 SeamlessTile，按 SeamlessTile 转型会让本查询对它失明（false），
         /// 边界带命中即入队生成，撞上生成守卫的同款类型盲就会造出重复家园图（"没有特殊地图"铁律：
         /// 守卫不得按 parent 类型区分处理）。
         /// </summary>
@@ -127,15 +128,7 @@ namespace RimExodus
         {
             SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(map);
 
-            List<NeighborLink> links;
-            if (map.Parent is MapParent_SeamlessTile tileParent)
-            {
-                links = tileParent.neighbors;
-            }
-            else
-            {
-                links = map.GetComponent<SeamlessTileManager>()?.neighbors;
-            }
+            var links = SeamlessMapData.Neighbors(map);
             if (links == null) return;
 
             foreach (var link in links)

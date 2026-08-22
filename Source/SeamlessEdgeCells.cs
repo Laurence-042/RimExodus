@@ -36,7 +36,7 @@ namespace RimExodus
         // spot 增减（新邻居加载/卸载）时数量变化触发重建。
         private static readonly Dictionary<int, (int version, List<IntVec3> cells)> _cache = new();
 
-        /// <summary>该地图是否为 RimExodus 无缝地块（有传送点）。含锚点 A（原生 MapParent，也是无缝地块的一员）。</summary>
+        /// <summary>该地图是否为 RimExodus 无缝图（有传送点）。含原生 parent 图（家园/原生家族——原生 MapParent，也是无缝世界一员）。</summary>
         internal static bool HasSeamEdge(Map map)
         {
             if (map == null || EnterSpotDef == null) return false;

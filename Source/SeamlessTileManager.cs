@@ -7,8 +7,10 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// 锚点地图（家园 A）上的无缝地块管理器。
-    /// 负责生成/卸载无缝地块地图，并维护接缝关系。
+    /// 无缝地块管理器（MapComponent，由 Map.FillComponents 自动挂到**每张图**——不止地块图）。
+    /// 地块图上负责生成/删除与接缝维护；原生 parent 图（家园/原生家族 Settlement 等）上充当
+    /// 数据存储载体（邻居表/条带快照/基础三层快照，原生 MapParent 挂不了我们的字段——
+    /// 读写经 <see cref="SeamlessMapData"/>）与滚动删除入口。
     ///
     /// 邻居表以 worldTile 为主键，offset 隐式编码方向（阶段4a 全面重构后无 direction/edgeAngle 字段）。
     /// 多边形裁切用内切圆顶点模型（顶点 = center + 0.5S × 方向）。
@@ -27,40 +29,41 @@ namespace RimExodus
         public const int RoadAnchorInset = 0;
 
         /// <summary>
-        /// 锚点地图（家园 A）的直接邻居表。口袋地图的邻居表存于自身的 MapParent_SeamlessTile。
+        /// 原生 parent 图（家园/原生家族）的直接邻居表。地块图的邻居表存于自身的 MapParent_SeamlessTile。
         /// 通过 <see cref="SeamlessTileGraph"/> 统一查询，屏蔽存储位置差异。
         /// </summary>
         public List<NeighborLink> neighbors = new List<NeighborLink>();
 
-        /// <summary>是否已完成开档初始化（预铺传送点；void 已由 genStep 阶段铺设，不在此处）。阶段4a 后默认不自动生成邻居，除非 preloadAllNeighborsOnStart=true。</summary>
+        /// <summary>是否已完成开档接线（预铺传送点；void 已由 genStep 阶段铺设，不在此处）。阶段4a 后默认不自动生成邻居，除非 preloadAllNeighborsOnStart=true。</summary>
         private bool setupOnStartDone;
 
         /// <summary>
-        /// 锚点地图的基础地形快照（阶段4 接缝覆写）：void 裁切前的完整矩形 topGrid。
+        /// 原生 parent 图的基础地形快照（阶段4 接缝覆写）：void 裁切前的完整矩形 topGrid。
         /// 在 GenStep_SeamlessTile（order=391）void 裁切之前备份（通过 BackupSnapshotAndApplyVoid 归一入口）。
-        /// 供接缝条带快照捕获读取。非序列化（生成期临时数据）。
+        /// 供接缝条带快照捕获读取。非序列化（生成期临时数据）。读写经 <see cref="SeamlessMapData"/>。
         /// </summary>
-        public TerrainDef[] anchorBaseTerrainSnapshot;
+        public TerrainDef[] baseTerrainSnapshot;
 
         /// <summary>
-        /// 锚点地图的原生建筑快照（与 <see cref="anchorBaseTerrainSnapshot"/> 同点位备份、非序列化）。
+        /// 原生 parent 图的原生建筑快照（与 <see cref="baseTerrainSnapshot"/> 同点位备份、非序列化）。
         /// 见 <see cref="MapParent_SeamlessTile.baseBuildingSnapshot"/>。
         /// </summary>
-        public ThingDef[] anchorBaseBuildingSnapshot;
+        public ThingDef[] baseBuildingSnapshot;
 
         /// <summary>
-        /// 锚点地图的原生屋顶快照（与 <see cref="anchorBaseBuildingSnapshot"/> 同点位备份、非序列化）。
+        /// 原生 parent 图的原生屋顶快照（与 <see cref="baseBuildingSnapshot"/> 同点位备份、非序列化）。
         /// 见 <see cref="MapParent_SeamlessTile.baseRoofSnapshot"/>。
         /// </summary>
-        public RoofDef[] anchorBaseRoofSnapshot;
+        public RoofDef[] baseRoofSnapshot;
 
         /// <summary>
-        /// 锚点地图的接缝条带快照（见 <see cref="SeamStripData"/>）。锚点=家园常驻不卸载，
-        /// 挂 MapComponent 即可（地块图的快照挂 WorldObject 以存活于地图卸载）。
+        /// 原生 parent 图的接缝条带快照（见 <see cref="SeamStripData"/>）。随图组件序列化——
+        /// 图在则数据在（软休眠不卸图）；图被滚动删除即失（再生成时由对端单侧照抄补缝连续）。
+        /// 地块图的快照挂 WorldObject（卸图后存活）。读写经 <see cref="SeamlessMapData"/>。
         /// </summary>
-        public SeamStripData anchorSeamStrip;
+        public SeamStripData seamStrip;
 
-        /// <summary>延迟开档初始化的 tick 计数（MapGenerated 时 mapBeingGenerated 可能仍非空，需延迟到下一 tick 调 TrySetupOnStart）。</summary>
+        /// <summary>延迟开档接线的 tick 计数（MapGenerated 时 mapBeingGenerated 可能仍非空，需延迟到下一 tick 调 SetupNativeParentMap）。</summary>
         private int pendingAutoGenerateTicks = -1;
 
         /// <summary>
@@ -79,7 +82,7 @@ namespace RimExodus
             base.ExposeData();
             Scribe_Values.Look(ref setupOnStartDone, "setupOnStartDone");
             Scribe_Values.Look(ref pendingAutoGenerateTicks, "pendingAutoGenerateTicks", -1);
-            Scribe_Deep.Look(ref anchorSeamStrip, "anchorSeamStrip");
+            Scribe_Deep.Look(ref seamStrip, "seamStrip");
 
             if (Scribe.mode == LoadSaveMode.Saving)
             {
@@ -128,20 +131,22 @@ namespace RimExodus
                 if (pendingAutoGenerateTicks == 0)
                 {
                     pendingAutoGenerateTicks = -1;
-                    TrySetupOnStart();
+                    SetupNativeParentMap();
                 }
             }
             // 消费异步预加载队列（全局静态队列，任意图块 tick 触发消费，幂等）。
-            // 不限锚点地图：玩家聚焦口袋地图时也能及时消费（避免饥饿延迟）。
+            // 不限地图类型：玩家聚焦口袋地图时也能及时消费（避免饥饿延迟）。
             SeamlessTilePreloader.ConsumeQueued();
         }
 
         public override void MapGenerated()
         {
             base.MapGenerated();
-            // 仅锚点地图（家园 A）触发开档初始化，便于原型测试。
-            // 地块地图（MapParent_SeamlessTile）的邻居生成不通过 MapGenerated 自动级联（避免生成风暴）。
-            // 基础地图用 Parent 类型判断是否为地块地图（非 IsPocketMap）。
+            // 原生 parent 图（家园/原生家族）统一触发开档接线（与 governor 管辖口径一致——
+            // 见 SeamlessMapGovernance；2026-08 归一，此前注释自称"仅锚点图"但实际门是
+            // 任意原生 parent，口径早已不一致）。
+            // 地块图（MapParent_SeamlessTile）的接线在 GenerateTileMap 的 onComplete（不经
+            // MapGenerated 自动级联，避免生成风暴）。
             if (map.Parent is MapParent_SeamlessTile) return;
             if (!setupOnStartDone)
             {
@@ -151,30 +156,41 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 开档初始化（阶段4a：预铺传送点 + 可选加载所有邻居）。
-        /// 在锚点地图 A 上沿全部世界邻居边预铺单端传送点（对端 null）。
-        /// 若 ModSettings.preloadAllNeighborsOnStart 为 true，则额外加载全部世界邻居地块（高配玩家流畅体验）。
-        /// 否则不生成邻居，等 pawn 接近边界时事件驱动加载。
+        /// 原生 parent 图统一接线（延迟 1 tick，MapGenerated 触发；家园与原生家族一视同仁——
+        /// "一切地图对等"铁律）。步骤：
+        /// ① 天气域绑定（<see cref="SeamlessWeatherClusterManager.BindMap"/>，幂等）；
+        /// ② 沿全部世界邻居边预铺传送点（1490 已铺时幂等防御）；
+        /// ③ AutoConnectWorldNeighbors——与已加载邻图补登记（2026-08 补的关键缺口：原生路径
+        ///    （远行队进入据点/埋伏图）生成的图此前无人接线，图虽被 391/392/1490 裁切
+        ///    （genStep 已 XML 注入 Base_Faction/Encounter），却接不进无缝网、无法跨缝互走）；
+        /// ④ 刷新传送点对端缓存。
         ///
-        /// **void 铺设不在此处**：锚点 void 已由 RimExodus_SeamlessTile genStep（order=391）铺设，
-        /// 通过 XML patch 注入到 Base_Player，与邻接地块走完全相同的 genStep 链（不再依赖 Harmony Postfix）。
-        /// 此前这里是 MapGenerated 后延迟 1 tick 的"后补"铺 void（RefreshMapVoid），会真实删除已生成的
-        /// 岩石/植物/玩家建造（落石/切断建筑），已废弃。anchorBaseTerrainSnapshot 备份在 genStep 391 完成。
+        /// **void 铺设不在此处**：void 已由 RimExodus_SeamlessTile genStep（order=391）铺设，
+        /// 通过 XML patch 注入到 Base_Player/Base_Faction/Encounter，与地块图走完全相同的 genStep 链。
+        /// baseTerrainSnapshot 备份在 genStep 391 完成。
+        ///
+        /// 可选级联预加载仅玩家家园（preloadAllNeighborsOnStart）——原生家族不级联
+        /// （防生成风暴；家族图的"走近自动生成"是下一轮 Settlement 接入的任务）。
         /// </summary>
-        private void TrySetupOnStart()
+        private void SetupNativeParentMap()
         {
-            var anchorWorldTile = map.Tile;
-            if (anchorWorldTile < 0) return;
+            // 表面层守卫（2026-08）：空间层图（SpaceMapParent 等）的 tileId 属轨道层，打进表面
+            // WorldGrid 会读错地形/邻居数据（潜伏 bug 顺带修复）；口袋图 Tile 无效，同样早退。
+            var worldTile = map.Tile;
+            if (worldTile < 0 || worldTile.LayerDef != RimWorld.PlanetLayerDefOf.Surface) return;
 
-            // 预铺锚点 A 沿全部世界邻居边的传送点（对端 null）。
-            SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(map, anchorWorldTile);
+            SeamlessWeatherClusterManager.BindMap(map);
+            SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(map, worldTile);
+            AutoConnectWorldNeighbors(map, worldTile);
+            SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(map);
 
-            // 可选：开档加载全部世界邻居。
+            // 可选：仅玩家家园开档预加载全部邻居。
+            if (!SeamlessMapGovernance.IsProtectedHome(map)) return;
             var preloadAll = RimExodusMod.Settings?.preloadAllNeighborsOnStart ?? false;
             if (!preloadAll) return;
 
             var worldNeighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(anchorWorldTile, worldNeighbors);
+            Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
             foreach (var neighborTile in worldNeighbors)
             {
                 TryPreloadNeighbor(neighborTile.tileId);
@@ -265,12 +281,14 @@ namespace RimExodus
             // 休眠/占位守卫（2026-08 软休眠 + 同日类型通用化，勿删）：TryGetMapByWorldTile 已被
             // 休眠口径过滤，查不到休眠图；但休眠图的 Map 和 WorldObject 都还在（软休眠不卸载）——
             // 若不在此拦截，下面 MakeWorldObject 会造出同 tile 的第二个 parent（邻居表分裂、存档脏数据）。
-            // 类型通用化（勿回退为 as MapParent_SeamlessTile）：家园锚点图的原生 parent 不是
+            // 类型通用化（勿回退为 as MapParent_SeamlessTile）：玩家家园图的原生 parent 不是
             // SeamlessTile，旧转型令守卫失明——家园休眠时预加载家园 tile 会走完整生成链造出
             // 重复家园图（2026-08 实测，"没有特殊地图"铁律）。现认任意 MapParent：
             // 有活 Map（休眠图）→ 唤醒 + 补登记，不生成；MapParent_SeamlessTile 无 Map（历史
-            // RemoveTileMap 残留孤儿）→ 销毁后继续生成（原防御）；其他 parent 无 Map（原版
-            // 定居点等占位）→ tile 已被占，不生成也不销毁。
+            // RemoveTileMap 残留孤儿）→ 销毁后继续生成（原防御）；原生 parent 无 Map（原生家族
+            // Settlement/Site 等占位）→ tile 已被占，不生成也不销毁——家族图的"走近自动生成/
+            // 无缝步行进入"是下一轮 Settlement 接入任务（据点建筑/NPC/交易列表/攻击判定），
+            // 当前经原版入口（远行队进入）生成后由 SetupNativeParentMap 接线。
             var existingParent = Find.World.worldObjects.MapParentAt(new PlanetTile(newWorldTile));
             if (existingParent != null)
             {
@@ -320,11 +338,9 @@ namespace RimExodus
 
             // 计算 new tile 在全局平面坐标系的原点（阶段4 接缝覆写预留）。
             // tileOrigin = 源 tile 的 tileOrigin + hostOffset（源→新的平面偏移）。
-            // 源是锚点 tile（非 MapParent_SeamlessTile）→ tileOrigin = (0,0)。
-            // 源是地块 tile → 读 originTile.tileOrigin（沿邻居链累加）。
-            var sourceTileOrigin = (map.Parent is MapParent_SeamlessTile originTile)
-                ? originTile.tileOrigin
-                : UnityEngine.Vector2.zero;
+            // 源是原生 parent 图（家园等）→ tileOrigin = (0,0)；源是地块 tile → 读其 tileOrigin
+            // （沿邻居链累加）。载体差异经 <see cref="SeamlessMapData.TileOrigin"/> 屏蔽。
+            var sourceTileOrigin = SeamlessMapData.TileOrigin(map);
             mapParent.tileOrigin = sourceTileOrigin + new UnityEngine.Vector2(hostOffset.x, hostOffset.z);
 
             // 【实验分支】分帧增量生成：每帧跑 1 genStep，不暂停 tick（generating map 被 patch 跳过）。
@@ -352,14 +368,14 @@ namespace RimExodus
                     }
                     tWorldAdd = timer?.Section() ?? 0;
                     // 天气共享：按群系连通域绑定（全局天气状态注册机制——同群系邻接连通的图共享
-                    // 一个天气源，宿主=域内最小 tileId 图；无锚点特殊论，家园图不特殊）。
+                    // 一个天气源，宿主=域内最小 tileId 图；家园图不特殊，任何图都可作为域宿主）。
                     SeamlessWeatherClusterManager.BindMap(interiorMap);
                     tWeatherBind = timer?.Section() ?? 0;
                     SeamlessNeighborRegistry.RegisterNeighborBidirectional(originMapCapture, mapParent, sourceWorldTileCapture, newWorldTile, hostOffset);
                     tRegister = timer?.Section() ?? 0;
-                    // 不刷新 originMapCapture 的 void——锚点 map 的 void 在 TrySetupOnStart 时已铺好，
-                    // void 只看自己的多边形（不因邻居关系变化而变）。每次生成邻居都 RefreshMapVoid(锚点)
-                    // 会重新清锚点 void 格上玩家游戏期间生长的植物/掉落物（耗时 12-23 秒）。
+                    // 不刷新 originMapCapture 的 void——void 只看自己的多边形（不因邻居关系变化而变），
+                    // 且原生图（家园等）的 void 在其生成链 genStep 391 已铺好；每次生成邻居都刷新
+                    // 会重新清 void 格上玩家游戏期间生长的植物/掉落物（耗时 12-23 秒）。
                     // interiorMap 自己的传送点由 GenStep_EnterSpots(1490) 在生成链内、Fog(1500) 之前铺
                     // （Fog 的 UnfogMapFromEdge fallback 依赖接缝语义 patch 在生成期生效，详见该 genStep
                     // 注释），此处不再重复；originMap 生成期 1490 已铺过全部邻居方向的点，此处补铺
@@ -483,11 +499,70 @@ namespace RimExodus
             SeamlessWeatherClusterManager.RebindAll();
         }
 
-        /// <summary>本图被移除时重算天气域（覆盖家园图被原版销毁的场景，如 gravship 起飞——无锚点善后）。</summary>
+        /// <summary>本图被移除时重算天气域（覆盖家园图被原版销毁的场景，如 gravship 起飞——无需额外善后）。</summary>
         public override void MapRemoved()
         {
             base.MapRemoved();
             SeamlessWeatherClusterManager.RebindAll();
+        }
+
+        /// <summary>
+        /// 滚动删除统一入口（governor 距离 ≥ deleteHops / Dev Force Delete 调用，2026-08 归一）：
+        /// 地块图 → <see cref="RemoveTileMap"/>（销毁 Map+WorldObject，"从未出现过"，同 tile 再进入走全新生成链）；
+        /// 原生家族 → <see cref="RemoveNativeFamilyMap"/>（延迟执行原版删除偏好，见其注释）。
+        /// 家园图不进本方法（governor 保活分支先行豁免；Dev 侧由
+        /// <see cref="SeamlessMapGovernance.CanRollingDelete"/> 拦截）。
+        /// </summary>
+        public void RemoveRollingMap(MapParent parent)
+        {
+            if (parent is MapParent_SeamlessTile tileParent)
+            {
+                RemoveTileMap(tileParent);
+                return;
+            }
+            RemoveNativeFamilyMap(parent);
+        }
+
+        /// <summary>
+        /// 删除原生家族图（Settlement/Site/CaravansBattlefield/DestroyedSettlement，2026-08 用户定夺
+        /// "延迟执行原版偏好"）：删除时机从原版"全员离开即删"（被动链已被
+        /// <see cref="Patches_NativeMapFamily"/> 拦截）推迟到距离 ≥ deleteHops；删图时先跑原版
+        /// <see cref="MapParent.ShouldRemoveMapNow"/> 取 alsoRemoveWorldObject——
+        /// Settlement 删图留对象（世界图据点仍在、再访重生成驻军，与原版重访语义一致）、
+        /// CaravansBattlefield/DestroyedSettlement 连对象删、Site 按 parts 语义（ConditionCauser/
+        /// RaidSource 存活时保留对象）。原版判定 false（建筑/pawn 阻挡等）→ 本轮不删，
+        /// 保持休眠待状态清除后下轮再评估（延迟语义 = 只改时机、不改谁决定）。
+        /// </summary>
+        private void RemoveNativeFamilyMap(MapParent parent)
+        {
+            if (parent == null || parent.Destroyed) return;
+
+            var interiorMap = parent.Map;
+            if (interiorMap == null) return; // 无图可删（governor/Dev 路径都带活图，纯防御）。
+
+            // 原版延迟判定（未被 patch 的虚方法，无递归；须于删图前调用——其内部读 base.Map）。
+            if (!parent.ShouldRemoveMapNow(out var alsoRemoveWorldObject))
+            {
+                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    Log.Message($"[RimExodus] Native family map wt={parent.Tile.tileId} ({parent.def.defName}) not removable by vanilla rules this sweep (blockers present), keeping.");
+                return;
+            }
+
+            var tile = parent.Tile.tileId;
+            var mapId = interiorMap.uniqueID;
+            SeamlessDormancyManager.Forget(interiorMap);
+            SeamlessNeighborRegistry.CleanupNeighborLinks(parent);
+            // 第二参 false：DeinitAndRemoveMap 本身不销毁 WorldObject（原版行为），
+            // 由下方按原版偏好统一处理（与 CheckRemoveMapNow 原方法体同式）。
+            Current.Game.DeinitAndRemoveMap(interiorMap, false);
+            if (!parent.Destroyed && (alsoRemoveWorldObject || parent.forceRemoveWorldObjectWhenMapRemoved))
+            {
+                parent.Destroy();
+            }
+            // 天气域重算：被卸载的图可能是某域宿主，成员改绑新宿主。
+            SeamlessWeatherClusterManager.RebindAll();
+
+            Log.Message($"[RimExodus] Dormancy DELETE (native family): map {mapId} wt={tile} parent={parent.def.defName} (alsoRemoveWorldObject={alsoRemoveWorldObject}) — governor rolling delete");
         }
     }
 }

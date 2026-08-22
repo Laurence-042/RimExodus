@@ -6,8 +6,9 @@ namespace RimExodus
 {
     /// <summary>
     /// 地块直接邻居表的统一查询入口。
-    /// 屏蔽"锚点地图（普通 Map，邻居表存 MapComponent）"与"口袋地图（邻居表存 MapParent_SeamlessTile）"的差异。
-    /// 所有上层逻辑（渲染/转移/交互）通过本类查邻居，不直接依赖 sourceMap/IsPocketMap。
+    /// 存储载体差异（地块图 = MapParent_SeamlessTile 字段 / 原生 parent 图 = SeamlessTileManager
+    /// 组件）由 <see cref="SeamlessMapData"/> 屏蔽；本类在其上叠加邻接查询语义（休眠过滤等）。
+    /// 所有上层逻辑（渲染/转移/交互）通过本类查邻居。
     ///
     /// 阶段3：邻居方向改为基于世界地块真实顶点角度（动态），不再用固定 0-5 编号。
     /// 查询主键改为 worldTile（稳定，无角度歧义）。OppositeDirection 已移除（双向登记保证反向关系）。
@@ -29,14 +30,17 @@ namespace RimExodus
             if (map == null) return false;
 
             NeighborLink link = null;
-            if (map.Parent is MapParent_SeamlessTile tileParent)
+            var links = SeamlessMapData.Neighbors(map);
+            if (links != null)
             {
-                link = tileParent.GetNeighborByWorldTile(worldTile);
-            }
-            else
-            {
-                var manager = map.GetComponent<SeamlessTileManager>();
-                if (manager != null) link = manager.GetNeighborByWorldTile(worldTile);
+                foreach (var l in links)
+                {
+                    if (l != null && l.worldTile == worldTile && l.neighbor != null)
+                    {
+                        link = l;
+                        break;
+                    }
+                }
             }
 
             if (link?.neighbor == null) return false;
@@ -68,17 +72,7 @@ namespace RimExodus
         {
             if (map == null || result == null) return;
 
-            List<NeighborLink> links;
-            if (map.Parent is MapParent_SeamlessTile tileParent)
-            {
-                links = tileParent.neighbors;
-            }
-            else
-            {
-                var manager = map.GetComponent<SeamlessTileManager>();
-                links = manager?.neighbors;
-            }
-
+            var links = SeamlessMapData.Neighbors(map);
             if (links == null) return;
 
             foreach (var link in links)
@@ -108,20 +102,7 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 判断 map 是否为家园地图（玩家最早落地的原版地图，IsPlayerHome）。
-        /// **无锚点特殊论（用户定夺 2026-08）**：家园图不特殊——天气按群系连通域共享
-        /// （<see cref="SeamlessWeatherClusterManager"/>），任何图都可作为域宿主。家园图仅有的
-        /// 差异是工程性的：邻居表/条带快照存于 SeamlessTileManager（MapComponent——原版
-        /// MapParent 无法挂我们的字段）、部分全局清扫挂它的组件 tick。用 IsPlayerHome 区分
-        /// 家园与地块（基础地图无 IsPocketMap 语义）。
-        /// </summary>
-        public static bool IsAnchorMap(Map map)
-        {
-            return map != null && map.IsPlayerHome && !(map.Parent is MapParent_SeamlessTile);
-        }
-
-        /// <summary>
-        /// 全局查询：指定 worldTile 是否已有任意**活跃**的地图（含锚点和所有地块），不限于直接邻居。
+        /// 全局查询：指定 worldTile 是否已有任意**活跃**的地图（含玩家家园与所有受管辖图），不限于直接邻居。
         /// 遍历 Find.Maps（含所有已加载地图），用 SeamlessTileRegistry.GetMapWorldTile 统一取 worldTile。
         /// 用于预加载去重：A 和 C 虽非直接邻居（隔了 B），但 A 的地图已存在，从 C 预加载 A 的 worldTile 时应复用而非重复生成。
         ///
@@ -149,9 +130,10 @@ namespace RimExodus
         /// <summary>
         /// 统一取数入口：获取 worldTile 已生成地块的接缝条带快照（新图接缝混合的邻居参考数据）。
         /// ① 图在 Find.Maps（**含休眠图**——本方法是数据查询而非邻接交互，快照数据不因休眠失效；
-        ///    地块图快照挂 WorldObject、锚点快照挂 MapComponent（软休眠不销毁 Map，组件仍在），
-        ///    两条路径读到的都是同一份生成期捕获数据）；
-        /// ② 图不在（未来"卸 Map 留 WorldObject"的滚动卸载语义）但 WorldObject 还在 → 读 WorldObject 快照；
+        ///    载体差异由 <see cref="SeamlessMapData.GetSeamStrip"/> 屏蔽，两条路径读到的都是
+        ///    同一份生成期捕获数据）；
+        /// ② 图不在（未来"卸 Map 留 WorldObject"的滚动卸载语义）但地块 WorldObject 还在 → 读其快照
+        ///    （原生家族 parent 无 WorldObject 侧快照挂点——图删即失，再生成时由对端单侧照抄补连续）；
         /// ③ 都没有（从未生成 / 删除已销毁 WorldObject）→ 返回 false（不参考，"删除 = 从未出现过"）。
         /// 刻意不走 <see cref="TryGetMapByWorldTile"/>（那是休眠过滤后的交互口径）。
         /// </summary>
@@ -163,9 +145,7 @@ namespace RimExodus
             foreach (var map in Find.Maps)
             {
                 if (SeamlessTileRegistry.GetMapWorldTile(map) != worldTile || map.Disposed) continue;
-                strip = map.Parent is MapParent_SeamlessTile tileParent
-                    ? tileParent.seamStrip
-                    : map.GetComponent<SeamlessTileManager>()?.anchorSeamStrip;
+                strip = SeamlessMapData.GetSeamStrip(map);
                 return strip != null;
             }
 

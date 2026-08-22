@@ -408,7 +408,7 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 周期清扫（锚点地图 MapComponentTick 调用）：
+        /// 周期清扫（SeamlessDormancyGovernor.GameComponentTick 调用，2026-08 自"仅家园图组件 tick"迁来）：
         /// ① Grant 失效/超时；② 游荡 NPC 宽限检查（接战/有 lord 解除，超时转入撤离链）。
         /// </summary>
         internal static void TickSweep()

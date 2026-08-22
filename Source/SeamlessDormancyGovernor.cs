@@ -8,22 +8,29 @@ namespace RimExodus
     /// <summary>
     /// 地图滚动休眠调度器（用户定夺 2026-08）。
     ///
-        /// 【距离策略】源 = 所有玩家阵营 spawned pawn 所在图的 tile（含锚点图——玩家在家时家园即源）
+        /// 【距离策略】源 = 所有玩家阵营 spawned pawn 所在图的 tile（含玩家家园——玩家在家时家园即源）
         /// ∪ 玩家阵营远行队所在 tile（2026-08：用户原则"距离对全部 pawn 成立"——远行队里的 pawn
         /// 也在世界网格上占一个 tile）。世界网格 BFS 跳数（GetTileNeighbors，纯拓扑、不依赖图加载
         /// 状态）；每轮现算、无维护状态——源每刻在动（pawn 跨缝 / caravan 逐 tile 移动），任何预算好
         /// 的距离表写完即过期，实时查询不可能脏：
-    /// - 图上有玩家 pawn → 永不休眠、永不删除（保护判据，"仅玩家 pawn 保护"——玩家踏入即距离 0，
-    ///   天然满足"相邻图不休眠防跨图躲追击"）；
+    /// - Find.CurrentMap 无条件保活（玩家正看着的图冻结会卡 UI）；
+    /// - 图上有玩家 pawn → 距离 0（"仅玩家 pawn 保护"——玩家踏入即源，天然防跨图躲追击）；
+    /// - **玩家家园（<see cref="SeamlessMapGovernance.IsProtectedHome"/> = 原版 IsPlayerHome，
+    ///   2026-08 用户定夺"不休眠不删除"）→ 永不休眠、永不删除**。覆盖开局家园/定居/逆重飞船
+    ///   降落产生的原生 Settlement 与建了引力引擎的图（含地块图营地）。家园特权判定全项目
+    ///   唯一行为消费点 = 本类保活分支；
     /// - 距离 &lt; sleepHops（默认 2）→ 活跃（距离 0/1）；
     /// - 距离 ≥ sleepHops → 休眠（软休眠：内容完好，见 <see cref="SeamlessDormancyManager"/>）；
-    /// - 距离 ≥ deleteHops（默认 3）且为地块图 → 删除（<see cref="SeamlessTileManager.RemoveTileMap"/>，
-    ///   销毁 Map+WorldObject，下次进入走生成链重建——解除 Game.AddMap 127 图上限的实际压力）。
-    ///   **锚点图（家园）永不删除**：其 WorldObject 是原版殖民地对象，Destroy 会引爆殖民地逻辑。
-    /// - Find.CurrentMap 无条件保活（玩家正看着的图冻结会卡 UI）。
+    /// - 距离 ≥ deleteHops（默认 3）且可删（<see cref="SeamlessMapGovernance.CanRollingDelete"/>）
+    ///   → 删除（<see cref="SeamlessTileManager.RemoveRollingMap"/>：地块图销毁 Map+WorldObject，
+    ///   "从未出现过"重建；原生家族延迟执行原版删除偏好——Settlement 删图留对象等。
+    ///   解除 Game.AddMap 127 图上限的实际压力）。
     ///
-    /// 【管辖范围】仅地块图（MapParent_SeamlessTile）与锚点图（IsAnchorMap）。原版任务图/site
-    /// 等其他 MapParent 子类的图不碰。
+    /// 【管辖范围】<see cref="SeamlessMapGovernance.IsGoverned"/> = 地块图（MapParent_SeamlessTile）
+    /// ∪ 原生家族（原版"全员离开即删图"的 Settlement/Site/Camp/CaravansBattlefield/
+    /// DestroyedSettlement——被动删除由 <see cref="Patches_NativeMapFamily"/> 拦截，删除时机
+    /// 移交本 governor）。判定归一层单点，上层勿自写 parent 类型特判（历史教训：IsAnchorMap
+    /// 时代特权判定散落、口径漂移，造成家园"睡而不删"的不对称）。
     ///
     /// 【注册】Game.FillComponents 反射自动实例化所有 GameComponent 子类，无需 XML def。
     ///
@@ -43,7 +50,7 @@ namespace RimExodus
         public override void GameComponentTick()
         {
             // 全局静态清扫（自 SeamlessMapTransferTrigger.MapComponentTick 迁移，2026-08 软休眠）：
-            // 原挂"仅锚点图 tick"——家园无玩家 pawn 时可随软休眠冻结，锚点 tick 不再可靠；
+            // 原挂"仅家园图 tick"——家园无玩家 pawn 时可随软休眠冻结，图 tick 不再可靠；
             // GameComponent 恒 tick，与一切地图的活跃状态解耦。
             SeamlessSelectionTracker.PurgeInvalid();
             SeamlessTransferGrants.TickSweep();
@@ -101,7 +108,7 @@ namespace RimExodus
 
             // 远行队也是源（2026-08）：玩家阵营 caravan 的 tile 并入（实时查询——caravan 每刻移动，
             // 事件登记必滞后）。修复"全员远行 → 源空"的结构性炸弹：源空时下方 BFS 距离表恒空，
-            // 所有管辖图落进 d=MaxValue≥deleteHops 的删除分支，只有 CurrentMap/锚点靠保活幸存（纯运气）。
+            // 所有管辖图落进 d=MaxValue≥deleteHops 的删除分支，只有 CurrentMap/家园靠保活幸存（纯运气）。
             var caravans = Find.WorldObjects.Caravans;
             for (var i = 0; i < caravans.Count; i++)
             {
@@ -143,21 +150,25 @@ namespace RimExodus
             {
                 if (m == null || m.Disposed) continue;
 
-                var tileParent = m.Parent as MapParent_SeamlessTile;
-                if (tileParent == null && !SeamlessTileGraph.IsAnchorMap(m)) continue; // 非 RimExodus 管辖图不碰。
+                // 管辖判定归一层（地块图 ∪ 原生家族；玩家家园 Settlement 亦入辖以获得保活唤醒）。
+                if (!SeamlessMapGovernance.IsGoverned(m)) continue;
                 if (IncrementalMapGenerator.IsGenerating(m)) continue; // 分帧生成中的图还在构建。
 
                 var tile = SeamlessTileRegistry.GetMapWorldTile(m);
                 if (!dist.TryGetValue(tile, out var d)) d = int.MaxValue; // BFS 未收录 = 超过 deleteHops 或不连通。
 
-                // 玩家正看着的图 / 玩家 pawn 所在图：无条件活跃。
-                if (m == current || sources.Contains(tile))
+                // 保活（无条件活跃）：玩家正看着的图 / 玩家 pawn 所在图 / 玩家家园。
+                // 家园（IsProtectedHome，2026-08 用户定夺"不休眠不删除"）：开局家园/定居/gravship
+                // 降落/引力引擎营地——特权判定全项目唯一行为消费点在此，删除分支不再有独立豁免。
+                if (m == current || sources.Contains(tile) || SeamlessMapGovernance.IsProtectedHome(m))
                 {
                     if (SeamlessDormancyManager.IsDormant(m))
                     {
                         var keepReason = m == current
                             ? "governor keep-alive (CurrentMap)"
-                            : "governor keep-alive (player pawn on map)";
+                            : sources.Contains(tile)
+                                ? "governor keep-alive (player pawn on map)"
+                                : "governor keep-alive (player home)";
                         SeamlessDormancyManager.Wake(m, keepReason);
                     }
                     continue;
@@ -167,11 +178,13 @@ namespace RimExodus
 
                 if (d >= deleteHops)
                 {
-                    // 删除：仅地块图（锚点/家园的 WorldObject 是原版殖民地对象，Destroy 会引爆殖民地逻辑）。
-                    if (tileParent != null)
+                    // 滚动删除（可删判定归一层：受管辖且非家园——家园已在上方保活分支 return）。
+                    // 地块图销毁 Map+WorldObject；原生家族延迟执行原版删除偏好（Settlement 删图
+                    // 留对象等，见 RemoveNativeFamilyMap；原版判定 false（建筑/pawn 阻挡）则本轮跳过）。
+                    if (SeamlessMapGovernance.CanRollingDelete(m))
                     {
                         Log.Message($"[RimExodus] Dormancy DELETE: map {m.uniqueID} wt={tile} (BFS dist={d} ≥ deleteHops={deleteHops}) — governor rolling delete");
-                        m.GetComponent<SeamlessTileManager>()?.RemoveTileMap(tileParent);
+                        m.GetComponent<SeamlessTileManager>()?.RemoveRollingMap(m.Parent);
                     }
                     continue;
                 }

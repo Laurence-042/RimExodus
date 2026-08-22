@@ -63,22 +63,13 @@ namespace RimExodus
         public static IntVec3 ToTargetLocal(IntVec3 unified, in CombatLink link) => unified - link.offset;
 
         /// <summary>
-        /// 本图是否有活跃接缝邻居（弹丸交接的零分配快速门）。无邻居的图（孤岛锚点等）直接短路。
+        /// 本图是否有活跃接缝邻居（弹丸交接的零分配快速门）。无邻居的图（孤岛图等）直接短路。
         /// 与 <see cref="SeamlessTileGraph.PopulateNeighbors"/> 同口径（休眠过滤），但遍历邻居链表本身、不建列表。
         /// </summary>
         internal static bool HasActiveSeamNeighbors(Map map)
         {
             if (map == null) return false;
-            List<NeighborLink> links;
-            if (map.Parent is MapParent_SeamlessTile tileParent)
-            {
-                links = tileParent.neighbors;
-            }
-            else
-            {
-                var manager = map.GetComponent<SeamlessTileManager>();
-                links = manager?.neighbors;
-            }
+            var links = SeamlessMapData.Neighbors(map);
             if (links == null) return false;
 
             foreach (var l in links)

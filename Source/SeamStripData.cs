@@ -17,10 +17,10 @@ namespace RimExodus
     ///   深度衰减）——三层都取原生（同源；岩体/屋顶实况已被 void 铺设清除，不可用）。
     ///
     /// 【存储与生命周期（地图滚动加载卸载预埋）】地块图挂 <see cref="MapParent_SeamlessTile.seamStrip"/>
-    /// （WorldObject，随存档序列化，**地图卸载后数据存活**）；锚点图挂
-    /// <see cref="SeamlessTileManager.anchorSeamStrip"/>（锚点=家园常驻不卸载）。
+    /// （WorldObject，随存档序列化，**地图卸载后数据存活**）；原生 parent 图（家园/原生家族）挂
+    /// <see cref="SeamlessTileManager.seamStrip"/>（图组件，图在则数据在）。
     /// 统一取数入口 <see cref="SeamlessTileGraph.TryGetNeighborSeamStrip"/>：活图优先，
-    /// 无活图时回落到 WorldObject 上的快照——未来"滚动卸载（卸 Map、留 WorldObject）"时
+    /// 无活图时回落到地块 WorldObject 上的快照——未来"滚动卸载（卸 Map、留 WorldObject）"时
     /// 新图参考链路零改动。Dev 完全卸载（RemoveTileMap）销毁 WorldObject 即数据消失
     /// （"完全卸载 = 从未出现过"）。
     ///
@@ -91,8 +91,9 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 捕获 map 的接缝条带快照并写入存储位（地块图 → MapParent_SeamlessTile.seamStrip；
-        /// 锚点图 → SeamlessTileManager.anchorSeamStrip）。幂等（覆盖旧快照）。
+        /// 捕获 map 的接缝条带快照并写入存储位（载体由 <see cref="SeamlessMapData.SetSeamStrip"/>
+        /// 屏蔽：地块图 → MapParent_SeamlessTile.seamStrip；原生图 → SeamlessTileManager.seamStrip）。
+        /// 幂等（覆盖旧快照）。
         ///
         /// 三层同来源分两段：B∪T → 最终实况（topGrid + 岩石 edifice def + RoofAt）；
         /// 外条带 → 原生快照（baseTerrain/baseBuilding/baseRoofSnapshot，391 同点位备份）。
@@ -110,14 +111,9 @@ namespace RimExodus
             var cellIndices = map.cellIndices;
             var roofGrid = map.roofGrid;
 
-            MapParent_SeamlessTile tileParent = null;
-            SeamlessTileManager manager = null;
-            if (map.Parent is MapParent_SeamlessTile p) tileParent = p;
-            else manager = map.GetComponent<SeamlessTileManager>();
-
-            var baseTerrain = tileParent != null ? tileParent.baseTerrainSnapshot : manager?.anchorBaseTerrainSnapshot;
-            var baseBuilding = tileParent != null ? tileParent.baseBuildingSnapshot : manager?.anchorBaseBuildingSnapshot;
-            var baseRoof = tileParent != null ? tileParent.baseRoofSnapshot : manager?.anchorBaseRoofSnapshot;
+            var baseTerrain = SeamlessMapData.GetBaseTerrainSnapshot(map);
+            var baseBuilding = SeamlessMapData.GetBaseBuildingSnapshot(map);
+            var baseRoof = SeamlessMapData.GetBaseRoofSnapshot(map);
 
             var data = new SeamStripData { mapSize = size };
             var cells = new List<IntVec3>(band.Band.Count + band.OuterStrip.Count + 1024);
@@ -171,8 +167,7 @@ namespace RimExodus
             data.depths = depths;
             data.RebuildLookup();
 
-            if (tileParent != null) tileParent.seamStrip = data;
-            else if (manager != null) manager.anchorSeamStrip = data;
+            SeamlessMapData.SetSeamStrip(map, data);
 
             if (RimExodusMod.Settings?.verboseLogging ?? false)
                 Log.Message($"[RimExodus] SeamStripData captured: map={map.uniqueID}(wt={worldTile}) cells={cells.Count}");

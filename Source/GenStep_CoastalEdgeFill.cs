@@ -17,7 +17,7 @@ namespace RimExodus
     /// RocksFromGrid(200) 在 230 之前，岩石山已 spawn 为 edifice，Stone+edifice 守门正常工作。
     ///
     /// **统一注入**：通过 XML PatchOperation 注入到 Base_Player / Base_Faction / Encounter。
-    /// 邻居地块（MapParent_SeamlessTile）的 mapGenerator 也是 Base_Player，与锚点家园 A 同链。
+    /// 地块图（MapParent_SeamlessTile）与原生 parent 图（家园/原生家族）走完全相同的 genStep 链。
     /// 守卫用 GetMapWorldTile(map) >= 0——任何有合法 worldTile 的地图（MapParent_SeamlessTile 读 worldTile 字段，
     /// 普通地图读原生 map.Tile）都走完整链。RimExodus 是全局无缝，任何地图都应当 void 也切、传送点也放。
     /// </summary>

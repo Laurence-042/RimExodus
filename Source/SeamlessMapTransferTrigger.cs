@@ -22,8 +22,8 @@ namespace RimExodus
 
         public override void MapComponentTick()
         {
-            // 历史职责迁移（2026-08 软休眠）：静态登记表的周期清扫原挂"仅锚点图 tick"——
-            // 家园无玩家 pawn 时可随软休眠冻结，锚点 tick 不再可靠，已迁至
+            // 历史职责迁移（2026-08 软休眠）：静态登记表的周期清扫原挂"仅家园图 tick"——
+            // 家园无玩家 pawn 时可随软休眠冻结，图组件 tick 不再可靠，已迁至
             // SeamlessDormancyGovernor（GameComponent 恒 tick）。本组件不再承担全局清扫。
         }
 

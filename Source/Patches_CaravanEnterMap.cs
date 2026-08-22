@@ -29,7 +29,7 @@ namespace RimExodus
             // 远行队进图 = 源集合变化（caravan 消耗、pawn 落图）：请求 governor 尽快重算距离。
             SeamlessDormancyGovernor.RequestSweepSoonStatic();
 
-            // 对所有有 RimExodus 传送点的地图生效（含锚点 A）；其他地图放行原方法。
+            // 对所有有 RimExodus 传送点的地图生效（含玩家家园图——原生 MapParent 也是无缝世界一员）；其他地图放行原方法。
             if (!SeamlessExitSpotFinder.HasRimExodusEnterSpots(map)) return true;
 
             var enterCell = FindEnterSpot(map);

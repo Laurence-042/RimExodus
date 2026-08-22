@@ -87,7 +87,7 @@ namespace RimExodus
     /// <summary>在 RimExodus 地块上找一个 pawn 可到达的传送点格。</summary>
     internal static class SeamlessExitSpotFinder
     {
-        /// <summary>map 是否有 RimExodus 传送点（含锚点 A，A 是原生 MapParent 但也是无缝地块的一员）。</summary>
+        /// <summary>map 是否有 RimExodus 传送点（含玩家家园图——原生 MapParent 但也是无缝世界一员）。</summary>
         internal static bool HasRimExodusEnterSpots(Map map)
         {
             if (map == null) return false;

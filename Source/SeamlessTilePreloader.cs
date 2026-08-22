@@ -5,8 +5,9 @@ namespace RimExodus
 {
     /// <summary>
     /// 邻居预加载的静态入口（阶段4a）。
-    /// 屏蔽"源地块是锚点还是地块地图"的差异：每张地图都有 <see cref="SeamlessTileManager"/> 组件
-    /// （由 Map.FillComponents 自动实例化），从源地块取其 Manager 再调 <see cref="SeamlessTileManager.TryPreloadNeighbor"/>。
+    /// 屏蔽"源图是原生 parent 图（家园/原生家族）还是地块图"的差异：每张地图都有
+    /// <see cref="SeamlessTileManager"/> 组件（由 Map.FillComponents 自动实例化），从源图取其
+    /// Manager 再调 <see cref="SeamlessTileManager.TryPreloadNeighbor"/>。
     ///
     /// 异步化：预加载请求登记到队列（<see cref="QueuePreload"/>），由 <see cref="SeamlessTileManager.MapComponentTick"/>
     /// 在下一 tick 消费（<see cref="ConsumeQueued"/>)。避免在 Pawn_JobTracker.StartJob 调用栈内同步生成地图

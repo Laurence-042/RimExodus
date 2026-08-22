@@ -10,17 +10,17 @@ namespace RimExodus
     /// 无缝地块邻居表登记工具（静态，无状态）。
     /// 封装"双向登记邻居关系 + offset 计算 + 卸载清理"，供 <see cref="SeamlessTileManager"/> 生成流程调用。
     ///
-    /// 邻居表存储位置由 <see cref="SetNeighborOnMap"/> 统一屏蔽：
-    /// 锚点地图（家园 A）存 <see cref="SeamlessTileManager.neighbors"/>（MapComponent），
-    /// 地块地图（<see cref="MapParent_SeamlessTile"/>）存自身 neighbors 字段。
+    /// 邻居表存储载体由 <see cref="SeamlessMapData"/> 统一屏蔽：
+    /// 地块图（<see cref="MapParent_SeamlessTile"/>）存自身字段，
+    /// 原生 parent 图（家园/原生家族 Settlement 等）存 <see cref="SeamlessTileManager"/> 组件。
     /// </summary>
     internal static class SeamlessNeighborRegistry
     {
         /// <summary>
-        /// 双向登记两个地块的邻居关系（支持任意组合：锚点-地块、地块-地块、地块-锚点）。
+        /// 双向登记两个地块的邻居关系（支持任意组合：原生图-地块、地块-地块、地块-原生图）。
         /// 源地块 → 新地块：用源地块多边形上指向 newWorldTile 的边角度。
         /// 新地块 → 源地块：偏移 = -offset。
-        /// 存储位置由 <see cref="SetNeighborOnMap"/> 统一屏蔽（锚点存 Manager.neighbors，地块存 MapParent_SeamlessTile.neighbors）。
+        /// 存储载体由 <see cref="SeamlessMapData"/> 统一屏蔽（地块图存自身字段，原生图存组件）。
         /// </summary>
         public static void RegisterNeighborBidirectional(Map originMap, MapParent newParent,
             int sourceWorldTile, int newWorldTile, IntVec3 offset)
@@ -42,7 +42,7 @@ namespace RimExodus
             }
         }
 
-        /// <summary>在 map 上登记一条邻居连接（锚点存 Manager.neighbors，地块存 MapParent_SeamlessTile.neighbors）。</summary>
+        /// <summary>在 map 上登记一条邻居连接（存储载体由 <see cref="SeamlessMapData"/> 屏蔽：地块图存自身字段，原生图存组件）。</summary>
         public static void SetNeighborOnMap(Map map, int worldTile, MapParent neighbor, IntVec3 offset)
         {
             if (map == null || neighbor == null) return;
@@ -100,11 +100,19 @@ namespace RimExodus
             return new IntVec3(Mathf.RoundToInt(offsetVec.x), 0, Mathf.RoundToInt(offsetVec.y));
         }
 
-        /// <summary>移除 parent 与其所有邻居之间的双向邻居表引用，并刷新受影响剩余邻居的传送点缓存。</summary>
-        public static void CleanupNeighborLinks(MapParent_SeamlessTile parent)
+        /// <summary>
+        /// 移除 parent 与其所有邻居之间的双向邻居表引用，并刷新受影响剩余邻居的传送点缓存。
+        /// 支持任意 parent（2026-08 泛化）：地块图链表读自身字段，原生家族图（Settlement/Site 等）
+        /// 链表读组件——载体差异经 <see cref="SeamlessMapData.Neighbors"/> 屏蔽。
+        /// </summary>
+        public static void CleanupNeighborLinks(MapParent parent)
         {
-            var linksToRemove = new List<NeighborLink>(parent.neighbors);
-            parent.neighbors.Clear();
+            if (parent == null) return;
+            var ownLinks = SeamlessMapData.Neighbors(parent.Map);
+            if (ownLinks == null) return;
+
+            var linksToRemove = new List<NeighborLink>(ownLinks);
+            ownLinks.Clear();
 
             // 收集受影响的剩余邻居 Map（去重），清理后需刷新其传送点缓存，
             // 否则指向被卸载地块的 spot 仍保留陈旧的 hasArrival/cachedArrivalCell。
@@ -113,17 +121,10 @@ namespace RimExodus
             foreach (var link in linksToRemove)
             {
                 if (link?.neighbor == null) continue;
-                if (link.neighbor is MapParent_SeamlessTile neighborTile)
-                {
-                    neighborTile.neighbors.RemoveAll(n => n != null && n.neighbor == parent);
-                }
-                else if (link.neighbor.Map != null)
-                {
-                    link.neighbor.Map.GetComponent<SeamlessTileManager>()?.neighbors
-                        .RemoveAll(n => n != null && n.neighbor == parent);
-                }
+                var counterLinks = SeamlessMapData.Neighbors(link.neighbor.Map);
+                counterLinks?.RemoveAll(n => n != null && n.neighbor == parent);
 
-                // 记录受影响的邻居 Map（neighbor.Map 在地块被卸载场景下可能为 null，跳过）。
+                // 记录受影响的邻居 Map（neighbor.Map 在对端图已卸载的场景下可能为 null，跳过）。
                 if (link.neighbor.Map != null)
                 {
                     affectedMaps.Add(link.neighbor.Map);

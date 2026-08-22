@@ -35,8 +35,8 @@ namespace RimExodus
 
         static bool Prefix(ExitMapGrid __instance, Map ___map)
         {
-            // 对所有有 RimExodus 传送点的地图生效（锚点 A 是原生 MapParent，也是无缝地块的一员）。
-            // 之前只判断 MapParent_SeamlessTile，导致锚点 A 的传送点未被标为出口格，远行队走不到。
+            // 对所有有 RimExodus 传送点的地图生效（玩家家园图是原生 MapParent，也是无缝世界一员）。
+            // 之前只判断 MapParent_SeamlessTile，导致家园图的传送点未被标为出口格，远行队走不到。
             if (___map == null) return true; // 放行原版
             if (!SeamlessEdgeCells.HasSeamEdge(___map)) return true; // 非 RimExodus 地块放行原版
 
@@ -86,9 +86,9 @@ namespace RimExodus
     }
 
     /// <summary>
-    /// 让铺了 RimExodus 传送点的地图（含玩家家园 A）也算"使用 exit grid"——
+    /// 让铺了 RimExodus 传送点的地图（含玩家家园图）也算"使用 exit grid"——
     /// 原版 <see cref="ExitMapGrid.MapUsesExitGridNow"/> 对 <c>map.IsPlayerHome</c> 返回 false，
-    /// 导致锚点家园 A 的传送点格虽被标为 exit cell（见 <see cref="Patch_ExitMapGrid_Rebuild"/>），
+    /// 导致家园图的传送点格虽被标为 exit cell（见 <see cref="Patch_ExitMapGrid_Rebuild"/>），
     /// 但 exit grid 的浅绿色 CellBoolDrawer 不绘制（<see cref="ExitMapGrid.ExitMapGridUpdate"/> 读
     /// <see cref="ExitMapGrid.MapUsesExitGrid"/> 决定是否 MarkForDraw）。结果聚焦 B（非家园）能看到
     /// 浅绿色传送点提示、聚焦 A（家园）看不到。
