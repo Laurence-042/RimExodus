@@ -2,6 +2,8 @@
 
 状态：已完成核心实现，部分游戏内待验证。
 
+> **2026-08 取代注**：本文若干节描述的方案已被后续重构取代，正文保留作历史——旧接缝带/offset 口径、"防反弹 pawn 级锁"、"跨图菜单接管"、传送检测 Postfix（详见各节内注）。
+
 上级设计：[无缝世界地块探索](无缝世界地块探索.md)
 上一阶段：[第三阶段：六边形裁切](第三阶段-六边形裁切.md)（六边形几何与 void 铺设）
 下一阶段：[第四阶段：连续地形](第四阶段-连续地形.md)
@@ -31,7 +33,7 @@
 
 - 数据结构：`Dictionary<IntVec3, int>`，键是边界带格，值是该格最近多边形边对应的世界邻居 tile id。查询 O(1)，适合未来高频场景（如撤退袭击者批量检查）。
 - 构建算法：`SeamlessPolygonGeometry.ComputeVoidBand`（多轮膨胀 BFS）——从 void 格出发，逐轮把 8-邻域非 void 格标记为到 void 的切比雪夫距离 k，跑 `bandWidth` 轮。带宽由 `RimExodusSettings.borderPreloadDistance` 控制（默认 15 格）。
-- 同一份速查表还附带构建 `noBuildBandCells`（`HashSet<IntVec3>`，默认 `SeamOverlap+1=3` 格宽的禁建带），供 `Patches_GenConstruct.CanPlaceBlueprintAt` 拦截玩家在接缝内侧建造——这是防止玩家用建筑改变寻路、把 pawn 困在 void 一侧的安全前提。
+- 同一份速查表还附带构建 `noBuildBandCells`（`HashSet<IntVec3>`，`SeamOverlap+1=3` 格宽的禁建带——**2026-08 起改由 `borderNoBuildDistance` 直接控制，默认 3**），供 `Patches_GenConstruct.CanPlaceBlueprintAt` 拦截玩家在接缝内侧建造——这是防止玩家用建筑改变寻路、把 pawn 困在 void 一侧的安全前提。
 
 `ComputeVoidBand` 直接读 terrainGrid 判 void，与 void 铺设（`ApplyPolygonTerrain` 的格角检测）同源。这是经过多轮游戏内验证后确立的唯一"距边界 N 格"实现；早期用过的浮点多边形边距离（`ComputeEdgeBand`）会在凸多边形顶点附近振荡，与格角检测口径不一致，已全部删除。
 
@@ -69,7 +71,7 @@
 
 `SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(map, worldTile)` 在地图生成时沿**全部世界邻居边**（5 或 6 条）预铺单端 spot：
 
-- 接缝带定义：到最近 void 格的切比雪夫距离 ∈ {1, 2} 的非 void 格，即紧贴 void 的 `SeamOverlap`=2 格宽环形带（最外圈 + 次外圈）。复用 `ComputeVoidBand`，与 void 铺设/接缝覆写/边界带同一实现、同一 void 边界口径。
+- 接缝带定义：到最近 void 格的切比雪夫距离 ∈ {1, 2} 的非 void 格，即紧贴 void 的 `SeamOverlap`=2 格宽环形带（最外圈 + 次外圈）。复用 `ComputeVoidBand`，与 void 铺设/接缝覆写/边界带同一实现、同一 void 边界口径。（**2026-08 已废**：现行铺点范围 = 传送圈 = 离散边圈 ∪ 带外圈，`BuildSeamBand` 纯几何、无任何可通行性过滤，权威定义见 [接缝带定义](接缝带定义.md)。）
 - 每格按 `FindClosestEdgeIndex`（到 6 条多边形边的浮点距离取最小）确定 `targetWorldTile`（= 该边对应的世界邻居 tile）。
 - spot 载体是 Ethereal/ThingWithComps（非 Building）：`destroyable=false`/`useHitPoints=false`/`selectable=false`/`drawerType=None`，不可攻击/占领/拆除，不进 edificeGrid，可与岩山墙/深水/任意地形共存。守门只跳过 void 格（岩石 Building 格照铺）。
 - 预铺时 `hasArrival` 默认 false，待邻居加载、`RegisterNeighborBidirectional` 末尾刷新两端 spot 时算出。
@@ -93,7 +95,7 @@
 `IncrementalMapGenerator`（MapComponent）把 genStep 链拆成 N 帧：
 
 - **准备阶段（同步）**：`ConstructComponents` → `AddMap` → 组装 genStep 列表。用 `Rand.PushState/Seed/PopState` 包裹，seed = `World.info.Seed ⊕ mapParent.Tile.GetHashCode()`（与原版 MapGenerator 和 MapPreview 三者公式对齐）。
-- **分帧阶段**：每帧 `TickGeneration` 跑 1+ genStep。每个 genStep 开始时 `Rand.Seed = baseSeed + GetSeedPart(index)` 独立重置，主帧 tick 改变 Rand 不影响下一个 genStep。最重的 Plants genStep（~8000ms 单帧）拆成每批 2000 cells、每帧跑到 `TimeBudgetMs=8ms` 预算耗尽，每批独立 `Rand.Seed` 保证跨帧可复现。
+- **分帧阶段**：每帧 `TickGeneration` 跑 1+ genStep。每个 genStep 开始时 `Rand.Seed = baseSeed + GetSeedPart(index)` 独立重置，主帧 tick 改变 Rand 不影响下一个 genStep。最重的 Plants genStep（~8000ms 单帧）拆成每批 2000 cells、每帧跑到 `TimeBudgetMs=8ms` 预算耗尽，每批独立 `Rand.Seed` 保证跨帧可复现（**2026-08 修正**：批次已降为 64 格/批——2000 格/批 ≈170ms/帧远超 8ms 预算，见 AGENTS.md"邻居预加载与异步加载"节）。
 - **FinishGeneration（单帧）**：`FinalizeInit`（region rebuild 不能拆）+ `onComplete` 回调。
 
 配合 `Patches_IncrementalMapGen`：Prefix `Map.MapPreTick`/`MapPostTick`/`MapUpdate`，对 generating map 早退（不 tick、不渲染）。玩家在生成期间可继续操作其他地图。性能数据：void 裁切 genStep 从 5762ms 降到 30ms（`ApplyPolygonTerrain` 改为直接写 `terrainGrid.topGrid` 跳过 `SetTerrain` 副作用），Plants 从 8000ms 单帧卡顿降到每帧 <50ms。
@@ -106,23 +108,27 @@
 
 `SeamlessTileManager.SeamOverlap = 2`。`SeamlessNeighborRegistry.ComputeNeighborOffset` 算出 `offsetVec = 2 × (边中点 - 中心)` 后，沿其自身方向收缩 `SeamOverlap=2` 格再 round。效果是邻居多边形相对当前地图多叠 2 格——这 2 格在两端都落在各自多边形内（非 void、可站立），吸收投影偏移。
 
+> **2026-08 已废**：镜像假设公式（只用源端几何）有系统性 ±1 格渲染错位，已被**连续边中点对齐**（`offset = round(midSource − midNew)`，两端各用自己多边形上共享边的连续边中点，浮点级精确重合、无收缩）取代；`SeamOverlap` 常量已废弃（后继 `RoadAnchorInset` 现值 0）。权威定义见 [接缝带定义](接缝带定义.md)。
+
 所有 offset 消费者（渲染/归属/边界带/void/传送点）都读同一个 `NeighborLink.offset`，收缩一处即全局跟随。从赤道到北极旋转累积 30° 的过程中，2 格重叠带覆盖逐渐累积的偏移，不会漏出 void 缝隙。
 
 ### 事件驱动传送检测
 
 早期用 `MapComponentTick` 每 tick 轮询所有传送点（~600 个），profiler 显示为核心性能瓶颈。最终改为事件驱动：
 
-- `Patches_PawnPathFollower` Postfix `Pawn_PathFollower.TryEnterNextPathCell`（pawn 跨格瞬间），O(1) 查 `thingGrid` 该格是否有传送点。pawn 不动时零开销。
+- `Patches_PawnPathFollower` `Pawn_PathFollower.TryEnterNextPathCell`（pawn 跨格瞬间），O(1) 查 `thingGrid` 该格是否有传送点。pawn 不动时零开销。（**2026-08 修正**：现用 **Prefix + `pather.nextCell`**（即将进入的格）而非本文的 Postfix——进入终点格时原方法体内部同步跑 `PatherArrived`→think tree 发新 job→`StartJob` 清掉传送许可，Postfix 永远晚于这条链，终点格传送永不触发；详见 AGENTS.md"传送机制"节。）
 - `SeamlessMapTransferTrigger.TryTriggerTransfer(pawn, cell, map)`：踩 spot → 检查 `comp.hasArrival` → `TryGetMapByWorldTile` 解析对端 Map → 读 `comp.cachedArrivalCell`（O(1)）→ `SeamlessMapTransfer.TryTransferPawn`。
-- `MapComponentTick` 只保留 `PurgeInvalidArrivalLocks`（arrivalLocks 为空时 O(1) 返回）。
+- `MapComponentTick` 只保留 `PurgeInvalidArrivalLocks`（arrivalLocks 为空时 O(1) 返回）。（**2026-08 已废**：arrivalLocks 随 pawn 级锁一并删除，见下节注。）
 
 覆盖性：征召移动/撤退敌人/续程 Goto 走 pather 跨格触发；跨图落地（`GenSpawn.Spawn`）不走 pather 不触发，但此时 pawn 在 arrivalLocks 里防回弹，后续迈步走 pather 时锁已解除。
 
-### 防反弹：pawn 级锁
+### 防反弹：pawn 级锁（2026-08 已废，见节末注）
 
 传送点沿接缝满铺，pawn 被传到对端后续程沿接缝前进，踩上相邻接缝传送点会被立刻传回。旧锁是"特定 spot 对象"，pawn 离开到达的那个 spot 就解锁，防不住沿接缝走到相邻 spot。
 
 最终方案是 pawn 级锁（`HashSet<Pawn>`）：pawn 跨图到达后进入锁状态，只要还站在本图任一接缝传送点上就保持锁，踩任何接缝 spot 都不触发传送；离开整条接缝带（不再站在任何本图传送点上）才解锁。`PurgeInvalidArrivalLocks` 每帧收集本图所有接缝 spot 位置到 `HashSet<IntVec3>`，遍历已锁 pawn 检查是否仍在接缝带上。
+
+> **2026-08 已废**：pawn 级锁已被阶段5 **传送许可登记制**删除——无许可不传（闲逛/工作踩点无事是结构性结果；锁的"站在任一传送点保持"语义会卡死沿相邻边带内行走的撤离者），防回弹改由撤离链 VisitedTiles 承担。权威规格见 [边界行为表](边界行为表.md)。
 
 ### 行为区分：跨图传送 vs 远行队
 
@@ -156,6 +162,8 @@
 - **`InjectCrossMapGotoOption`**：跨图场景下完全不让原版 DraftedMove 的可达性检查参与决定（它用 `pawn.Map`(A) 的 reachability 对 B 坐标做检查必然失败）。改用桥接可达性 `SeamlessCrossMapOrders.CanBridgeTo`（= 本图是否有 pawn 可到达的桥接传送点）：桥接可达 → 注入 `autoTakeable=true` 的跨图 GoHere（不弹菜单直接执行）；不可达 → 注入灰色"无法到达"。同时登记所有选中且要跨图的 pawn 到 `SeamlessSelectionTracker`。
 
 语义收敛：当前阶段跨图右键任何位置 = "走到这里"（桥接过去）。同图场景完全不受影响。未来跨图射击/交互实现时，在清空 ClickedThings 后按需注入专门跨图选项。
+
+> **2026-08 已废**：整方法接管 + 手写注入已被**点击重放 + 公共函数层**二次重构取代——点击拦截后在真邻图上重放拿原生选项与命令（52 个 provider 原生产出与禁用态），CanReach/选位/下令等公共函数跨图化。历史首版教训（手写注入连续漏原版语义、多层拦截混框架乱坐标）见 [第五阶段](第五阶段-跨图寻路与射击.md)与 AGENTS.md"跨图交互架构"节。
 
 ### 选中状态保持
 

@@ -41,7 +41,7 @@ SUBJECTS = [
 ]
 
 # 目标格类型（图内普通格不可能踩到传送点，不单列）
-TARGETS = ["传送点格（=接缝带格）", "预加载边界带非传送点格（距 void 3-15 格）"]
+TARGETS = ["传送圈格（离散边圈∪带外圈，spot 实铺位置）", "预加载边界带非传送点格（距 void 3-15 格）"]
 
 # 行为取值（踩点两列的组合）
 ACT_TRANSFER_CONT = "**传送** + 续程 Goto"
@@ -77,8 +77,8 @@ SOURCES = [
                 "elig": False,
                 "loaded": ACT_NATIVE_EXIT if tgt == "spot" else ACT_NOTHING,
                 "unloaded": ACT_NATIVE_EXIT if tgt == "spot" else ACT_NOTHING,
-                "preload": {"spot": "否（待办：现状会误触发，需排除传送点格）",
-                            "band": "是（现状已生效：playerForced 分支）"},
+                "preload": {"spot": "否（已实现：CheckPawnGoto 排除传送点格——征召 goto 传送点格 = 撤离意图，不触发对端生成）",
+                            "band": "是（已生效：playerForced 分支）"},
                 "vanilla": "出口格→撤离/组队" if tgt == "spot" else "无事",
                 "patch": "现有（ExitMapGrid 标传送点为出口格）" if tgt == "spot"
                     else "现有（预加载已有）",
@@ -89,8 +89,8 @@ SOURCES = [
                 "elig": False,
                 "loaded": ACT_NOTHING,
                 "unloaded": ACT_NOTHING,
-                "preload": {"spot": "否（待办：同殖民者，排除传送点格）",
-                            "band": "是（现状已生效：playerForced 分支）"},
+                "preload": {"spot": "否（已实现：同殖民者，CheckPawnGoto 排除传送点格）",
+                            "band": "是（已生效：playerForced 分支）"},
                 "vanilla": "无事（mech 不设 flag，不撤离）",
                 "patch": "无需（原版例外自动生效）",
             },
@@ -102,8 +102,8 @@ SOURCES = [
         lambda name, animal, tgt: None if tgt != "spot" else {
             "expect": {
                 "殖民者": "玩家要求殖民者去新地图",
-                "殖民地机械族": "玩家要求机械族去新地图（需扩展桥接注入对象）",
-                "驯养动物": "玩家要求被征召动物去新地图（需扩展桥接注入对象）",
+                "殖民地机械族": "玩家要求机械族去新地图",
+                "驯养动物": "玩家要求被征召动物去新地图",
             }[name],
             "flag": "无",
             "elig": True,
@@ -111,7 +111,7 @@ SOURCES = [
             "unloaded": "不涉及（对端必须先生成才能 goto）",
             "preload": {"spot": "不涉及（对端必须先生成才能 goto）", "band": "不涉及"},
             "vanilla": "不存在",
-            "patch": "现有 + 待办（桥接注入扩展至机械族/被征召动物；桥接 job 需带传送许可标记）",
+            "patch": "已实现（点击重放 + 公共函数层：IsCrossMapOrderable 覆盖殖民者/殖民地机械族/玩家阵营驯养动物；Bridge 许可 TransitTag；选点 = 双侧代价场联合最优）",
         },
     ),
     (
@@ -135,7 +135,7 @@ SOURCES = [
             "unloaded": ACT_NOTHING,
             "preload": {"spot": "否", "band": "否"},
             "vanilla": "无事（可停在出口格但不离图）",
-            "patch": "收紧（现状无资格即传，需收紧为不传）",
+            "patch": "已实现（登记制：无许可不传 = 无事）",
         },
     ),
     (
@@ -163,7 +163,7 @@ SOURCES = [
             "unloaded": ACT_NOTHING,
             "preload": {"spot": "否", "band": "否"},
             "vanilla": "无事",
-            "patch": "收紧（现状无资格即传，需收紧为不传）",
+            "patch": "已实现（登记制：无许可不传 = 无事）",
         },
     ),
     (
@@ -177,7 +177,7 @@ SOURCES = [
             "unloaded": EXIT_DUTY[1],
             "preload": {"spot": "否", "band": "否"},
             "vanilla": "出口格→撤离（NPC 只能加入现有队）",
-            "patch": "分流（现状 flag 一律放行原生撤离；需改为对端已加载→传送+续发撤离）",
+            "patch": "已实现（Evacuation 许可：对端已加载→传送+续发撤离 job，VisitedTiles 防回弹；未生成→原生撤离）",
         },
     ),
     (
@@ -191,7 +191,7 @@ SOURCES = [
             "unloaded": EXIT_DUTY[1],
             "preload": {"spot": "否", "band": "否"},
             "vanilla": "出口格→撤离（ExitMap 回世界）",
-            "patch": "分流（同撤离 duty：对端已加载→传送继续跑）",
+            "patch": "已实现（Evacuation 许可，同撤离 duty：对端已加载→传送继续跑）",
         },
     ),
     (
@@ -205,7 +205,7 @@ SOURCES = [
             "unloaded": ACT_NOTHING,
             "preload": {"spot": "否", "band": "否"},
             "vanilla": "无事",
-            "patch": "收紧（现状『动物即传』过宽，应收窄为跟随 job；跟随传送保留）",
+            "patch": "已实现（Follow 许可：跟随目标刚跨图→传送；其余闲逛/工作无事）",
         },
     ),
 ]
