@@ -149,7 +149,7 @@ SOURCES = [
             "unloaded": ACT_NOTHING,
             "preload": {"spot": "否", "band": "否"},
             "vanilla": "无事",
-            "patch": "已实现（2026-08 阶段5：TryRegisterCombatStepTransfer——NPC 战斗体+战斗 job（AttackMelee/AttackStatic/战斗 lord duty 下 Goto）+追击目标在对端图才即席 Pursue 许可；远程追击扫描 MarkPursuers 扩展 AttackStatic（还能跨缝射则原地打））",
+            "patch": "已实现（2026-08 阶段5：TryRegisterCombatStepTransfer——NPC 战斗体+战斗 job（AttackMelee/AttackStatic/战斗 lord duty 下 Goto）+追击目标在对端图才即席 Pursue 许可；MarkPursuers 意图三判据——Attack 系 job / mindState.enemyTarget / 推进期 Goto 的 targetA=刚跨图者（还能跨缝射则原地打）；主动推进亦落地——GotoNearestHostile 跨图版取邻图最近 → StartPath 结构判据桥接过缝 → Bridge 落地收编袭击 lord（防无 lord 被 JobGiver_ExitMap 离场“过缝秒退”））",
         },
     ),
     (
