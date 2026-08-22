@@ -2,4 +2,14 @@
 <LanguageData>
   <!-- Seamless tile border zone: player cannot build within N cells of the polygon edge to prevent seam-stranding exploits. -->
   <RimExodus_BorderNoBuild>Cannot build in the seamless tile border zone.</RimExodus_BorderNoBuild>
+
+  <!-- Settlement trader dialog (2026-08 seamless settlement access). -->
+  <RimExodus_TalkToSettlementTrader>Talk to {0}</RimExodus_TalkToSettlementTrader>
+  <RimExodus_SettlementTraderBusy>{0} is unable to talk right now.</RimExodus_SettlementTraderBusy>
+  <RimExodus_SettlementTraderNoPath>Cannot reach the trader.</RimExodus_SettlementTraderNoPath>
+  <RimExodus_SettlementTraderDialogTitle>Traveler, what do you want?</RimExodus_SettlementTraderDialogTitle>
+  <RimExodus_SettlementTraderTrade>Trade</RimExodus_SettlementTraderTrade>
+  <RimExodus_SettlementTraderLeave>Leave</RimExodus_SettlementTraderLeave>
+  <RimExodus_SettlementTraderNoTrade>They have no interest in trading with you.</RimExodus_SettlementTraderNoTrade>
+  <RimExodus_SettlementTraderNoStock>Their trade stock is empty right now.</RimExodus_SettlementTraderNoStock>
 </LanguageData>

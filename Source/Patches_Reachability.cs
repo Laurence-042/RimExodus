@@ -55,6 +55,11 @@ namespace RimExodus
                     return false;
                 }
             }
+            // 诊断插桩（2026-08 远行队"无法离开此区域"排查，verbose）：接缝语义判 false 时记录，
+            // 区分"接缝格全不可达"与"根本没有接缝格"。
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] [diag] CanReachMapEdge(seam) = false on map {___map.uniqueID} from {c} " +
+                            $"({_seamCellsScratch.Count} seam cells, {SeamlessExitSpotFinder.DescribeEnterSpots(___map)}).");
             __result = false;
             return false; // 跳过原版
         }

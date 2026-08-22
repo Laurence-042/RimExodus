@@ -67,6 +67,13 @@ namespace RimExodus
         private int pendingAutoGenerateTicks = -1;
 
         /// <summary>
+        /// 正在经 RimExodus 预加载链原生生成 Settlement 据点图（try/finally 维护，勿手工置位）。
+        /// 供 <c>Patch_Settlement_PostMapGenerate_SkipDetectionRaids</c> 判定跳过 TimedDetectionRaids
+        /// 倒计时——原版该倒计时语义是"玩家闯入/进攻据点被发现的报复"，中立据点的预加载生成不该启动。
+        /// </summary>
+        internal static bool GeneratingSettlementSeamlessly;
+
+        /// <summary>
         /// 正在生成中的 worldTile 集合（阶段4a：防重入）。
         /// 生成地图是重操作（MapGenerator.GenerateMap），生成过程中若再次请求同一 worldTile 的生成会被拒绝。
         /// RimWorld 单线程 tick，无需锁。
@@ -184,6 +191,13 @@ namespace RimExodus
             AutoConnectWorldNeighbors(map, worldTile);
             SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(map);
 
+            // Settlement 无缝接入（2026-08）：原生入口（进攻/空投/dev）生成的据点图也补贸易商指定
+            // （预加载路径在 GenerateTileMap 的 Settlement 分支内已即时指定）。
+            if (map.Parent is Settlement nativeSettlement)
+            {
+                SeamlessSettlementTrader.EnsureTraderAssigned(nativeSettlement);
+            }
+
             // 可选：仅玩家家园开档预加载全部邻居。
             if (!SeamlessMapGovernance.IsProtectedHome(map)) return;
             var preloadAll = RimExodusMod.Settings?.preloadAllNeighborsOnStart ?? false;
@@ -221,10 +235,21 @@ namespace RimExodus
             var sourceWorldTile = SeamlessTileRegistry.GetMapWorldTile(map);
             if (sourceWorldTile < 0) return false;
 
-            // 防递归守卫。
-            if (MapGenerator.mapBeingGenerated != null)
+            // 防递归守卫（分帧增量生成全程持有 mapBeingGenerated；IsAnyGenerating 兜底理论上的窗口差）。
+            if (MapGenerator.mapBeingGenerated != null || IncrementalMapGenerator.IsAnyGenerating)
             {
-                Log.Warning($"[RimExodus] Cannot preload seamless tile map during map generation (mapBeingGenerated={MapGenerator.mapBeingGenerated.uniqueID}).");
+                // Settlement 占位 tile 的走近生成（2026-08）：忙态改为下一 tick 重试，避免玩家的走近下令被
+                // 静默丢弃（忙态必有尽头，重试有界；ConsumeQueued 消费前已清空 queuedHashes，重入队安全）。
+                // 普通 tile 地图维持原"警告+丢弃"（玩家再次下令可重触发）。
+                if (Find.World.worldObjects.MapParentAt(new PlanetTile(targetWorldTile)) is Settlement)
+                {
+                    SeamlessTilePreloader.QueuePreload(map, targetWorldTile);
+                    return false;
+                }
+                if (MapGenerator.mapBeingGenerated != null)
+                {
+                    Log.Warning($"[RimExodus] Cannot preload seamless tile map during map generation (mapBeingGenerated={MapGenerator.mapBeingGenerated.uniqueID}).");
+                }
                 return false;
             }
 
@@ -285,10 +310,8 @@ namespace RimExodus
             // SeamlessTile，旧转型令守卫失明——家园休眠时预加载家园 tile 会走完整生成链造出
             // 重复家园图（2026-08 实测，"没有特殊地图"铁律）。现认任意 MapParent：
             // 有活 Map（休眠图）→ 唤醒 + 补登记，不生成；MapParent_SeamlessTile 无 Map（历史
-            // RemoveTileMap 残留孤儿）→ 销毁后继续生成（原防御）；原生 parent 无 Map（原生家族
-            // Settlement/Site 等占位）→ tile 已被占，不生成也不销毁——家族图的"走近自动生成/
-            // 无缝步行进入"是下一轮 Settlement 接入任务（据点建筑/NPC/交易列表/攻击判定），
-            // 当前经原版入口（远行队进入）生成后由 SetupNativeParentMap 接线。
+            // RemoveTileMap 残留孤儿）→ 销毁后继续生成（原防御）；Settlement 占位 → 原生生成
+            // （2026-08 无缝接入，见下）；其他原生家族 parent 无 Map → 跳过（范围边界用户定夺）。
             var existingParent = Find.World.worldObjects.MapParentAt(new PlanetTile(newWorldTile));
             if (existingParent != null)
             {
@@ -312,8 +335,48 @@ namespace RimExodus
                         existingParent.Destroy();
                     }
                 }
+                else if (existingParent is Settlement settlementParent)
+                {
+                    // Settlement 无缝接入（2026-08，用户定夺，勿回退为跳过）：原生 GetOrGenerateMap 生成据点图。
+                    // 复用既有 Settlement WorldObject（不换 def）——据点建筑/驻军/重访重生成全原版语义；
+                    // genStep 链走 Base_Faction/Base_Player（4 个裁切 genStep 已 XML 注入，生成期即被裁切+铺传送点）；
+                    // 生命周期归原生家族滚动接管（≥2 眠 ≥3 删、删图留对象）。敌对据点同样生成——"玩家看到
+                    // 全是敌人的据点，正常结束"；好感度可交易则随后指定贸易商。尺寸用调用方 mapSize（=源图尺寸，
+                    // 接缝六边形几何按 mapSize 计算，必须与邻图一致）。方法入口的 mapBeingGenerated 守卫已防与
+                    // 分帧增量生成交错（营地先例同款）；此处再查 IsAnyGenerating 兜底（TryPreloadNeighbor 已拦，
+                    // 防御 Dev 直调路径）。
+                    if (IncrementalMapGenerator.IsAnyGenerating)
+                    {
+                        Log.Warning("[RimExodus] Settlement native generation deferred: incremental generation in progress.");
+                        return null;
+                    }
+                    // 生成标志（try/finally）：让 Settlement.PostMapGenerate 的 patch 撤销 TimedDetectionRaids
+                    // 倒计时（中立据点预加载不该启动"被发现报复"计时，见 Patches_NativeMapFamily）。
+                    Map settlementMap;
+                    GeneratingSettlementSeamlessly = true;
+                    try
+                    {
+                        settlementMap = GetOrGenerateMapUtility.GetOrGenerateMap(new PlanetTile(newWorldTile), mapSize, null);
+                    }
+                    finally
+                    {
+                        GeneratingSettlementSeamlessly = false;
+                    }
+                    if (settlementMap != null)
+                    {
+                        // 源图↔据点图即时登记（双向邻居表 + 两端传送点补铺 + arrivals 刷新，幂等）；天气域绑定
+                        // 与 AutoConnect 由 SetupNativeParentMap（MapGenerated 延迟 1 tick）幂等补齐其余接线。
+                        EnsureNeighborRegistered(map, sourceWorldTile, settlementMap, newWorldTile);
+                        SeamlessSettlementTrader.EnsureTraderAssigned(settlementParent);
+                        Log.Message($"[RimExodus] Settlement at tile {newWorldTile} generated natively for seamless access " +
+                                    $"(map {settlementMap.uniqueID}, def {existingParent.def.defName}).");
+                    }
+                    // 同步生成已完成；null 表示"未启动增量生成"，调用方按既有路径收尾（ClearGeneratingTile）。
+                    return null;
+                }
                 else
                 {
+                    // 其他原生家族 def（Site/埋伏/遗迹/战场等）仍跳过——走近自动生成范围仅 Settlement（用户定夺）。
                     Log.Warning($"[RimExodus] World tile {newWorldTile} is occupied by {existingParent.def.defName} without a live map, skip generation.");
                     return null;
                 }

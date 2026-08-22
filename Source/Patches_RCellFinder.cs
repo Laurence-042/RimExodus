@@ -36,6 +36,10 @@ namespace RimExodus
                     Log.Message($"[RimExodus] TryFindBestExitSpot patched: pawn {pawn.LabelShort} exit target -> enter spot {enterSpot} (was edge, redirected).");
                 return false;
             }
+            // 诊断插桩（2026-08 远行队"无法离开此区域"排查）：有传送点但找不到可用/可达的——
+            // 记录 spot 统计定位是"全部不可站立"还是"全部不可达"。
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] TryFindBestExitSpot: pawn {pawn?.LabelShort} found no usable enter spot on map {pawn?.Map?.uniqueID} ({SeamlessExitSpotFinder.DescribeEnterSpots(pawn.Map)}) — passthrough vanilla.");
             return true;
         }
     }
@@ -55,6 +59,8 @@ namespace RimExodus
                     Log.Message($"[RimExodus] TryFindRandomExitSpot patched: pawn {pawn.LabelShort} exit target -> enter spot {enterSpot}.");
                 return false;
             }
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] TryFindRandomExitSpot: pawn {pawn?.LabelShort} found no usable enter spot on map {pawn?.Map?.uniqueID} ({SeamlessExitSpotFinder.DescribeEnterSpots(pawn.Map)}) — passthrough vanilla.");
             return true;
         }
     }
@@ -71,7 +77,11 @@ namespace RimExodus
         static bool Prefix(IntVec3 root, Map map, ref IntVec3 result, ref bool __result)
         {
             if (!SeamlessExitSpotFinder.HasRimExodusEnterSpots(map)) return true;
-            var enterSpot = SeamlessExitSpotFinder.FindNearestEnterSpot(root, map);
+            // 原版本体 = 从 root 区域 BFS（PassDoors）到可达的边缘区域——保证出口可达。
+            // 我们必须同口径过滤：出口格是 pawn 要实际走到并 ExitMap 的终点，选到隔河/隔山的
+            // 传送点会让集结后的 pawn 永久卡路径，且打包点搜索（CanReach(exitSpot→打包点)）
+            // 会连带失败（2026-08 "未发现有效的打包点"排查补）。
+            var enterSpot = SeamlessExitSpotFinder.FindNearestEnterSpot(root, map, null, requireReachableFromRoot: true);
             if (enterSpot.IsValid)
             {
                 result = enterSpot;
@@ -80,6 +90,11 @@ namespace RimExodus
                     Log.Message($"[RimExodus] TryFindClosestEdgeCellTo patched: exit spot {enterSpot} (root={root}).");
                 return false;
             }
+            // 诊断插桩（Warning 级——本方法仅 Dialog_FormCaravan 组队时调用、低频）：失败 = 传送点
+            // 全部不可站立或从 root 不可达，放行原版（裁切图上原版方形边亦全败 → 走 TryFindExitSpot
+            // 兜底，5 参已接缝化、validator 含逐殖民者可达性，通常也失败 → 组队报错）。
+            Log.Warning($"[RimExodus] TryFindClosestEdgeCellTo on map {map.uniqueID}(wt={SeamlessTileRegistry.GetMapWorldTile(map)}): " +
+                        $"{SeamlessExitSpotFinder.DescribeEnterSpots(map)} but none reachable from {root} — passthrough vanilla (caravan formation likely fails).");
             return true;
         }
     }
@@ -96,6 +111,21 @@ namespace RimExodus
             return map.listerThings.ThingsOfDef(enterSpotDef).Any();
         }
 
+        /// <summary>诊断插桩（2026-08）：传送点统计（总数/可站立数），失败日志定位"全不可站立"。</summary>
+        internal static string DescribeEnterSpots(Map map)
+        {
+            if (map == null) return "map=null";
+            var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
+            if (enterSpotDef == null) return "spotDef missing";
+            var spots = map.listerThings.ThingsOfDef(enterSpotDef);
+            var standable = 0;
+            for (var i = 0; i < spots.Count; i++)
+            {
+                if (spots[i].Position.Standable(map)) standable++;
+            }
+            return $"enterSpots total={spots.Count} standable={standable}";
+        }
+
         internal static IntVec3 FindReachableEnterSpot(Pawn pawn)
         {
             var map = pawn.Map;
@@ -103,8 +133,10 @@ namespace RimExodus
             return FindNearestEnterSpot(pawn.Position, map, pawn);
         }
 
-        /// <summary>找离 root 最近的（可站立的）传送点。可选传入 pawn 做可达性过滤。</summary>
-        internal static IntVec3 FindNearestEnterSpot(IntVec3 root, Map map, Pawn pawn = null)
+        /// <summary>找离 root 最近的（可站立的）传送点。可选传入 pawn 做可达性过滤；
+        /// 或 requireReachableFromRoot = 以 root 为起点（PassDoors，对齐原版 TryFindClosestEdgeCellTo
+        /// 的区域 BFS 语义）做可达性过滤。</summary>
+        internal static IntVec3 FindNearestEnterSpot(IntVec3 root, Map map, Pawn pawn = null, bool requireReachableFromRoot = false)
         {
             if (map == null) return IntVec3.Invalid;
 
@@ -117,6 +149,7 @@ namespace RimExodus
             {
                 if (!spot.Position.Standable(map)) continue;
                 if (pawn != null && !map.reachability.CanReach(pawn.Position, spot, PathEndMode.OnCell, TraverseParms.For(pawn, Danger.Deadly))) continue;
+                if (requireReachableFromRoot && !map.reachability.CanReach(root, spot, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) continue;
                 float d = (spot.Position - root).LengthHorizontalSquared;
                 if (d < bestDist)
                 {

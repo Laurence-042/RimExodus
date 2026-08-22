@@ -16,7 +16,9 @@ namespace RimExodus
     ///   CameraJumper、跨图选中）都汇聚于此 setter——目标为休眠图则先同步唤醒再放行，
     ///   单点覆盖全部唤醒入口（"唤醒就是下次进入休眠地图时"，用户定夺）。
     /// - Storyteller.AllIncidentTargets：剔除休眠图，防 storyteller 把袭击/事件打到冻结图上
-    ///   （pawn 同步 spawn 后不 tick 站着不动，直到玩家回来——语义不可接受）。
+    ///   （pawn 同步 spawn 后不 tick 站着不动，直到玩家回来——语义不可接受）；2026-08 补：同时
+    ///   剔除"无玩家阵营 pawn 在场的非玩家家活跃图"（滚动模型下常驻的中立据点图/废墟图会被
+    ///   Map_PlayerHome 标签误收为事件目标——原版假设此类图不存在）。
     ///   注意返回的是原版静态缓存列表，调用方即用即弃，Postfix 原地 RemoveAll 安全。
     /// </summary>
     public static class Patches_Dormancy
@@ -66,7 +68,14 @@ namespace RimExodus
         {
             static void Postfix(List<IIncidentTarget> __result)
             {
-                __result.RemoveAll(t => t is Map m && SeamlessDormancyManager.IsDormant(m));
+                // 剔除两类图：①休眠图（既定——防袭击打到冻结图）；②无玩家阵营 pawn 在场的**非玩家家**
+                // 活跃图（2026-08 Settlement 接入补）。原版假设"没有玩家的图不存在"（人走即删），滚动
+                // 模型让这类图常驻活跃圈：中立据点图（IsDefeated 误真被打 Map_PlayerHome 标签——已有
+                // IsDefeated patch 修正标签，此处兜底）与废墟图（DestroyedSettlement 无条件 yield
+                // Map_PlayerHome——原版给拾荒玩家设计）都会成为 RaidEnemy/疾病等"玩家家"事件的合法
+                // 目标。玩家家图（含临时无人的家）保留 = 原版"空家可被袭击"语义。
+                __result.RemoveAll(t => t is Map m && (SeamlessDormancyManager.IsDormant(m)
+                    || (!m.IsPlayerHome && m.mapPawns.SpawnedPawnsInFaction(Faction.OfPlayer).Count == 0)));
             }
         }
 

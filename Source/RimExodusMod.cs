@@ -1,3 +1,4 @@
+using System;
 using HarmonyLib;
 using UnityEngine;
 using Verse;
@@ -49,6 +50,32 @@ namespace RimExodus
                 harmony.Patch(target, prefix: new HarmonyMethod(prefix));
             else
                 Log.Error($"[RimExodus] Failed to bind Patch_CellFinder_TryFindRandomEdgeCellWith (target={target}, prefix={prefix}).");
+
+            // 显式 patch CellFinder.TryFindRandomEdgeCellWith 的 5 参数（Rot4）重载——接缝化 Prefix
+            // （Patch_CellFinder_TryFindRandomEdgeCellWithRot4，Patches_CellFinder.cs）。组队路线规划
+            // AvailableExitTilesAt / TryFindExitSpot 的底层出口原语：原版候选格钉死方形边，倾斜六边形图
+            // 上整圈 void → 六方向全败 → "你的远行队无法离开此区域"。
+            // 历史（勿再回退）：首版落地后曾以"未倾斜图方向枚举正常（4/6 tiles）"回退为纯诊断——
+            // 那只是六边形角点恰好轴对齐触到方形边、原版靠接触格侥幸通过；2026-08 倾斜图实测复现后
+            // 重新落地。
+            // 绑定必须 try/catch（2026-08 实测教训）：按名绑定的参数拼错（方向参数是 **dir** 不是 rot）
+            // = 构造器抛异常 = mod 实例化失败、道路/河流等后续手动绑定全部丢失（离线验证器只扫
+            // [HarmonyPatch] 特性类，不覆盖手动绑定，拦不住此类错误）；绑定失败 = 5 参维持原版行为
+            // （即回退期现状），绝不杀死 mod。
+            try
+            {
+                var targetRot4 = AccessTools.Method(typeof(CellFinder), nameof(CellFinder.TryFindRandomEdgeCellWith),
+                    new[] { typeof(System.Predicate<Verse.IntVec3>), typeof(Verse.Map), typeof(Verse.Rot4), typeof(float), typeof(Verse.IntVec3).MakeByRefType() });
+                var rot4Prefix = AccessTools.Method(typeof(Patch_CellFinder_TryFindRandomEdgeCellWithRot4), nameof(Patch_CellFinder_TryFindRandomEdgeCellWithRot4.Prefix));
+                if (targetRot4 != null && rot4Prefix != null)
+                    harmony.Patch(targetRot4, prefix: new HarmonyMethod(rot4Prefix));
+                else
+                    Log.Error($"[RimExodus] Failed to bind Patch_CellFinder_TryFindRandomEdgeCellWithRot4 (target={targetRot4}, prefix={rot4Prefix}).");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[RimExodus] Binding Patch_CellFinder_TryFindRandomEdgeCellWithRot4 failed (mod continues, 5-arg overload stays vanilla): {ex}");
+            }
 
             // 显式 patch GenStep_Roads.FindRoadExitCell（private 方法 + ref RoadPathingDef 参数，
             // [HarmonyPatch] 特性无法声明 private 方法名，故手动绑定）。道路穿越点对齐到接缝锚点。

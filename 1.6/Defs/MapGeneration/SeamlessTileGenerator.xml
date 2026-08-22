@@ -93,4 +93,16 @@
     <genStep Class="RimExodus.GenStep_EnterSpots"/>
   </GenStepDef>
 
+  <!--
+    接缝方向揭雾（2026-08 用户设计"从生成方向算无fog范围"）：Fog(1500) 全雾+中心洪水揭雾会被
+    据点围墙挡住（只剩中心房间，void/接缝带全雾 → 跨缝全黑、雾中 pawn 不可点击）。本步对每条
+    "对端已有活跃地图"的共享边，把六边形内距该边 ≤15 格的带状区（含 void 格）逐格揭雾；
+    玩家未到过的边保持雾。不进 MapPreview（预览无 fog）。
+  -->
+  <GenStepDef>
+    <defName>RimExodus_SeamOriginUnfog</defName>
+    <order>1505</order>
+    <genStep Class="RimExodus.GenStep_SeamOriginUnfog"/>
+  </GenStepDef>
+
 </Defs>

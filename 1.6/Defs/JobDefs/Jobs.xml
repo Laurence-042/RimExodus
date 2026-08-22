@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+
+  <!-- 据点贸易商对话 job（2026-08 Settlement 无缝接入）：克隆原版 TradeWithPawn 驱动结构——
+       走到贸易商 Touch 距离后打开 RimExodus 对话面板（"远行者，你想要做什么？" = 交易 + 据点 gizmo
+       集合，见 Source/SeamlessSettlementTalk.cs）。playerForced 下发；跨缝下令由
+       Pawn_PathFollower.StartPath 桥接按结构判据通用包装（勿在此加跨图分支）。 -->
+  <JobDef>
+    <defName>RimExodus_TalkWithSettlementTrader</defName>
+    <driverClass>RimExodus.JobDriver_TalkWithSettlementTrader</driverClass>
+    <label>talk to settlement trader</label>
+    <reportString>Talking to TargetA.</reportString>
+  </JobDef>
+
+</Defs>
