@@ -220,8 +220,10 @@ namespace RimExodus
     /// 56 为从不生效的代码默认值，Core XML 全部覆写 65/72；获取不查武器射程）。
     /// Postfix：原生结果 null（本图无敌——玩家在缝对面的场景）→ 扫活跃邻图缓存取统一坐标最近者，
     /// CanBridgeTo 替代 CanReach（跨图"走得到"语义），按原版 :49-61 复刻 Goto(目标 thing)
-    /// （collideWithPawns/checkOverrideOnExpire/expireRequiresEnemiesNearby/intervalScalingTarget 全原生），
-    /// dutyTag 自标识供 StartPath 包装识别桥接——过缝后续跑 Goto 走向目标，途中进入接战圈/射程
+    /// （collideWithPawns/checkOverrideOnExpire/expireRequiresEnemiesNearby/intervalScalingTarget 全原生）。
+    /// 过缝由 StartPath 包装按结构判据识别（Goto 且 targetA Thing 在邻图——**不能用 dutyTag 自标识**：
+    /// ThinkNode_Duty.TryIssueJobPackage 会把 think tree 产出的 job.dutyTag 无条件覆写为 duty.tag(null)，
+    /// 2026-08 实证的"推进 job 从未被桥接"根因），续跑 Goto 走向目标，途中进入接战圈/射程
     /// 即被原生 AIFightEnemies 接管开火。非战斗 pawn 目标跨图仅认 IsCombatant（原版 LOS 替代项
     /// 是本图坐标混算，不复刻）。
     /// </summary>
@@ -272,7 +274,6 @@ namespace RimExodus
             job.checkOverrideOnExpire = true;
             job.expireRequiresEnemiesNearby = true;
             job.collideWithPawns = true;
-            job.dutyTag = SeamlessCrossMapOrders.NpcApproachTag;
             __result = job;
 
             if (RimExodusMod.Settings?.verboseLogging ?? false)

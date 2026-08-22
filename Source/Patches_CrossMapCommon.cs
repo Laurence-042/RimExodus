@@ -290,11 +290,11 @@ namespace RimExodus
 
     /// <summary>
     /// Pawn_PathFollower.StartPath 的跨图包装（VMF Patch_Pawn_PathFollower_StartPath 同构）：
-    /// playerForced job 的路径目标在邻图（Thing 目标帧无歧义；Cell 目标匹配命令登记格）→
-    /// 以 NextJob=curJob 桥接（Grant 携带原 job，传送后 ContinueBridgeMove 续跑），跳过本次
-    /// StartPath。桥接不可达（无 spot）放行原生（原生在本图坐标上失败，对齐不可达表现）。
-    /// 仅 playerForced：NPC/自动 job 的跨图目标保持原生行为（其评估侧 CanReach 已安静 false，
-    /// 不会走到这里；追击/撤离走既有 Grant 链）。
+    /// playerForced job 的路径目标在邻图（Thing 目标帧无歧义；Cell 目标匹配命令登记格），或
+    /// NPC 战斗 job（AttackMelee/AttackStatic/跨图推进 Goto）的目标在邻图 → 以 NextJob=curJob
+    /// 桥接（Grant 携带原 job，传送后 ContinueBridgeMove 续跑），跳过本次 StartPath。桥接不可达
+    /// （无 spot）放行原生（原生在本图坐标上失败，对齐不可达表现）。普通 NPC/自动 job 的跨图
+    /// 目标仍保持原生（其评估侧 CanReach 已安静 false，正常情况下走不到这里；追击/撤离走 Grant 链）。
     /// </summary>
     [HarmonyPatch(typeof(Pawn_PathFollower), nameof(Pawn_PathFollower.StartPath))]
     public static class Patch_Pawn_PathFollower_StartPath_CrossMap
@@ -311,10 +311,16 @@ namespace RimExodus
 
             // 桥接资格（2026-08 扩 NPC 战斗 job，原版两层模型：推进/接战 job 的寻路跨图化）：
             // ① playerForced（玩家点击下令，原有）；② AttackMelee/AttackStatic（战斗 job 目标跨图——
-            // 近战追击直桥）；③ NpcApproachTag（GotoNearestHostile 跨图推进的自下发 Goto）。
+            // 近战追击直桥）；③ 跨图推进 Goto（GotoNearestHostile 跨图版下发）。
+            // ③ 不能用 dutyTag 自标识（2026-08 实证教训：ThinkNode_Duty.TryIssueJobPackage 会把
+            // think tree 产出的 job.dutyTag 无条件覆写为 duty.tag（AssaultColony 等 duty 无 tag →
+            // null），RimExodus.NpcApproach 标记在 StartJob 前就被抹掉——旧判据恒 false，推进 job
+            // 从未被桥接过。job.dutyTag 不能作为 think-tree job 的自标识通道）。改结构判据：非
+            // playerForced 的 Goto 且 targetA 是邻图上的 Thing——原生 giver 的 CanReach 对跨图 NPC
+            // 安静 false，这样的 job 只可能来自我们的跨图推进 patch。
             // NPC 战斗 job 不查 IsCrossMapOrderable（敌对 NPC 本就不是"可下令主体"，但战斗推进合法）。
             var npcCombatJob = job.def == JobDefOf.AttackMelee || job.def == JobDefOf.AttackStatic
-                || job.dutyTag == SeamlessCrossMapOrders.NpcApproachTag;
+                || IsNpcApproachGoto(job, pawn);
             if (!job.playerForced && !npcCombatJob) return true;
             if (job.playerForced && !npcCombatJob && !SeamlessBoundaryRules.IsCrossMapOrderable(pawn)) return true;
 
@@ -345,6 +351,18 @@ namespace RimExodus
                 return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// NPC 跨图推进 Goto 的结构判据（GotoNearestHostile 跨图版下发的 job 经 think tree 冒泡后的
+        /// 存活识别——dutyTag 已被 ThinkNode_Duty 抹掉，见 Prefix 内教训注）：非 playerForced 的 Goto
+        /// 且 targetA 是 Thing 且在别的图上。targetA 在 pawn 当前图上时返回 false（同图走原生）。
+        /// </summary>
+        private static bool IsNpcApproachGoto(Job job, Pawn pawn)
+        {
+            return job.def == JobDefOf.Goto && !job.playerForced
+                && job.targetA.HasThing && job.targetA.Thing != null
+                && job.targetA.Thing.Map != null && job.targetA.Thing.Map != pawn.Map;
         }
     }
 }

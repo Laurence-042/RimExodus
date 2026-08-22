@@ -157,6 +157,19 @@ namespace RimExodus
             switch (grant.Kind)
             {
                 case GrantKind.Bridge:
+                    // NPC 战斗体桥接落地（GotoNearestHostile 跨图推进的敌人）：与 Pursue 落地同款收编——
+                    // TryTransferPawn 已剥离原 lord，落地敌对 pawn 若不并入袭击 lord，续跑 job 一旦过期，
+                    // think tree 对无 lord 敌对 pawn 的 JobGiver_ExitMap 分支会直接给离场 job（即 Pursue
+                    // 分支修过的"传送后消失"）。玩家方桥接者（殖民者/机械族/殖民地动物）不属 NPC 战斗体，
+                    // 直接续程。非敌对 NPC 战斗体（盟友推进兵等）给游荡宽限，与 Pursue 分支口径一致。
+                    if (SeamlessBoundaryRules.IsNpcCombatant(pawn) && !TryAttachAssaultLord(pawn, arrivalMap))
+                    {
+                        StrayNpcs[pawn] = new StrayInfo
+                        {
+                            DeadlineTick = GenTicks.TicksGame + StrayGraceTicks,
+                            FromWorldTile = SeamlessTileRegistry.GetMapWorldTile(departureMap)
+                        };
+                    }
                     ContinueBridgeMove(pawn, arrivalMap, grant);
                     break;
                 case GrantKind.Evacuation:
@@ -335,8 +348,9 @@ namespace RimExodus
         /// 追击者扫描（行为表行 15/23/31，待办④）：目标刚跨图，出发地图上正追击它的 NPC 战斗体
         /// 借同一传送点跨图追击（玩家不能靠跨图甩掉追兵）。
         /// 意图判据（2026-08 扩展）：①AttackMelee/AttackStatic job 目标=跨图者（交战瞬间）；
-        /// ②mindState.enemyTarget=跨图者（**走位 Goto 期间持续有效**——追击的大多数时刻 job 不是
-        /// 两个 Attack 之一，只认 job 会漏掉正在赶路的追击者）。远程统一门槛：还能从原地跨缝
+        /// ②推进期 Goto 目标=跨图者（GotoNearestHostile 的 Goto(目标 thing)——原版此阶段不设
+        /// mindState.enemyTarget，只认 Attack 系/②会漏掉正在赶路的推进者）；③mindState.enemyTarget=
+        /// 跨图者（AIFightEnemy 走位 Goto 期间持续有效）。远程统一门槛：还能从原地跨缝
         /// 射击（TryGetAttackVerb + CanHitTarget 走我们的跨图射击线）→ 留在原地继续打，打不着才传送。
         /// 闲逛/工作/无 flag 逃跑仍不扫（行为表"无事"）；狂猎动物不属战斗体（表无此行）。
         /// </summary>
@@ -348,7 +362,12 @@ namespace RimExodus
                 if (!SeamlessBoundaryRules.IsNpcCombatant(other)) continue;
                 var job = other.CurJob;
                 var jobPursuing = job != null
-                    && ((job.def == JobDefOf.AttackMelee || job.def == JobDefOf.AttackStatic) && job.targetA.Thing == target);
+                    && ((job.def == JobDefOf.AttackMelee || job.def == JobDefOf.AttackStatic
+                            // 推进期 Goto（GotoNearestHostile 的 Goto(目标 thing)，2026-08 补）：这一阶段
+                            // 原版不设 mindState.enemyTarget，只认 Attack 系会漏掉正在赶路的推进者——
+                            // "Goto 的目标=刚跨图者"即追击意图。
+                            || (job.def == JobDefOf.Goto && !job.playerForced))
+                        && job.targetA.Thing == target);
                 var enemyTargetPursuing = other.mindState?.enemyTarget == target;
                 if (!jobPursuing && !enemyTargetPursuing) continue;
 
