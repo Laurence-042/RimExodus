@@ -67,6 +67,22 @@ namespace RimExodus
         /// <summary>当前是否有分帧生成在进行（供外部判断是否清理防重入锁）。</summary>
         public static bool IsAnyGenerating => current != null;
 
+        /// <summary>
+        /// 当前分帧生成进度描述（"{当前步}/{总步} {步骤defName}"；无生成时 null）。供左上角进度 UI
+        /// （<see cref="MapGenerationProgressUI"/>）消费。收尾帧（FinalizeInit 等）显示为 Finalizing。
+        /// 注意：仅覆盖分帧增量路径——Settlement 原生生成是同步单帧（游戏冻结中 UI 无法刷新），不在此列。
+        /// </summary>
+        public static string GenerationProgressDescription
+        {
+            get
+            {
+                var c = current;
+                if (c?.genSteps == null || c.genSteps.Count == 0) return null;
+                var name = c.currentStepIndex < c.genSteps.Count ? c.genSteps[c.currentStepIndex].def.defName : "Finalizing";
+                return UnityEngine.Mathf.Min(c.currentStepIndex + 1, c.genSteps.Count) + "/" + c.genSteps.Count + " " + name;
+            }
+        }
+
         private static void ClearWorkingDataStatic()
         {
             clearWorkingDataMethod?.Invoke(null, null);

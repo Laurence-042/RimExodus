@@ -12,4 +12,5 @@
   <RimExodus_SettlementTraderLeave>Leave</RimExodus_SettlementTraderLeave>
   <RimExodus_SettlementTraderNoTrade>They have no interest in trading with you.</RimExodus_SettlementTraderNoTrade>
   <RimExodus_SettlementTraderNoStock>Their trade stock is empty right now.</RimExodus_SettlementTraderNoStock>
+  <RimExodus_MapGeneratingProgress>Generating map... ({0})</RimExodus_MapGeneratingProgress>
 </LanguageData>
