@@ -103,7 +103,8 @@ namespace RimExodus
 
     [HarmonyPatch(typeof(ShotReport), nameof(ShotReport.HitReportFor))]
     public static class Patch_ShotReport_HitReportFor
-    {        private static readonly FieldInfo DistanceField = AccessTools.Field(typeof(ShotReport), "distance");
+    {
+        private static readonly FieldInfo DistanceField = AccessTools.Field(typeof(ShotReport), "distance");
         private static readonly FieldInfo TargetField = AccessTools.Field(typeof(ShotReport), "target");
         private static readonly FieldInfo CoversField = AccessTools.Field(typeof(ShotReport), "covers");
         private static readonly FieldInfo CoversOverallField = AccessTools.Field(typeof(ShotReport), "coversOverallBlockChance");
@@ -111,12 +112,38 @@ namespace RimExodus
         private static readonly FieldInfo FactorEquipmentField = AccessTools.Field(typeof(ShotReport), "factorFromEquipment");
 
         /// <summary>
+        /// 坐标系正修（2026-08，替代已删除的 GasUtility 越界守卫——守卫是兜底，违反"不搞兜底"铁律）：
+        /// 原版方法体的气体扫描用目标图本地格查 caster.Map——两图尺寸不同时数值越界崩溃。正修 =
+        /// 把 caster 虚拟传送到**目标图坐标系**（Position − offset，clamp 界内），原版方法体
+        /// （气体/掩体/距离）全程目标图系自洽；Postfix 6 字段精确写回保留（覆盖 clamp 近似的
+        /// 深目标场景）。clamp 后段内气体为目标图侧近似，精度项全部被 Postfix 覆盖。
+        /// </summary>
+        public static void Prefix(Thing caster, Verb verb, LocalTargetInfo target,
+            out SeamlessVirtualTeleporter __state)
+        {
+            __state = default;
+            if (!SeamlessCombatCoords.Enabled) return;
+            if (!target.HasThing || caster == null || caster.Map == null) return;
+            var targetMap = target.Thing.Map;
+            if (targetMap == null || targetMap == caster.Map) return;
+            if (!SeamlessCombatCoords.TryGetCombatLink(caster.Map, targetMap, out var link)) return;
+
+            var local = caster.Position - link.offset;
+            local.x = Mathf.Clamp(local.x, 0, targetMap.Size.x - 1);
+            local.z = Mathf.Clamp(local.z, 0, targetMap.Size.z - 1);
+            __state = new SeamlessVirtualTeleporter(caster, targetMap, local);
+        }
+
+        /// <summary>
         /// 跨图修正 6 个坐标敏感字段（其余字段——目标体型/黑暗/天气/forcedMiss——原版计算本就
         /// 与图无关或只读射手图，不动）。距离改统一坐标后，两个因子用原版公开 API 重算，
         /// 掩体集在目标图上以平移射手格计算（方向/距离与统一线严格一致）。
+        /// 先 Dispose 恢复 caster 真实图/坐标，判定守卫才读到真实归属。
         /// </summary>
-        public static void Postfix(Thing caster, Verb verb, LocalTargetInfo target, ref ShotReport __result)
+        public static void Postfix(Thing caster, Verb verb, LocalTargetInfo target,
+            SeamlessVirtualTeleporter __state, ref ShotReport __result)
         {
+            __state.Dispose();
             if (!target.HasThing || caster == null || caster.Map == null) return;
             var targetMap = target.Thing.Map;
             if (targetMap == null || targetMap == caster.Map) return;

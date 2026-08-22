@@ -14,6 +14,11 @@ namespace RimExodus
     public static class SeamlessCrossMapOrders
     {
         /// <summary>
+        /// NPC 跨图推进 job（GotoNearestHostile 跨图版下发）的自标识 dutyTag——
+        /// StartPath 包装据此识别"非 playerForced 但应桥接"的 NPC job（与 Grant 的 TransitTag 同思路）。
+        /// </summary>
+        internal const string NpcApproachTag = "RimExodus.NpcApproach";
+        /// <summary>
         /// 跨图移动下发：单跳联合最优选点（<see cref="TryFindBestBridgeSpot"/>）+ Bridge 许可
         /// （绑定 exitSpot + 携带最终目的地）+ TransitTag Goto（踩点凭许可传送，传送后由
         /// 许可携带的最终目的地/NextJob 续程）。失败 = 本图无任何可达桥接点，调用方据此禁用选项。

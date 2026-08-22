@@ -91,7 +91,7 @@ namespace RimExodus
         {
             if (pawn?.Map == null) return true;
             if (!SeamlessCommandTargets.TryGet(pawn, out var ct) || ct.map == pawn.Map) return true;
-            if (!SeamlessCombatCoords.TryGetCombatLink(pawn.Map, ct.map, out _)) return true;
+            if (!SeamlessCombatCoords.TryGetCombatLink(pawn.Map, ct.map, out var link)) return true;
 
             // 不可跨图下令的主体：吞掉（对齐原版"不可对其下令移动"，不给错误的本图同坐标 job）。
             if (!SeamlessBoundaryRules.IsCrossMapOrderable(pawn)) return false;
@@ -99,7 +99,13 @@ namespace RimExodus
             if (RimExodusMod.Settings?.verboseLogging ?? false)
                 Log.Message($"[RimExodus] Cross-map drafted goto: {pawn.LabelShort} -> {gotoLoc} on map {ct.map.uniqueID} (formation dest).");
 
-            SeamlessCrossMapOrders.TryBridgeJob(pawn, ct.map, gotoLoc);
+            if (SeamlessCrossMapOrders.TryBridgeJob(pawn, ct.map, gotoLoc))
+            {
+                // 对齐原生 PawnGotoAction 成功路径的下令反馈（DraftedMove.cs:119 FeedbackGoto）
+                // ——画在统一坐标（gotoLoc + offset）的本图上（与攻击的 FeedbackShoot 区分）。
+                FleckMaker.Static(gotoLoc.ToVector3Shifted() + Patches_CombatVisuals.OffsetVector(in link),
+                    pawn.Map, FleckDefOf.FeedbackGoto);
+            }
             return false;
         }
     }
@@ -144,6 +150,7 @@ namespace RimExodus
     }
 
     [HarmonyPatch(typeof(MultiPawnGotoController), nameof(MultiPawnGotoController.Draw))]
+    [StaticConstructorOnStartup] // 静态 Material 字段（惰性反射赋值）——加特性消 Verse 启动分析器警告
     public static class Patch_MultiPawnGotoController_Draw
     {
         private static readonly AccessTools.FieldRef<MultiPawnGotoController, List<Pawn>> PawnsField =
@@ -300,8 +307,16 @@ namespace RimExodus
             var pawn = PawnRef(__instance);
             if (pawn?.Map == null || pawn.Destroyed) return true;
             var job = pawn.jobs?.curJob;
-            if (job == null || !job.playerForced) return true; // 仅玩家点击下令
-            if (!SeamlessBoundaryRules.IsCrossMapOrderable(pawn)) return true;
+            if (job == null) return true;
+
+            // 桥接资格（2026-08 扩 NPC 战斗 job，原版两层模型：推进/接战 job 的寻路跨图化）：
+            // ① playerForced（玩家点击下令，原有）；② AttackMelee/AttackStatic（战斗 job 目标跨图——
+            // 近战追击直桥）；③ NpcApproachTag（GotoNearestHostile 跨图推进的自下发 Goto）。
+            // NPC 战斗 job 不查 IsCrossMapOrderable（敌对 NPC 本就不是"可下令主体"，但战斗推进合法）。
+            var npcCombatJob = job.def == JobDefOf.AttackMelee || job.def == JobDefOf.AttackStatic
+                || job.dutyTag == SeamlessCrossMapOrders.NpcApproachTag;
+            if (!job.playerForced && !npcCombatJob) return true;
+            if (job.playerForced && !npcCombatJob && !SeamlessBoundaryRules.IsCrossMapOrderable(pawn)) return true;
 
             Map targetMap = null;
             var finalCell = IntVec3.Invalid;
@@ -311,6 +326,7 @@ namespace RimExodus
                 finalCell = dest.Thing.Position;
             }
             else if (dest.Cell.IsValid
+                && job.playerForced
                 && SeamlessCommandTargets.TryGet(pawn, out var ct)
                 && ct.map != pawn.Map
                 && dest.Cell == ct.cell)

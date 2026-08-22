@@ -216,11 +216,19 @@ namespace RimExodus
         /// <summary>
         /// 原版 AttackTargetFinder.CanSee 的跨图等价：目标可射格（目标图原生 lean 格）×
         /// [seer 直射 + seer 侧 lean 格（宿主图）] 组合分段 LOS。语义逐条对齐原版实现。
+        /// validator 域包裹（2026-08，随 HitReportFor teleport 正修一并落地）：原版 validator 是
+        /// 闭包 `(c) => !c.AnyGas(searcher.Map, …)` 硬编码搜索者图——统一格越宿主方形时数值越界；
+        /// 我们分段 LOS 的域定义 = validator 只对宿主图界内格生效（邻图段盲烟维持已记录的简化）。
         /// </summary>
         public static bool CanSeeCrossMap(Thing seer, Thing target,
             in SeamlessCombatCoords.CombatLink link, Func<IntVec3, bool> validator)
         {
             var hostMap = link.host;
+            Func<IntVec3, bool> boundedValidator = null;
+            if (validator != null)
+            {
+                boundedValidator = c => c.InBounds(hostMap) && validator(c);
+            }
             var seerOnTargetMap = seer.Position - link.offset; // CalcShootableCellsOf 的方向参数需目标坐标系
 
             TempDestCells.Clear();
@@ -228,7 +236,7 @@ namespace RimExodus
             for (var i = 0; i < TempDestCells.Count; i++)
             {
                 var destUnified = TempDestCells[i] + link.offset;
-                if (LineOfSightSegmented(seer.Position, destUnified, in link, hostMap, skipFirstCell: true, validator: validator))
+                if (LineOfSightSegmented(seer.Position, destUnified, in link, hostMap, skipFirstCell: true, validator: boundedValidator))
                 {
                     return true;
                 }
@@ -243,7 +251,7 @@ namespace RimExodus
                 for (var i = 0; i < TempDestCells.Count; i++)
                 {
                     var destUnified = TempDestCells[i] + link.offset;
-                    if (LineOfSightSegmented(source, destUnified, in link, hostMap, skipFirstCell: true, validator: validator))
+                    if (LineOfSightSegmented(source, destUnified, in link, hostMap, skipFirstCell: true, validator: boundedValidator))
                     {
                         return true;
                     }
