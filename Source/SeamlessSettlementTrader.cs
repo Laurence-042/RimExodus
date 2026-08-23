@@ -30,7 +30,7 @@ namespace RimExodus
     /// <summary>
     /// 据点贸易商指定器（2026-08 Settlement 无缝接入，用户设计草案见 doc/TODO.md）。
     /// 好感度可交易的据点在图生成后从驻军中按 7 条件选"价格最高（MarketValue）"者为贸易商——
-    /// 玩家右键其对话（"远行者，你想要做什么？"面板 = 交易 + 据点 gizmo 集合，见 Dialog_SettlementTrader）。
+    /// 玩家右键其对话（"远行者，你想要做什么？"面板 = 交易 + 据点 gizmo 集合，见 SettlementTraderDialog）。
     ///
     /// 指定时机 = 仅图生成时一次性（用户定夺 2026-08）：不因死亡/倒地/被俘/敌对化补选——失效则本图
     /// 存续期内无对话入口，图被滚动删除后重生成会重选。敌对/无 TraderKind 的据点不指定

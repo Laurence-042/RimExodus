@@ -1,5 +1,3 @@
-派系交易对话框样式改成类ChoiceLetter_AcceptCreepJoiner的使用现成DiaOption基础设施的模式，别用自己搓window这种很容易和UI相关mod、缩放比例之类的玩意不兼容的实现
-
 Settlement生成为什么是单帧冻结？按理说应该也会走genStep、也会分帧啊
 
 更多可配置项，比如滚动时的唤醒距离、休眠距离、删除距离——尚需考虑还需要哪些配置

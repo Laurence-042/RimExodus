@@ -13,8 +13,8 @@ namespace RimExodus
     ///
     /// 右键本图（或跨缝邻图——点击重放天然支持）的登记贸易商 → "Talk to X" → 走到其身边
     /// （<see cref="JobDriver_TalkWithSettlementTrader"/>，克隆原版 TradeWithPawn 驱动结构；跨缝下令被
-    /// Pawn_PathFollower.StartPath 桥接按结构判据通用包装）→ 打开 <see cref="Dialog_SettlementTrader"/>
-    /// （"远行者，你想要做什么？"）：交易 + 据点 gizmo 集合 + 离开。
+    /// Pawn_PathFollower.StartPath 桥接按结构判据通用包装）→ 打开 <see cref="SettlementTraderDialog"/>
+    /// 构建的原生 DiaOption 面板（"远行者，你想要做什么？"）：交易 + 据点 gizmo 集合 + 离开。
     ///
     /// 交易不在此打开 Dialog_Trade——面板内"交易"按钮才开（Settlement 本体即 ITrader，全原版远行队
     /// 交易语义；地图内谈判者的随身物识别与成交物掉落见 Patches_SettlementTrade）。
@@ -92,7 +92,7 @@ namespace RimExodus
                 if (SeamlessSettlementTrader.TryGetSettlement(Trader, out var settlement)
                     && SeamlessSettlementTrader.CanTalkNow(Trader))
                 {
-                    Find.WindowStack.Add(new Dialog_SettlementTrader(actor, settlement, Trader));
+                    SettlementTraderDialog.Open(actor, settlement, Trader);
                 }
             };
             yield return talk;
@@ -100,91 +100,69 @@ namespace RimExodus
     }
 
     /// <summary>
-    /// 据点贸易商对话面板："远行者，你想要做什么？"（用户设计文本）。
+    /// 据点贸易商对话面板构建器："远行者，你想要做什么？"（用户设计文本）。
+    /// 载体 = 原生 DiaOption 基础设施（用户定夺 2026-08，勿回退为自绘 Window——对 UI mod/字体缩放不兼容）：
+    /// <see cref="Dialog_NodeTreeWithFactionInfo"/> 是 ChoiceLetter.OpenLetter 打开信件所用的同一面板
+    /// （creepjoiner 面板同款渲染链），纯对话框不进信件堆栈——玩家就在贸易商身边，重谈右键再下指令即可。
     /// 选项 = 交易（Dialog_Trade(negotiator, settlement)，Settlement 本体即 ITrader）+
     /// <see cref="Settlement.GetGizmos"/> 枚举项（mod 经 WorldObjectComp 加的据点交互天然出现——
     /// "天然适配各种给据点加特殊交互选项的 mod"；"进攻"在 GetCaravanGizmos 不在其中）+ 离开。
     /// 排除项：原版"查看地图"（我们就站在图上）与"组建远行队"教学项（语境不适用）。
     /// </summary>
-    public class Dialog_SettlementTrader : Window
+    public static class SettlementTraderDialog
     {
-        private readonly Pawn negotiator;
-        private readonly Settlement settlement;
-        private readonly Pawn trader;
-
-        public override Vector2 InitialSize => new Vector2(460f, 480f);
-
-        public Dialog_SettlementTrader(Pawn negotiator, Settlement settlement, Pawn trader)
+        public static void Open(Pawn negotiator, Settlement settlement, Pawn trader)
         {
-            this.negotiator = negotiator;
-            this.settlement = settlement;
-            this.trader = trader;
-            forcePause = true;
-            absorbInputAroundWindow = true;
-            doCloseX = true;
-        }
+            var node = new DiaNode($"{trader.LabelCap} — {settlement.Label} ({settlement.Faction?.Name})");
 
-        public override void DoWindowContents(Rect inRect)
-        {
-            Text.Font = GameFont.Medium;
-            var titleRect = new Rect(inRect.x, inRect.y, inRect.width, Text.LineHeight * 2f);
-            Widgets.Label(titleRect, "RimExodus_SettlementTraderDialogTitle".Translate());
-            Text.Font = GameFont.Small;
-            var infoRect = new Rect(inRect.x, titleRect.yMax + 4f, inRect.width, Text.LineHeight * 2f);
-            GUI.color = Color.gray;
-            Widgets.Label(infoRect, $"{trader.LabelCap} — {settlement.Label} ({settlement.Faction?.Name})");
-            GUI.color = Color.white;
-
-            var listRect = new Rect(inRect.x, infoRect.yMax + 8f, inRect.width, inRect.yMax - infoRect.yMax - 8f);
-            var listing = new Listing_Standard();
-            listing.Begin(listRect);
-
-            // 交易（可用性口径镜像原版贸易浮窗；禁用灰显带原因）。
-            var tradeReport = TradeAcceptanceReport();
-            if (tradeReport.Accepted)
+            // 交易（可用性口径镜像原版贸易浮窗；Disable 的原因由原版内联显示在按钮文本上）。
+            var trade = new DiaOption("RimExodus_SettlementTraderTrade".Translate());
+            var tradeReport = TradeAcceptanceReport(negotiator, settlement);
+            if (!tradeReport.Accepted)
             {
-                if (listing.ButtonText("RimExodus_SettlementTraderTrade".Translate()))
-                {
-                    Close(false);
-                    Find.WindowStack.Add(new Dialog_Trade(negotiator, settlement));
-                }
+                trade.Disable(tradeReport.Reason);
             }
             else
             {
-                GUI.enabled = false;
-                listing.ButtonText("RimExodus_SettlementTraderTrade".Translate() + " — " + tradeReport.Reason);
-                GUI.enabled = true;
+                trade.action = delegate
+                {
+                    Find.WindowStack.Add(new Dialog_Trade(negotiator, settlement));
+                };
             }
+            trade.resolveTree = true; // Activate 先关面板再执行 action（= 旧实现 Close(false) + Add）。
+            node.options.Add(trade);
 
-            // 据点 gizmo → 按钮。
+            // 据点 gizmo → 选项。
             foreach (var gizmo in settlement.GetGizmos())
             {
                 if (gizmo is not Command command) continue;
                 if (command.icon == Settlement.FormCaravanCommand) continue; // 教学项，语境不适用。
                 if (command.defaultLabel == "CommandShowMap".Translate()) continue; // 查看地图（站在图上，无意义）。
-                var label = command.LabelCap;
+                var option = new DiaOption(command.LabelCap);
                 if (command.Disabled)
                 {
-                    label += " — " + (command.disabledReason.NullOrEmpty() ? "DisabledCommand".Translate() : command.disabledReason);
+                    option.Disable(command.disabledReason.NullOrEmpty() ? "DisabledCommand".Translate() : command.disabledReason);
                 }
-                GUI.enabled = !command.Disabled;
-                if (listing.ButtonText(label) && !command.Disabled)
+                else
                 {
-                    Close(false);
-                    command.ProcessInput(Event.current);
+                    option.action = delegate { command.ProcessInput(Event.current); };
                 }
-                GUI.enabled = true;
+                option.resolveTree = true;
+                node.options.Add(option);
             }
 
-            if (listing.ButtonText("RimExodus_SettlementTraderLeave".Translate()))
+            node.options.Add(new DiaOption("RimExodus_SettlementTraderLeave".Translate())
             {
-                Close();
-            }
-            listing.End();
+                resolveTree = true
+            });
+
+            Find.WindowStack.Add(new Dialog_NodeTreeWithFactionInfo(
+                node, settlement.Faction, delayInteractivity: false, radioMode: false,
+                title: "RimExodus_SettlementTraderDialogTitle".Translate()));
         }
 
         /// <summary>交易可用性（门槛对齐原版 CaravanArrivalAction_Trade.CanTradeWith + 贸易浮窗的谈判者检查）。</summary>
-        private AcceptanceReport TradeAcceptanceReport()
+        private static AcceptanceReport TradeAcceptanceReport(Pawn negotiator, Settlement settlement)
         {
             if (settlement.Faction == null || settlement.TraderKind == null
                 || settlement.Faction.def.permanentEnemy || settlement.Faction.HostileTo(Faction.OfPlayer))
