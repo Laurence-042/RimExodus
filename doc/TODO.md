@@ -1,5 +1,6 @@
 远古机械师建筑群之类的poi没有生成，它们应该和据点一样走原版生成。所有site应该都有相同的底层机制，所以我们不该对每个site单独patch（也许这种occupied统一走原版生成就行？毕竟可能有mod在原版地图生成管线上做手脚在生成自己结构时得到额外信息，用我们的管线可能导致兼容问题）
 [RimExodus] World tile 68232 is occupied by Site without a live map, skip generation.
+（已处置 2026-08 并游戏内回归通过：走近原生生成全 POI 泛化——GenerateTileMap 守卫的 Settlement 分支改为"任意表面层原生 parent 占位 → 原生单帧 GetOrGenerateMap"，确立三层架构[普通地图分帧 / POI 地图原生单帧 / Settlement=POI+额外处理]；site parts/PostMapGenerate 全原版、零 per-def patch；标志改名 GeneratingNativeSeamlessly。原版 Site 全部默认 Encounter 已被裁切注入覆盖；显式设名单外 MapGeneratorDef 的表面层 def 仅终局/剧情对象与 mod 自定义——后续用"全表面层 MapGeneratorDef 通配注入"堵掉）
 
 偶现奴隶没法正常通过接缝撤离的方式成为远行队一员
 Exception in JobDriver fixed tick for pawn McTodd driver=JobDriver_Wait (toilIndex=0) driver.job=(Wait (Job_8224))

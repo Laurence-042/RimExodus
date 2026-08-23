@@ -71,7 +71,7 @@ namespace RimExodus
         /// 供 <c>Patch_Settlement_PostMapGenerate_SkipDetectionRaids</c> 判定跳过 TimedDetectionRaids
         /// 倒计时——原版该倒计时语义是"玩家闯入/进攻据点被发现的报复"，中立据点的预加载生成不该启动。
         /// </summary>
-        internal static bool GeneratingSettlementSeamlessly;
+        internal static bool GeneratingNativeSeamlessly;
 
         /// <summary>
         /// 当前邻接生成（预加载链）的源 worldTile（生成方向）。供 <c>Patch_GenStep_Fog_SeamOrigin</c>
@@ -317,8 +317,8 @@ namespace RimExodus
             // SeamlessTile，旧转型令守卫失明——家园休眠时预加载家园 tile 会走完整生成链造出
             // 重复家园图（2026-08 实测，"没有特殊地图"铁律）。现认任意 MapParent：
             // 有活 Map（休眠图）→ 唤醒 + 补登记，不生成；MapParent_SeamlessTile 无 Map（历史
-            // RemoveTileMap 残留孤儿）→ 销毁后继续生成（原防御）；Settlement 占位 → 原生生成
-            // （2026-08 无缝接入，见下）；其他原生家族 parent 无 Map → 跳过（范围边界用户定夺）。
+            // RemoveTileMap 残留孤儿）→ 销毁后继续生成（原防御）；其余原生 parent 占位（Settlement/
+            // Site 等一切 POI）→ 原生单帧生成（2026-08 全 POI 泛化，见下）；非表面层占位 → 跳过。
             var existingParent = Find.World.worldObjects.MapParentAt(new PlanetTile(newWorldTile));
             if (existingParent != null)
             {
@@ -342,51 +342,62 @@ namespace RimExodus
                         existingParent.Destroy();
                     }
                 }
-                else if (existingParent is Settlement settlementParent)
+                else
                 {
-                    // Settlement 无缝接入（2026-08，用户定夺，勿回退为跳过）：原生 GetOrGenerateMap 生成据点图。
-                    // 复用既有 Settlement WorldObject（不换 def）——据点建筑/驻军/重访重生成全原版语义；
-                    // genStep 链走 Base_Faction/Base_Player（4 个裁切 genStep 已 XML 注入，生成期即被裁切+铺传送点）；
-                    // 生命周期归原生家族滚动接管（≥2 眠 ≥3 删、删图留对象）。敌对据点同样生成——"玩家看到
-                    // 全是敌人的据点，正常结束"；好感度可交易则随后指定贸易商。尺寸用调用方 mapSize（=源图尺寸，
-                    // 接缝六边形几何按 mapSize 计算，必须与邻图一致）。方法入口的 mapBeingGenerated 守卫已防与
-                    // 分帧增量生成交错（营地先例同款）；此处再查 IsAnyGenerating 兜底（TryPreloadNeighbor 已拦，
-                    // 防御 Dev 直调路径）。
-                    if (IncrementalMapGenerator.IsAnyGenerating)
+                    // POI 原生生成（2026-08 全 POI 泛化，用户定夺三层架构：普通地图（分帧增量）/ POI 地图
+                    // （原生单帧 GetOrGenerateMap）/ Settlement（POI + 额外处理）——走近自动生成对一切表面层
+                    // 原生 parent 占位统一走原版管线，勿回退为"仅 Settlement"、勿加 per-def/per-part 分支：
+                    // mod 可能 hook 原版地图生成管线上获取额外信息，我们的管线会导致兼容问题）。
+                    // 复用既有 WorldObject（不换 def）——据点建筑/驻军/site parts/重访重生成全原版语义；
+                    // genStep 链走各自 def.mapGenerator（MapParent.MapGeneratorDef = def.mapGenerator ?? Encounter：
+                    // 原版 Site 全部默认 Encounter、Settlement 走 Base_Faction，均已被 XML 注入 4 个裁切 genStep、
+                    // 生成期即被裁切+铺传送点；显式设置名单外 MapGeneratorDef 的表面层 def 仅终局/剧情对象
+                    // （EscapeShip/Mechhive/Settlement_Platform/Archonexus 周期）与 mod 自定义 def，余量极小）；
+                    // 生命周期归原生家族滚动接管（≥2 眠 ≥3 删、删图按各自 def 语义决定是否留对象）。
+                    // 尺寸用调用方 mapSize（=源图尺寸，接缝六边形几何按 mapSize 计算，必须与邻图一致）。
+                    // 表面层守卫（与 SetupNativeParentMap 同族）：空间层 parent 不生成（轨道 tileId 恒撞号）。
+                    if (new PlanetTile(newWorldTile).LayerDef != RimWorld.PlanetLayerDefOf.Surface)
                     {
-                        Log.Warning("[RimExodus] Settlement native generation deferred: incremental generation in progress.");
+                        Log.Warning($"[RimExodus] World tile {newWorldTile} is occupied by non-surface {existingParent.def.defName} without a live map, skip generation.");
                         return null;
                     }
-                    // 生成标志（try/finally）：让 Settlement.PostMapGenerate 的 patch 撤销 TimedDetectionRaids
-                    // 倒计时（中立据点预加载不该启动"被发现报复"计时，见 Patches_NativeMapFamily）。
-                    Map settlementMap;
-                    GeneratingSettlementSeamlessly = true;
+                    // 方法入口的 mapBeingGenerated 守卫已防与分帧增量生成交错（营地先例同款）；
+                    // 此处再查 IsAnyGenerating 兜底（TryPreloadNeighbor 已拦，防御 Dev 直调路径）。
+                    if (IncrementalMapGenerator.IsAnyGenerating)
+                    {
+                        Log.Warning("[RimExodus] Native POI generation deferred: incremental generation in progress.");
+                        return null;
+                    }
+                    // 生成标志（try/finally）：GeneratingNativeSeamlessly 让 Fog patch 走接缝揭雾分径 +
+                    // Settlement.PostMapGenerate 的 patch 撤销 TimedDetectionRaids 倒计时（中立据点预加载
+                    // 不该启动"被发现报复"计时，见 Patches_NativeMapFamily）；site parts 的 PostMapGenerate
+                    // 原版照走（用户定夺纯原版语义，不做 per-part patch）。
+                    Map nativeMap;
+                    GeneratingNativeSeamlessly = true;
                     NeighborGenerationSourceTile = sourceWorldTile; // 生成方向（Fog patch 接缝揭雾取根）
                     try
                     {
-                        settlementMap = GetOrGenerateMapUtility.GetOrGenerateMap(new PlanetTile(newWorldTile), mapSize, null);
+                        nativeMap = GetOrGenerateMapUtility.GetOrGenerateMap(new PlanetTile(newWorldTile), mapSize, null);
                     }
                     finally
                     {
-                        GeneratingSettlementSeamlessly = false;
+                        GeneratingNativeSeamlessly = false;
                         NeighborGenerationSourceTile = -1;
                     }
-                    if (settlementMap != null)
+                    if (nativeMap != null)
                     {
-                        // 源图↔据点图即时登记（双向邻居表 + 两端传送点补铺 + arrivals 刷新，幂等）；天气域绑定
+                        // 源图↔POI 图即时登记（双向邻居表 + 两端传送点补铺 + arrivals 刷新，幂等）；天气域绑定
                         // 与 AutoConnect 由 SetupNativeParentMap（MapGenerated 延迟 1 tick）幂等补齐其余接线。
-                        EnsureNeighborRegistered(map, sourceWorldTile, settlementMap, newWorldTile);
-                        SeamlessSettlementTrader.EnsureTraderAssigned(settlementParent);
-                        Log.Message($"[RimExodus] Settlement at tile {newWorldTile} generated natively for seamless access " +
-                                    $"(map {settlementMap.uniqueID}, def {existingParent.def.defName}).");
+                        EnsureNeighborRegistered(map, sourceWorldTile, nativeMap, newWorldTile);
+                        // Settlement 专属额外处理（三层架构第三层）：贸易商指定（其余 POI 无 TraderKind 概念）。
+                        if (existingParent is Settlement settlementParent)
+                        {
+                            SeamlessSettlementTrader.EnsureTraderAssigned(settlementParent);
+                        }
+                        Log.Message($"[RimExodus] Native POI at tile {newWorldTile} ({existingParent.def.defName}) generated natively " +
+                                    $"for seamless access (map {nativeMap.uniqueID}).");
                     }
                     // 同步生成已完成；null 表示"未启动增量生成"，调用方按既有路径收尾（ClearGeneratingTile）。
-                    return null;
-                }
-                else
-                {
-                    // 其他原生家族 def（Site/埋伏/遗迹/战场等）仍跳过——走近自动生成范围仅 Settlement（用户定夺）。
-                    Log.Warning($"[RimExodus] World tile {newWorldTile} is occupied by {existingParent.def.defName} without a live map, skip generation.");
                     return null;
                 }
             }

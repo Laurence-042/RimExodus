@@ -108,7 +108,7 @@ namespace RimExodus
     /// 日）倒计时——原版语义是"玩家闯入/进攻据点被发现后的报复"，但我们的**中立**据点预加载生成
     /// 同样触发：约 1 天后玩家收到无端的"即将被袭击"威胁信，4 天后对无人的中立基地刷敌对袭击
     /// （中立派系会被 TryResolveRaidFaction 换成随机敌对派系执行）。
-    /// 修复 = 生成标志（<see cref="SeamlessTileManager.GeneratingSettlementSeamlessly"/>，预加载链
+    /// 修复 = 生成标志（<see cref="SeamlessTileManager.GeneratingNativeSeamlessly"/>，预加载链
     /// try/finally 维护）期间 Postfix 直接 <c>ResetCountdown()</c> 撤销原版刚启动的倒计时；原版
     /// 进攻流程（运输舱进攻的报复倒计时是原版语义）不经标志期，原样保留。
     /// </summary>
@@ -117,7 +117,7 @@ namespace RimExodus
     {
         static void Postfix(Settlement __instance)
         {
-            if (!SeamlessTileManager.GeneratingSettlementSeamlessly) return;
+            if (!SeamlessTileManager.GeneratingNativeSeamlessly) return;
             if (__instance.TryGetComponent<TimedDetectionRaids>(out var comp) && comp.DetectionCountdownStarted)
             {
                 comp.ResetCountdown();

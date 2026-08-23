@@ -13,7 +13,7 @@ namespace RimExodus
     ///
     /// - **初始地图**（游戏开始、扎营、定居、逆重飞船降落等原生入口）→ 放行原版体
     ///   （PlayerStartSpot 中心 FloodUnfog / UnfogMapFromEdge fallback / rootsToUnfog——现状不变）。
-    /// - **邻接生成图**（预加载链：IncrementalMapGenerator 分帧 ∨ Settlement 原生同步预加载）→
+    /// - **邻接生成图**（预加载链：IncrementalMapGenerator 分帧 ∨ POI 原生同步预加载）→
     ///   接管原版体：全雾 → 全图 void 格直接揭雾（void 无内容非探索对象，雾留 void 唯一效果是
     ///   跨缝看邻图被 fog mesh 挡视线）→ 从**生成方向**共享边（<see cref="SeamlessTileManager.NeighborGenerationSourceTile"/>，
     ///   容错校验失败回退全部活跃边）的可站立接缝格发起 <see cref="FloodFillerFog.FloodUnfog"/>——
@@ -26,7 +26,7 @@ namespace RimExodus
         static bool Prefix(Map map)
         {
             var isNeighborGeneration = IncrementalMapGenerator.IsGenerating(map)
-                || SeamlessTileManager.GeneratingSettlementSeamlessly;
+                || SeamlessTileManager.GeneratingNativeSeamlessly;
             if (!isNeighborGeneration) return true; // 初始地图/原生入口：原版中心揭雾。
 
             // ===== 接管原版体（邻接生成：fog 只从生成方向的接缝开始揭）=====
