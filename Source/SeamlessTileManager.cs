@@ -243,20 +243,18 @@ namespace RimExodus
             if (sourceWorldTile < 0) return false;
 
             // 防递归守卫（分帧增量生成全程持有 mapBeingGenerated；IsAnyGenerating 兜底理论上的窗口差）。
-            if (MapGenerator.mapBeingGenerated != null || IncrementalMapGenerator.IsAnyGenerating)
+            // MapPreview 预览在飞也避让（2026-08）：预览线程占用 MapGenerator.mapBeingGenerated 等
+            // 进程级静态，此时启动增量会互踩（Start 覆盖预览的占用、预览收尾 finally 又清空我们的，
+            // MapGenerator static/GL 上下文双向数据竞争）——MP 对原生 GenerateMap 有 WaitUntilIdle
+            // 互斥但护不到自建增量流程，故在入口对等避让。
+            if (MapGenerator.mapBeingGenerated != null || IncrementalMapGenerator.IsAnyGenerating
+                || SeamlessMapPreviewCompat.IsPreviewInFlight)
             {
-                // Settlement 占位 tile 的走近生成（2026-08）：忙态改为下一 tick 重试，避免玩家的走近下令被
-                // 静默丢弃（忙态必有尽头，重试有界；ConsumeQueued 消费前已清空 queuedHashes，重入队安全）。
-                // 普通 tile 地图维持原"警告+丢弃"（玩家再次下令可重触发）。
-                if (Find.World.worldObjects.MapParentAt(new PlanetTile(targetWorldTile)) is Settlement)
-                {
-                    SeamlessTilePreloader.QueuePreload(map, targetWorldTile);
-                    return false;
-                }
-                if (MapGenerator.mapBeingGenerated != null)
-                {
-                    Log.Warning($"[RimExodus] Cannot preload seamless tile map during map generation (mapBeingGenerated={MapGenerator.mapBeingGenerated.uniqueID}).");
-                }
+                // 忙态统一下一 tick 重排队（忙态必有尽头、重试有界；ConsumeQueued 消费前已清空
+                // queuedHashes，重入队安全）：Settlement 走近下令不被静默吞（2026-08），普通 tile
+                // 预加载意图同样保留（原"警告+丢弃"要玩家再次下令重触发，2026-08 一并改为重排队，
+                // 预览/生成窗口短暂，1-2 tick 内消化）。
+                SeamlessTilePreloader.QueuePreload(map, targetWorldTile);
                 return false;
             }
 
@@ -295,9 +293,11 @@ namespace RimExodus
         /// </summary>
         public MapParent_SeamlessTile GenerateTileMap(int sourceWorldTile, int newWorldTile, IntVec3 mapSize)
         {
-            if (MapGenerator.mapBeingGenerated != null)
+            // 入口防御（TryPreloadNeighbor 已带同款判据并重排队；此处兜底其他调用方——如
+            // TrySetupOnStart）：预览在飞时启动增量同样互踩（见 TryPreloadNeighbor 注释）。
+            if (MapGenerator.mapBeingGenerated != null || SeamlessMapPreviewCompat.IsPreviewInFlight)
             {
-                Log.Warning("[RimExodus] Cannot generate seamless tile map during map generation.");
+                Log.Warning("[RimExodus] Cannot generate seamless tile map during map generation or MapPreview preview.");
                 return null;
             }
 

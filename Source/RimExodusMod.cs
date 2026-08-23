@@ -26,6 +26,13 @@ namespace RimExodus
             var harmony = new Harmony("RimExodus.SeamlessWorld");
             harmony.PatchAll();
 
+            // GL 白名单注册（2026-08）：无派系的 RimExodus_SeamlessTileMap parent 会被 GL 的
+            // CheckWorldObject 当外来 site 过滤掉该 tile 全部 landform（营地图生成时缺失且被
+            // CommitDirectly 毒化永久失效；地块图存在期间 MapPreview 预览丢 GL）。必须在任何
+            // GL 判定/预览线程之前注册——本构造器时点全部 mod assembly 已加载，够早。
+            // 成功标志（日志）= "GL compat: registered RimExodus_SeamlessTileMap in IgnoredWorldObjects (verified...)"。
+            SeamlessLandformsCompat.RegisterIgnoredWorldObject();
+
             // 绑定核对（2026-08，配合离线验证器甄别 CLR 伪迹 vs 死代码）：GetPatchedMethods 列出
             // 本 harmony 实例实际绑定的方法（真实 Mono 运行时结果，不受离线 CLR 伪迹影响）。
             // 离线验证器的 9 个伪迹失败 patch（GetClearRects/SelectInternal/SetTerrain/MapPreTick·MapUpdate/

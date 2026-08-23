@@ -99,6 +99,14 @@ namespace RimExodus
         public override void MapComponentTick()
         {
             base.MapComponentTick();
+            // 自愈守卫：读档/换档不清理静态 current（MapComponent 的 static 游离于序列化之外，
+            // 无载入钩子）——驱动前校验目标图仍在 Find.Maps，悬挂的旧对象（已死图的组件）直接丢弃。
+            // 不校验则换档后 IsAnyGenerating 永真（后续生成全拒 + 进度 UI 常驻）且驱动已死图组件。
+            if (current != null && (current.generatingMap == null || !Find.Maps.Contains(current.generatingMap)))
+            {
+                Log.Warning("[RimExodus] IncrementalMapGenerator: stale current (map gone, e.g. after load), discarding.");
+                current = null;
+            }
             // 每帧推进 genStep（由任意 map 的 tick 触发，current 是全局唯一）。
             current?.TickGeneration();
         }
@@ -185,6 +193,14 @@ namespace RimExodus
 
                     extraInitBeforeContentGen?.Invoke(newMap);
 
+                    // GL 兼容（2026-08）：复刻 GL 的 GenerateContentsIntoMap Prefix 语义——Prepare 建立
+                    // 静态生成上下文 + BiomeGrid 初始化 + genStep 注入（BiomeVariants/CustomGenSteps）。
+                    // 时点对齐原生路径（GL Prefix 在 GenerateContentsIntoMap 入口、组装 genStep 之前）；
+                    // Prepare 种子确定性派生（世界⊕tile），不消费全局 Rand，增量 RNG 流零扰动。
+                    SeamlessLandformsCompat.TryPrepare(newMap);
+                    SeamlessLandformsCompat.InitBiomeGrid(newMap);
+                    var landformExtraSteps = SeamlessLandformsCompat.GetExtraGenSteps(newMap);
+
                     // 组装 genStep 列表（复刻 GenerateMap:155-182 + GenerateContentsIntoMap:291-312）。
                     var enumerable = mapGeneratorDef.genSteps
                         .Where(IsValidBiomeGenStep).Select(GetGenStepParmsFor);
@@ -200,6 +216,8 @@ namespace RimExodus
                             enumerable = enumerable.Where(s => !mut.preventGenSteps.Contains(s.def));
                     if (extraGenStepDefs != null)
                         enumerable = enumerable.Concat(extraGenStepDefs);
+                    if (landformExtraSteps != null)
+                        enumerable = enumerable.Concat(landformExtraSteps);
                     var orderedSteps = enumerable.Distinct()
                         .OrderBy(x => x.def.order).ThenBy(x => x.def.index).ToList();
 
@@ -326,7 +344,6 @@ namespace RimExodus
             {
                 Log.Error($"[RimExodus] IncrementalMapGenerator TickGeneration failed at step {currentStepIndex}: {ex}");
                 CleanupFailedGeneration(generatingMap);
-                current = null;
             }
         }
 
@@ -432,6 +449,10 @@ namespace RimExodus
         /// <summary>跑一个 genStep（复刻 GenerateContentsIntoMap:319-344）。</summary>
         private void RunOneGenStep()
         {
+            // GL 兼容：分帧跨数百帧持有进程级静态上下文，每步执行前校验存活（被 GL 的 MapPreview
+            // 后台线程或交错的原生生成清掉则重 Prepare，幂等）——GL worker 靠该上下文决定是否写地形。
+            SeamlessLandformsCompat.EnsureContextAlive(generatingMap);
+
             var step = genSteps[currentStepIndex];
             var sw = RimExodusMod.Settings?.verboseLogging ?? false
                 ? System.Diagnostics.Stopwatch.StartNew() : null;
@@ -488,6 +509,9 @@ namespace RimExodus
 
             try
             {
+                // GL 兼容：对齐原生路径的 GL Postfix 时点（GenerateContentsIntoMap 返回处）——
+                // genStep 链完成后即清静态上下文，再进入收尾段。
+                SeamlessLandformsCompat.Cleanup();
                 Find.Scenario.PostMapGenerate(generatingMap);
                 tScenario = timer?.Section() ?? 0;
 
@@ -582,6 +606,13 @@ namespace RimExodus
 
         private static void CleanupFailedGeneration(Map map)
         {
+            // 统一清 static current（2026-08 修复缺口）：凡走失败清理即本轮生成终结，无条件清。
+            // 此前只有 TickGeneration catch 额外清 current，Start 内层 catch
+            // （AddStartingAreas/StartInitialWeather 失败，此时 current 已在 :243 赋值）不清 →
+            // IsAnyGenerating 永真、后续生成全拒 + 进度 UI 常驻。全局单生成器，无"他图占用"问题。
+            try { current = null; } catch { }
+            // GL 兼容：失败清理同样收掉 GL 静态上下文（与 FinishGeneration 正常路径语义一致）。
+            SeamlessLandformsCompat.Cleanup();
             try
             {
                 ClearWorkingDataStatic();

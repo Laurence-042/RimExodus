@@ -30,5 +30,17 @@ namespace RimExodus
         public static bool IsGeneratingPreviewOnCurrentThread =>
             _isGeneratingPreview?.GetValue(null) is true
             && _isGeneratingOnCurrentThread?.GetValue(null) is true;
+
+        /// <summary>
+        /// 是否有任意 MapPreview 预览正在后台生成（未装 MapPreview 恒 false）。**只供主线程的
+        /// 增量生成启动避让用**（SeamlessTileManager.GenerateTileMap 忙判据）：预览线程占用
+        /// MapGenerator.mapBeingGenerated 等进程级静态，IncrementalMapGenerator.Start 若同时启动
+        /// 会覆盖它、预览收尾 finally 又会清掉我们的——MapGenerator 静态/GL 上下文双向互踩
+        /// （2026-08）。**勿用于跳过 genStep 内部逻辑**——那需要线程精确判定，见
+        /// <see cref="IsGeneratingPreviewOnCurrentThread"/>（只判全局标志会把预览期间主线程的
+        /// 真实生成误跳）。
+        /// </summary>
+        public static bool IsPreviewInFlight =>
+            _isGeneratingPreview?.GetValue(null) is true;
     }
 }
