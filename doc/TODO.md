@@ -2,6 +2,9 @@
 [RimExodus] World tile 68232 is occupied by Site without a live map, skip generation.
 （已处置 2026-08 并游戏内回归通过：走近原生生成全 POI 泛化——GenerateTileMap 守卫的 Settlement 分支改为"任意表面层原生 parent 占位 → 原生单帧 GetOrGenerateMap"，确立三层架构[普通地图分帧 / POI 地图原生单帧 / Settlement=POI+额外处理]；site parts/PostMapGenerate 全原版、零 per-def patch；标志改名 GeneratingNativeSeamlessly。原版 Site 全部默认 Encounter 已被裁切注入覆盖；显式设名单外 MapGeneratorDef 的表面层 def 与 mod 自定义 def 已由"全表面层 MapGeneratorDef 通配注入"（2026-08 落地，排除 Abstract 基类防继承双注入 + 空间层家族显式排除）堵掉）
 
+击溃敌方据点时刷 "Failed to create tale object CaravanAssaultSuccessful" NRE 红字（每 tick）——无人进场的击溃方式（陷阱/跨缝 turret）下 `CheckDefeated` 末行从空 FreeColonists 集随机取人得 null
+（已处置 2026-08 待回归：`Patch_SettlementDefeat_CheckDefeated` 加 Transpiler 把 `TaleRecorder.RecordTale` 调用点重定向到 `RecordTaleSafe`（首参数 null 跳过记录，败亡结算其余照常）；离线验证器绑定 OK（12 失败均为既知基线伪迹）。回归标志 = 陷阱杀敌击溃据点无红字、废墟/好感/信件结算正常）
+
 偶现奴隶没法正常通过接缝撤离的方式成为远行队一员
 Exception in JobDriver fixed tick for pawn McTodd driver=JobDriver_Wait (toilIndex=0) driver.job=(Wait (Job_8224))
 System.NullReferenceException: Object reference not set to an instance of an object
@@ -39,7 +42,7 @@ UnityEngine.StackTraceUtility:ExtractStackTrace ()
 Verse.Root:OnGUI ()
 
 
-奴隶叛乱后正常跨图追击殖民者，但是叛乱奴隶跨图后不知为何不再叛乱（已处置 2026-08 待回归：根因 = 叛乱载体是 lord 非 mental state，TryTransferPawn 剥离 lord 即叛乱定义上终结；修复 = 传送层剥离点统一备份 LordJob 到 grant.PrevLordJob + 落地 TryContinueLordOnArrival 单点续接策略（并入/重建 LordJob_SlaveRebellion，激进展/逃亡展别保留）。回归标志 = verbose 日志 "Lord continuation (SlaveRebellion):" 行 + 跨图后继续攻击且被殖民者自动反击；多叛奴先后跨图应合流同一场）
+有时候进入友方据点时，左上角会弹出提示“xxx正在攻击你的殖民者”，但实际还是正常非敌对状态。这似乎是友方据点和敌对据点一样触发了攻击逻辑导致的，因为是友方所以没有产生可见效果，但这个攻击逻辑不该在友方据点出现
 
 更多可配置项，比如滚动时的唤醒距离、休眠距离、删除距离——尚需考虑还需要哪些配置
 
