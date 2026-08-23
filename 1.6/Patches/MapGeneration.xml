@@ -40,31 +40,22 @@
     RimWorld 先加载所有 mod 的 Defs 再跑 PatchOperation，引用时 GenStepDef 已存在。
   -->
 
-  <!-- Base_Player：玩家家园图（原生 parent，开局/定居/gravship 降落） -->
+  <!-- 全表面层 MapGeneratorDef 通配注入（2026-08，原为点名 Base_Player/Base_Faction/Encounter 三个）：
+    通配覆盖 EscapeShip/Archonexus 周期/AncientStockpile/InsectLair/Anomaly（Labyrinth/Undercave/MetalHell，
+    genStep 内部 GetMapWorldTile 守卫对非表面/口袋图早退，注入无害）等显式设置名单外 mapGenerator 的 def，
+    以及 mod 自定义的 MapGeneratorDef（Patch 在全部 mod Defs 加载后跑，后加载者的自定义 def 同样被注入——
+    mod hook 原版管线自定义结构 + 我们的裁切 genStep 双不误）。
+    **排除谓词两件事，勿删**：
+    ① [defName] 存在性——Abstract 基类（MapCommonBase）无 defName 但有 genSteps，通配会命中它，
+      注入经 XML 继承给全部子类 = Base_Player/Encounter 等**双份注入**（391/392 重复跑）；
+    ② 空间层家族（Space/Asteroid/AsteroidBasic/OrbitalItemStash/OrbitalRelay/Mechhive/SettlementPlatform
+      —— 后三者同 ParentName="SpaceMapGenerator"）：GetMapWorldTile 对空间层返回 -1、genStep 内部守卫
+      本会早退，但注入本身也应避免（语义上空间图不属于表面无缝网格）。
+    PatchOperationAdd 对 xpath 全部命中节点逐一应用；无 <genSteps> 子节点的 def（如 SpacePocket，纯继承）
+    不被命中、天然跳过。genStep 类内部用 GetMapWorldTile(map) >= 0 守卫，任何有合法表面 worldTile 的
+    地图都走完整链。 -->
   <Operation Class="PatchOperationAdd">
-    <xpath>/Defs/MapGeneratorDef[defName="Base_Player"]/genSteps</xpath>
-    <value>
-      <li>RimExodus_CoastalEdgeFill</li>
-      <li>RimExodus_SeamlessTile</li>
-      <li>RimExodus_SeamOverride</li>
-      <li>RimExodus_EnterSpots</li>
-    </value>
-  </Operation>
-
-  <!-- Base_Faction：派系基地（玩家可攻入） -->
-  <Operation Class="PatchOperationAdd">
-    <xpath>/Defs/MapGeneratorDef[defName="Base_Faction"]/genSteps</xpath>
-    <value>
-      <li>RimExodus_CoastalEdgeFill</li>
-      <li>RimExodus_SeamlessTile</li>
-      <li>RimExodus_SeamOverride</li>
-      <li>RimExodus_EnterSpots</li>
-    </value>
-  </Operation>
-
-  <!-- Encounter：遭遇/fallback def -->
-  <Operation Class="PatchOperationAdd">
-    <xpath>/Defs/MapGeneratorDef[defName="Encounter"]/genSteps</xpath>
+    <xpath>/Defs/MapGeneratorDef[defName and not(defName="Space") and not(defName="Asteroid") and not(defName="AsteroidBasic") and not(defName="OrbitalItemStash") and not(defName="OrbitalRelay") and not(defName="Mechhive") and not(defName="SettlementPlatform")]/genSteps</xpath>
     <value>
       <li>RimExodus_CoastalEdgeFill</li>
       <li>RimExodus_SeamlessTile</li>

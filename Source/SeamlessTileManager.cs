@@ -350,9 +350,8 @@ namespace RimExodus
                     // mod 可能 hook 原版地图生成管线上获取额外信息，我们的管线会导致兼容问题）。
                     // 复用既有 WorldObject（不换 def）——据点建筑/驻军/site parts/重访重生成全原版语义；
                     // genStep 链走各自 def.mapGenerator（MapParent.MapGeneratorDef = def.mapGenerator ?? Encounter：
-                    // 原版 Site 全部默认 Encounter、Settlement 走 Base_Faction，均已被 XML 注入 4 个裁切 genStep、
-                    // 生成期即被裁切+铺传送点；显式设置名单外 MapGeneratorDef 的表面层 def 仅终局/剧情对象
-                    // （EscapeShip/Mechhive/Settlement_Platform/Archonexus 周期）与 mod 自定义 def，余量极小）；
+                    // 原版 Site 全部默认 Encounter、Settlement 走 Base_Faction；MapGeneration.xml 已改为
+                    // 全表面层 MapGeneratorDef 通配注入（排除 Abstract 基类与空间层家族），mod 自定义 def 同覆盖）；
                     // 生命周期归原生家族滚动接管（≥2 眠 ≥3 删、删图按各自 def 语义决定是否留对象）。
                     // 尺寸用调用方 mapSize（=源图尺寸，接缝六边形几何按 mapSize 计算，必须与邻图一致）。
                     // 表面层守卫（与 SetupNativeParentMap 同族）：空间层 parent 不生成（轨道 tileId 恒撞号）。
