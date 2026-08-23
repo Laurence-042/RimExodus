@@ -74,6 +74,13 @@ namespace RimExodus
         internal static bool GeneratingSettlementSeamlessly;
 
         /// <summary>
+        /// 当前邻接生成（预加载链）的源 worldTile（生成方向）。供 <c>Patch_GenStep_Fog_SeamOrigin</c>
+        /// 的接缝洪水揭雾取根（"只从生成方向的接缝开始 unfog"）；-1 或非本图邻居（异常悬挂容错）
+        /// 时回退"全部活跃边"。GenerateTileMap 两路径设置，onComplete/失败分支/finally 复位。
+        /// </summary>
+        internal static int NeighborGenerationSourceTile = -1;
+
+        /// <summary>
         /// 正在生成中的 worldTile 集合（阶段4a：防重入）。
         /// 生成地图是重操作（MapGenerator.GenerateMap），生成过程中若再次请求同一 worldTile 的生成会被拒绝。
         /// RimWorld 单线程 tick，无需锁。
@@ -354,6 +361,7 @@ namespace RimExodus
                     // 倒计时（中立据点预加载不该启动"被发现报复"计时，见 Patches_NativeMapFamily）。
                     Map settlementMap;
                     GeneratingSettlementSeamlessly = true;
+                    NeighborGenerationSourceTile = sourceWorldTile; // 生成方向（Fog patch 接缝揭雾取根）
                     try
                     {
                         settlementMap = GetOrGenerateMapUtility.GetOrGenerateMap(new PlanetTile(newWorldTile), mapSize, null);
@@ -361,6 +369,7 @@ namespace RimExodus
                     finally
                     {
                         GeneratingSettlementSeamlessly = false;
+                        NeighborGenerationSourceTile = -1;
                     }
                     if (settlementMap != null)
                     {
@@ -460,13 +469,17 @@ namespace RimExodus
 
                     // 清理防重入锁（分帧生成完成）。
                     ClearGeneratingTile(newWorldTile);
+                    NeighborGenerationSourceTile = -1;
                 });
 
             if (!started)
             {
                 Log.Warning($"[RimExodus] IncrementalMapGenerator.Start failed for tile {newWorldTile}.");
+                NeighborGenerationSourceTile = -1;
                 return null;
             }
+            // 生成方向（Fog patch 接缝揭雾取根）——genStep 分帧期间保持，onComplete 复位。
+            NeighborGenerationSourceTile = sourceWorldTile;
             return mapParent;
         }
 
