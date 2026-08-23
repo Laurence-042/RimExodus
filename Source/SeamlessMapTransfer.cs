@@ -15,8 +15,11 @@ namespace RimExodus
         /// arrivalCell 由调用方（trigger）从传送点的缓存对端坐标读取（容纳投影扭曲的 offset 映射）。
         /// 通过 <paramref name="wasSelected"/> 返回转移前 pawn 是否被玩家选中——调用方应在切图后据此 re-Select，
         /// 因为 DeSpawn 会自动 Deselect（<see cref="Verse.Thing.DeSpawn"/> 调 Selector.Deselect），Spawn 不会自动恢复。
+        /// <paramref name="grant"/>：驱动本次传送的许可，剥离 lord 前把 LordJob 引用统一备份进它
+        /// （一切 lord 类型、一切 pawn，捕获与剥离同点——任何新传送入口都不可能"剥了没备份"；
+        /// 落地续接策略唯一出处 = <see cref="SeamlessTransferGrants"/> 的 lord 续接分支）。
         /// </summary>
-        public static bool TryTransferPawn(Pawn pawn, Thing departureSpot, Map arrivalMap, IntVec3 arrivalCell, out bool wasSelected)
+        internal static bool TryTransferPawn(Pawn pawn, Thing departureSpot, Map arrivalMap, IntVec3 arrivalCell, SeamlessTransferGrants.Grant grant, out bool wasSelected)
         {
             wasSelected = false;
             if (pawn == null || departureSpot == null || arrivalMap == null)
@@ -77,7 +80,15 @@ namespace RimExodus
 
             // Detach 旧 lord：DeSpawn 不清 pawn.lord 字段，跨图后若仍指向旧地图的 lord，
             // GetGizmos 的 AllowsDrafting 会走旧 lord 判定（可能禁用征召按钮），think tree 也受干扰。
+            // 剥离前把 LordJob 引用备份进 grant（一切 lord 类型、一切 pawn 统一捕获，与剥离同点——
+            // 任何新传送入口都不可能"剥了没备份"；pawn 至多一个 lord：pawn.lord 单引用，多叛奴
+            // 各自捕获同一引用，落地由续接策略合流）。续接策略唯一出处 = SeamlessTransferGrants
+            // 的 TryContinueLordOnArrival。
+            // mental state 刻意不清：mental state 是 pawn-local 行为状态（DeSpawn/Spawn 均不触碰它，
+            // Pawn.DeSpawn 只清 mindState.droppedWeapon），think tree 在任何图上自动按其重发 job——
+            // 发狂行凶/精神崩溃/狂猎因此天然跨图可用，勿在此加清理逻辑。
             var prevLord = pawn.GetLord();
+            if (grant != null) grant.PrevLordJob = prevLord?.LordJob;
             prevLord?.Notify_PawnLost(pawn, PawnLostCondition.Vanished);
 
             pawn.DeSpawn();

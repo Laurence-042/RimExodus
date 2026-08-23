@@ -64,6 +64,14 @@ namespace RimExodus
             /// </summary>
             public Job NextJob;
 
+            /// <summary>
+            /// 传送时刻 pawn 所属 lord 的 LordJob 备份（<see cref="SeamlessMapTransfer.TryTransferPawn"/>
+            /// 剥离点原子捕获——一切 lord 类型、一切 pawn 统一备份；pawn 至多一个 lord（pawn.lord 单引用），
+            /// 多叛奴各自捕获同一引用，落地由续接策略合流）。LordJob 引用在原 lord 销毁后读纯字段仍安全。
+            /// null = 无 lord。消费点 = NotifyPawnTransferred 的 TryContinueLordOnArrival（唯一续接策略点）。
+            /// </summary>
+            public LordJob PrevLordJob;
+
             /// <summary>Evacuation：撤离链已访问的世界 tile（方向性 + 防回弹），跨 hop 传递复用。</summary>
             public HashSet<int> VisitedTiles;
 
@@ -157,18 +165,26 @@ namespace RimExodus
             switch (grant.Kind)
             {
                 case GrantKind.Bridge:
+                    // lord 续接（唯一策略点 TryContinueLordOnArrival，2026-08）：lord 是唯一 map-anchored
+                    // 行为载体，跨图剥离后按 LordJob 类型决定是否在落地图忠实续接——奴隶叛乱是"意图与
+                    // 地图无关"的 lord（敌对性/SlaveIsSecure/继续攻击全挂 IsRebelling ≡ LordJob_SlaveRebellion
+                    // 的 lord 成员资格），不续接即叛乱定义上终结（实测：叛乱奴隶跨图追击后变回温顺奴隶）。
+                    // 未续接（位置锚定 lord 或无 lord）走既有分流。
                     // NPC 战斗体桥接落地（GotoNearestHostile 跨图推进的敌人）：与 Pursue 落地同款收编——
                     // TryTransferPawn 已剥离原 lord，落地敌对 pawn 若不并入袭击 lord，续跑 job 一旦过期，
                     // think tree 对无 lord 敌对 pawn 的 JobGiver_ExitMap 分支会直接给离场 job（即 Pursue
                     // 分支修过的"传送后消失"）。玩家方桥接者（殖民者/机械族/殖民地动物）不属 NPC 战斗体，
                     // 直接续程。非敌对 NPC 战斗体（盟友推进兵等）给游荡宽限，与 Pursue 分支口径一致。
-                    if (SeamlessBoundaryRules.IsNpcCombatant(pawn) && !TryAttachAssaultLord(pawn, arrivalMap))
+                    if (grant.PrevLordJob == null || !TryContinueLordOnArrival(pawn, arrivalMap, grant.PrevLordJob))
                     {
-                        StrayNpcs[pawn] = new StrayInfo
+                        if (SeamlessBoundaryRules.IsNpcCombatant(pawn) && !TryAttachAssaultLord(pawn, arrivalMap))
                         {
-                            DeadlineTick = GenTicks.TicksGame + StrayGraceTicks,
-                            FromWorldTile = SeamlessTileRegistry.GetMapWorldTile(departureMap)
-                        };
+                            StrayNpcs[pawn] = new StrayInfo
+                            {
+                                DeadlineTick = GenTicks.TicksGame + StrayGraceTicks,
+                                FromWorldTile = SeamlessTileRegistry.GetMapWorldTile(departureMap)
+                            };
+                        }
                     }
                     ContinueBridgeMove(pawn, arrivalMap, grant);
                     break;
@@ -233,6 +249,51 @@ namespace RimExodus
             if (RimExodusMod.Settings?.verboseLogging ?? false)
                 Log.Message($"[RimExodus] Pursuit lord: {pawn.LabelShort} lands on map {arrivalMap.uniqueID} "
                     + "and joins a new AssaultColony lord (cross-map chase continues).");
+            return true;
+        }
+
+        /// <summary>
+        /// lord 跨图续接策略（唯一判定点，2026-08）：lord 是唯一的 map-anchored 行为载体（per-map
+        /// LordManager + 构造参数/toil 焦点全是本图坐标与实体），原版对"pawn 换图"的答案就是离开 lord
+        /// （Pawn.ExitMap → Notify_PawnLost）——位置锚定类（DefendBase/Staging/Party/Visit 等）跨图即失
+        /// 是与原版一致的正确语义，不续；仅"意图与地图无关"的 lord 忠实续接，当前 = 奴隶叛乱
+        /// （SlaveRebellionUtility.IsRebelling ≡ lord 是 LordJob_SlaveRebellion；敌对性/SlaveIsSecure/
+        /// 殖民者自动反击全挂此判定——传送剥离 lord 即叛乱定义上终结，2026-08 实测"叛乱奴隶跨图追击
+        /// 后不再叛乱"的根因）。未来需忠实续接的新类型（如 PrisonBreak）在此加分支，不动下游。
+        /// 仅 Bridge 类（战斗追击跨图）调用：逃亡展叛奴的 exit 意图 job 走撤离链，lord 目标（跑出世界）
+        /// 已由链达成，重建会双驱动——撤离链跨图不续接。
+        /// </summary>
+        private static bool TryContinueLordOnArrival(Pawn pawn, Map arrivalMap, LordJob prevLordJob)
+        {
+            if (!(prevLordJob is LordJob_SlaveRebellion rebellion)) return false;
+
+            var manager = arrivalMap.lordManager;
+            if (manager == null) return false;
+
+            // 复用落地图上存活的叛乱 lord：多叛奴先后跨图合流为一场；追回原图时并回原叛乱（原生语义）。
+            // AddPawn 内部自带 attackTargetsCache.UpdateTarget（Lord.AddPawnInternal），无需手动刷新。
+            foreach (var lord in manager.lords)
+            {
+                if (lord.LordJob is LordJob_SlaveRebellion && lord.ownedPawns.Count > 0 && lord.CanAddPawn(pawn))
+                {
+                    lord.AddPawn(pawn);
+                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                        Log.Message($"[RimExodus] Lord continuation (SlaveRebellion): {pawn.LabelShort} joins the ongoing "
+                            + $"rebellion lord on map {arrivalMap.uniqueID}.");
+                    return true;
+                }
+            }
+
+            // 无存活叛乱 lord → 重建：groupUpLoc/exitPoint = 落地点（Travel toil 即刻到达 → TravelArrived
+            // memo → 立即进攻击/逃亡 toil），sapperThingID=-1，passive 保留原展别（IsAggressiveRebellion
+            // 为 public 属性，无反射）。激进展计时器在新图重起（26k-38k ticks 后 ExitMapFighting 撤出
+            // = 原版超时放弃语义）。
+            LordMaker.MakeNewLord(pawn.Faction,
+                new LordJob_SlaveRebellion(pawn.Position, pawn.Position, -1, !rebellion.IsAggressiveRebellion),
+                arrivalMap, new[] { pawn });
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] Lord continuation (SlaveRebellion): {pawn.LabelShort} starts a rebellion lord "
+                    + $"on map {arrivalMap.uniqueID} (passive={!rebellion.IsAggressiveRebellion}).");
             return true;
         }
 

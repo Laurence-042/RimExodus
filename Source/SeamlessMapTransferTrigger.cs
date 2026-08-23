@@ -154,7 +154,7 @@ namespace RimExodus
                 Log.Message($"[RimExodus] Seamless trigger ({grant.Kind}): pawn {pawn.LabelShort} at {thing.Position} "
                     + $"on map {map.uniqueID} targeting {comp.cachedArrivalCell} on map {arrivalMap.uniqueID}");
 
-            if (SeamlessMapTransfer.TryTransferPawn(pawn, thing, arrivalMap, comp.cachedArrivalCell, out _))
+            if (SeamlessMapTransfer.TryTransferPawn(pawn, thing, arrivalMap, comp.cachedArrivalCell, grant, out _))
             {
                 SeamlessTransferGrants.Remove(pawn);
                 AfterTransfer(pawn, map, thing, arrivalMap, grant);
@@ -174,7 +174,7 @@ namespace RimExodus
                     Log.Message($"[RimExodus] Seamless trigger (Evacuation): pawn {pawn.LabelShort} at {thing.Position} "
                         + $"on map {map.uniqueID} continues evacuation toward map {arrivalMap.uniqueID}");
 
-                if (SeamlessMapTransfer.TryTransferPawn(pawn, thing, arrivalMap, comp.cachedArrivalCell, out _))
+                if (SeamlessMapTransfer.TryTransferPawn(pawn, thing, arrivalMap, comp.cachedArrivalCell, grant, out _))
                 {
                     SeamlessTransferGrants.Remove(pawn);
                     AfterTransfer(pawn, map, thing, arrivalMap, grant);
