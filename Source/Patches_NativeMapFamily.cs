@@ -61,14 +61,6 @@ namespace RimExodus
     /// **历史教训（勿回退）**：两版被进场穿透的守卫——①挂 CheckDefeated 的"无玩家在场"单条件
     /// （玩家跨缝进图当 tick 即在场）；②挂 IsDefeated（public static）的"无玩家在场"（同样被进场
     /// 穿透，且越权改 public static 全局语义影响第三方调用方）。定稿口径 = **派系关系单条件**。
-    ///
-    /// **Transpiler——空殖民者集的传说记录守卫（2026-08）**：原版末行
-    /// <c>TaleRecorder.RecordTale(TaleDefOf.CaravanAssaultSuccessful, map.mapPawns.FreeColonists.RandomElement())</c>
-    /// 隐含假设"进攻者在场"——RimExodus 下敌对据点可被**无人进场**的方式击溃（陷阱/跨缝 turret 等，
-    /// 玩家 pawn 从未踏上据点图），FreeColonists 空列表 RandomElement 得 null → 反射构造
-    /// TaleData_Pawn NRE 红字（TaleFactory 自行 catch，不崩，但每 tick 刷）。修复 = 该调用点重定向到
-    /// <see cref="RecordTaleSafe"/>：首参数为 null 即跳过记录（败亡结算其余部分——废墟顶替/好感/信件——
-    /// 照常完成）。锚点 = RecordTale 调用指令（静态→静态替换，opcode 天然 Call 合法）。
     /// </summary>
     [HarmonyPatch(typeof(SettlementDefeatUtility), nameof(SettlementDefeatUtility.CheckDefeated))]
     static class Patch_SettlementDefeat_CheckDefeated
@@ -78,31 +70,6 @@ namespace RimExodus
             var faction = factionBase?.Faction;
             // 只有敌对据点才可能"被击败"（原版进攻入口要求敌对）；非敌对（含 null/玩家派系）跳过结算。
             return faction != null && faction != Faction.OfPlayer && faction.HostileTo(Faction.OfPlayer);
-        }
-
-        // 签名与 TaleRecorder.RecordTale 严格一致（含 Tale 返回值——调用点丢弃结果，但替换指令
-        // 必须保持栈形完全相同，返回 void 会令未 pop 的返回值栈失衡）。
-        public static Tale RecordTaleSafe(TaleDef def, params object[] args)
-        {
-            if (args == null || args.Length == 0 || args[0] == null) return null;
-            return TaleRecorder.RecordTale(def, args);
-        }
-
-        static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator il)
-        {
-            var anchor = AccessTools.Method(typeof(TaleRecorder), nameof(TaleRecorder.RecordTale));
-            var replacement = AccessTools.Method(typeof(Patch_SettlementDefeat_CheckDefeated), nameof(RecordTaleSafe));
-            foreach (var ci in instructions)
-            {
-                if (ci.Calls(anchor))
-                {
-                    yield return new CodeInstruction(OpCodes.Call, replacement);
-                }
-                else
-                {
-                    yield return ci;
-                }
-            }
         }
 
         static void Postfix(Settlement factionBase)
@@ -132,6 +99,34 @@ namespace RimExodus
             SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(ruinsMap);
             Log.Message($"[RimExodus] Settlement defeated at tile {factionBase.Tile.tileId}: seamless neighbor links " +
                         $"rerouted to the DestroyedSettlement parent (map {ruinsMap.uniqueID}).");
+        }
+    }
+
+    /// <summary>
+    /// 传说记录空参数守卫（2026-08）。触发场景 = 无人进场击溃敌对据点（陷阱/跨缝 turret——玩家 pawn
+    /// 从未踏上据点图）：<see cref="SettlementDefeatUtility.CheckDefeated"/> 末行
+    /// <c>RecordTale(CaravanAssaultSuccessful, FreeColonists.RandomElement())</c> 从空集取人得 null →
+    /// 反射构造 TaleData_Pawn NRE 红字（TaleFactory 自行 catch 不崩，但每 tick 刷）。
+    /// 修复 = Prefix 参数含 null 即跳过记录：原版语义里 null 参数的唯一去向就是"Failed to create tale"
+    /// 红字 + 什么都不记录，跳过它对一切正常调用（含第三方）零行为变化，比锚定调用点的 Transpiler
+    /// 更稳（用户纪律：能 Prefix/Postfix 就不 Transpiler）。
+    /// </summary>
+    [HarmonyPatch(typeof(TaleRecorder), nameof(TaleRecorder.RecordTale))]
+    static class Patch_TaleRecorder_RecordTale_NullArgGuard
+    {
+        static bool Prefix(TaleDef def, object[] args, ref Tale __result)
+        {
+            if (def != null && args != null)
+            {
+                var hasNull = false;
+                for (int i = 0; i < args.Length; i++)
+                {
+                    if (args[i] == null) { hasNull = true; break; }
+                }
+                if (!hasNull) return true; // 正常调用：原版照走。
+            }
+            __result = null;
+            return false; // null 参数：原版也只会红字 + 记录失败，跳过即消除红字。
         }
     }
 

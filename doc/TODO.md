@@ -3,7 +3,7 @@
 （已处置 2026-08 并游戏内回归通过：走近原生生成全 POI 泛化——GenerateTileMap 守卫的 Settlement 分支改为"任意表面层原生 parent 占位 → 原生单帧 GetOrGenerateMap"，确立三层架构[普通地图分帧 / POI 地图原生单帧 / Settlement=POI+额外处理]；site parts/PostMapGenerate 全原版、零 per-def patch；标志改名 GeneratingNativeSeamlessly。原版 Site 全部默认 Encounter 已被裁切注入覆盖；显式设名单外 MapGeneratorDef 的表面层 def 与 mod 自定义 def 已由"全表面层 MapGeneratorDef 通配注入"（2026-08 落地，排除 Abstract 基类防继承双注入 + 空间层家族显式排除）堵掉）
 
 击溃敌方据点时刷 "Failed to create tale object CaravanAssaultSuccessful" NRE 红字（每 tick）——无人进场的击溃方式（陷阱/跨缝 turret）下 `CheckDefeated` 末行从空 FreeColonists 集随机取人得 null
-（已处置 2026-08 待回归：`Patch_SettlementDefeat_CheckDefeated` 加 Transpiler 把 `TaleRecorder.RecordTale` 调用点重定向到 `RecordTaleSafe`（首参数 null 跳过记录，败亡结算其余照常）；离线验证器绑定 OK（12 失败均为既知基线伪迹）。回归标志 = 陷阱杀敌击溃据点无红字、废墟/好感/信件结算正常）
+（已处置 2026-08 待回归：`Patch_TaleRecorder_RecordTale_NullArgGuard` Prefix 挂 `TaleRecorder.RecordTale` 本体——参数含 null 即跳过记录（原版语义里 null 参数本就只会红字+记录失败，跳过对正常调用零变化；首版 CheckDefeated 内调用点 Transpiler 重定向方案已按用户纪律"能 Prefix 就不 Transpiler"替换）；离线验证器绑定 OK（12 失败均为既知基线伪迹）。回归标志 = 陷阱杀敌击溃据点无红字、废墟/好感/信件结算正常）
 
 偶现奴隶没法正常通过接缝撤离的方式成为远行队一员
 Exception in JobDriver fixed tick for pawn McTodd driver=JobDriver_Wait (toilIndex=0) driver.job=(Wait (Job_8224))
