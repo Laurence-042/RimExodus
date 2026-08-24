@@ -179,8 +179,33 @@ namespace RimExodus
 
                 SeamlessMapTransferTrigger.TryTriggerTransfer(pawn, cell, map);
 
-                // 传送成功（pawn 已换图）：清 PS 的亚格物理位置，防下帧 desync 警告（见类注释）。
-                if (pawn.Map != map && _physicsPositionField != null)
+                // 传送成功（pawn 已换图）：把聚焦切到落地图。既有 TryAutoFocusOnArrival 只覆盖
+                // "首个殖民者进新地块"（autoFocused 每地块一次 + 仅 MapParent_SeamlessTile，原生
+                // 家族图被排除），avatar 第二次进同一地块/进据点图都不切——视角留在旧图 = 玩家
+                // "丢失控制"（征召状态还在，但输入作用于别的图）。PS 相机锁 avatar 跟随 pawn 对象，
+                // CurrentMap 一切下帧自动跟上，无需手工调相机。CurrentMap setter 同时触发休眠唤醒链。
+                var arrivalMap = pawn.Map;
+                if (arrivalMap != null && arrivalMap != map && Find.CurrentMap != arrivalMap)
+                {
+                    // 缩放必须跨切图保留（TryAutoFocusOnArrival 同款教训）：CurrentMap setter 触发原生
+                    // Notify_SwitchedMap 用落地图 rememberedCameraPos 同时恢复位置+缩放——PS 每帧只写
+                    // rootPos（跟随 avatar）不写 RootSize，不补这一手缩放会跳到落地图上次记住的值。
+                    // 位置按接缝 offset 换算（PS 下帧就会重写，只为消灭切换帧的一帧跳变）；查不到
+                    // offset（非直接邻居，理论不可达）回落 avatar 落点格。
+                    var camPos = Find.CameraDriver.MapPosition.ToVector3();
+                    var camSize = Find.CameraDriver.RootSize;
+                    Current.Game.CurrentMap = arrivalMap;
+                    var offset = SeamlessCameraFocus.FindNeighborOffset(map, arrivalMap);
+                    var targetPos = offset.HasValue
+                        ? camPos - offset.Value.ToVector3()
+                        : new UnityEngine.Vector3(pawn.Position.x, 0f, pawn.Position.z);
+                    Find.CameraDriver.SetRootPosAndSize(targetPos, camSize);
+                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                        Log.Message($"[RimExodus] PS compat: focused arrival map {arrivalMap.uniqueID} for avatar {pawn.LabelShort}.");
+                }
+
+                // 清 PS 的亚格物理位置，防下帧 desync 警告（见类注释）。
+                if (arrivalMap != map && _physicsPositionField != null)
                     _physicsPositionField.SetValue(avatarInstance, null);
                 return;
             }
