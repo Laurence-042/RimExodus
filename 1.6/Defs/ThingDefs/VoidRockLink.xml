@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+
+  <!--
+    void 边界岩石的隐形 link 延续体（2026-08，视觉优化）。
+    机理：自然岩 atlas 选片由 Graphic_Linked 查本图 4 邻 LinkGrid 决定；void 格无 thing →
+    flag None → 边界岩画成断崖侧面，即使对侧邻图对应格有岩石（视觉上应连续）。
+    本 def 只做一件事：占据 void 格、向 LinkGrid 提供 Rock flag（graphicData.linkFlags），
+    让本侧边界岩选"连续"atlas 片。Spawn/DeSpawn 自动经 Thing.Spawn 的 linker 路径
+    重算该格 LinkGrid 并以 regenAdjacentCells 脏化邻格 Things mesh。
+    - drawerType=None：SectionLayer_Things.Regenerate 跳过打印，不渲染；
+    - Ethereal + selectable=false + destroyable=false：不进 edificeGrid、不可选、不被事件误毁
+      （与 RimExodus_SeamlessEnterSpot 同款载体）；
+    - passability=Standable + pathCost=0：void 地形本身 Impassable 已挡路，本 thing 零额外阻挡；
+    - texPath 指向 mod 自带 4x4 全透明 PNG（**根目录** Textures/Things/Building/
+      Natural/RimExodus_VoidRockLink.png，与 def 同名、按原版建筑纹理目录结构存放；
+      放根目录而非 1.6/ 下——内容不随游戏版本变化，全版本通用）：
+      drawerType=None 不渲染、LinkGrid 只读 linkFlags 字段，纹理唯一作用是过
+      GraphicData.Init 的 ContentFinder 加载校验（2026-08 实测：指到不存在的路径
+      会在 def 加载期红字"Could not load Texture2D"）。
+    铺设时机/条件见 Source/SeamlessVoidRockLink.cs（genStep 392 末）。
+  -->
+  <ThingDef>
+    <defName>RimExodus_VoidRockLink</defName>
+    <label>void rock link</label>
+    <description>Invisible LinkGrid contributor that keeps rock rendering continuous across seamless tile seams.</description>
+    <thingClass>ThingWithComps</thingClass>
+    <category>Ethereal</category>
+    <destroyable>false</destroyable>
+    <useHitPoints>false</useHitPoints>
+    <selectable>false</selectable>
+    <drawerType>None</drawerType>
+    <passability>Standable</passability>
+    <pathCost>0</pathCost>
+    <altitudeLayer>FloorEmplacement</altitudeLayer>
+    <size>(1,1)</size>
+    <graphicData>
+      <texPath>Things/Building/Natural/RimExodus_VoidRockLink</texPath>
+      <graphicClass>Graphic_Single</graphicClass>
+      <linkType>Basic</linkType>
+      <linkFlags>Rock</linkFlags>
+    </graphicData>
+  </ThingDef>
+
+</Defs>

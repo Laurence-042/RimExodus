@@ -195,11 +195,20 @@ namespace RimExodus
 
                 var inBand = band.Band.Contains(cCell);
 
-                if (!CollectCellRefs(cCell, inBand, weightNoise, noiseAmp)) continue;
+                // 照抄区 = B ∪ {T depth=1}（2026-08 用户逻辑，距缝切比雪夫 0/1/2 三带完全参考对端）：
+                // T depth=1（本图带内侧一圈）与对侧 OuterStrip depth=1（对侧 void 第一圈）是同一条
+                // 空间带——先生成侧在该 void 带上按 own snapshot 放的 void rock，要求后生成侧在
+                // 镜像位置"直接复刻"（含岩体），本图 T depth=1 因此不走卷积、与 B 同款字面照抄；
+                // 对端该位置读的是其外条带原生快照（先生成侧 own snapshot 的镜像数据），两侧判定
+                // 同源自洽。depth≥2 的 T 仍走卷积（对端无对应义务，渐进混合归位）。
+                var isCopyZone = inBand
+                    || (band.TransitionDepth.TryGetValue(cCell, out var tDepth) && tDepth == 1);
 
-                if (inBand && cellRefs.Count == 1)
+                if (!CollectCellRefs(cCell, isCopyZone, weightNoise, noiseAmp)) continue;
+
+                if (isCopyZone && cellRefs.Count == 1)
                 {
-                    // 接缝带照抄区：三层统一框架——每层读对端参考值，与本端不同则写。
+                    // 照抄区（B 或 T·1）：三层统一框架——每层读对端参考值，与本端不同则写。
                     // 无任何地形例外（对端是 Marsh/深水本端就是——不能走 pawn 自然绕路）；
                     // 岩体用对端 def（跨缝岩色连续，"岩石地形无岩体"中间带状态正确继承）；
                     // 屋顶照抄对端原生岩顶（Thick/Thin，不裸顶）。地形未变时岩体/屋顶同步仍执行。
@@ -274,23 +283,26 @@ namespace RimExodus
         /// <summary>
         /// 收集 cCell 的各邻居参考到 <see cref="cellRefs"/>（复用 <see cref="neighborRefs"/>），
         /// 返回是否有参考。**规则轴 = 本端圈层**（用户定夺 2026-08）：
-        /// - c ∈ B_C（照抄区）：命中 = a 在邻居 strip 内（有数据即命中，不看对端圈层），
+        /// - c ∈ 照抄区（B_C 或 T·1）：命中 = a 在邻居 strip 内（有数据即命中，不看对端圈层），
         ///   w = 1（仅多命中合成时用到）——错位时 a 落在对端哪个圈层都无所谓，strip 有数据就抄；
-        /// - c ∈ T_C（卷积区）：w = dSq/(dSq+dOut)（源地图轴：接近源六边形高 → 源方形边 0）
+        /// - c ∈ T_C depth≥2（卷积区）：w = dSq/(dSq+dOut)（源地图轴：接近源六边形高 → 源方形边 0）
         ///   ×乘性 dither。
         /// </summary>
-        private static bool CollectCellRefs(IntVec3 cCell, bool inBand, Perlin weightNoise, float noiseAmp)
+        private static bool CollectCellRefs(IntVec3 cCell, bool inCopyZone, Perlin weightNoise, float noiseAmp)
         {
             cellRefs.Clear();
             foreach (var nref in neighborRefs)
             {
-                // 契约 neighborLocal + offset = myLocal → 邻居格 a = c − offset。
+                // 契约 neighborLocal + offset = myLocal → 邻居格 a = c − offset（同一空间位置：
+                // 中点对齐保证镜像格即重叠格。2026-08 曾按用户提议内移对端边法向 1 格，游戏内
+                // 实测整缝系统性偏 1 格——本侧带抄"对端同一位置再往里 1 格"的值，图案向本侧
+                // 平移；已回退，勿再加参考偏移）。
                 var aCell = new IntVec3(cCell.x - nref.offset.x, 0, cCell.z - nref.offset.z);
                 // 命中判定用 terrain 层的 ReadStrip（terrain 无参考价值的格不入 strip）。
                 if (seamLayers[0].ReadStrip(nref.strip, aCell) == null) continue;
 
                 float wRaw;
-                if (inBand)
+                if (inCopyZone)
                 {
                     wRaw = 1f;
                 }
@@ -367,6 +379,8 @@ namespace RimExodus
             {
                 foreach (var node in path)
                 {
+                    // 切比雪夫半径 RoadGuardRadius 方形窗口（R>1 无原版数组可用，保留显式双层循环，
+                    // 口径指回 SeamlessGridMath——与 3×3 窗口的 GenAdj.AdjacentCellsAndInside 同族）。
                     for (var dx = -RoadGuardRadius; dx <= RoadGuardRadius; dx++)
                     {
                         for (var dz = -RoadGuardRadius; dz <= RoadGuardRadius; dz++)
@@ -399,22 +413,21 @@ namespace RimExodus
             var counts = new Dictionary<TerrainDef, int>();
             var total = 0;
 
-            for (var dx = -1; dx <= 1; dx++)
+            // 3×3 窗口遍历 = GenAdj.AdjacentCellsAndInside（SeamlessGridMath 统一口径，勿手搓 dx/dz）。
+            var window = GenAdj.AdjacentCellsAndInside;
+            for (var i = 0; i < window.Length; i++)
             {
-                for (var dz = -1; dz <= 1; dz++)
-                {
-                    var nx = center.x + dx;
-                    if (nx < 0) nx = 0; else if (nx >= mapSize) nx = mapSize - 1;
-                    var nz = center.z + dz;
-                    if (nz < 0) nz = 0; else if (nz >= mapSize) nz = mapSize - 1;
-                    var idx = nz * mapSize + nx;
-                    var t = snapshot[idx];
-                    if (t == null) continue;
-                    if (voidDef != null && t == voidDef) continue;
-                    counts.TryGetValue(t, out var c);
-                    counts[t] = c + 1;
-                    total++;
-                }
+                var nx = center.x + window[i].x;
+                if (nx < 0) nx = 0; else if (nx >= mapSize) nx = mapSize - 1;
+                var nz = center.z + window[i].z;
+                if (nz < 0) nz = 0; else if (nz >= mapSize) nz = mapSize - 1;
+                var idx = nz * mapSize + nx;
+                var t = snapshot[idx];
+                if (t == null) continue;
+                if (voidDef != null && t == voidDef) continue;
+                counts.TryGetValue(t, out var c);
+                counts[t] = c + 1;
+                total++;
             }
 
             if (total == 0) return null;
@@ -435,16 +448,15 @@ namespace RimExodus
             Dictionary<TerrainDef, int> counts = null;
             var total = 0;
 
-            for (var dx = -1; dx <= 1; dx++)
+            // 3×3 窗口遍历 = GenAdj.AdjacentCellsAndInside（SeamlessGridMath 统一口径）。
+            var window = GenAdj.AdjacentCellsAndInside;
+            for (var i = 0; i < window.Length; i++)
             {
-                for (var dz = -1; dz <= 1; dz++)
-                {
-                    if (!lookup.TryGetValue(new IntVec3(center.x + dx, 0, center.z + dz), out var t) || t == null) continue;
-                    counts ??= new Dictionary<TerrainDef, int>();
-                    counts.TryGetValue(t, out var c);
-                    counts[t] = c + 1;
-                    total++;
-                }
+                if (!lookup.TryGetValue(new IntVec3(center.x + window[i].x, 0, center.z + window[i].z), out var t) || t == null) continue;
+                counts ??= new Dictionary<TerrainDef, int>();
+                counts.TryGetValue(t, out var c);
+                counts[t] = c + 1;
+                total++;
             }
 
             if (total == 0) return null;
@@ -513,12 +525,14 @@ namespace RimExodus
             sb.AppendLine($"  本格地形: {localTerrain?.defName ?? "(null)"}");
 
             // 圈分类（权威定义见 doc/接缝带定义.md）。规则轴 = 本端圈层：
-            // B_C（三圈）→ 照抄区；T_C → 卷积区。
+            // B_C（三圈）∪ T·1 → 照抄区；T_C depth≥2 → 卷积区。
             var inBand = band.Band.Contains(cell);
+            var tDepth = band.TransitionDepth.TryGetValue(cell, out var t) ? t : 0;
+            var isCopyZone = inBand || tDepth == 1;
             if (band.OuterRing.Contains(cell)) sb.AppendLine("  圈层: 带外圈（B_C 照抄区；传送圈，格中心在多边形外）");
             else if (band.DiscreteEdge.Contains(cell)) sb.AppendLine("  圈层: 离散边圈（B_C 照抄区；传送圈，横跨连续边）");
             else if (band.InnerRing.Contains(cell)) sb.AppendLine("  圈层: 带内圈（B_C 照抄区；无传送点，格中心在多边形内）");
-            else if (band.TransitionDepth.TryGetValue(cell, out var td)) sb.AppendLine($"  圈层: 过渡带 T_C 深度 {td}（卷积区，源地图轴权重）");
+            else if (tDepth > 0) sb.AppendLine($"  圈层: 过渡带 T_C 深度 {tDepth}（{(tDepth == 1 ? "T·1 照抄区：与 B 同款字面照抄（2026-08 用户逻辑，复刻对端 void rock 假设）" : "卷积区，源地图轴权重")}）");
             else
             {
                 sb.AppendLine("  圈层: 接缝带 ∪ 过渡带之外（void/核心区）→ 不参与混合");
@@ -556,7 +570,7 @@ namespace RimExodus
 
             // CollectCellRefs 走静态 cellRefs——探针调用后其内容对下一次 ApplyOneWay 无影响
             //（ApplyOneWay 每格先 Clear），此处直接读结果。
-            if (!CollectCellRefs(cell, inBand, weightNoise, noiseAmp))
+            if (!CollectCellRefs(cell, isCopyZone, weightNoise, noiseAmp))
             {
                 sb.AppendLine("  → 无邻居参考此格（对齐格不在任何邻居 strip 内）→ 保持原生");
                 return sb.ToString().TrimEnd();
@@ -570,7 +584,7 @@ namespace RimExodus
                 sb.AppendLine($"  -- 邻居 wt={r.owner.worldTile}  aCell=({r.aCell.x},{r.aCell.z}) 参考地形={terrain} 岩体={building} 屋顶={roof} w={r.w:F3}");
             }
 
-            if (inBand && cellRefs.Count == 1)
+            if (isCopyZone && cellRefs.Count == 1)
             {
                 var ref0 = cellRefs[0];
                 var parts = new List<string>();
@@ -596,7 +610,7 @@ namespace RimExodus
 
             var totalW2 = 0f;
             foreach (var r in cellRefs) totalW2 += r.w;
-            sb.AppendLine($"  合成{(inBand ? "(B_C 顶点多参考)" : "(T_C 卷积)")}: Σw={totalW2:F2} → selfW={Mathf.Clamp01(1f - totalW2):F2}，{blendParts.Count} 路分布：");
+            sb.AppendLine($"  合成{(isCopyZone ? "(照抄区顶点多参考)" : "(T_C 卷积)")}: Σw={totalW2:F2} → selfW={Mathf.Clamp01(1f - totalW2):F2}，{blendParts.Count} 路分布：");
             foreach (var (dist, w) in blendParts)
                 sb.AppendLine($"    ×w={w:F3}: {FormatDist(dist)}");
 

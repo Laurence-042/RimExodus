@@ -44,6 +44,13 @@ namespace RimExodus
 
             SeamStripData.CaptureAndStore(map, worldTile);
 
+            // void 边界岩的隐形 link 延续体（2026-08 视觉优化）：必须挂在 **392 末（混合之后）**——
+            // 紧贴 void 的那圈接缝带岩石多数是上方混合 B 照抄 SyncRockBuildingTo 才 spawn 的
+            // （原生 Soil 无岩），391 时点"4 邻含岩石"条件全灭一格都铺不出（2026-08 实测）。
+            // own snapshot 在生成期仍在内存可读（非序列化只影响读档），双分支判据不受影响。
+            // 单向原则（用户定夺）：一切决策发生在本图生成期内，无回铺。
+            SeamlessVoidRockLink.PlaceAfterSeamOverride(map, worldTile);
+
             // 混合同样直写 topGrid（SeamlessSeamOverride 写地形只打 mesh 脏标记），带格地形变更
             // （如混合出水/去水）后必须刷新 pathGrid——后续 Plants(900)/Animals(1200) 的 Standable/Walkable
             // 读 PathGrid 缓存而非 terrainGrid，不刷新会把 pawn/植物放到混合后的水格上。

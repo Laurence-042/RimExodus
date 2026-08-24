@@ -109,17 +109,17 @@ namespace RimExodus
                     }
                 }
 
-                // 接缝带 = 离散边的 8 邻膨胀并（Cheb(D,1)，含 D）。
+                // 接缝带 = 离散边的 8 邻膨胀并（Cheb(D,1)，含 D）。8 邻遍历 = GenAdj.AdjacentCells
+                // （SeamlessGridMath 统一口径，勿手搓 dx/dz）。
                 foreach (var c in info.DiscreteEdge)
                 {
-                    for (var dx = -1; dx <= 1; dx++)
+                    info.Band.Add(c);
+                    var ring = GenAdj.AdjacentCells;
+                    for (var i = 0; i < ring.Length; i++)
                     {
-                        for (var dz = -1; dz <= 1; dz++)
-                        {
-                            var n = new IntVec3(c.x + dx, 0, c.z + dz);
-                            if (n.x >= 0 && n.x < mapSize && n.z >= 0 && n.z < mapSize)
-                                info.Band.Add(n);
-                        }
+                        var n = new IntVec3(c.x + ring[i].x, 0, c.z + ring[i].z);
+                        if (n.x >= 0 && n.x < mapSize && n.z >= 0 && n.z < mapSize)
+                            info.Band.Add(n);
                     }
                 }
 
@@ -147,28 +147,25 @@ namespace RimExodus
                     var next = new List<IntVec3>();
                     foreach (var c in frontier)
                     {
-                        for (var dx = -1; dx <= 1; dx++)
+                        var ring = GenAdj.AdjacentCells;
+                        for (var i = 0; i < ring.Length; i++)
                         {
-                            for (var dz = -1; dz <= 1; dz++)
+                            var n = new IntVec3(c.x + ring[i].x, 0, c.z + ring[i].z);
+                            if (n.x < 0 || n.x >= mapSize || n.z < 0 || n.z >= mapSize) continue;
+                            var centerIn = ContainsPointAt(verts, n.x + 0.5f, n.z + 0.5f);
+                            if (centerIn)
                             {
-                                if (dx == 0 && dz == 0) continue;
-                                var n = new IntVec3(c.x + dx, 0, c.z + dz);
-                                if (n.x < 0 || n.x >= mapSize || n.z < 0 || n.z >= mapSize) continue;
-                                var centerIn = ContainsPointAt(verts, n.x + 0.5f, n.z + 0.5f);
-                                if (centerIn)
-                                {
-                                    if (!visitedCore.Add(n)) continue;
-                                    info.TransitionBand.Add(n);
-                                    info.TransitionDepth[n] = k;
-                                    next.Add(n);
-                                }
-                                else
-                                {
-                                    if (!visitedOuter.Add(n)) continue;
-                                    info.OuterStrip.Add(n);
-                                    info.OuterStripDepth[n] = k;
-                                    next.Add(n);
-                                }
+                                if (!visitedCore.Add(n)) continue;
+                                info.TransitionBand.Add(n);
+                                info.TransitionDepth[n] = k;
+                                next.Add(n);
+                            }
+                            else
+                            {
+                                if (!visitedOuter.Add(n)) continue;
+                                info.OuterStrip.Add(n);
+                                info.OuterStripDepth[n] = k;
+                                next.Add(n);
                             }
                         }
                     }
@@ -407,20 +404,22 @@ namespace RimExodus
             {
                 for (var z = 0; z < sz; z++)
                 {
-                    var zMin = z - 1; if (zMin < 0) zMin = 0;
-                    var zMax = z + 1; if (zMax >= sz) zMax = sz - 1;
                     for (var x = 0; x < sx; x++)
                     {
                         var idx = z * sx + x;
                         if (isVoid[idx]) continue;
                         if (distArr[idx] >= 0) continue; // 已标记（更小距离），保持。
-                        // 8-邻域内是否有距离 = k-1 的标记格（上一轮）。
+                        // 8-邻域（GenAdj.AdjacentCells，SeamlessGridMath 统一口径）内是否有
+                        // 距离 = k-1 的标记格（上一轮）。越界格跳过（原 clamp 语义等价）。
                         var hit = false;
-                        var xMin = x - 1; if (xMin < 0) xMin = 0;
-                        var xMax = x + 1; if (xMax >= sx) xMax = sx - 1;
-                        for (var nz = zMin; nz <= zMax && !hit; nz++)
-                            for (var nx = xMin; nx <= xMax; nx++)
-                                if (distArr[nz * sx + nx] == k - 1) { hit = true; break; }
+                        var ring = GenAdj.AdjacentCells;
+                        for (var i = 0; i < ring.Length && !hit; i++)
+                        {
+                            var nx = x + ring[i].x;
+                            var nz = z + ring[i].z;
+                            if (nx < 0 || nx >= sx || nz < 0 || nz >= sz) continue;
+                            if (distArr[nz * sx + nx] == k - 1) hit = true;
+                        }
                         if (hit) distArr[idx] = k;
                     }
                 }

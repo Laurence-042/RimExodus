@@ -1,10 +1,13 @@
 using HarmonyLib;
+using RimWorld;
+using RimWorld.Planet;
+using UnityEngine;
 using Verse;
 
 namespace RimExodus
 {
     /// <summary>
-    /// 阶段4前置：把无缝地块的传送点格标记为出口格（exit cell），使原生远行队组建/撤离/撤退流程生效；
+    /// 阶段4前置：把无缝地块的接缝带标记为出口格（exit cell），使原生远行队组建/撤离/撤退流程生效；
     /// 同时**清空原版方形 2 格宽撤离带**，只保留六边形接缝带的浅绿色提示。
     ///
     /// 背景：
@@ -17,7 +20,12 @@ namespace RimExodus
     ///    <c>exitMapOnArrival=true</c>，触发原生 <c>Pawn.ExitMap</c> → 大地图远行队生成。
     ///
     /// 修复（Prefix 跳过原版 Rebuild）：对有 RimExodus 传送点的地图，**完全跳过原版方形带铺设**，
-    /// 自己初始化一个干净的 <see cref="BoolGrid"/>，只把传送点格标 true。这样浅绿色只出现在六边形接缝处。
+    /// 自己初始化一个干净的 <see cref="BoolGrid"/>，把接缝带格标 true。
+    ///
+    /// 标记集 = **接缝带三圈并集 Band ∪ 传送点格兜底**（2026-08 用户定夺：撤离带拓宽到整个 3 圈接缝带
+    /// 而非外侧两圈传送圈——接缝两侧的撤离带镜像连续，切图时接缝和撤离带不跳变；语义影响接受：
+    /// 带撤离 flag 的 pawn 踩带内圈即原生离场。首版曾试三色分圈渲染，因颜色过浅缺乏区分度被用户回退，
+    /// 恢复原版单色浅绿；接缝位置改由 <see cref="Patch_MapInterface_SeamOutline"/> 的中心线段勾勒）。
     ///
     /// 与直接跨图传送的区分：<see cref="SeamlessMapTransferTrigger.TryTriggerTransfer"/> 入口检查
     /// pawn 当前 Job 的 <c>exitMapOnArrival</c>——远行队流程放行原生 ExitMap，征召跨图走现有传送逻辑。
@@ -40,8 +48,8 @@ namespace RimExodus
             if (___map == null) return true; // 放行原版
             if (!SeamlessEdgeCells.HasSeamEdge(___map)) return true; // 非 RimExodus 地块放行原版
 
-            // —— RimExodus 地块：跳过原版方形带铺设，自己只标传送点格。——
-            // 复刻原版 Rebuild 的骨架但把候选集换成传送点格。
+            // —— RimExodus 地块：跳过原版方形带铺设，自己只标接缝带格。——
+            // 复刻原版 Rebuild 的骨架但把候选集换成接缝带三圈 + 传送点格。
             _dirtyRef(__instance) = false;
 
             var existing = _exitMapGridRef(__instance);
@@ -59,7 +67,26 @@ namespace RimExodus
             int maxIdx = grid.Width * grid.Height;
 
             int marked = 0;
-            // 遍历地图上所有传送点（沿六边形接缝带铺设，~100 个），把它们的格标为 exit cell。
+            // 标记集 = 接缝带三圈并集（Band = 离散边 ∪ 带内圈 ∪ 带外圈，2026-08 用户定夺拓宽：
+            // 接缝两侧的撤离带在 Band 全宽上镜像连续，切换地图时不再跳变）∪ 传送点格兜底
+            // （防几何/铺点异常态漏标）。
+            var worldTile = SeamlessTileRegistry.GetMapWorldTile(___map);
+            var band = worldTile >= 0
+                ? SeamlessPolygonGeometry.BuildSeamBand(worldTile, ___map.Size.x)
+                : null;
+            if (band != null)
+            {
+                foreach (var cell in band.Band)
+                {
+                    int idx = ___map.cellIndices.CellToIndex(cell);
+                    if (idx >= 0 && idx < maxIdx && !grid[idx])
+                    {
+                        grid.Set(idx, true);
+                        marked++;
+                    }
+                }
+            }
+            // 遍历地图上所有传送点（沿六边形接缝带铺设，~100 个），把它们的格标为 exit cell（兜底）。
             SeamlessEdgeCells.PopulateSeamEdgeCells(___map, _spotCellsScratch);
             for (int i = 0; i < _spotCellsScratch.Count; i++)
             {
@@ -76,7 +103,7 @@ namespace RimExodus
             if (drawer != null) drawer.SetDirty();
 
             if (marked > 0 && (RimExodusMod.Settings?.verboseLogging ?? false))
-                Log.Message($"[RimExodus] ExitMapGrid.Rebuild prefix: marked {marked} enter-spot cells as exit cells on map {___map.uniqueID} (square band suppressed).");
+                Log.Message($"[RimExodus] ExitMapGrid.Rebuild prefix: marked {marked} band+spot cells as exit cells on map {___map.uniqueID} (square band suppressed).");
 
             return false; // 跳过原版 Rebuild
         }
@@ -108,6 +135,49 @@ namespace RimExodus
             {
                 __result = true;
                 ___mapUsesExitGrid = true; // 同步改缓存字段，避免同 tick 内其他读取者拿到旧值。
+            }
+        }
+    }
+
+    /// <summary>
+    /// 接缝中心线段渲染（2026-08 用户定夺，替代已回退的三色分圈方案）：
+    /// 每帧对 CurrentMap 沿**多边形边**（连续边 = 接缝带的几何中心线）画线段勾勒接缝位置——
+    /// 两侧线段即中点对齐的视觉基准，对不齐 = 地块投影角度的细微偏差（正常）。
+    ///
+    /// 实现零自绘 mesh：<see cref="GenDraw.DrawLineBetween(Vector3, Vector3, SimpleColor, float)"/>
+    /// 内部 Graphics.DrawMesh 延迟提交（与原版 <c>GenDraw.DrawMapBoundaryLines</c> 同款基础设施、
+    /// 同款 AltitudeLayer.MetaOverlays 高度）。挂 <see cref="MapInterface.MapInterfaceUpdate"/> Postfix
+    /// （原方法开头有 CurrentMap/WorldRendererUtility 门控，返回后仍需自查）。
+    /// 顶点来自 <see cref="SeamlessPolygonGeometry.BuildPolygonVertices"/>（进程缓存，Vector2 纯几何）。
+    /// </summary>
+    [HarmonyPatch(typeof(MapInterface), nameof(MapInterface.MapInterfaceUpdate))]
+    static class Patch_MapInterface_SeamOutline
+    {
+        // 线段颜色：保持与撤离带同族的浅绿但提亮（区分度优先于三色方案——首版三色因过浅被回退）。
+        private static readonly SimpleColor SeamLineColor = SimpleColor.Green;
+
+        public static void Postfix()
+        {
+            var map = Find.CurrentMap;
+            if (map == null || !WorldRendererUtility.DrawingMap) return;
+            if (Find.ScreenshotModeHandler.Active) return;
+            if (!SeamlessEdgeCells.HasSeamEdge(map)) return;
+            var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
+            if (worldTile < 0) return;
+
+            var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, map.Size.x);
+            if (verts.Count < 3) return;
+
+            float y = AltitudeLayer.MetaOverlays.AltitudeFor();
+            for (int i = 0; i < verts.Count; i++)
+            {
+                var a = verts[i];
+                var b = verts[(i + 1) % verts.Count];
+                GenDraw.DrawLineBetween(
+                    new Vector3(a.x, y, a.y),
+                    new Vector3(b.x, y, b.y),
+                    SeamLineColor,
+                    0.2f);
             }
         }
     }
