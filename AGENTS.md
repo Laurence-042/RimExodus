@@ -14,23 +14,10 @@
 
 RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的局部地图在视觉与操作上连续连接，Pawn 可直接从一张地图走入相邻地图，无需组成远行队。
 
-文档索引：
-- `README.md` — **对外正式文档**：mod 简介、核心特性、Mod 兼容性结论（已适配/共存/预期不兼容）、已知限制、设置项表。兼容性与已知限制的对外结论以此文件为单一事实源（AGENTS.md 只记内幕机制与教训）。
-- `doc/无缝世界地块探索.md` — 长期设计与五阶段路线图。
-  - 其中描述了核心交互场景，我们的最终目的是保证核心交互场景，因此实现过程中避免临时patch
-- `doc/接缝带定义.md` — **接缝带几何的权威定义**（连续边/离散边/3 圈接缝带/传送圈/void/offset 连续边中点对齐/SeamOverride 参考规则/地图生命周期数据链，状态定稿 2026-08）。
-- `doc/第一阶段-VMF调研.md` — VMF 源码调研、可复用能力和架构结论（PocketMap 路线已废弃，保留作历史调研）。
-- `doc/第二阶段-最小技术原型.md` — 矩形原型的实现进度、渲染验证。
-- `doc/第三阶段-六边形裁切.md` — 六边形多边形裁切、void 铺设、接缝带几何归一。
-- `doc/第四阶段-连续地形.md` — 连续地形调研（四项可行性分级）、接缝覆写卷积混合（E 节）、分帧增量生成。
-- `doc/第四阶段a-预加载与传送机制.md` — 邻居预加载、多跳传送点、异步加载、传送机制重构、边缘 patch 统一。
-- `doc/第五阶段-跨图寻路与射击.md` — 阶段5（边界行为/跨图交互/索敌与射击/追击链）的实现叙事与决策记录（2026-08；权威规格仍分属边界行为表/地图滚动休眠/跨图命令适配审计与本文各节）。
-- `doc/边界行为表.md` — 传送点/接缝带行为规范（主体 × 移动来源全枚举，状态定稿 2026-08；阶段5 边界行为的权威规格，由 `doc/gen_边界行为表.py` 生成）。
-- `doc/地图滚动休眠.md` — **地图滚动生命周期的权威文档**（软休眠/唤醒/删除三态、距离策略、tick 分发查证、口径变化，已实现 2026-08）。
-- `doc/跨图命令适配审计.md` — **跨图命令 job 类型适配矩阵的权威文档**（A1 直接目标型 ~35 个天然可用 / A2 designation 前置型 9 组例外（挖矿族，选项读 pawn.Map 标记列表故不出现）/ A3 split-target 型 6 个 / 执行期时序证明 / 玩家下令两条互斥入口清点；挖矿跨图暂不适配的用户定夺与三档后续方向，2026-08）。
-- `doc/地图生成步骤.md` — RimWorld 完整 genStep 执行顺序（含 RimExodus 注入点：230 海岸补铺 / 391 铺 void + 备份 snapshot + pathGrid 刷新 / 392 接缝覆写 + pathGrid 刷新 + 预设 StartSpot / 1490 铺传送点 / Harmony patch 在 1500 Fog 揭雾分径、220 河流端点对齐、390 道路锚点对齐）。
-- `doc/用可重叠正方形承载六边形网格的空间映射方案.md` — 六边形网格的空间映射理论。
-- `doc/TODO.md` — 用户游戏内测试发现的问题备忘（2026-08：家园休眠异常与"人走即删"地图族接管、其他派系 Settlement 无缝接入（走近生成 + 贸易商对话）、滚动/生成配置项（距离放宽到 1 + 分帧开关 + 批次大小 + 全条目 tooltip）均已处置待回归，见"当前待办"）。
+文档索引（逐条列表见 `README.md`「项目文档索引」节，**开工前先读 README**——它还包含「源码目录结构」节，是各源码文件用途的单一事实源，本文件不重复该清单）：
+
+- `README.md` — **对外正式文档**：mod 简介、核心特性、Mod 兼容性结论（已适配/共存/预期不兼容）、已知限制、设置项表、**源码目录结构（Source/ 九个子目录的职责与关键文件）**。兼容性/已知限制/设置项/文件用途的对外结论以此文件为单一事实源（AGENTS.md 只记内幕机制与教训）。
+- 各 `doc/` 文档的权威归属速查（详细描述见 README 索引）：接缝带几何 → `doc/接缝带定义.md`；地图滚动生命周期 → `doc/地图滚动休眠.md`；跨图命令矩阵 → `doc/跨图命令适配审计.md`；genStep 顺序与注入点 → `doc/地图生成步骤.md`；阶段叙事 → `doc/第X阶段-*.md`（其中 `doc/无缝世界地块探索.md` 为主计划：核心交互场景是最终目的，实现过程中避免临时 patch）。
 
 ## 依赖引用目录
 
@@ -45,7 +32,8 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 - **文档同步范围（勿只更新 AGENTS.md/TODO.md，2026-08 教训：GL 兼容第二轮漏主文档被用户指出返工）**：功能改动落地后，除 `AGENTS.md` 与 `doc/TODO.md` 外，还必须同步 `doc/` 下的相关文档——主计划文档 `doc/无缝世界地块探索.md`（「预期限制」对应条目处续注实际结果 + 「当前阶段结果」补汇总条目），以及该改动的**专题权威文档**（按"项目概述"文档索引归属：genStep 顺序/注入点变化 → `doc/地图生成步骤.md`；生命周期/休眠 → `doc/地图滚动休眠.md`；接缝带几何 → `doc/接缝带定义.md`；阶段叙事 → 对应第 X 阶段文档，等等）。**对外可见的结论变化（Mod 兼容性增删/已知限制变化/设置项增删）还须同步 `README.md`** 的对应小节——README 是这类对外事实的单一事实源。**用户可见文本（设置 UI/消息/对话）一律走 Keyed 翻译键**（`1.6/Languages/{English,ChineseSimplified}/Keyed/RimExodus.xml`，"Key".Translate()）——新增/修改键必须两个语言文件同步改（2026-08 设置窗口重构时确立：原生 TabDrawer 分 tab（地图生成/滚动休眠/跨图战斗/高级诊断）+ 滚动兜底 + 全条目 tooltip，中文翻译随附）。
 - **查询优先用自带工具，别用命令行**：正常情况下使用 Grep/Glob/Read 等内置查询工具做检索与定位，不要用 Bash 跑 `Select-String`/`grep`/`findstr` 等命令。命令行转义（尤其 Windows + Git Bash + PowerShell 的引号/路径混用）容易出错，还会消耗用户的检视精力去判断命令是否安全。**例外**：Grep 工具在本仓库偶尔对明确存在的内容返回空结果（不报错，静默失败），此时可改用 PowerShell `Select-String -Path <绝对路径> -Pattern <正则>`（绝对路径用正斜杠）作为后备，这是已知的可靠替代。
-- **切比雪夫/邻格遍历统一实现（用户纪律 2026-08，勿再手搓 dx/dz 循环或自建方向表）**：8 邻环（含对角不含中心）一律 `GenAdj.AdjacentCells`（原版偏移数组）、含中心 9 格窗一律 `GenAdj.AdjacentCellsAndInside`、切比雪夫距离标量用 `SeamlessGridMath.ChebyshevDistance`——消费方地图与历史教训见 `Source/SeamlessGridMath.cs` 类注释（接缝带膨胀/权重深度/卷积采样/void 岩石判邻曾各自手搓致口径漂移：正交 4 邻与切比雪夫 8 邻混用过）。半径 >1 的方形窗口（道路保护 RoadGuardRadius=3）无原版数组，保留显式双层循环但注释须指回 SeamlessGridMath 口径。
+- **切比雪夫/邻格遍历统一实现（用户纪律 2026-08，勿再手搓 dx/dz 循环或自建方向表）**：8 邻环（含对角不含中心）一律 `GenAdj.AdjacentCells`（原版偏移数组）、含中心 9 格窗一律 `GenAdj.AdjacentCellsAndInside`、切比雪夫距离标量用 `SeamlessGridMath.ChebyshevDistance`——消费方地图与历史教训见 `Source/Core/SeamlessGridMath.cs` 类注释（接缝带膨胀/权重深度/卷积采样/void 岩石判邻曾各自手搓致口径漂移：正交 4 邻与切比雪夫 8 邻混用过）。半径 >1 的方形窗口（道路保护 RoadGuardRadius=3）无原版数组，保留显式双层循环但注释须指回 SeamlessGridMath 口径。
+- **源码目录组织（2026-08 重组，勿再平铺新文件到 Source/ 根）**：`Source/` 按功能域分 9 个子目录（Core/Generation/Lifecycle/Transfer/Interaction/Combat/EdgeBehavior/Rendering/Compat），**Harmony patch 与所属功能域同目录**、全部同 namespace `RimExodus`、csproj 隐式 glob 无需登记。各目录职责与逐文件用途 = `README.md`「源码目录结构」节（单一事实源）。新文件按域放置；文中引用源码路径时用新路径。
 - **编译**：仓库根目录运行 `just build`（默认任务也是 `build`），底层命令为 `dotnet build Source/RimExodus.csproj -c Debug`，输出 `1.6/Assemblies/RimExodus.dll`。
 - **离线 PatchAll 验证器（2026-08 新增，写新 Harmony patch 后必跑）**：`C:\Users\Laure\.zcode\tmp\rimptest\`（dotnet net48 控制台，引用游戏 Managed + workshop 1.6 0Harmony + 本 mod DLL，逐类执行 PatchClassProcessor 报告全部绑定/transpiler IL 失败，不用重启游戏试错）。**能力边界（2026-08 实测确立，勿当放行依据）**：它跑在 CLR 上，只能拦"绑定/锚点/签名"类错误；**Mono DMD 特有的非法 IL 它拦不住**（Stance_Warmup.InitEffects transpiler 案：验证器 BOUND OK、游戏内 InvalidProgramException = mod 加载失败）——反方向的伪迹也存在（DrawAimPie ref-Prefix 在验证器 ECall 失败、游戏内正常应用）。**权威确认 = 游戏启动日志的 mod 实例化行 + `GetPatchedMethods` 绑定报告**（总数常显、明细 verbose）。**基线**：13 个 patch 在 CLR 下必然伪迹失败（GetClearRects/Selector_SelectInternal/TerrainGrid_SetTerrain/4×Dormancy·IncrementalMapGen 的 MapPreTick·MapUpdate/MapGenTiming Pathing/WeatherCluster SkyManagerUpdate/Reachability_CanReach（跨图战斗期加入）/GenDraw.DrawAimPie（2026-08 瞄准 pie 修正，ref 改参式仍 ECall——与 Selector_SelectInternal 同款纯静态方法伪迹，待游戏内绑定报告确认）/GenStep_Fog_SeamOrigin（2026-08 揭雾分径，TypeLoadException 同款伪迹——待游戏内绑定报告确认）/Patch_MapInterface_SeamOutline（2026-08 接缝中心线勾勒，TypeLoadException 同款伪迹——待游戏内绑定报告确认）——错误模式 `TypeLoadException: 接口中的非抽象、非 .cctor 方法` / `ECall` / `KeyValuePair Deconstruct 找不到` / `Ambiguous match（Static 双重载须显式参数类型，见 Patch_FleckMaker_Static* 写法）`），**已确认全部在游戏内活跃**（Pathing 计时日志/休眠/天气域/跨图选中均有实测功能证据；Deconstruct 引用在原方法体 Pathing.cs:98 非 patch 侧），非死代码。），**已确认全部在游戏内活跃**（Pathing 计时日志/休眠/天气域/跨图选中均有实测功能证据；Deconstruct 引用在原方法体 Pathing.cs:98 非 patch 侧），非死代码。**BOUND OK 基线 73**（2026-08：71 + PlaySettings 全局控制条 toggle 与 ExitMapGridUpdate 绘制门控两 patch；同轮的 RegionListerNullGuard 诊断守卫已随根因修复删除）。已捕获的真问题：`ReachabilityUtility.CanReach` 实为 **7 参**（4 必选 + canBashDoors/canBashFences/mode 可选，只声明 4 参 = Undefined target method）；`Reachability.CanReach` 第 4 参名为 **traverseParams**（Harmony 按名绑定，拼错 = 启动失败）。**RimExodusMod 启动时输出 `GetPatchedMethods` 绑定报告**（总数常显、明细 verbose）——新 patch 上线后用它与预期清单比对即可权威确认绑定。**手动绑定（AccessTools.Method + harmony.Patch，不走 [HarmonyPatch] 特性）不在离线验证器覆盖内**（2026-08 实测教训）：按名绑定的 patch 参数拼错（5 参 `TryFindRandomEdgeCellWith` 的方向参数是 **dir**，写成 rot）= 构造器抛异常 = **mod 实例化失败、只剩 PatchAll 半套 patch 且其后手动绑定全丢**（症状：游戏内"mod 加载失败"+行为全面异常、verbose 零输出）；诊断类手动绑定必须 try/catch 包裹（诊断绝不杀死 mod）。
 - 主设计文档的"当前阶段计划"定义推进顺序：VMF 调研 → 最小技术原型 → 六边形裁切 → 连续地形 → 跨地图寻路与射击（5 个阶段）。阶段 1-4 已完成，阶段 5 全部落地（边界行为/传送许可制 + 跨图索敌与射击缝交接机制，2026-08；游戏内回归进行中）。
@@ -101,7 +89,7 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 - `CompSeamlessTileEnterSpot`：`targetWorldTile`（标记对端）+ `cachedArrivalCell`/`hasArrival`（缓存对端坐标，不序列化）。废弃了旧的互绑 `CounterpartSpot`。
 - `SeamlessEnterSpotPlacer`（静态）：`PlaceEnterSpotsAllNeighbors`（铺**传送圈** = 离散边圈 ∪ 带外圈，BuildSeamBand 纯几何。**无任何可通行性过滤（用户定夺 2026-08，勿回退为 cell.Standable 或地形 passability 判定）**——spot 是纯逻辑连接设施：能不能走由地形运行时决定，不能走 pawn 自然绕路（与地图中央的深水/岩石挡路同构），地形变化（挖岩石/铺桥/水位）后 spot 已在、即时可用；带内圈无传送点）+ `RefreshEnterSpotArrivals`（邻居关系建立后按 offset 算缓存）。
 - **铺点时机 = GenStep 1490（Fog(1500) 之前，2026-08 从 onComplete 提前，勿回退）**：`GenStep_EnterSpots` 在生成链内铺本图全部邻居方向的点（幂等）；onComplete 只剩 originMap 防御性补铺 + `RefreshEnterSpotArrivals`（依赖邻居表 offset，必须在登记后）。提前的硬理由：Fog 的 `UnfogMapFromEdge` fallback 三级候选都要过 `CanReachMapEdge`/`TryFindRandomEdgeCellWith`，这些 patch 以 `HasSeamEdge`（listerThings 传送点实况）为门——点在 onComplete 才铺时 Fog 在生成期走原版方形边缘语义，裁切图（方形边缘全 void）上 `District.TouchesMapEdge` 恒 false → 三级候选结构性全败 → 零揭雾、**整图全雾**（2026-08 偶发全雾 bug 成因之一）。铺在 1490 而非 392：400-1490 期间保持 patch 未生效（与旧序一致）零回归，Plants/Animals 生成时传送圈格上无 thing。道路 patch(390) 仍不能用 `SeamlessEdgeCells`（1490 > 390，纯几何算锚点不变）。
-- **offset = 连续边中点对齐**：`offset = round(midSource − midNew)`，两端各用自己多边形上共享边的连续边中点，渲染平移后两端连续边中点精确重合（浮点级），无收缩。**旧镜像假设公式（round(2·(midA−centerA) − SeamOverlap·unit)，只用源端几何）有系统性 ±1 格渲染错位，勿回退**——同一条世界共享边在两图投影的内切距不等（顶点方向角间隔差 1° ≈ 内切距差 ~1 格；2026-08 实测聚焦 C 时接缝带内偏一格，赤道正北侧同样复现）。取整残差 ≤1 格/分量由 3 圈接缝带吸收。公式天然对称（round(−x)=−round(x)），任一端算等值。旧常量 `SeamOverlap` 曾改名 `RoadAnchorInset`（=2），现值 **0**（道路锚点贴 void 边界无内偏，见"道路与河流接缝对齐"节；SeamlessTileManager.cs:23-27）。
+- **offset = 连续边中点对齐**：`offset = round(midSource − midNew)`，两端各用自己多边形上共享边的连续边中点，渲染平移后两端连续边中点精确重合（浮点级），无收缩。**旧镜像假设公式（round(2·(midA−centerA) − SeamOverlap·unit)，只用源端几何）有系统性 ±1 格渲染错位，勿回退**——同一条世界共享边在两图投影的内切距不等（顶点方向角间隔差 1° ≈ 内切距差 ~1 格；2026-08 实测聚焦 C 时接缝带内偏一格，赤道正北侧同样复现）。取整残差 ≤1 格/分量由 3 圈接缝带吸收。公式天然对称（round(−x)=−round(x)），任一端算等值。旧常量 `SeamOverlap` 曾改名 `RoadAnchorInset`（=2），现值 **0**（道路锚点贴 void 边界无内偏，见"道路与河流接缝对齐"节；Source/Core/SeamlessTileManager.cs:23-27）。
 - ~~防反弹：pawn 级锁~~ **已删除（阶段5 改传送许可登记制，无许可不传 + 撤离链 VisitedTiles 防回弹；锁的"站在任一传送点保持"语义会卡死沿相邻边带内行走的撤离者）**。事件驱动传送检测保留但**必须用 Prefix + `pather.nextCell`（即将进入的格），不能用 Postfix**——历史教训（勿回退）：进入终点格时原方法体内部同步跑 `PatherArrived → job 完成 → think tree 发新 job（Wait_Combat 等）→ StartJob 钩子清掉传送许可`，Postfix 永远晚于这条链，终点格传送永不触发（实测 Bridge issued 后紧跟 "Grant cleared by Wait_Combat"）；Prefix 还抢先于撤离 job 到达 toil 的原生 TryExitMap（对端已加载时撤离者应传送而非原生离场）。传送后 Prefix 以 **Map 前后变化**判定跳过原方法体（教训勿回退：不能用 `pawn.Spawned` 判定——传送后 pawn 在新图上仍 Spawned，旧图 path/nextCell 状态跑方法体必然错乱，实测每次传送当 tick NRE 于 `TryEnterNextPathCell`）。`TryTransferPawn` **不校验 pawn 与 spot 的格距**（教训勿回退：原版 pather 的 `SetupMoveIntoNextCell` 节点去重双消费 + 路径重建可合法产生"nextCell 距 pawn ≥2 格"的调用，曼哈顿 ≤1 校验会误拒；不变量由调用方保证——触发器在 nextCell 上找到该 spot 即"正在进入"），坐标映射只依赖 spot。
 
 ### 邻居预加载与异步加载（阶段4a）
