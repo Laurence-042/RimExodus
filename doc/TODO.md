@@ -5,6 +5,9 @@
 击溃敌方据点时刷 "Failed to create tale object CaravanAssaultSuccessful" NRE 红字（每 tick）——无人进场的击溃方式（陷阱/跨缝 turret）下 `CheckDefeated` 末行从空 FreeColonists 集随机取人得 null
 （已处置 2026-08 待回归：`Patch_TaleRecorder_RecordTale_NullArgGuard` Prefix 挂 `TaleRecorder.RecordTale` 本体——参数含 null 即跳过记录（原版语义里 null 参数本就只会红字+记录失败，跳过对正常调用零变化；首版 CheckDefeated 内调用点 Transpiler 重定向方案已按用户纪律"能 Prefix 就不 Transpiler"替换）；离线验证器绑定 OK（12 失败均为既知基线伪迹）。回归标志 = 陷阱杀敌击溃据点无红字、废墟/好感/信件结算正常）
 
+进入友方据点时左上角偶弹"来自X的Y正在攻击你的殖民者"（实际无战斗、派系仍友好）——`LordJob_DefendBase` 的 DefendBase→AssaultColony 转换触发器全部无敌对门控（`Trigger_TicksPassed(25000)` 图龄约 10 游戏小时后确定性必发 + `Trigger_ChanceOnTickInterval(2500,0.03)` 随机），原版此 lord 只在进攻期间短暂存在掩盖了无门控，友方据点图常驻 tick 后误发
+（已处置 2026-08 待回归：`Patch_LordJob_DefendBase_NoFriendlyAssault` + `Patch_LordJob_SitePawns_NoFriendlyAssault` Postfix 挂两个 CreateGraph——派系非敌对时移除不含 Trigger_BecamePlayerEnemy 的进攻型转换（保留敌对化升级路径，敌对图零改动）；离线验证器 BOUND OK 71（+2）。回归标志 = 友方据点长时间驻留/反复进入无威胁消息、打友方据点致敌对后驻军正常进攻）
+
 偶现奴隶没法正常通过接缝撤离的方式成为远行队一员
 Exception in JobDriver fixed tick for pawn McTodd driver=JobDriver_Wait (toilIndex=0) driver.job=(Wait (Job_8224))
 System.NullReferenceException: Object reference not set to an instance of an object

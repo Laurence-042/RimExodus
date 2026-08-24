@@ -1,9 +1,11 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection.Emit;
 using HarmonyLib;
 using RimWorld;
 using RimWorld.Planet;
 using Verse;
+using Verse.AI.Group;
 
 namespace RimExodus
 {
@@ -127,6 +129,59 @@ namespace RimExodus
             }
             __result = null;
             return false; // null 参数：原版也只会红字 + 记录失败，跳过即消除红字。
+        }
+    }
+
+    /// <summary>
+    /// 非敌对派系的驻军 lord 不进"进攻殖民者"分支（2026-08）。根因：<see cref="LordJob_DefendBase"/>
+    /// 的 DefendBase→AssaultColony 转换触发器**全部无敌对门控**——含 <c>Trigger_TicksPassed(25000)</c>
+    /// （确定性：图存活约 10 游戏小时后必然触发）与 <c>Trigger_ChanceOnTickInterval(2500, 0.03)</c>
+    /// （随机），触发时 TransitionAction_Message 发"来自X的Y正在攻击你的殖民者"（ThreatBig）。
+    /// 原版此 lord 只在进攻敌对据点期间短暂存在，掩盖了无门控；RimExodus 预加载的**友方**据点图
+    /// 常驻 tick → 图龄超时后误发威胁消息（派系友好无实际攻击目标，只弹消息——用户实测）。
+    /// <see cref="LordJob_SitePawns"/> 同款转换（DefendBase→HuntDownColonists，同样触发器组），Site
+    /// 预加载后同理适用。
+    ///
+    /// 修复 = CreateGraph Postfix：派系非敌对（含 null/玩家派系）时移除**不含** Trigger_BecamePlayerEnemy
+    /// 的进攻型转换（target 为 LordToil_AssaultColony / LordToil_HuntDownColonists）；保留含
+    /// BecamePlayerEnemy 的转换——派系日后真敌对化仍正常升级进攻，零语义损失。敌对派系图零改动。
+    /// </summary>
+    [HarmonyPatch(typeof(LordJob_DefendBase), nameof(LordJob.CreateGraph))]
+    static class Patch_LordJob_DefendBase_NoFriendlyAssault
+    {
+        static AccessTools.FieldRef<LordJob_DefendBase, Faction> factionRef;
+
+        static void Postfix(LordJob_DefendBase __instance, StateGraph __result)
+        {
+            factionRef ??= AccessTools.FieldRefAccess<LordJob_DefendBase, Faction>("faction");
+            LordJobAssaultTransitionStripper.StripNonHostileAssaultTransitions(__result, factionRef(__instance));
+        }
+    }
+
+    [HarmonyPatch(typeof(LordJob_SitePawns), nameof(LordJob.CreateGraph))]
+    static class Patch_LordJob_SitePawns_NoFriendlyAssault
+    {
+        static AccessTools.FieldRef<LordJob_SitePawns, Faction> factionRef;
+
+        static void Postfix(LordJob_SitePawns __instance, StateGraph __result)
+        {
+            factionRef ??= AccessTools.FieldRefAccess<LordJob_SitePawns, Faction>("faction");
+            LordJobAssaultTransitionStripper.StripNonHostileAssaultTransitions(__result, factionRef(__instance));
+        }
+    }
+
+    // 非敌对派系 → 移除无 Trigger_BecamePlayerEnemy 门的进攻型转换（target 为 AssaultColony/
+    // HuntDownColonists toil）。派系为 null（无派系 lord）同样移除——messageDefendersAttacking
+    // 格式化对 null 派系会 NRE，原版防御性同款。
+    static class LordJobAssaultTransitionStripper
+    {
+        public static void StripNonHostileAssaultTransitions(StateGraph graph, Faction faction)
+        {
+            if (graph == null) return;
+            if (faction != null && faction != Faction.OfPlayer && faction.HostileTo(Faction.OfPlayer)) return; // 敌对：原版零改动。
+            graph.transitions.RemoveAll(t =>
+                (t.target is LordToil_AssaultColony || t.target is LordToil_HuntDownColonists)
+                && !t.triggers.Any(tr => tr is Trigger_BecamePlayerEnemy));
         }
     }
 
