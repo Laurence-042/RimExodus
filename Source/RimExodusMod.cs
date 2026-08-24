@@ -190,6 +190,10 @@ namespace RimExodus
                         s.dormancySleepHops, 1, 8, v => s.dormancySleepHops = (int)v);
                     SliderRow(listing, "RimExodus_SettingsDeleteLabel", "RimExodus_SettingsDeleteTip",
                         s.dormancyDeleteHops, 1, 8, v => s.dormancyDeleteHops = (int)v);
+                    // 间隔滑条以秒为单位展示（存储为 ticks）；每轮现读设置，拖动即时生效。
+                    SliderRow(listing, "RimExodus_SettingsSweepIntervalLabel", "RimExodus_SettingsSweepIntervalTip",
+                        s.dormancySweepIntervalTicks / 60f, 1f, 60f,
+                        v => s.dormancySweepIntervalTicks = Mathf.Max((int)(v * 60f), 60), "{0:F0}");
                     break;
 
                 case SettingsTab.Combat:

@@ -39,8 +39,8 @@ namespace RimExodus
     /// </summary>
     public class SeamlessDormancyGovernor : GameComponent
     {
-        /// <summary>扫描间隔（ticks）。休眠判定非紧急，600 ticks（10 游戏秒）粒度足够。</summary>
-        private const int SweepIntervalTicks = 600;
+        /// <summary>扫描间隔下限（ticks）：UI 滑条以秒为单位，最小 1 秒。</summary>
+        private const int MinSweepIntervalTicks = 60;
 
         /// <summary>下次扫描的 game tick（不序列化：读档后立即首轮扫描，见类注释）。</summary>
         private int nextSweepTick;
@@ -56,7 +56,9 @@ namespace RimExodus
             SeamlessTransferGrants.TickSweep();
 
             if (Find.TickManager.TicksGame < nextSweepTick) return;
-            nextSweepTick = Find.TickManager.TicksGame + SweepIntervalTicks;
+            // 间隔设置化（2026-08，原 const 600）：每轮现读，改设置即时生效（含 UI 滑条拖动）。
+            var interval = System.Math.Max(RimExodusMod.Settings?.dormancySweepIntervalTicks ?? 600, MinSweepIntervalTicks);
+            nextSweepTick = Find.TickManager.TicksGame + interval;
             Sweep();
         }
 

@@ -68,6 +68,13 @@ namespace RimExodus
         public int dormancyDeleteHops = 3;
 
         /// <summary>
+        /// governor 扫描间隔（ticks，2026-08 设置化，原 const 600）。休眠判定非紧急，默认
+        /// 600 ticks（10 游戏秒）粒度足够；调小 = 休眠/删除响应更快但扫描更频繁，调大反之。
+        /// pawn 变动事件（跨缝/远行队进出图）不受此间隔约束、仍即时触发。运行时 clamp ≥60。
+        /// </summary>
+        public int dormancySweepIntervalTicks = 600;
+
+        /// <summary>
         /// 分帧增量生成开关（2026-08，默认 true）。false 时普通 tile 地图改走**原版
         /// <see cref="Verse.MapGenerator.GenerateMap"/> 方法本体**同步单帧生成（与 POI 分支同族）
         /// ——任何 patch 原版生成管线的第三方 mod（Geological Landforms 等）原生生效，
@@ -111,6 +118,7 @@ namespace RimExodus
             Scribe_Values.Look(ref dormancyEnabled, "dormancyEnabled", true);
             Scribe_Values.Look(ref dormancySleepHops, "dormancySleepHops", 2);
             Scribe_Values.Look(ref dormancyDeleteHops, "dormancyDeleteHops", 3);
+            Scribe_Values.Look(ref dormancySweepIntervalTicks, "dormancySweepIntervalTicks", 600);
             Scribe_Values.Look(ref crossMapCombatEnabled, "crossMapCombatEnabled", true);
             Scribe_Values.Look(ref seamExitBandEnabled, "seamExitBandEnabled", true);
             Scribe_Values.Look(ref incrementalGenerationEnabled, "incrementalGenerationEnabled", true);

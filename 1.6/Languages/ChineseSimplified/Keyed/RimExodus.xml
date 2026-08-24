@@ -35,6 +35,8 @@
   <RimExodus_SettingsSleepTip>仅在上方的"启用地图滚动休眠"开启时生效。\n\n地图距所有殖民者多远（世界地块数）后进入休眠：保留你的全部修改，但停止模拟。1 = 你一离开，除当前所在地图外全部休眠。数值越低 = 性能越好。默认值：2。</RimExodus_SettingsSleepTip>
   <RimExodus_SettingsDeleteLabel>删除距离：{0} 个世界地块</RimExodus_SettingsDeleteLabel>
   <RimExodus_SettingsDeleteTip>仅在上方的"启用地图滚动休眠"开启时生效。\n\n地图距所有殖民者多远后被彻底删除：从内存中移除，重访时从头重新生成。设成与休眠距离相等（如 1/1）= 一离开就删除地图——低配电脑上的最佳性能选择。\n\n当前所在地图与家园地图永远不会被删除。默认值：3。</RimExodus_SettingsDeleteTip>
+  <RimExodus_SettingsSweepIntervalLabel>休眠扫描间隔：每 {0} 秒</RimExodus_SettingsSweepIntervalLabel>
+  <RimExodus_SettingsSweepIntervalTip>mod 每隔多久重新检查一次"哪些地图应该休眠/删除"（地图滚动休眠背后的周期扫描）。\n\n调小 = 你离开后地图更快休眠/清理，但扫描跑得更勤；调大 = 稍微省一点事，但你离开后远处的地图会多保持活跃一段时间。扫描本身很轻量（一次受删除距离限界的、很小的世界地图搜索）。\n\n即时事件（殖民者跨缝、远行队进出地图）不受此间隔限制——它们始终立刻触发重新检查。仅在上方的"启用地图滚动休眠"开启时生效。默认值：10。</RimExodus_SettingsSweepIntervalTip>
 
   <RimExodus_SettingsCombatLabel>跨图索敌与射击</RimExodus_SettingsCombatLabel>
   <RimExodus_SettingsCombatTip>允许 pawn 看见、瞄准并射击站在缝对侧相邻地图上的敌人。若你偏好严格的原版战斗规则（无法与另一张地图上的任何目标交互），请关闭。</RimExodus_SettingsCombatTip>
