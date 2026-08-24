@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <!-- 无缝地块边界禁区：多边形边内侧 N 格禁建，防接缝卡位 exploit。 -->
+  <RimExodus_BorderNoBuild>不能在无缝地块边界禁区内建造。</RimExodus_BorderNoBuild>
+
+  <!-- 据点贸易商对话（2026-08 Settlement 无缝接入）。 -->
+  <RimExodus_TalkToSettlementTrader>与{0}交谈</RimExodus_TalkToSettlementTrader>
+  <RimExodus_SettlementTraderBusy>{0}现在无法交谈。</RimExodus_SettlementTraderBusy>
+  <RimExodus_SettlementTraderNoPath>无法走到贸易商身边。</RimExodus_SettlementTraderNoPath>
+  <RimExodus_SettlementTraderDialogTitle>远行者，你想要做什么？</RimExodus_SettlementTraderDialogTitle>
+  <RimExodus_SettlementTraderTrade>交易</RimExodus_SettlementTraderTrade>
+  <RimExodus_SettlementTraderLeave>离开</RimExodus_SettlementTraderLeave>
+  <RimExodus_SettlementTraderNoTrade>他们没有与你交易的意愿。</RimExodus_SettlementTraderNoTrade>
+  <RimExodus_SettlementTraderNoStock>他们现在没有可交易的商品。</RimExodus_SettlementTraderNoStock>
+  <RimExodus_MapGeneratingProgress>正在生成地图……（{0}）</RimExodus_MapGeneratingProgress>
+
+  <!-- 设置窗口（2026-08）：分组 UI，全部条目带面向零基础玩家的 tooltip。 -->
+  <RimExodus_SettingsGroupGeneration>地图生成</RimExodus_SettingsGroupGeneration>
+  <RimExodus_SettingsGroupDormancy>地图滚动休眠（性能）</RimExodus_SettingsGroupDormancy>
+  <RimExodus_SettingsGroupCombat>跨图战斗</RimExodus_SettingsGroupCombat>
+  <RimExodus_SettingsGroupAdvanced>高级 / 诊断</RimExodus_SettingsGroupAdvanced>
+
+  <RimExodus_SettingsBorderPreloadLabel>边界预加载距离：{0} 格</RimExodus_SettingsBorderPreloadLabel>
+  <RimExodus_SettingsBorderPreloadTip>殖民者走到距地图边界多少格以内时，开始加载边界对面的相邻地图。\n\n数值越大越容易触发邻接地图加载：加载过程中会拖慢 TPS，加载完成后也会持续占用性能，直到该图被休眠或删除。默认值：15。</RimExodus_SettingsBorderPreloadTip>
+  <RimExodus_SettingsBorderNoBuildLabel>边界禁建距离：{0} 格</RimExodus_SettingsBorderNoBuildLabel>
+  <RimExodus_SettingsBorderNoBuildTip>沿地图边缘的一条禁区宽度（格）：此范围内不能建造，以保持相邻地图之间穿越点的畅通。默认值：3。</RimExodus_SettingsBorderNoBuildTip>
+  <RimExodus_SettingsIncrementalLabel>分帧渐进生成地图</RimExodus_SettingsIncrementalLabel>
+  <RimExodus_SettingsIncrementalTip>新的相邻地图在多个帧内渐进生成：游戏持续运行，仅在生成期间有轻微卡顿；关闭则使用原版的一次性生成器，地图生成完成前游戏完全冻结、无法操作。\n\n如果其他修改地图生成的 mod 出现异常，请关闭本项——RimExodus 届时改走原版生成管线，其他 mod 对地图生成的改动将照常生效（代价即上述的原版式冻结）。只影响普通地形地图；据点等兴趣点无论开关如何都走原版管线。默认：开启。</RimExodus_SettingsIncrementalTip>
+  <RimExodus_SettingsBatchSizeLabel>生成批次大小：{0} 格/帧</RimExodus_SettingsBatchSizeLabel>
+  <RimExodus_SettingsBatchSizeTip>分帧渐进生成运行时每帧处理多少格（仅在分帧渐进生成开启时有意义）。\n\n调大 = 地图更快出现，但每一帧更重（卡顿更明显）。默认值：64。</RimExodus_SettingsBatchSizeTip>
+
+  <RimExodus_SettingsDormancyLabel>启用地图滚动休眠</RimExodus_SettingsDormancyLabel>
+  <RimExodus_SettingsDormancyTip>目的：当你探索了大量地图后仍保持游戏流畅。\n\n效果——距所有殖民者足够远的地图会被"休眠"或"删除"：休眠 = 保留你的全部修改，地图只是停止模拟，返回时恢复运行；删除 = 从内存中彻底移除，重访时从头重新生成。下方两个距离滑条分别决定在哪个距离发生哪种处理。你的家园地图和当前正在查看的地图永远不会受影响。\n\n强烈建议保持开启：每张活跃地图上的植物和野生动物都会持续消耗性能。本 mod 自身的开销全部是触发式的（没有按 tick 的常驻轮询），但仅仅保留大量活跃地图本身就很容易造成性能问题。\n\n下方的两个距离滑条仅在本项开启时生效。默认：开启。</RimExodus_SettingsDormancyTip>
+  <RimExodus_SettingsSleepLabel>休眠距离：{0} 个世界地块</RimExodus_SettingsSleepLabel>
+  <RimExodus_SettingsSleepTip>仅在上方的"启用地图滚动休眠"开启时生效。\n\n地图距所有殖民者多远（世界地块数）后进入休眠：保留你的全部修改，但停止模拟。1 = 你一离开，除当前所在地图外全部休眠。数值越低 = 性能越好。默认值：2。</RimExodus_SettingsSleepTip>
+  <RimExodus_SettingsDeleteLabel>删除距离：{0} 个世界地块</RimExodus_SettingsDeleteLabel>
+  <RimExodus_SettingsDeleteTip>仅在上方的"启用地图滚动休眠"开启时生效。\n\n地图距所有殖民者多远后被彻底删除：从内存中移除，重访时从头重新生成。设成与休眠距离相等（如 1/1）= 一离开就删除地图——低配电脑上的最佳性能选择。\n\n当前所在地图与家园地图永远不会被删除。默认值：3。</RimExodus_SettingsDeleteTip>
+
+  <RimExodus_SettingsCombatLabel>跨图索敌与射击</RimExodus_SettingsCombatLabel>
+  <RimExodus_SettingsCombatTip>允许 pawn 看见、瞄准并射击站在缝对侧相邻地图上的敌人。若你偏好严格的原版战斗规则（无法与另一张地图上的任何目标交互），请关闭。</RimExodus_SettingsCombatTip>
+
+  <RimExodus_SettingsNoiseLabel>接缝覆写噪声幅度：{0}</RimExodus_SettingsNoiseLabel>
+  <RimExodus_SettingsNoiseTip>两张地图接缝处的地形混合被随机化的强度（0 = 完全平直的过渡，数值越高 = 更自然的不规则边界）。默认值：0.15。</RimExodus_SettingsNoiseTip>
+  <RimExodus_SettingsVerboseLabel>详细日志（诊断）</RimExodus_SettingsVerboseLabel>
+  <RimExodus_SettingsVerboseTip>写入详细诊断日志。仅在报告问题时有用。</RimExodus_SettingsVerboseTip>
+</LanguageData>

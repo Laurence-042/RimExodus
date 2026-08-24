@@ -53,24 +53,27 @@
 - 事件不会打到休眠地图；空着的玩家家保留原版"可被袭击"语义。
 
 ### 性能与杂项
-- 分帧增量生成不暂停游戏，但把一次生成的墙钟时间拉长到数百帧（CPU 总量不变，平滑优先）。
+- 分帧增量生成不暂停游戏，但把一次生成的墙钟时间拉长到数百帧（CPU 总量不变，平滑优先）。若与其他修改地图生成的 mod 冲突，可在设置中关闭"Gradual map generation"——普通地块图届时改走原版同步管线，其他 mod 对生成管线的 Harmony patch 原生生效（会短暂冻结游戏一帧）。
 - 首次走近其他派系据点时的生成是原生同步单帧（短暂冻结，等同原版无加载屏版本）。
 - 跨天气域的邻居地图天色渲染跟随当前图（近似）。
 - 偶见飞鸟落点在 void 上的一次性报错（原版飞行行为不查落点可走性，下一 tick 自愈）。
 
 ## 设置项
 
+设置窗口按功能分 tab（地图生成 / 地图滚动休眠 / 跨图战斗 / 高级与诊断，原生 TabDrawer 样式），全部条目带 tooltip 说明；界面文本带简体中文翻译（`1.6/Languages/ChineseSimplified/Keyed/RimExodus.xml`）。
+
 | 设置 | 默认 | 说明 |
 |------|------|------|
-| Border preload distance | 15 | Pawn 距边界多少格内触发邻图预加载 |
+| Border preload distance | 15 | Pawn 距边界多少格内触发邻图预加载（越大越容易触发邻图加载：加载期间拖慢 TPS、加载后持续占用直到休眠/删除） |
 | Border no-build distance | 3 | 接缝带内侧禁建宽度 |
-| Preload all neighbors on start | 关 | 开档时预加载家园地块全部世界邻居 |
-| Seam override noise amplitude | 0.15 | 接缝混合过渡带的噪声打散幅度（0 = 关闭） |
-| Map dormancy (rolling sleep/delete) | 开 | 地图滚动休眠总开关 |
-| Dormancy sleep hops | 2 | 距所有玩家 pawn ≥N 跳的图休眠（下限 2） |
-| Dormancy delete hops | 3 | 距所有玩家 pawn ≥N 跳的受管辖图删除（>sleepHops） |
+| Gradual map generation | 开 | 分帧增量生成开关。关闭后普通地块图改走**原版同步生成管线**——其他修改地图生成的 mod 的改动原生生效（特殊 mod 环境的逃生通道；仅影响普通地块图，据点等 POI 本就走原版管线） |
+| Generation batch size | 64 | 分帧生成每帧处理的格数（仅分帧开启时有意义；调大 = 生成更快但每帧更卡，范围 16-512） |
+| Enable map rolling dormancy | 开 | 地图滚动休眠总开关（机制目的/效果见其 tooltip；下方两个距离滑条需本项开启才生效） |
+| Dormancy sleep distance | 2 | 距所有玩家 pawn ≥N 跳的图休眠（可设 1 = 离开即休眠） |
+| Dormancy delete distance | 3 | 距所有玩家 pawn ≥N 跳的受管辖图删除（≥sleepHops，可相等 = 离开即销毁；当前图与家园永不删） |
 | Cross-map targeting & shooting | 开 | 跨缝索敌与射击总开关（关 = 战斗语义回原版，便于 A/B） |
 | Verbose logging | 关 | 详细诊断日志 |
+| Seam override noise amplitude | 0.15 | 接缝混合过渡带的噪声打散幅度（0 = 关闭） |
 | 海岸补铺深水/浅水/沙滩距离 | 0.15 / 0.25 / 0.35 | 暂未在设置界面暴露（存档可改） |
 
 ## 依赖

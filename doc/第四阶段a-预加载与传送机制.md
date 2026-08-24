@@ -51,7 +51,7 @@
 `SeamlessTileManager.TrySetupOnStart` 在锚点地图开档时执行：
 
 1. `PlaceEnterSpotsAllNeighbors(map, map.Tile)`：锚点 A 沿全部世界邻居边预铺单端传送点（对端坐标暂未缓存，`hasArrival=false`）。
-2. 若 `RimExodusSettings.preloadAllNeighborsOnStart` 为 true（默认 false）：遍历所有世界邻居调 `TryPreloadNeighbor`，高配玩家开档即加载全部邻居。否则不生成，等 pawn 接近边界时事件驱动加载。
+2. 不做开档批量生成（原 `preloadAllNeighborsOnStart` 开关已于 2026-08 删除——调试功能被证明无用，徒增维护负担），等 pawn 接近边界时事件驱动加载。
 
 ## 多跳传送点
 
@@ -95,8 +95,9 @@
 `IncrementalMapGenerator`（MapComponent）把 genStep 链拆成 N 帧：
 
 - **准备阶段（同步）**：`ConstructComponents` → `AddMap` → 组装 genStep 列表。用 `Rand.PushState/Seed/PopState` 包裹，seed = `World.info.Seed ⊕ mapParent.Tile.GetHashCode()`（与原版 MapGenerator 和 MapPreview 三者公式对齐）。
-- **分帧阶段**：每帧 `TickGeneration` 跑 1+ genStep。每个 genStep 开始时 `Rand.Seed = baseSeed + GetSeedPart(index)` 独立重置，主帧 tick 改变 Rand 不影响下一个 genStep。最重的 Plants genStep（~8000ms 单帧）拆成每批 2000 cells、每帧跑到 `TimeBudgetMs=8ms` 预算耗尽，每批独立 `Rand.Seed` 保证跨帧可复现（**2026-08 修正**：批次已降为 64 格/批——2000 格/批 ≈170ms/帧远超 8ms 预算，见 AGENTS.md"邻居预加载与异步加载"节）。
+- **分帧阶段**：每帧 `TickGeneration` 跑 1+ genStep。每个 genStep 开始时 `Rand.Seed = baseSeed + GetSeedPart(index)` 独立重置，主帧 tick 改变 Rand 不影响下一个 genStep。最重的 Plants genStep（~8000ms 单帧）拆成每批 2000 cells、每帧跑到 `TimeBudgetMs=8ms` 预算耗尽，每批独立 `Rand.Seed` 保证跨帧可复现（**2026-08 修正**：批次已降为 64 格/批——2000 格/批 ≈170ms/帧远超 8ms 预算，见 AGENTS.md"邻居预加载与异步加载"节；**2026-08 再补**：批次改为设置 `generationBatchSize`（默认 64，UI 16-512，运行时 clamp），调大 = 生成更快但每帧更卡）。
 - **FinishGeneration（单帧）**：`FinalizeInit`（region rebuild 不能拆）+ `onComplete` 回调。
+- **分帧开关（2026-08，设置 `incrementalGenerationEnabled` 默认开）**：关闭时普通 tile 地图在 `GenerateTileMap` 改走**原版 `MapGenerator.GenerateMap` 方法本体**同步单帧生成（与 POI 分支同族），生成后内联执行 onComplete 的全部接线（worldAdd/天气 BindMap/邻居登记/传送点/AutoConnect）——任何 patch 原版生成管线的第三方 mod（GL 等）原生生效，这是给特殊 mod 环境玩家的逃生通道（**必须是调原方法，勿回退为内联复刻 genStep 链**）；`SeamlessLandformsCompat` shim 只挂分帧链，同步路径零介入不双份。`GeneratingNativeSeamlessly`/`NeighborGenerationSourceTile` 标志在同步路径同样 try/finally 设置（Fog 接缝揭雾分径）。
 
 配合 `Patches_IncrementalMapGen`：Prefix `Map.MapPreTick`/`MapPostTick`/`MapUpdate`，对 generating map 早退（不 tick、不渲染）。玩家在生成期间可继续操作其他地图。性能数据：void 裁切 genStep 从 5762ms 降到 30ms（`ApplyPolygonTerrain` 改为直接写 `terrainGrid.topGrid` 跳过 `SetTerrain` 副作用），Plants 从 8000ms 单帧卡顿降到每帧 <50ms。
 

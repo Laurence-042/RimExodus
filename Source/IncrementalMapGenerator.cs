@@ -381,12 +381,15 @@ namespace RimExodus
             var map = generatingMap;
             var spawner = map.wildPlantSpawner;
             var state = subStepState;
-            // 每批 cell 数（每批用独立 Rand seed）。2026-08 从 2000 降到 64：实测 CheckSpawnWildPlantAt
-            // 平均 ~85µs/格（肥沃格候选植物 + 簇距离计算贵），2000 格/批 ≈ 170ms/帧——8ms 预算被超
-            // 20 倍，"分帧"名存实亡（每 tick 2 批 = 340ms 巨型 tick，游戏 ~1.6tps 爬行）。64 格 ≈
-            // 5.4ms 平均/批，预算真正生效；代价是总 wall 拉长（CPU 总量不变，5.3s CPU / 8ms 每帧
-            // ≈ 660+ 帧），分帧设计本意即平滑优先于速度。
-            const int batchSize = 64;
+            // 每批 cell 数（每批用独立 Rand seed）。默认 64（2026-08 从 2000 降下来）：实测
+            // CheckSpawnWildPlantAt 平均 ~85µs/格（肥沃格候选植物 + 簇距离计算贵），2000 格/批 ≈
+            // 170ms/帧——8ms 预算被超 20 倍，"分帧"名存实亡（每 tick 2 批 = 340ms 巨型 tick，
+            // 游戏 ~1.6tps 爬行）。64 格 ≈ 5.4ms 平均/批，预算真正生效；代价是总 wall 拉长
+            // （CPU 总量不变，5.3s CPU / 8ms 每帧 ≈ 660+ 帧），分帧设计本意即平滑优先于速度。
+            // 2026-08 起可由设置 generationBatchSize 调节（16-512，clamp 兜底）：调大 = 生成更快
+            // 但每帧更卡。batchIndex 进度日志按累进阈值，不依赖 batchSize 整除 10000。
+            var batchSize = System.Math.Max(System.Math.Min(
+                RimExodusMod.Settings?.generationBatchSize ?? 64, 512), 16);
             // verbose 计时：本方法每次调用执行一段（同步无等待），elapsed 累计进 state.cpuMs，
             // 完成时由 TickGeneration 计入 totalGenStepMs——分帧步的 CPU 不含帧间等待。
             var sw = RimExodusMod.Settings?.verboseLogging ?? false

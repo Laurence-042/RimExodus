@@ -34,7 +34,7 @@ namespace RimExodus
         /// </summary>
         public List<NeighborLink> neighbors = new List<NeighborLink>();
 
-        /// <summary>是否已完成开档接线（预铺传送点；void 已由 genStep 阶段铺设，不在此处）。阶段4a 后默认不自动生成邻居，除非 preloadAllNeighborsOnStart=true。</summary>
+        /// <summary>是否已完成开档接线（预铺传送点；void 已由 genStep 阶段铺设，不在此处）。邻居生成为事件驱动边界预加载，无开档批量生成（原 preloadAllNeighborsOnStart 已删，2026-08）。</summary>
         private bool setupOnStartDone;
 
         /// <summary>
@@ -183,8 +183,8 @@ namespace RimExodus
         /// 通过 XML patch 注入到 Base_Player/Base_Faction/Encounter，与地块图走完全相同的 genStep 链。
         /// baseTerrainSnapshot 备份在 genStep 391 完成。
         ///
-        /// 可选级联预加载仅玩家家园（preloadAllNeighborsOnStart）——原生家族不级联
-        /// （防生成风暴；家族图的"走近自动生成"是下一轮 Settlement 接入的任务）。
+        /// （原"开档预加载全部邻居"可选级联（preloadAllNeighborsOnStart）已于 2026-08 删除——
+        /// 调试功能被证明在调试中也无用，保留徒增维护负担；邻居生成本就走事件驱动边界预加载。）
         /// </summary>
         private void SetupNativeParentMap()
         {
@@ -203,18 +203,6 @@ namespace RimExodus
             if (map.Parent is Settlement nativeSettlement)
             {
                 SeamlessSettlementTrader.EnsureTraderAssigned(nativeSettlement);
-            }
-
-            // 可选：仅玩家家园开档预加载全部邻居。
-            if (!SeamlessMapGovernance.IsProtectedHome(map)) return;
-            var preloadAll = RimExodusMod.Settings?.preloadAllNeighborsOnStart ?? false;
-            if (!preloadAll) return;
-
-            var worldNeighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
-            foreach (var neighborTile in worldNeighbors)
-            {
-                TryPreloadNeighbor(neighborTile.tileId);
             }
         }
 
@@ -424,6 +412,50 @@ namespace RimExodus
             // （沿邻居链累加）。载体差异经 <see cref="SeamlessMapData.TileOrigin"/> 屏蔽。
             var sourceTileOrigin = SeamlessMapData.TileOrigin(map);
             mapParent.tileOrigin = sourceTileOrigin + new UnityEngine.Vector2(hostOffset.x, hostOffset.z);
+
+            // 同步单帧路径（2026-08 逃生通道，用户定夺勿回退）：incrementalGenerationEnabled=false 时
+            // 普通 tile 地图与 POI 分支同族，**直接调用原版 MapGenerator.GenerateMap 方法本体**同步生成
+            // ——任何 patch 原版生成管线的第三方 mod（Geological Landforms 的 GenerateContentsIntoMap
+            // Prefix 等）原生生效，这正是开关存在的意义（不是复刻同步行为，而是调原方法；勿改回内联
+            // 复刻 genStep 链）。SeamlessLandformsCompat shim 只挂 IncrementalMapGenerator 分帧链
+            // （Start/RunOneGenStep/FinishGeneration），本路径零介入、GL 由自家 Prefix 原生跑，不双份。
+            // XML 层 genStep 注入（MapGeneration.xml 全表面层通配）与 genStep 内部 Harmony patch
+            // （道路/河流/Fog 分径等）对两种路径同等生效。Camp patch（Patches_CampTileMap）同款先例。
+            if (!(RimExodusMod.Settings?.incrementalGenerationEnabled ?? true))
+            {
+                Find.World.worldObjects.Add(mapParent);
+                Map syncMap = null;
+                GeneratingNativeSeamlessly = true; // Fog patch 走"从生成方向接缝洪水"分径（同 POI 分支语义）
+                NeighborGenerationSourceTile = sourceWorldTile;
+                try
+                {
+                    syncMap = MapGenerator.GenerateMap(mapSize, mapParent, mapParent.MapGeneratorDef,
+                        mapParent.ExtraGenStepDefs, null, isPocketMap: false);
+                }
+                finally
+                {
+                    GeneratingNativeSeamlessly = false;
+                    NeighborGenerationSourceTile = -1;
+                }
+                if (syncMap != null)
+                {
+                    // 生成后接线（= 增量路径 onComplete 回调的全部内容内联；这部分无论分帧与否都是
+                    // 我们自己的代码，不属于"复刻生成"）。
+                    SeamlessWeatherClusterManager.BindMap(syncMap);
+                    SeamlessNeighborRegistry.RegisterNeighborBidirectional(originMapCapture, mapParent,
+                        sourceWorldTileCapture, newWorldTile, hostOffset);
+                    SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(originMapCapture, sourceWorldTileCapture);
+                    SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(originMapCapture);
+                    SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(syncMap);
+                    AutoConnectWorldNeighbors(syncMap, newWorldTile);
+                    Log.Message($"[RimExodus] Tile {newWorldTile} generated via vanilla synchronous MapGenerator.GenerateMap " +
+                                $"(incremental generation disabled by setting; map {syncMap.uniqueID}).");
+                }
+                ClearGeneratingTile(newWorldTile);
+                // 同步生成已完成；返回 null = "未启动增量生成"，调用方（TryPreloadNeighbor）按既有
+                // 路径收尾（ClearGeneratingTile 幂等双清，无害）。
+                return null;
+            }
 
             // 【实验分支】分帧增量生成：每帧跑 1 genStep，不暂停 tick（generating map 被 patch 跳过）。
             // 准备阶段（ConstructComponents→AddMap→组装 genSteps）同步完成，

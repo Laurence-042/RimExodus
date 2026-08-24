@@ -13,9 +13,6 @@ namespace RimExodus
         /// </summary>
         public int borderPreloadDistance = 15;
 
-        /// <summary>开档时是否预加载玩家家园地块的全部世界邻居。</summary>
-        public bool preloadAllNeighborsOnStart = false;
-
         /// <summary>详细诊断日志开关。</summary>
         public bool verboseLogging = false;
 
@@ -57,16 +54,34 @@ namespace RimExodus
 
         /// <summary>
         /// 距所有玩家 pawn 至少跨图 N 次才能到达的图进入休眠（软休眠：不 tick、不显示为邻接地图、
-        /// 无地图访问入口，内容完好）。下限 2——相邻图必须活跃（玩家跨图躲追击的 exploit 防线）。
+        /// 无地图访问入口，内容完好）。下限 1（2026-08 放宽，原下限 2——性能不佳的玩家可
+        /// "离开即休眠"；CurrentMap / 玩家 pawn 在场保活仍在，不会睡脚下的图）。
         /// </summary>
         public int dormancySleepHops = 2;
 
         /// <summary>
         /// 距所有玩家 pawn 至少跨图 N 次才能到达的受管辖图被删除（地块图销毁 Map+WorldObject、
         /// 下次进入走生成链重建；原生家族延迟执行原版删除偏好——Settlement 删图留对象等；
-        /// 玩家家园（IsPlayerHome）不休眠不删除）。必须大于 sleepHops。
+        /// 玩家家园（IsPlayerHome）不休眠不删除）。允许与 sleepHops 相等（2026-08 放宽，
+        /// 1/1 = 离开即休眠并销毁；运行时 clamp 为 ≥ sleepHops）。
         /// </summary>
         public int dormancyDeleteHops = 3;
+
+        /// <summary>
+        /// 分帧增量生成开关（2026-08，默认 true）。false 时普通 tile 地图改走**原版
+        /// <see cref="Verse.MapGenerator.GenerateMap"/> 方法本体**同步单帧生成（与 POI 分支同族）
+        /// ——任何 patch 原版生成管线的第三方 mod（Geological Landforms 等）原生生效，
+        /// 这是给特殊 mod 环境玩家的逃生通道（勿回退为"复刻同步行为"，必须是调原方法）。
+        /// 仅影响普通 tile 地图；POI 原生分支（Settlement/Site 等 GetOrGenerateMap）本就走原版。
+        /// </summary>
+        public bool incrementalGenerationEnabled = true;
+
+        /// <summary>
+        /// 分帧增量生成的重步骤每帧格数批次（2026-08，默认 64 = 实测 ~5.4ms/批贴合 8ms 帧预算）。
+        /// 调大 = 生成更快但每帧更卡。仅 <see cref="incrementalGenerationEnabled"/> 开启时有实义。
+        /// 运行时 clamp [16, 512]。
+        /// </summary>
+        public int generationBatchSize = 64;
 
         /// <summary>
         /// 跨图索敌与射击（阶段5）：跨缝 LOS/目标搜索/射击线/弹道交接的总开关。
@@ -77,7 +92,6 @@ namespace RimExodus
         public override void ExposeData()
         {
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
-            Scribe_Values.Look(ref preloadAllNeighborsOnStart, "preloadAllNeighborsOnStart", false);
             Scribe_Values.Look(ref verboseLogging, "verboseLogging", false);
             Scribe_Values.Look(ref borderNoBuildDistance, "borderNoBuildDistance", 3);
             Scribe_Values.Look(ref seamOverrideNoiseAmplitude, "seamOverrideNoiseAmplitude", 0.15f);
@@ -88,6 +102,8 @@ namespace RimExodus
             Scribe_Values.Look(ref dormancySleepHops, "dormancySleepHops", 2);
             Scribe_Values.Look(ref dormancyDeleteHops, "dormancyDeleteHops", 3);
             Scribe_Values.Look(ref crossMapCombatEnabled, "crossMapCombatEnabled", true);
+            Scribe_Values.Look(ref incrementalGenerationEnabled, "incrementalGenerationEnabled", true);
+            Scribe_Values.Look(ref generationBatchSize, "generationBatchSize", 64);
             base.ExposeData();
         }
     }

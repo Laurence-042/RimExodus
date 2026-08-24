@@ -13,4 +13,34 @@
   <RimExodus_SettlementTraderNoTrade>They have no interest in trading with you.</RimExodus_SettlementTraderNoTrade>
   <RimExodus_SettlementTraderNoStock>Their trade stock is empty right now.</RimExodus_SettlementTraderNoStock>
   <RimExodus_MapGeneratingProgress>Generating map... ({0})</RimExodus_MapGeneratingProgress>
+
+  <!-- Settings window (2026-08): grouped UI, all entries carry layman-friendly tooltips. -->
+  <RimExodus_SettingsGroupGeneration>Map generation</RimExodus_SettingsGroupGeneration>
+  <RimExodus_SettingsGroupDormancy>Map rolling dormancy (performance)</RimExodus_SettingsGroupDormancy>
+  <RimExodus_SettingsGroupCombat>Cross-map combat</RimExodus_SettingsGroupCombat>
+  <RimExodus_SettingsGroupAdvanced>Advanced / diagnostics</RimExodus_SettingsGroupAdvanced>
+
+  <RimExodus_SettingsBorderPreloadLabel>Border preload distance: {0} cells</RimExodus_SettingsBorderPreloadLabel>
+  <RimExodus_SettingsBorderPreloadTip>How close a colonist must get to the map edge (in cells) before the neighboring map on the other side starts loading.\n\nHigher values trigger neighboring map loading more readily: loading slows the game down while it runs, and loaded maps keep consuming performance until they are put to sleep or deleted. Default: 15.</RimExodus_SettingsBorderPreloadTip>
+  <RimExodus_SettingsBorderNoBuildLabel>Border no-build distance: {0} cells</RimExodus_SettingsBorderNoBuildLabel>
+  <RimExodus_SettingsBorderNoBuildTip>A strip of this width (in cells) along the map edge where you cannot build, keeping the crossing points between neighboring maps clear. Default: 3.</RimExodus_SettingsBorderNoBuildTip>
+  <RimExodus_SettingsIncrementalLabel>Gradual map generation (per-frame)</RimExodus_SettingsIncrementalLabel>
+  <RimExodus_SettingsIncrementalTip>Generate new neighboring maps gradually over many frames (the game keeps running, with a light stutter while a map is generating), instead of the vanilla one-shot generator that completely freezes the game until the map is done.\n\nTurn this OFF if another map-generation mod misbehaves - RimExodus then runs the vanilla pipeline, so other mods' own changes to map generation work as usual (with the vanilla freeze during generation). Only affects ordinary terrain maps; settlements and other points of interest always use the vanilla pipeline either way. Default: ON.</RimExodus_SettingsIncrementalTip>
+  <RimExodus_SettingsBatchSizeLabel>Generation batch size: {0} cells/frame</RimExodus_SettingsBatchSizeLabel>
+  <RimExodus_SettingsBatchSizeTip>How many cells to generate per frame while gradual generation is running (only relevant when gradual generation is ON).\n\nHigher = maps appear faster but each frame is heavier (stronger stutter). Default: 64.</RimExodus_SettingsBatchSizeTip>
+
+  <RimExodus_SettingsDormancyLabel>Enable map rolling dormancy</RimExodus_SettingsDormancyLabel>
+  <RimExodus_SettingsDormancyTip>Purpose: keep the game fast when you have explored many maps.\n\nEffect - maps far enough away from all your colonists are either put to SLEEP (all your changes are kept; the map simply stops simulating until you return) or DELETED (removed entirely from memory; revisiting regenerates it from scratch). The two distance sliders below decide which happens at which distance. Your home map and the map you are currently looking at are never affected.\n\nStrongly recommended to keep this ON: every active map's plants and wildlife keep consuming performance. RimExodus itself only does event-triggered work (no constant per-tick polling), but simply keeping many maps active is a heavy performance cost on its own.\n\nThe two distance sliders below only take effect while this option is ON. Default: ON.</RimExodus_SettingsDormancyTip>
+  <RimExodus_SettingsSleepLabel>Dormancy sleep distance: {0} world tile(s)</RimExodus_SettingsSleepLabel>
+  <RimExodus_SettingsSleepTip>Only effective while map rolling dormancy is enabled above.\n\nHow far away (in world tiles) a map must be before it is put to sleep: it keeps all your changes but stops simulating. 1 = everything except the map you are on sleeps the moment you leave. Lower = better performance. Default: 2.</RimExodus_SettingsSleepTip>
+  <RimExodus_SettingsDeleteLabel>Dormancy delete distance: {0} world tile(s)</RimExodus_SettingsDeleteLabel>
+  <RimExodus_SettingsDeleteTip>Only effective while map rolling dormancy is enabled above.\n\nHow far away a map must be before it is deleted entirely: it is removed from memory, and revisiting regenerates it from scratch. Setting this equal to the sleep distance (e.g. 1/1) deletes maps as soon as you leave - best performance on weak PCs.\n\nThe map you are currently on and your home map are never deleted. Default: 3.</RimExodus_SettingsDeleteTip>
+
+  <RimExodus_SettingsCombatLabel>Cross-map targeting &amp; shooting</RimExodus_SettingsCombatLabel>
+  <RimExodus_SettingsCombatTip>Allow pawns to see, target and shoot enemies standing on the neighboring map across the seam. Turn off if you prefer strictly original combat rules (nothing on another map can be interacted with).</RimExodus_SettingsCombatTip>
+
+  <RimExodus_SettingsNoiseLabel>Seam override noise amplitude: {0}</RimExodus_SettingsNoiseLabel>
+  <RimExodus_SettingsNoiseTip>How strongly terrain blending at the seam between two maps is randomized (0 = perfectly straight blending, higher = more natural-looking irregular borders). Default: 0.15.</RimExodus_SettingsNoiseTip>
+  <RimExodus_SettingsVerboseLabel>Verbose logging (diagnostics)</RimExodus_SettingsVerboseLabel>
+  <RimExodus_SettingsVerboseTip>Write detailed diagnostic logs. Only useful when reporting a problem.</RimExodus_SettingsVerboseTip>
 </LanguageData>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
 using Verse;
@@ -121,50 +122,114 @@ namespace RimExodus
             return "RimExodus";
         }
 
-        /// <summary>绘制 Mod 设置窗口内容。</summary>
+        /// <summary>设置窗口当前 tab（2026-08 分割线改 tab，GL 同款 TabDrawer——分割线不够醒目）。</summary>
+        private SettingsTab settingsTab = SettingsTab.Generation;
+
+        private enum SettingsTab { Generation, Dormancy, Combat, Advanced }
+
+        /// <summary>设置窗口滚动位置（个别 tab 内容超出窗口时兜底，2026-08）。</summary>
+        private Vector2 settingsScrollPosition = Vector2.zero;
+
+        /// <summary>
+        /// 设置内容实测高度缓存。GUI.BeginScrollView 在 Begin 时即用传入 viewRect 定死滚动范围，
+        /// 事后改高度对滚动条无效——用上一帧实测高度喂本帧（1 帧滞后，不可感知；切 tab 时同理）。
+        /// </summary>
+        private float settingsContentHeight = 400f;
+
+        /// <summary>
+        /// 绘制 Mod 设置窗口内容（2026-08 重构：tab 分页（地图生成/滚动休眠/跨图战斗/高级诊断）+ 滚动兜底，
+        /// 全部条目经 Keyed 翻译键（1.6/Languages/{English,ChineseSimplified}/Keyed/RimExodus.xml），
+        /// 带面向零基础玩家的 tooltip）。
+        /// </summary>
         public override void DoSettingsWindowContents(Rect inRect)
         {
+            // tab 行画在内容区上沿（TabDrawer 约定：baseRect = 内容区，tab 贴其 yMin 之上占 30px）。
+            var tabs = new List<TabRecord>
+            {
+                new TabRecord("RimExodus_SettingsGroupGeneration".Translate(),
+                    () => settingsTab = SettingsTab.Generation, settingsTab == SettingsTab.Generation),
+                new TabRecord("RimExodus_SettingsGroupDormancy".Translate(),
+                    () => settingsTab = SettingsTab.Dormancy, settingsTab == SettingsTab.Dormancy),
+                new TabRecord("RimExodus_SettingsGroupCombat".Translate(),
+                    () => settingsTab = SettingsTab.Combat, settingsTab == SettingsTab.Combat),
+                new TabRecord("RimExodus_SettingsGroupAdvanced".Translate(),
+                    () => settingsTab = SettingsTab.Advanced, settingsTab == SettingsTab.Advanced),
+            };
+            TabDrawer.DrawTabs(inRect, tabs);
+            inRect.yMin += 30f;
+
+            var viewRect = new Rect(0f, 0f, inRect.width - 16f, settingsContentHeight);
+            Widgets.BeginScrollView(inRect, ref settingsScrollPosition, viewRect);
             var listing = new Listing_Standard();
-            listing.Begin(inRect);
+            listing.Begin(viewRect);
 
             var s = Settings;
-            // borderPreloadDistance（0-50）
-            listing.Label($"Border preload distance: {s.borderPreloadDistance}");
-            s.borderPreloadDistance = (int)listing.Slider(s.borderPreloadDistance, 0, 50);
-            listing.Gap();
 
-            // borderNoBuildDistance（0-10）
-            listing.Label($"Border no-build distance: {s.borderNoBuildDistance}");
-            s.borderNoBuildDistance = (int)listing.Slider(s.borderNoBuildDistance, 0, 10);
-            listing.Gap();
+            switch (settingsTab)
+            {
+                case SettingsTab.Generation:
+                    // ===== tab：地图生成 =====
+                    SliderRow(listing, "RimExodus_SettingsBorderPreloadLabel", "RimExodus_SettingsBorderPreloadTip",
+                        s.borderPreloadDistance, 0, 50, v => s.borderPreloadDistance = (int)v);
+                    SliderRow(listing, "RimExodus_SettingsBorderNoBuildLabel", "RimExodus_SettingsBorderNoBuildTip",
+                        s.borderNoBuildDistance, 0, 10, v => s.borderNoBuildDistance = (int)v);
+                    CheckRow(listing, "RimExodus_SettingsIncrementalLabel", "RimExodus_SettingsIncrementalTip",
+                        v => s.incrementalGenerationEnabled = v, s.incrementalGenerationEnabled);
+                    SliderRow(listing, "RimExodus_SettingsBatchSizeLabel", "RimExodus_SettingsBatchSizeTip",
+                        s.generationBatchSize, 16, 512, v => s.generationBatchSize = (int)v);
+                    break;
 
-            listing.CheckboxLabeled("Preload all neighbors on start", ref s.preloadAllNeighborsOnStart);
-            listing.Gap();
+                case SettingsTab.Dormancy:
+                    // ===== tab：地图滚动休眠（性能） =====
+                    // 总开关 tooltip 明确机制目的与效果（休眠=保留但不模拟 / 删除=彻底删除）+ 建议保持开启；
+                    // 两个距离滑条 tooltip 首句注明"需总开关开启才生效"+ 备注默认值；两者取值范围一致（1-8，
+                    // 同值滑块位置相同，避免 UX 错位感）。
+                    CheckRow(listing, "RimExodus_SettingsDormancyLabel", "RimExodus_SettingsDormancyTip",
+                        v => s.dormancyEnabled = v, s.dormancyEnabled);
+                    SliderRow(listing, "RimExodus_SettingsSleepLabel", "RimExodus_SettingsSleepTip",
+                        s.dormancySleepHops, 1, 8, v => s.dormancySleepHops = (int)v);
+                    SliderRow(listing, "RimExodus_SettingsDeleteLabel", "RimExodus_SettingsDeleteTip",
+                        s.dormancyDeleteHops, 1, 8, v => s.dormancyDeleteHops = (int)v);
+                    break;
 
-            listing.CheckboxLabeled("Verbose logging (diagnostics)", ref s.verboseLogging);
-            listing.Gap();
+                case SettingsTab.Combat:
+                    // ===== tab：跨图战斗 =====
+                    CheckRow(listing, "RimExodus_SettingsCombatLabel", "RimExodus_SettingsCombatTip",
+                        v => s.crossMapCombatEnabled = v, s.crossMapCombatEnabled);
+                    break;
 
-            // 权重噪声幅度（0=关闭噪声，0.15=默认）
-            listing.Label($"Seam override noise amplitude: {s.seamOverrideNoiseAmplitude:F2}");
-            s.seamOverrideNoiseAmplitude = listing.Slider(s.seamOverrideNoiseAmplitude, 0f, 0.5f);
-            listing.Gap();
-
-            // 地图滚动休眠（2026-08）：距离策略见 SeamlessDormancyGovernor。
-            listing.CheckboxLabeled("Map dormancy (rolling sleep/delete)", ref s.dormancyEnabled);
-            listing.Gap();
-
-            listing.Label($"Dormancy sleep hops: {s.dormancySleepHops} (maps ≥ this many hops from all player pawns sleep)");
-            s.dormancySleepHops = (int)listing.Slider(s.dormancySleepHops, 2, 6);
-            listing.Gap();
-
-            listing.Label($"Dormancy delete hops: {s.dormancyDeleteHops} (tile maps ≥ this many hops get deleted)");
-            s.dormancyDeleteHops = (int)listing.Slider(s.dormancyDeleteHops, 3, 8);
-            listing.Gap();
-
-            // 跨图索敌与射击（阶段5）：总开关，false 时战斗语义回到原版。
-            listing.CheckboxLabeled("Cross-map targeting & shooting", ref s.crossMapCombatEnabled);
+                case SettingsTab.Advanced:
+                    // ===== tab：高级 / 诊断 =====
+                    SliderRow(listing, "RimExodus_SettingsNoiseLabel", "RimExodus_SettingsNoiseTip",
+                        s.seamOverrideNoiseAmplitude, 0f, 0.5f, v => s.seamOverrideNoiseAmplitude = v, "{0:F2}");
+                    CheckRow(listing, "RimExodus_SettingsVerboseLabel", "RimExodus_SettingsVerboseTip",
+                        v => s.verboseLogging = v, s.verboseLogging);
+                    break;
+            }
 
             listing.End();
+            Widgets.EndScrollView();
+            // 实测高度存缓存，下一帧的 BeginScrollView 用它定滚动范围（见字段注释）。
+            settingsContentHeight = Mathf.Max(listing.CurHeight, inRect.height);
+        }
+
+        /// <summary>带 tooltip 的滑条行：标签行显示当前值（格式化串支持 {0:F2} 等），下一行是滑条。</summary>
+        private static void SliderRow(Listing_Standard listing, string labelKey, string tipKey,
+            float value, float min, float max, Action<float> set, string valueFormat = "{0}")
+        {
+            listing.Label(string.Format(labelKey.Translate(), string.Format(valueFormat, value)),
+                -1f, new TipSignal(tipKey.Translate()));
+            set(listing.Slider(value, min, max));
+            listing.Gap(2f);
+        }
+
+        /// <summary>带 tooltip 的开关行。</summary>
+        private static void CheckRow(Listing_Standard listing, string labelKey, string tipKey,
+            Action<bool> set, bool current)
+        {
+            var tmp = current;
+            listing.CheckboxLabeled(labelKey.Translate(), ref tmp, tipKey.Translate());
+            set(tmp);
         }
     }
 }
