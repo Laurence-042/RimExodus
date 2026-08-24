@@ -89,6 +89,16 @@ namespace RimExodus
         /// </summary>
         public bool crossMapCombatEnabled = true;
 
+        /// <summary>
+        /// 接缝带显示与撤离开关（2026-08，默认 true）。false = 沉浸模式（拍视频等）：
+        /// 隐藏浅绿撤离带与接缝中心划线，并禁用一切经接缝带的原生离场成远行队（征召踩带、
+        /// JobGiver_ExitMap、组队界面出口重定向一并关闭——隐藏后误触撤离比看不见边线严重）。
+        /// 跨缝步行/跨图下令/传送**不受影响**；NPC 撤离链（逃窜动物/游荡兜底/追击）不门控
+        /// （门控会造成追兵消失、动物滞留）。关闭时组队组不出队属预期（裁切图原生出口全 void），
+        /// 不为正常游玩设计。
+        /// </summary>
+        public bool seamExitBandEnabled = true;
+
         public override void ExposeData()
         {
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
@@ -102,6 +112,7 @@ namespace RimExodus
             Scribe_Values.Look(ref dormancySleepHops, "dormancySleepHops", 2);
             Scribe_Values.Look(ref dormancyDeleteHops, "dormancyDeleteHops", 3);
             Scribe_Values.Look(ref crossMapCombatEnabled, "crossMapCombatEnabled", true);
+            Scribe_Values.Look(ref seamExitBandEnabled, "seamExitBandEnabled", true);
             Scribe_Values.Look(ref incrementalGenerationEnabled, "incrementalGenerationEnabled", true);
             Scribe_Values.Look(ref generationBatchSize, "generationBatchSize", 64);
             base.ExposeData();

@@ -77,6 +77,10 @@ namespace RimExodus
         static bool Prefix(IntVec3 root, Map map, ref IntVec3 result, ref bool __result)
         {
             if (!SeamlessExitSpotFinder.HasRimExodusEnterSpots(map)) return true;
+            // 沉浸模式（seamExitBandEnabled=false，2026-08）：不重定向、放行原版——组队界面出口
+            // 一并禁用（用户定夺：隐藏接缝带后玩家不应还能经传送点组队离场；裁切图原版方形边
+            // 全 void → 出口结构性失败 → 组队报错，属预期，此模式不为正常游玩设计）。
+            if (!SeamExitBandGating.Enabled) return true;
             // 原版本体 = 从 root 区域 BFS（PassDoors）到可达的边缘区域——保证出口可达。
             // 我们必须同口径过滤：出口格是 pawn 要实际走到并 ExitMap 的终点，选到隔河/隔山的
             // 传送点会让集结后的 pawn 永久卡路径，且打包点搜索（CanReach(exitSpot→打包点)）

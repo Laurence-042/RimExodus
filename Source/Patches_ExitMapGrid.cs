@@ -27,8 +27,9 @@ namespace RimExodus
     /// 带撤离 flag 的 pawn 踩带内圈即原生离场。首版曾试三色分圈渲染，因颜色过浅缺乏区分度被用户回退，
     /// 恢复原版单色浅绿；接缝位置改由 <see cref="Patch_MapInterface_SeamOutline"/> 的中心线段勾勒）。
     ///
-    /// 与直接跨图传送的区分：<see cref="SeamlessMapTransferTrigger.TryTriggerTransfer"/> 入口检查
-    /// pawn 当前 Job 的 <c>exitMapOnArrival</c>——远行队流程放行原生 ExitMap，征召跨图走现有传送逻辑。
+    /// 与直接跨图传送的区分：玩家征召 goto（playerForced）不登记传送许可（Patch_Pawn_JobTracker_StartJob
+    /// 只对非玩家强制的 exitMapOnArrival job 登记撤离 grant）——玩家下令到接缝带格踩的是原生
+    /// ExitMap 撤离/组队；跨缝传送走点击邻图渲染区的桥接链与 NPC 撤离 grant 链，与本 exit grid 无关。
     /// </summary>
     [HarmonyPatch(typeof(ExitMapGrid), "Rebuild")]
     static class Patch_ExitMapGrid_Rebuild
@@ -47,6 +48,9 @@ namespace RimExodus
             // 之前只判断 MapParent_SeamlessTile，导致家园图的传送点未被标为出口格，远行队走不到。
             if (___map == null) return true; // 放行原版
             if (!SeamlessEdgeCells.HasSeamEdge(___map)) return true; // 非 RimExodus 地块放行原版
+            // 沉浸模式（seamExitBandEnabled=false）下本 patch 照常标记接缝带：IsExitCell 是 NPC
+            // 离场链（逃窜动物/离场访客经 RCellFinder 出口重定向到传送点）的功能依赖，只藏视觉
+            // 不废功能——玩家侧撤离由 Patch_Pawn_Job 清 exitMapOnArrival + 组队出口门控精确关闭。
 
             // —— RimExodus 地块：跳过原版方形带铺设，自己只标接缝带格。——
             // 复刻原版 Rebuild 的骨架但把候选集换成接缝带三圈 + 传送点格。
@@ -140,6 +144,24 @@ namespace RimExodus
     }
 
     /// <summary>
+    /// 沉浸模式（2026-08，seamExitBandEnabled=false）隐藏浅绿撤离带：Prefix 跳过
+    /// <see cref="ExitMapGrid.ExitMapGridUpdate"/> 的 MarkForDraw/CellBoolDrawerUpdate——
+    /// **只藏视觉，不废功能**：exit grid 的标记与 <c>IsExitCell</c> 照常工作（NPC 离场链
+    /// ——逃窜动物/离场访客经 RCellFinder 出口重定向到传送点——依赖它，用户定夺 NPC 链不门控）。
+    /// 玩家侧撤离由 <see cref="Patch_Pawn_JobTracker_StartJob"/> 清 playerForced job 的
+    /// exitMapOnArrival + 组队出口（TryFindClosestEdgeCellTo）门控精确关闭。
+    /// </summary>
+    [HarmonyPatch(typeof(ExitMapGrid), nameof(ExitMapGrid.ExitMapGridUpdate))]
+    static class Patch_ExitMapGrid_HideInImmersiveMode
+    {
+        static bool Prefix(Map ___map)
+        {
+            if (___map == null || !SeamlessEdgeCells.HasSeamEdge(___map)) return true;
+            return SeamExitBandGating.Enabled; // 关闭时跳过绘制（原方法体只有绘制，无其他副作用）。
+        }
+    }
+
+    /// <summary>
     /// 接缝中心线段渲染（2026-08 用户定夺，替代已回退的三色分圈方案）：
     /// 每帧对 CurrentMap 沿**多边形边**（连续边 = 接缝带的几何中心线）画线段勾勒接缝位置——
     /// 两侧线段即中点对齐的视觉基准，对不齐 = 地块投影角度的细微偏差（正常）。
@@ -162,6 +184,7 @@ namespace RimExodus
             if (map == null || !WorldRendererUtility.DrawingMap) return;
             if (Find.ScreenshotModeHandler.Active) return;
             if (!SeamlessEdgeCells.HasSeamEdge(map)) return;
+            if (!SeamExitBandGating.Enabled) return; // 沉浸模式（2026-08）：隐藏接缝中心划线。
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
             if (worldTile < 0) return;
 

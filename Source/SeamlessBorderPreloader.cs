@@ -39,11 +39,14 @@ namespace RimExodus
             }
             if (worldTile < 0) return;
 
-            // 传送点格 = 撤离意图（玩家征召 goto 踩传送点 → 原生撤离/组队，行为表行 1/8）：
-            // 不需要对端地图，不触发预加载。边界带带宽（15）包含传送点带（2），必须显式排除。
-            if (SeamlessEdgeCells.IsSeamEdgeCell(map, targetCell))
+            // 接缝带格 = 撤离意图（2026-08 从传送点格扩到整个 Band）：exit grid 标记集 = Band 三圈 ∪
+            // 传送点格（Patches_ExitMapGrid），玩家征召 goto 到带内任意格 → 到站原生离场组队，
+            // 永远不会踏进对端地图——排除集必须与 exit 标记集同口径，否则 goto 带内圈非传送点格
+            // 会白预加载一张永远不会被进入的对侧图（BuildSeamBand 进程缓存，Contains O(1)）。
+            if (SeamlessPolygonGeometry.BuildSeamBand(worldTile, map.Size.x)?.Band.Contains(targetCell) == true
+                || SeamlessEdgeCells.IsSeamEdgeCell(map, targetCell))
             {
-                Log.Message($"[RimExodus] CheckPawnGoto: pawn {pawn.LabelShort} target {targetCell} is a seamless enter spot (exit intent), skip preload.");
+                Log.Message($"[RimExodus] CheckPawnGoto: pawn {pawn.LabelShort} target {targetCell} is in the seam band (exit intent), skip preload.");
                 return;
             }
 

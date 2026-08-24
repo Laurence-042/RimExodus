@@ -92,19 +92,14 @@ namespace RimExodus
             // 快照 Find.Maps：删除分支会移除地图（RemoveTileMap → DeinitAndRemoveMap），遍历中修改原列表不安全。
             var snapshot = new List<Map>(Find.Maps);
 
-            // 源 = 有玩家阵营 spawned pawn 的图的 tile 集合（同时充当 hasPlayerPawn 判定）。
+            // 源 = 有玩家阵营 spawned pawn 的图的 tile 集合（判定唯一出处 = SeamlessMapGovernance.HasPlayerPawn）。
             var sources = new HashSet<int>();
             foreach (var m in snapshot)
             {
                 if (m == null || m.Disposed) continue;
-                var pawns = m.mapPawns.AllPawnsSpawned;
-                for (var i = 0; i < pawns.Count; i++)
+                if (SeamlessMapGovernance.HasPlayerPawn(m))
                 {
-                    if (pawns[i].Faction == Faction.OfPlayer)
-                    {
-                        sources.Add(SeamlessTileRegistry.GetMapWorldTile(m));
-                        break;
-                    }
+                    sources.Add(SeamlessTileRegistry.GetMapWorldTile(m));
                 }
             }
 
@@ -166,6 +161,12 @@ namespace RimExodus
                 {
                     if (SeamlessDormancyManager.IsDormant(m))
                     {
+                        // 手动休眠锁（2026-08 玩家 gizmo）：玩家手动睡的图不被保活/距离回落自动唤醒
+                        // ——只有玩家主动进图（CurrentMap setter，上方 m == current 即其一）与 pawn
+                        // 被命令接近其接缝（BorderPreloader 的 TryWakeByWorldTile）能唤醒（用户定夺）。
+                        // 手动锁图上不应有玩家 pawn（gizmo 对有玩家 pawn 的图距离 0 恒活跃），
+                        // 此守卫主要挡"家园/回落兜底"类误唤醒。删除分支不受锁影响。
+                        if (m != current && SeamlessDormancyManager.IsManuallyDormant(m)) continue;
                         var keepReason = m == current
                             ? "governor keep-alive (CurrentMap)"
                             : sources.Contains(tile)

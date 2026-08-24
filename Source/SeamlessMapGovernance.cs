@@ -73,5 +73,26 @@ namespace RimExodus
         {
             return IsGoverned(map) && !IsProtectedHome(map);
         }
+
+        /// <summary>
+        /// 图上是否有玩家阵营 spawned pawn（2026-08 收口："有人"判定的唯一出处）。
+        /// 消费方 = governor 距离源（Sweep 的 sources 构建）与世界图三态图标（TileWorldIcons）——
+        /// 上层勿再自写 pawn 遍历（曾散落两份致口径漂移：图标首版用 AllPawnsSpawnedCount 把
+        /// 野生动物/访客也算"有人"，地块图几乎恒显有人态）。口径 = Faction == OfPlayer，
+        /// 与保活条件"玩家 pawn 在场"同义。
+        /// </summary>
+        internal static bool HasPlayerPawn(Map map)
+        {
+            if (map == null || map.Disposed) return false;
+            var player = Faction.OfPlayerSilentFail;
+            if (player == null) return false;
+            var pawns = map.mapPawns?.AllPawnsSpawned;
+            if (pawns == null) return false;
+            for (int i = 0; i < pawns.Count; i++)
+            {
+                if (pawns[i].Faction == player) return true;
+            }
+            return false;
+        }
     }
 }

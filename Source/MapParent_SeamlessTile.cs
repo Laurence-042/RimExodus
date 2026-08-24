@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using RimWorld;
 using RimWorld.Planet;
 using UnityEngine;
 using Verse;
@@ -82,13 +83,87 @@ namespace RimExodus
         public override string Label => "Seamless Tile Map";
 
         /// <summary>
+        /// 世界图三态图标（2026-08）：useDynamicDrawer=true（def），<see cref="WorldObject.Draw"/>
+        /// 每帧取 <see cref="WorldObject.Material"/> → 按运行时状态（休眠/活跃有人/活跃无人）换图标。
+        /// 静态层 Material 按 def 缓存不可用；Material 由 <see cref="TileWorldIcons"/> 预构建缓存。
+        /// </summary>
+        public override UnityEngine.Material Material => TileWorldIcons.PickFor(this);
+
+        /// <summary>
+        /// 玩家在世界地图上的主动生命周期 gizmo（2026-08）：
+        /// - 活跃非家园图 → "休眠此图"（登记手动休眠锁，governor 不再按距离唤醒，只有玩家
+        ///   主动进图 / pawn 被命令接近其接缝时唤醒）；
+        /// - 休眠图 → "删除此图"（确认后走 <see cref="SeamlessTileManager.RemoveRollingMap"/>，
+        ///   与 Dev Force Delete 同路径——地块图销毁 Map+WorldObject"从未出现过"）。
+        /// 家园图（IsProtectedHome）永不休眠不删除，无 gizmo。
+        /// </summary>
+        public override IEnumerable<Gizmo> GetGizmos()
+        {
+            foreach (var gizmo in base.GetGizmos()) // 保留"查看地图"（休眠图的显式唤醒入口）。
+            {
+                yield return gizmo;
+            }
+
+            var map = Map;
+            if (map == null || map.Disposed) yield break;
+            if (!SeamlessMapGovernance.IsGoverned(map)) yield break;
+            if (SeamlessMapGovernance.IsProtectedHome(map)) yield break; // 家园特权：不休眠不删除。
+            if (IncrementalMapGenerator.IsGenerating(map)) yield break; // 分帧生成中不可干预。
+
+            if (SeamlessDormancyManager.IsDormant(map))
+            {
+                var delete = new Command_Action
+                {
+                    defaultLabel = "RimExodus_DeleteTileMap".Translate(),
+                    defaultDesc = "RimExodus_DeleteTileMapDesc".Translate(),
+                    icon = TileWorldIcons.DeleteCommandIcon,
+                    alsoClickIfOtherInGroupClicked = false,
+                    action = delegate
+                    {
+                        // 销毁 Map+WorldObject（"从未出现过"，下次进入走生成链重建）。确认防误触。
+                        Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                            "RimExodus_DeleteTileMapConfirm".Translate(Label), delegate
+                        {
+                            var manager = map.GetComponent<SeamlessTileManager>();
+                            manager?.RemoveRollingMap(this);
+                        }, destructive: true));
+                    },
+                };
+                yield return delete;
+            }
+            else
+            {
+                bool isCurrentMap = map == Find.CurrentMap;
+                var sleep = new Command_Action
+                {
+                    defaultLabel = "RimExodus_SleepTileMap".Translate(),
+                    defaultDesc = "RimExodus_SleepTileMapDesc".Translate(),
+                    icon = TileWorldIcons.SleepCommandIcon,
+                    alsoClickIfOtherInGroupClicked = false,
+                    action = delegate
+                    {
+                        SeamlessDormancyManager.Sleep(map, "player gizmo (world map)", manual: true);
+                    },
+                };
+                if (isCurrentMap)
+                {
+                    // CurrentMap 是 governor 无条件保活项——睡着会立刻被视作异常，玩家须先切走再睡。
+                    sleep.Disable("RimExodus_SleepTileMapDisabledCurrentMap".Translate());
+                }
+                yield return sleep;
+            }
+        }
+
+        /// <summary>
         /// 阶段4前置：基础地图的 WorldObject 会进入世界视图静态绘制层（useDynamicDrawer=false）。
         /// override Print 为空操作，让地块在世界地图上不显示图标。
         /// 地块通过地图内叠加渲染呈现，不需世界视图图标。
+        /// （2026-08 起 def 改 useDynamicDrawer=true 走 <see cref="WorldObject.Draw"/> 动态层，
+        /// Print 仍为空操作——动态层不经过静态层 Print。）
         /// </summary>
         public override void Print(LayerSubMesh subMesh)
         {
-            // 不在世界视图画图标。
+            // 不在世界视图静态层画图标（动态层由 Draw/Material 负责）。
         }
 
         public override void ExposeData()
@@ -145,6 +220,58 @@ namespace RimExodus
                 neighbor = neighbor,
                 offset = offset
             });
+        }
+    }
+
+    /// <summary>
+    /// 地块图世界图标的三态 Material 与 gizmo 图标缓存（2026-08，StaticConstructorOnStartup）。
+    /// 三态 = 休眠（灰） / 活跃有人（绿+P） / 活跃无人（蓝紫）——玩家在世界地图上一眼区分
+    /// 哪些 tile 有已生成地图、地图里有没有人（用户定夺）。
+    /// Material 用与 <see cref="WorldObjectDef.Material"/> 同款 shader/altit 制构建各缓存一次，
+    /// 每帧 PickFor 只做引用返回，勿在绘制路径新建 Material。
+    /// </summary>
+    public static class TileWorldIcons
+    {
+        private static Material _activeMat;
+        private static Material _unmannedMat;
+        private static Material _dormantMat;
+
+        /// <summary>gizmo"休眠此图"图标（mod 自带，原版无现成 Suspend 命令图标）。</summary>
+        public static Texture2D SleepCommandIcon { get; private set; }
+
+        /// <summary>gizmo"删除此图"图标（mod 自带）。</summary>
+        public static Texture2D DeleteCommandIcon { get; private set; }
+
+        /// <summary>按地图运行时状态选三态 Material（无图/资源缺失返回 null = 不画）。</summary>
+        public static Material PickFor(MapParent parent)
+        {
+            var map = parent?.Map;
+            if (map == null || map.Disposed) return null;
+
+            if (SeamlessDormancyManager.IsDormant(map)) return _dormantMat;
+            // "有人"判定唯一出处 = SeamlessMapGovernance.HasPlayerPawn（与 governor 距离源同口径，
+            // 勿在此自写 pawn 遍历——首版用 AllPawnsSpawnedCount 把野生动物也算有人）。
+            if (SeamlessMapGovernance.HasPlayerPawn(map)) return _activeMat;
+            return _unmannedMat;
+        }
+
+        private static Material BuildMat(string texturePath)
+        {
+            // 与 WorldObjectDef.Material 同款 shader/altit 制（renderQueue 3550）。
+            return MaterialPool.MatFrom(texturePath, ShaderDatabase.WorldOverlayTransparentLit, 3550);
+        }
+
+        [Verse.StaticConstructorOnStartup]
+        private static class StaticInit
+        {
+            static StaticInit()
+            {
+                _activeMat = BuildMat("World/WorldObjects/RimExodus_Tile_Active");
+                _unmannedMat = BuildMat("World/WorldObjects/RimExodus_Tile_Unmanned");
+                _dormantMat = BuildMat("World/WorldObjects/RimExodus_Tile_Dormant");
+                SleepCommandIcon = ContentFinder<Texture2D>.Get("UI/Commands/RimExodus_SleepMap", reportFailure: false);
+                DeleteCommandIcon = ContentFinder<Texture2D>.Get("UI/Commands/RimExodus_DeleteMap", reportFailure: false);
+            }
         }
     }
 

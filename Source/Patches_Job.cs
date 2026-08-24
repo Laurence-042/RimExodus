@@ -42,6 +42,17 @@ namespace RimExodus
                 SeamlessTransferGrants.RegisterEvacuation(___pawn, newJob);
             }
 
+            // 沉浸模式（seamExitBandEnabled=false，2026-08）：玩家征召 job 的 exitMapOnArrival 清除
+            // ——玩家下令走到接缝带格不再到站原生离场成远行队（隐藏接缝带后误触撤离比看不见边线
+            // 严重得多）。只清 playerForced job：NPC 撤离链（上面的 grant 登记）不门控（用户定夺）。
+            // job 落到普通移动语义（到站即 Wait），无副作用。
+            if (newJob.exitMapOnArrival && newJob.playerForced && !SeamExitBandGating.Enabled)
+            {
+                newJob.exitMapOnArrival = false;
+                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    Log.Message($"[RimExodus] Immersive mode: cleared exitMapOnArrival on player-forced job {newJob.def?.defName} for {___pawn?.LabelShort}.");
+            }
+
             // 玩家强制 Goto 指令：检测目标是否接近边界，若是则预加载对应邻居地块。
             // 不拦截 Job（无论是否预加载都让原 Job 正常执行），仅触发副作用。
             if (newJob.def == JobDefOf.Goto && newJob.targetA.IsValid && newJob.playerForced)

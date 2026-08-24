@@ -12,11 +12,19 @@
          三个 RimExodus genStep（CoastalEdgeFill/SeamlessTile/SeamOverride）由 Patches/MapGeneration.xml
          注入到 Base_Player 链，邻居地块与玩家家园图（原生 parent）走完全相同的链。 -->
     <mapGenerator>Base_Player</mapGenerator>
-    <!-- useDynamicDrawer=false：不进动态绘制器。MapParent_SeamlessTile.Print override 为空操作，
-         不在世界视图静态层画图标。Material override 返回 BaseContent.WhiteMat 避免 null。
-         texture 用 RoutePlannerWaypoint（存在的贴图，作为 Material fallback）。 -->
-    <useDynamicDrawer>false</useDynamicDrawer>
+    <!-- useDynamicDrawer=true：走 WorldDynamicDrawManager 每帧调 Draw()，支持按运行时状态
+         （休眠/活跃有人/活跃无人）换图标——静态层 Material 按 def 缓存、换图须触发 layer 重建，不可用。
+         Print override 保持空操作（动态层不经过静态层 Print）。 -->
+    <useDynamicDrawer>true</useDynamicDrawer>
     <texture>World/WorldObjects/RoutePlannerWaypoint</texture>
+    <!-- FormCaravanComp（2026-08）：原版"重组远行队"按钮的挂载条件——WorldGizmoUtility.TryGetCaravanGizmo
+         要求 tile 上的 MapParent GetComponent<FormCaravanComp>() != null，缺 comp 时选中地块只剩
+         "Send caravan to tile"。非家园图（IsPlayerHome=false）自动走 Reform 分支（Dialog_FormCaravan
+         reform:true），自带敌人/精神状态门控；出口查找由 Patches_RCellFinder.TryFindClosestEdgeCellTo
+         重定向到传送点 → 组队离场成远行队。 -->
+    <comps>
+      <li Class="RimWorld.WorldObjectCompProperties_FormCaravan"/>
+    </comps>
   </WorldObjectDef>
 
 </Defs>

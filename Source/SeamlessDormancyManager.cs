@@ -34,18 +34,35 @@ namespace RimExodus
         /// <summary>休眠中的地图集合（运行时状态，刻意不序列化——见类注释）。</summary>
         private static readonly HashSet<Map> dormantMaps = new HashSet<Map>();
 
+        /// <summary>
+        /// 手动休眠锁（2026-08，玩家世界图 gizmo）：锁定的休眠图不被 governor 的保活/距离回落
+        /// 分支唤醒——只有玩家主动进图（CurrentMap setter）与 pawn 被命令接近其接缝
+        /// （BorderPreloader 的 TryWakeByWorldTile）两类入口能唤醒（用户定夺）。
+        /// 任意来源的 <see cref="Wake"/> 都会解除锁定。与休眠状态同不序列化（读档回自动策略）。
+        /// governor 的删除分支不受锁影响（距离 ≥ deleteHops 照常滚动删除）。
+        /// </summary>
+        private static readonly HashSet<Map> manualDormantMaps = new HashSet<Map>();
+
         /// <summary>map 是否处于休眠（null/Disposed 安全返回 false）。</summary>
         public static bool IsDormant(Map map)
         {
             return map != null && !map.Disposed && dormantMaps.Contains(map);
         }
 
-        /// <summary>让地图进入休眠（幂等）。reason = 触发原因（无条件写入日志，休眠状态变化是低频事件）。</summary>
-        public static void Sleep(Map map, string reason)
+        /// <summary>map 是否被玩家手动休眠（= 锁定不被自动唤醒）。对非休眠图恒 false。</summary>
+        public static bool IsManuallyDormant(Map map)
+        {
+            return map != null && !map.Disposed && manualDormantMaps.Contains(map);
+        }
+
+        /// <summary>让地图进入休眠（幂等）。reason = 触发原因（无条件写入日志，休眠状态变化是低频事件）。
+        /// manual = true（玩家 gizmo）时登记手动锁，见 <see cref="manualDormantMaps"/>。</summary>
+        public static void Sleep(Map map, string reason, bool manual = false)
         {
             if (map == null || map.Disposed || dormantMaps.Contains(map)) return;
 
             dormantMaps.Add(map);
+            if (manual) manualDormantMaps.Add(map);
 
             // 摘除全局 Thing tick（原版 API，MapDeiniter.Deinit 同款——按 x.Map == map 从
             // tickListNormal/Rare/Long 与注册缓冲中全摘）。governor 的调用时点在 GameComponentTick
@@ -76,6 +93,7 @@ namespace RimExodus
             if (map == null || map.Disposed || !dormantMaps.Contains(map)) return;
 
             dormantMaps.Remove(map);
+            manualDormantMaps.Remove(map); // 任意来源的唤醒都解除手动锁（含 CurrentMap/预加载带）。
 
             // 重注册全局 Thing tick：遍历 spawnedThings 逐个注册（读档路径 FinalizeLoading 的
             // 重 spawn 走的就是同一 API，语义等价"这张图像刚读档一样恢复"）。
@@ -117,7 +135,11 @@ namespace RimExodus
         /// </summary>
         internal static void Forget(Map map)
         {
-            if (map != null) dormantMaps.Remove(map);
+            if (map != null)
+            {
+                dormantMaps.Remove(map);
+                manualDormantMaps.Remove(map);
+            }
         }
 
         /// <summary>
