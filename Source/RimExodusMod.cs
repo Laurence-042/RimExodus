@@ -34,6 +34,11 @@ namespace RimExodus
             // 成功标志（日志）= "GL compat: registered RimExodus_SeamlessTileMap in IgnoredWorldObjects (verified...)"。
             SeamlessLandformsCompat.RegisterIgnoredWorldObject();
 
+            // PerspectiveShift 兼容（2026-08）：PS 的 WASD 自由移动绕过 job/pather，挂
+            // Avatar.ProcessMovement Postfix 把"边界带预加载 + 踩传送点跨缝传送"补回 avatar。
+            // 软检测未装短路；手动绑定全程 try/catch（签名变更降级 Warning，绝不杀死 mod）。
+            SeamlessPerspectiveShiftCompat.Register(harmony);
+
             // 绑定核对（2026-08，配合离线验证器甄别 CLR 伪迹 vs 死代码）：GetPatchedMethods 列出
             // 本 harmony 实例实际绑定的方法（真实 Mono 运行时结果，不受离线 CLR 伪迹影响）。
             // 离线验证器的 9 个伪迹失败 patch（GetClearRects/SelectInternal/SetTerrain/MapPreTick·MapUpdate/

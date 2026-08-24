@@ -21,6 +21,7 @@
 |-----|------|
 | **Geological Landforms**（实测 1.7.13.1） | 完整适配，两轮：①分帧增量生成路径软反射复刻其生成上下文（其 Harmony patch 挂在原生同步管线上，分帧路径天然绕过）；②启动时把我们的地块 parent 注册进其 `IgnoredWorldObjects` 白名单——否则 GL 会把无派系的地块 parent 当作外来 site，把该地块的全部 landform 概率归零（症状：营地图 landform 缺失且被永久写入空数据、地块存在期间预览丢 landform）。 |
 | **MapPreview** | 预览兼容：RimExodus 裁切/接缝 genStep 进预览白名单（预览可见六边形与接缝效果），预览线程守卫防组件裁剪 NRE；增量分帧生成与后台预览互相避让（预览进行中预加载自动排队，代价 1-2 tick）。 |
+| **Perspective Shift**（ferny.PerspectiveShift，第一人称自由移动） | 适配（待游戏内回归）：其 WASD 移动绕过原版 job/寻路系统，RimExodus 在其移动处理上补挂了"走近接缝自动预加载邻图 + 踩传送点无缝过缝"；其右键下令走原版菜单链，天然兼容。已知边界：第一人称下鼠标瞄准解析限当前地图（跨缝瞄准射击未适配）。 |
 
 ### 共存（无运行时依赖）
 
