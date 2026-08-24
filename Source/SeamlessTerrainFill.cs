@@ -157,6 +157,17 @@ namespace RimExodus
             }
             if (sw != null) { tTerrain = sw.ElapsedMilliseconds - tClear - tClassify; }
 
+            // MapPreview 预览线程限定（2026-08）：预览纹理的 PreviewTextureGenStep 用
+            // Elevation>=0.7 代理判据画石色（不读岩石实体），本步清岩不写 elevation →
+            // 曾有岩的 void 格在预览里仍显岩石。预览是该阈值的唯一消费者，真实地图渲染
+            // 不读 MapGenerator.Elevation，故只在预览线程抹平，主生成链零改动。
+            if (SeamlessMapPreviewCompat.IsGeneratingPreviewOnCurrentThread && MapGenerator.Elevation != null)
+            {
+                var elevation = MapGenerator.Elevation;
+                foreach (var cell in voidCells)
+                    elevation[cell] = 0f;
+            }
+
             // pathGrid 必须在此即时全量刷新（勿删，2026-08 历史教训）：Walkable/Standable 读的是
             // PathGrid 缓存数组（GenGrid.Walkable → pathGrid.WalkableFast），不读 terrainGrid——
             // 直写 topGrid 后若等 FinalizeInit 才重算，本 genStep(391) 与 FinalizeInit 之间的所有
