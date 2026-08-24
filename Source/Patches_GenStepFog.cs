@@ -15,10 +15,16 @@ namespace RimExodus
     ///   （PlayerStartSpot 中心 FloodUnfog / UnfogMapFromEdge fallback / rootsToUnfog——现状不变）。
     /// - **邻接生成图**（预加载链：IncrementalMapGenerator 分帧 ∨ POI 原生同步预加载）→
     ///   接管原版体：全雾 → 全图 void 格直接揭雾（void 无内容非探索对象，雾留 void 唯一效果是
-    ///   跨缝看邻图被 fog mesh 挡视线）→ 从**生成方向**共享边（<see cref="SeamlessTileManager.NeighborGenerationSourceTile"/>，
-    ///   容错校验失败回退全部活跃边）的可站立接缝格发起 <see cref="FloodFillerFog.FloodUnfog"/>——
-    ///   洪水揭穿整个室外连通域、停在围墙房间（室内留雾待探索）；被山分隔的其他室外连通域经
-    ///   回退边或多边发根覆盖。rootsToUnfog 镜像原版处理（增量链应为空，防御）。
+    ///   跨缝看邻图被 fog mesh 挡视线）→ 对**生成方向**共享边（<see cref="SeamlessTileManager.NeighborGenerationSourceTile"/>）
+    ///   的**全部可站立接缝格逐个**发起 <see cref="FloodFillerFog.FloodUnfog"/>（2026-08 多根化：
+    ///   每个室外连通域需要至少一个洪水根——山体延伸到接缝带把源边室外区分割成多段"走廊"时，
+    ///   单最优根只揭穿根所在的那一段，其余段即使从接缝可直接走入也留雾；全 spots 发根天然覆盖
+    ///   各段，同连通域的后续洪水因 PassCheck 要求 fogged 立即空转，开销可忽略。同款原版口径
+    ///   继承：洪水只被实心 edifice[Fillage Full] 阻挡，水/关着的门挡不住、且为 4 邻遍历——被水
+    ///   围住的谷地会被揭雾、只留对角缝的墙缝挡洪水，属原版语义不改）。源边收集到 0 个可站立
+    ///   spot（spots 全被岩石/地形挡住）或 source 校验失败时，降级为**全部活跃边**（休眠过滤口径）
+    ///   再收集一轮发根。洪水揭穿整个室外连通域、停在围墙房间（室内留雾待探索）。
+    ///   rootsToUnfog 镜像原版处理（增量链应为空，防御）。
     /// </summary>
     [HarmonyPatch(typeof(GenStep_Fog), nameof(GenStep_Fog.Generate))]
     static class Patch_GenStep_Fog_SeamOrigin
@@ -49,9 +55,12 @@ namespace RimExodus
                 }
             }
 
-            // ② 生成方向（容错回退全部活跃边）从接缝格发起室外洪水。
+            // ② 生成方向的全部可站立接缝格逐个发根（多根化：每个被山分隔的室外连通域各需一个根，
+            //    同连通域的后续洪水因 PassCheck 要求 fogged 立即空转天然去重）；源边零根或 source
+            //    校验失败时降级为全部活跃边（休眠过滤口径）再收集一轮。
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            var floodedEdges = 0;
+            var rootCount = 0;
+            var roots = new List<IntVec3>();
             if (worldTile >= 0)
             {
                 var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, map.Size.x);
@@ -83,40 +92,56 @@ namespace RimExodus
 
                         var edgeIdx = WorldTileGeometry.FindNeighborIndex(worldTile, neighborTile.tileId);
                         if (edgeIdx < 0 || edgeIdx >= verts.Count) continue;
-                        var root = FindStandableRootOnEdge(map, verts[edgeIdx], verts[(edgeIdx + 1) % verts.Count]);
-                        if (!root.IsValid) continue;
+                        CollectStandableRootsOnEdge(map, verts[edgeIdx], verts[(edgeIdx + 1) % verts.Count], roots);
+                    }
+
+                    // 源边收集到 0 个可站立 spot（spots 全被岩石/地形挡住）→ 降级全部活跃边再试，
+                    // 否则整图中间区域会全部留雾（旧单根版同款不对称，勿恢复）。
+                    if (roots.Count == 0 && sourceValid)
+                    {
+                        foreach (var neighborTile in worldNeighbors)
+                        {
+                            if (neighborTile.tileId == worldTile || neighborTile.tileId == sourceTile) continue;
+                            if (!SeamlessTileGraph.TryGetMapByWorldTile(neighborTile.tileId, out _)) continue;
+                            var edgeIdx = WorldTileGeometry.FindNeighborIndex(worldTile, neighborTile.tileId);
+                            if (edgeIdx < 0 || edgeIdx >= verts.Count) continue;
+                            CollectStandableRootsOnEdge(map, verts[edgeIdx], verts[(edgeIdx + 1) % verts.Count], roots);
+                        }
+                    }
+
+                    foreach (var root in roots)
+                    {
                         FloodFillerFog.FloodUnfog(root, map);
-                        floodedEdges++;
+                        rootCount++;
                     }
                 }
             }
 
             // ③ rootsToUnfog 镜像原版处理（防御——增量链 Start 已重置，理论为空）。
-            var roots = MapGenerator.rootsToUnfog;
-            for (var i = 0; i < roots.Count; i++)
+            var vanillaRoots = MapGenerator.rootsToUnfog;
+            for (var i = 0; i < vanillaRoots.Count; i++)
             {
-                FloodFillerFog.FloodUnfog(roots[i], map);
-                map.fogGrid.Unfog(roots[i]);
+                FloodFillerFog.FloodUnfog(vanillaRoots[i], map);
+                map.fogGrid.Unfog(vanillaRoots[i]);
             }
 
             if (RimExodusMod.Settings?.verboseLogging ?? false)
                 Log.Message($"[RimExodus] GenStep_Fog (seam-origin, map={map.uniqueID} wt={worldTile}): voidCells={unfoggedVoid} " +
-                            $"outdoorFloodRoots={floodedEdges} source={SeamlessTileManager.NeighborGenerationSourceTile} " +
-                            $"(initial maps keep vanilla center unfog; neighbor-generated maps unfog from the seam only).");
+                            $"outdoorFloodRoots={rootCount} source={SeamlessTileManager.NeighborGenerationSourceTile} " +
+                            $"(initial maps keep vanilla center unfog; neighbor-generated maps unfog from the seam only; " +
+                            $"roots = all standable enter-spots on the source edge, fallback = all active edges).");
             return false;
         }
 
-        /// <summary>在该边线段附近找一个可站立的接缝格作洪水根（无则 Invalid——该边留雾）。</summary>
-        private static IntVec3 FindStandableRootOnEdge(Map map, Vector2 edgeA, Vector2 edgeB)
+        /// <summary>
+        /// 收集该边线段附近的全部可站立接缝格作洪水根（多根：山体延伸到接缝带把源边室外区
+        /// 分割成多段时各段各需一个根；同连通域的后续洪水因 PassCheck 要求 fogged 立即空转）。
+        /// </summary>
+        private static void CollectStandableRootsOnEdge(Map map, Vector2 edgeA, Vector2 edgeB, List<IntVec3> roots)
         {
             var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
-            if (enterSpotDef == null) return IntVec3.Invalid;
+            if (enterSpotDef == null) return;
 
-            var mid = (edgeA + edgeB) * 0.5f;
-            var center = new Vector2(map.Size.x / 2f, map.Size.z / 2f);
-            var inward = (center - mid).normalized;
-            var best = IntVec3.Invalid;
-            var bestDist = float.MaxValue;
             var spots = map.listerThings.ThingsOfDef(enterSpotDef);
             foreach (var spot in spots)
             {
@@ -124,14 +149,8 @@ namespace RimExodus
                 if (!p.Standable(map)) continue;
                 // 只认属于该边的 spot（到边线段距离阈值，越过即归邻边）。
                 if (DistToSegment(new Vector2(p.x + 0.5f, p.z + 0.5f), edgeA, edgeB) > 6f) continue;
-                var d = Vector2.Distance(new Vector2(p.x, p.z), mid - inward * 3f);
-                if (d < bestDist)
-                {
-                    bestDist = d;
-                    best = p;
-                }
+                roots.Add(p);
             }
-            return best;
         }
 
         /// <summary>点到线段距离（2D 地图坐标）。</summary>
