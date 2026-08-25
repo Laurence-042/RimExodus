@@ -306,17 +306,50 @@ namespace RimExodus
             {
                 var pawn = vehicle as Pawn;
                 if (pawn?.Map == null) return true;
-                if (!SeamlessCommandTargets.TryGet(pawn, out var ct) || ct.map == pawn.Map) return true;
-                if (!SeamlessCombatCoords.TryGetCombatLink(pawn.Map, ct.map, out var link)) return true;
+                var verbose = RimExodusMod.Settings?.verboseLogging ?? false;
+
+                Map targetMap = null;
+                IntVec3 targetCell = IntVec3.Invalid;
+                if (SeamlessCommandTargets.TryGet(pawn, out var ct) && ct.map != pawn.Map)
+                {
+                    targetMap = ct.map;
+                    targetCell = ct.cell;
+                }
+                else if (SeamlessMapUtility.TryResolveMapPosition(clickCell.ToVector3Shifted(), pawn.Map, out var ownerMap, out var ownerCell)
+                    && ownerMap != pawn.Map)
+                {
+                    // 登记缺失恢复（2026-08-25"无畏舰走本图同数字坐标"症状）：VF 传入的 clickCell
+                    // 是重放邻图框架格，登记被中间某次本图菜单清除时按本图坐标解析兜底——数字恰
+                    // 落在渲染邻图区域（void 带）则恢复出目标图/格；解析不出（=真本图命令）才放行。
+                    targetMap = ownerMap;
+                    targetCell = ownerCell;
+                    if (verbose)
+                        Log.Message($"[RimExodus] VF compat: PawnGotoAction registration missing for {pawn.LabelShort}, "
+                            + $"recovered map {targetMap.uniqueID} cell {targetCell} from clickCell {clickCell}.");
+                }
+                else if (verbose)
+                {
+                    Log.Message($"[RimExodus] VF compat: PawnGotoAction decline for {pawn.LabelShort}: no cross-map registration "
+                        + $"(clickCell {clickCell} resolves locally), letting vanilla Goto proceed.");
+                }
+
+                if (targetMap == null) return true;
+                if (!SeamlessCombatCoords.TryGetCombatLink(pawn.Map, targetMap, out var link))
+                {
+                    if (verbose)
+                        Log.Message($"[RimExodus] VF compat: PawnGotoAction decline for {pawn.LabelShort}: no combat link "
+                            + $"map {pawn.Map.uniqueID} -> map {targetMap.uniqueID}.");
+                    return true;
+                }
 
                 // 不可跨图下令的主体吞掉（对齐原版"不可对其下令移动"）；可下令主体无论桥接成败
                 // 都吞原生——原生会在本图坐标上发 job + 误读 IsExitCell 组队。终点用登记格
                 // ct.cell（邻图框架）而非 gotoLoc（VF 在宿主图上解析的同数字坐标格）。
                 if (!SeamlessBoundaryRules.IsCrossMapOrderable(pawn)) return false;
 
-                if (SeamlessCrossMapOrders.TryBridgeJob(pawn, ct.map, ct.cell))
+                if (SeamlessCrossMapOrders.TryBridgeJob(pawn, targetMap, targetCell))
                 {
-                    FleckMaker.Static(ct.cell.ToVector3Shifted() + Patches_CombatVisuals.OffsetVector(in link),
+                    FleckMaker.Static(targetCell.ToVector3Shifted() + Patches_CombatVisuals.OffsetVector(in link),
                         pawn.Map, FleckDefOf.FeedbackGoto);
                 }
                 return false;

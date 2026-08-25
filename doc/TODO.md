@@ -8,6 +8,7 @@
 
 1. 启动日志 `VF compat: bound 4 vehicle patches (grids=True, arrivalCheck=True, reachability=True)`；双装 VF/VMF 无 "[VehicleMapFramework] Error while apply patching" 红字。
 2. 跨图右键下令载具 → 驶近接缝 → 传送 → **到达即续走到目标格**（无停顿、无卡死、无需手动改令）。首次进入某图时 verbose 可见 `synchronously generating VF grids ... (Urgent)`（之后跳过）。
+2a. **大型多格载具（无畏舰，2026-08-25 近 spot 选格修复）**：跨图右键不再"始终无法到达"（VF 对 spot 格整车矩形判立装不下 3 格宽接缝带 → 菜单探测放宽到 spot ≤2 环内 VF 可达格）；也不再"走本图同数字坐标"（登记缺失时 PawnGotoActionPrefix 按 clickCell 解析恢复桥接，decline 全程 verbose 记录）。回归点：无畏舰/巡沙车跨图下令、传送、续程；verbose 关注 `VF compat: PawnGotoAction registration missing ... recovered` / `decline` / `Local menu cleared cross-map registration` 行以确认登记清除链。
 3. 传送落点对该载具不可站时自动挪最近可站格（verbose = `arrival cell ... resolved to ...`）；对端整圈无地块时菜单如实"无法通过此处"且下令被拒绝（Warning 日志 `no standable arrival cell`）——换条边试。
 4. 载具载乘客跨缝（乘客存活）；下船无我们标签的报错。
 5. PS WASD 驾驶跨缝：视角/缩放自动切、输入不冻结；传送后继续驾驶正常。

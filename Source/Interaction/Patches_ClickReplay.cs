@@ -66,6 +66,9 @@ namespace RimExodus
                 // PawnGotoAction/StartPath 包装把本图命令误判为跨图）。
                 foreach (var pawn in selectedPawns)
                 {
+                    if (SeamlessCommandTargets.TryGet(pawn, out var stale) && RimExodusMod.Settings?.verboseLogging == true)
+                        Log.Message($"[RimExodus] Local menu cleared cross-map registration for {pawn.LabelShort} "
+                            + $"(was map {stale.map?.uniqueID ?? -1} cell {stale.cell}).");
                     SeamlessCommandTargets.Remove(pawn);
                 }
                 return;

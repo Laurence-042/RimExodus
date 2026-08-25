@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using RimWorld;
 using Verse;
@@ -21,7 +22,7 @@ namespace RimExodus
         /// </summary>
         internal static bool TryBridgeJob(Pawn pawn, Map targetMap, IntVec3 targetLocalCell, Job nextJob = null)
         {
-            if (!TryFindBestBridgeSpot(pawn, targetMap, targetLocalCell, out var exitSpot, out var costDebug))
+            if (!TryFindBestBridgeSpot(pawn, targetMap, targetLocalCell, out var exitSpot, out var gotoCell, out var costDebug))
             {
                 if (RimExodusMod.Settings?.verboseLogging ?? false)
                     Log.Message($"[RimExodus] Cross-map move rejected: no reachable seamless enter spot bridges map {pawn.Map.uniqueID} to map {targetMap.uniqueID}.");
@@ -34,10 +35,10 @@ namespace RimExodus
             grant.FinalDestCell = targetLocalCell;
             grant.NextJob = nextJob;
 
-            // 已站在 spot 上（联合选点 C1=0 的退化情形，2026-08 实测）：Goto 目标即当前格 →
+            // 已站在 spot/goto 格上（联合选点 C1=0 的退化情形，2026-08 实测）：Goto 目标即当前格 →
             // JobDriver 即时完成、不产生任何 pather 步进 → 触发器永不运行 → 许可被 think tree
             // 下一个 job 清掉（日志表现 = Bridge issued 后紧跟 Grant cleared）。直接以当前格触发传送。
-            if (pawn.Position == exitSpot.Position)
+            if (pawn.Position == gotoCell)
             {
                 if (RimExodusMod.Settings?.verboseLogging ?? false)
                     Log.Message($"[RimExodus] Bridge immediate: {pawn.LabelShort} already on spot {exitSpot.Position}, transferring now.");
@@ -45,13 +46,13 @@ namespace RimExodus
                 return true;
             }
 
-            var job = JobMaker.MakeJob(JobDefOf.Goto, exitSpot.Position);
+            var job = JobMaker.MakeJob(JobDefOf.Goto, gotoCell);
             job.dutyTag = SeamlessTransferGrants.TransitTag;
             pawn.jobs.StartJob(job, JobCondition.InterruptForced);
 
             if (RimExodusMod.Settings?.verboseLogging ?? false)
                 Log.Message($"[RimExodus] Bridge issued: {pawn.LabelShort} on map {pawn.Map.uniqueID} "
-                    + $"-> spot {exitSpot.Position} ({costDebug}), final dest map {targetMap.uniqueID} cell {targetLocalCell}.");
+                    + $"-> spot {exitSpot.Position} (goto {gotoCell}, {costDebug}), final dest map {targetMap.uniqueID} cell {targetLocalCell}.");
             return true;
         }
 
@@ -63,9 +64,10 @@ namespace RimExodus
         /// → 最小 C1（保持"走到最近可达点后停下"的降级）；C1 全 ∞ → false（本图无任何可达 spot）。
         /// 代价口径见 <see cref="SeamlessPathCostField"/>；段内执行仍由原版 A* 完成。
         /// </summary>
-        private static bool TryFindBestBridgeSpot(Pawn pawn, Map toMap, IntVec3 destCell, out Thing exitSpot, out string costDebug)
+        private static bool TryFindBestBridgeSpot(Pawn pawn, Map toMap, IntVec3 destCell, out Thing exitSpot, out IntVec3 gotoCell, out string costDebug)
         {
             exitSpot = null;
+            gotoCell = IntVec3.Invalid;
             costDebug = null;
             var fromMap = pawn.Map;
             // 菜单生成与选项执行之间目标图可能被休眠删除策略 Dispose，
@@ -120,7 +122,7 @@ namespace RimExodus
             // 本轮如实返回 false（菜单侧同步诚实化，见 VehicleCanGotoPostfix）。pawn 分支保持原逻辑零变化。
             if (SeamlessVehiclesCompat.IsVehicle(pawn))
             {
-                return TryPickVehicleBridgeSpot(pawn, fromMap, spots, costs1, costs2, out exitSpot, out costDebug);
+                return TryPickVehicleBridgeSpot(pawn, fromMap, spots, costs1, costs2, out exitSpot, out gotoCell, out costDebug);
             }
 
             int bestIdx = -1;
@@ -157,15 +159,52 @@ namespace RimExodus
             if (bestIdx >= 0)
             {
                 exitSpot = spots[bestIdx];
+                gotoCell = exitSpot.Position;
                 costDebug = $"C1={costs1[bestIdx]} C2={costs2[bestIdx]} total={bestTotal} of {spots.Count} spots";
                 return true;
             }
             if (fallbackIdx >= 0)
             {
                 exitSpot = spots[fallbackIdx];
+                gotoCell = exitSpot.Position;
                 costDebug = $"fallback C1-only={fallbackC1} of {spots.Count} spots, dest unreachable from all arrivals";
                 return true;
             }
+            return false;
+        }
+
+        /// <summary>
+        /// 载具近 spot 选格（2026-08-25"无畏舰始终无法到达"修复）：VF 的 CanReachVehicle 要求
+        /// 终点格上整车矩形可立，接缝带 ~3 格宽装不下大型多格载具 → spot 格恒不可达。先试 spot 格
+        /// 直达，失败则切比雪夫 ≤2 环内找首个 VF 口径可达格当 Goto 目标——半径与执行侧触发器的
+        /// 近距兜底（TryEnterNextPathCellPrefix ≤2）一致，车停在 gotoCell 时仍能以 BoundSpot 触发传送。
+        /// 半径 2 方形窗口无原版数组，显式环形遍历（窗口口径纪律见 SeamlessGridMath 类注释）。
+        /// </summary>
+        private static bool TryResolveVehicleGotoCell(Pawn pawn, Map fromMap, IntVec3 spotCell, out IntVec3 gotoCell)
+        {
+            if (SeamlessVehiclesCompat.CanReachLocal(pawn, fromMap, pawn.Position, spotCell))
+            {
+                gotoCell = spotCell;
+                return true;
+            }
+            for (int ring = 1; ring <= 2; ring++)
+            {
+                for (int dx = -ring; dx <= ring; dx++)
+                {
+                    for (int dz = -ring; dz <= ring; dz++)
+                    {
+                        if (Math.Max(Math.Abs(dx), Math.Abs(dz)) != ring) continue; // 只扫本环外沿
+                        var candidate = new IntVec3(spotCell.x + dx, 0, spotCell.z + dz);
+                        if (!candidate.InBounds(fromMap)) continue;
+                        if (SeamlessVehiclesCompat.CanReachLocal(pawn, fromMap, pawn.Position, candidate))
+                        {
+                            gotoCell = candidate;
+                            return true;
+                        }
+                    }
+                }
+            }
+            gotoCell = IntVec3.Invalid;
             return false;
         }
 
@@ -177,9 +216,10 @@ namespace RimExodus
         /// （菜单侧 VehicleCanGotoPostfix 同口径实测，不会出现"放行后空转"）。
         /// </summary>
         private static bool TryPickVehicleBridgeSpot(Pawn pawn, Map fromMap, List<Thing> spots,
-            int[] costs1, int[] costs2, out Thing exitSpot, out string costDebug)
+            int[] costs1, int[] costs2, out Thing exitSpot, out IntVec3 gotoCell, out string costDebug)
         {
             exitSpot = null;
+            gotoCell = IntVec3.Invalid;
             costDebug = null;
 
             var ordered = new List<int>();
@@ -200,15 +240,17 @@ namespace RimExodus
 
             foreach (var idx in ordered)
             {
-                if (!SeamlessVehiclesCompat.CanReachLocal(pawn, fromMap, pawn.Position, spots[idx].Position)) continue;
+                if (!TryResolveVehicleGotoCell(pawn, fromMap, spots[idx].Position, out var gc)) continue;
                 exitSpot = spots[idx];
+                gotoCell = gc;
                 costDebug = $"VF-reached C1={costs1[idx]} C2={costs2[idx]} total={costs1[idx] + costs2[idx]} (rank {ordered.IndexOf(idx) + 1}/{ordered.Count})";
                 return true;
             }
             foreach (var idx in fallback)
             {
-                if (!SeamlessVehiclesCompat.CanReachLocal(pawn, fromMap, pawn.Position, spots[idx].Position)) continue;
+                if (!TryResolveVehicleGotoCell(pawn, fromMap, spots[idx].Position, out var gc)) continue;
                 exitSpot = spots[idx];
+                gotoCell = gc;
                 costDebug = $"VF-reached fallback C1-only={costs1[idx]}";
                 return true;
             }
@@ -264,16 +306,25 @@ namespace RimExodus
 
             // 按距离升序排序，依次尝试可达性。
             candidates.Sort((a, b) => a.distSq.CompareTo(b.distSq));
+            var isVehicle = SeamlessVehiclesCompat.IsVehicle(pawn);
             foreach (var (spot, _) in candidates)
             {
                 // VF 载具（2026-08）：可达性走 VF 口径（CanReachVehicle，按该 VehicleDef 的
                 // 悬浮/轮式/涉水网格判定）——原版 CanReach + TraverseParms.For(pawn) 对载具不成立。
-                if (SeamlessVehiclesCompat.CanReachLocal(pawn, fromMap, pawn.Position, spot.Position))
+                // 2026-08-25 放宽：spot 格对大型多格载具的整车矩形常不可立（接缝带 ~3 格宽），
+                // 近 spot ≤2 选格与执行侧同口径（TryResolveVehicleGotoCell）。
+                var ok = isVehicle
+                    ? TryResolveVehicleGotoCell(pawn, fromMap, spot.Position, out _)
+                    : SeamlessVehiclesCompat.CanReachLocal(pawn, fromMap, pawn.Position, spot.Position);
+                if (ok)
                 {
                     exitSpot = spot;
                     return true;
                 }
             }
+            if (isVehicle && candidates.Count > 0 && RimExodusMod.Settings?.verboseLogging == true)
+                Log.Message($"[RimExodus] VehicleCanGoto probe: no reachable bridge spot for {pawn.LabelShort} "
+                    + $"({candidates.Count} candidates to map {toMap.uniqueID}) — seam not standable for this VehicleDef within 2 cells of any spot.");
             return false;
         }
     }
