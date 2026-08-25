@@ -23,18 +23,17 @@ namespace RimExodus
     /// - <see cref="Patches_RCellFinder"/> 三个出口重定向 Prefix。
     /// </summary>
     [HarmonyPatch(typeof(PlaySettings), nameof(PlaySettings.DoPlaySettingsGlobalControls))]
+    [StaticConstructorOnStartup]
     static class Patch_PlaySettings_SeamBandToggle
     {
         private static Texture2D _icon;
 
-        private static class StaticInit
+        // 资产字段必须经 StaticConstructorOnStartup 加载（主线程约束 + 消 Verse 启动分析器
+        // 警告）。首版把赋值放无特性且无人引用的嵌套 StaticInit 里 = _icon 恒 null、
+        // toggle 从未显示过的潜伏 bug（2026-08 修警告时发现）。
+        static Patch_PlaySettings_SeamBandToggle()
         {
-            // Texture2D 静态字段必须经 StaticConstructorOnStartup 加载（主线程资产加载约束，
-            // 否则启动时 StaticConstructorOnStartupUtility 报警告）。
-            static StaticInit()
-            {
-                _icon = ContentFinder<Texture2D>.Get("UI/Commands/RimExodus_SeamBandToggle", reportFailure: false);
-            }
+            _icon = ContentFinder<Texture2D>.Get("UI/Commands/RimExodus_SeamBandToggle", reportFailure: false);
         }
 
         static void Postfix(WidgetRow row, bool worldView)

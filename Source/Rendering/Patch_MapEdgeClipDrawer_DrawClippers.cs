@@ -10,6 +10,7 @@ namespace RimExodus
     /// footprint 以外仍由裁剪平面逐帧覆盖，避免只清深度的主相机保留上一帧颜色。
     /// </summary>
     [HarmonyPatch(typeof(MapEdgeClipDrawer), nameof(MapEdgeClipDrawer.DrawClippers))]
+    [StaticConstructorOnStartup] // 静态 MaterialPropertyBlock 字段——加特性消 Verse 启动分析器警告
     public static class Patch_MapEdgeClipDrawer_DrawClippers
     {
         private const float ClipSize = 500f;

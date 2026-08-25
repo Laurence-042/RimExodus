@@ -18,6 +18,7 @@ namespace RimExodus
         /// 做纯数据层，天色由"当前图 overlay（自己方形内）+ 全零顶点 quad（邻图非重叠 L 形区）"
         /// 各管一块，消除 void 透明圈 sky² 双染暗带。
     /// </summary>
+    [StaticConstructorOnStartup] // 静态 AccessTools FieldRef 初始化走启动期；Material/Mesh 保持惰性构建，加特性消 Verse 启动分析器警告
     public class SeamlessTileRenderer : MapComponent
     {
         private const string CommandBufferName = "RimExodus Seamless Neighbor Terrain";

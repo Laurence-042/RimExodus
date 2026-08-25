@@ -230,6 +230,7 @@ namespace RimExodus
     /// Material 用与 <see cref="WorldObjectDef.Material"/> 同款 shader/altit 制构建各缓存一次，
     /// 每帧 PickFor 只做引用返回，勿在绘制路径新建 Material。
     /// </summary>
+    [StaticConstructorOnStartup]
     public static class TileWorldIcons
     {
         private static Material _activeMat;
@@ -241,6 +242,17 @@ namespace RimExodus
 
         /// <summary>gizmo"删除此图"图标（mod 自带）。</summary>
         public static Texture2D DeleteCommandIcon { get; private set; }
+
+        // 初始化放声明类自身的静态构造（特性也挂在声明类上）——Verse 的"缺特性"分析器只认
+        // 字段声明类的特性，挂嵌套类不消警告（2026-08 修警告时发现）。
+        static TileWorldIcons()
+        {
+            _activeMat = BuildMat("World/WorldObjects/RimExodus_Tile_Active");
+            _unmannedMat = BuildMat("World/WorldObjects/RimExodus_Tile_Unmanned");
+            _dormantMat = BuildMat("World/WorldObjects/RimExodus_Tile_Dormant");
+            SleepCommandIcon = ContentFinder<Texture2D>.Get("UI/Commands/RimExodus_SleepMap", reportFailure: false);
+            DeleteCommandIcon = ContentFinder<Texture2D>.Get("UI/Commands/RimExodus_DeleteMap", reportFailure: false);
+        }
 
         /// <summary>按地图运行时状态选三态 Material（无图/资源缺失返回 null = 不画）。</summary>
         public static Material PickFor(MapParent parent)
@@ -261,18 +273,6 @@ namespace RimExodus
             return MaterialPool.MatFrom(texturePath, ShaderDatabase.WorldOverlayTransparentLit, 3550);
         }
 
-        [Verse.StaticConstructorOnStartup]
-        private static class StaticInit
-        {
-            static StaticInit()
-            {
-                _activeMat = BuildMat("World/WorldObjects/RimExodus_Tile_Active");
-                _unmannedMat = BuildMat("World/WorldObjects/RimExodus_Tile_Unmanned");
-                _dormantMat = BuildMat("World/WorldObjects/RimExodus_Tile_Dormant");
-                SleepCommandIcon = ContentFinder<Texture2D>.Get("UI/Commands/RimExodus_SleepMap", reportFailure: false);
-                DeleteCommandIcon = ContentFinder<Texture2D>.Get("UI/Commands/RimExodus_DeleteMap", reportFailure: false);
-            }
-        }
     }
 
     /// <summary>
