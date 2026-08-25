@@ -83,11 +83,21 @@ namespace RimExodus
         public override string Label => "Seamless Tile Map";
 
         /// <summary>
-        /// 世界图三态图标（2026-08）：useDynamicDrawer=true（def），<see cref="WorldObject.Draw"/>
-        /// 每帧取 <see cref="WorldObject.Material"/> → 按运行时状态（休眠/活跃有人/活跃无人）换图标。
-        /// 静态层 Material 按 def 缓存不可用；Material 由 <see cref="TileWorldIcons"/> 预构建缓存。
+        /// 世界图状态标记（2026-08 真实形状填充版）：useDynamicDrawer=true（def），动态层每帧调
+        /// 本方法 → 按本 tile 真实多边形顶点（WorldGrid.GetTileVertices，六/五边形各异）画向内收缩的
+        /// 半透明填充，颜色按运行时状态（休眠灰/活跃有人橙/活跃无人蓝）。取代旧的固定六边形 PNG
+        /// 图标（Material override + TileWorldIcons 贴图）——固定形状永远契合不了各 tile 实际角度。
+        /// 点击命中不受影响：GenWorldUI 的动态层点击判定只看 useDynamicDrawer + DistanceToMouse，
+        /// 且 tile 匹配兜底（WorldObjectsUnderMouse 第三段）本身就可选中本对象。
         /// </summary>
-        public override UnityEngine.Material Material => TileWorldIcons.PickFor(this);
+        public override void Draw()
+        {
+            int state = TileWorldIcons.GetStateIndex(this);
+            if (state < 0) return;
+            Mesh mesh = TileWorldIcons.GetStateMesh(Tile, state);
+            if (mesh == null) return;
+            Graphics.DrawMesh(mesh, Vector3.zero, Quaternion.identity, TileWorldIcons.OverlayMat, WorldCameraManager.WorldLayer);
+        }
 
         /// <summary>
         /// 玩家在世界地图上的主动生命周期 gizmo（2026-08）：
@@ -158,8 +168,8 @@ namespace RimExodus
         /// 阶段4前置：基础地图的 WorldObject 会进入世界视图静态绘制层（useDynamicDrawer=false）。
         /// override Print 为空操作，让地块在世界地图上不显示图标。
         /// 地块通过地图内叠加渲染呈现，不需世界视图图标。
-        /// （2026-08 起 def 改 useDynamicDrawer=true 走 <see cref="WorldObject.Draw"/> 动态层，
-        /// Print 仍为空操作——动态层不经过静态层 Print。）
+        /// （2026-08 起 def 改 useDynamicDrawer=true 走动态层，Print 仍为空操作——
+        /// 动态层绘制由 <see cref="Draw"/> 的真实形状填充负责。）
         /// </summary>
         public override void Print(LayerSubMesh subMesh)
         {
@@ -224,18 +234,50 @@ namespace RimExodus
     }
 
     /// <summary>
-    /// 地块图世界图标的三态 Material 与 gizmo 图标缓存（2026-08，StaticConstructorOnStartup）。
-    /// 三态 = 休眠（灰） / 活跃有人（绿+P） / 活跃无人（蓝紫）——玩家在世界地图上一眼区分
-    /// 哪些 tile 有已生成地图、地图里有没有人（用户定夺）。
-    /// Material 用与 <see cref="WorldObjectDef.Material"/> 同款 shader/altit 制构建各缓存一次，
-    /// 每帧 PickFor 只做引用返回，勿在绘制路径新建 Material。
+    /// 世界图地块状态标记的材质/网格缓存与 gizmo 图标（2026-08 真实形状顶点色渐变版，
+    /// StaticConstructorOnStartup）。状态 = 活跃有人（橙）/ 活跃无人（蓝）/ 休眠（灰）——玩家在
+    /// 世界地图上一眼区分哪些 tile 有已生成地图、地图里有没有人（色盲友好蓝橙对，用户定夺）。
+    /// 绘制方式 = 按 tile 真实多边形顶点（六/五边形各异）重建单格 mesh（中心顶点 + 环形顶点三角扇），
+    /// **颜色与透明度写进顶点色**：中心 <see cref="CenterAlpha"/> 较实（仍透出地形）→ 边缘顶点
+    /// alpha 0 线性渐隐（用户定夺 2026-08：中心近实边缘全透，既醒目又不遮地块/不与原版
+    /// MouseTile/SelectedTile 描边打架）。材质 = 原版 <see cref="WorldMaterials.VertexColorTransparent"/>
+    /// 同款顶点色 shader（WorldDrawLayer_RaycastableGrid 先例），全状态共享一个材质实例，
+    /// 状态切换只重写 mesh 顶点色（TileFillMesh.bakedState 守卫，非每帧）。
+    /// 教训（勿回退）：首版 SolidColorMaterials + WorldOverlayTransparent 无贴图且 renderQueue
+    /// 未设 → 完全不显示；二版 CurrentMapTile 贴图染色 → 休眠灰 0.45 平铺对比度不足看不出来。
     /// </summary>
     [StaticConstructorOnStartup]
     public static class TileWorldIcons
     {
-        private static Material _activeMat;
-        private static Material _unmannedMat;
-        private static Material _dormantMat;
+        /// <summary>渐变中心的 alpha（边缘为 0）：接近不透明但仍透出地形（用户定夺）。</summary>
+        public const float CenterAlpha = 0.65f;
+
+        // 状态索引（GetStateIndex 的返回值，亦为 StateColors 下标）。
+        public const int StateActive = 0;
+        public const int StateUnmanned = 1;
+        public const int StateDormant = 2;
+
+        private static readonly Color[] StateColors =
+        {
+            new Color(1f, 0.55f, 0.1f),   // 活跃有人：橙
+            new Color(0.2f, 0.5f, 1f),    // 活跃无人：蓝
+            new Color(0.5f, 0.5f, 0.5f),  // 休眠：灰
+        };
+
+        private static Material _overlayMat;
+
+        /// <summary>缓存条目：mesh 几何一次构建；bakedState 记录当前顶点色对应的状态，变化才重写。</summary>
+        private sealed class TileFillMesh
+        {
+            public Mesh mesh;
+            public int bakedState = -1;
+        }
+
+        private static readonly Dictionary<PlanetTile, TileFillMesh> TileMeshes = new Dictionary<PlanetTile, TileFillMesh>();
+
+        private static readonly List<Vector3> TmpVerts = new List<Vector3>();
+        private static readonly List<int> TmpIndices = new List<int>();
+        private static readonly Color32[] TmpColors = new Color32[16];
 
         /// <summary>gizmo"休眠此图"图标（mod 自带，原版无现成 Suspend 命令图标）。</summary>
         public static Texture2D SleepCommandIcon { get; private set; }
@@ -243,34 +285,118 @@ namespace RimExodus
         /// <summary>gizmo"删除此图"图标（mod 自带）。</summary>
         public static Texture2D DeleteCommandIcon { get; private set; }
 
+        /// <summary>全状态共享的顶点色世界覆盖材质（颜色在顶点色里，材质无需分状态）。</summary>
+        public static Material OverlayMat => _overlayMat;
+
         // 初始化放声明类自身的静态构造（特性也挂在声明类上）——Verse 的"缺特性"分析器只认
         // 字段声明类的特性，挂嵌套类不消警告（2026-08 修警告时发现）。
         static TileWorldIcons()
         {
-            _activeMat = BuildMat("World/WorldObjects/RimExodus_Tile_Active");
-            _unmannedMat = BuildMat("World/WorldObjects/RimExodus_Tile_Unmanned");
-            _dormantMat = BuildMat("World/WorldObjects/RimExodus_Tile_Dormant");
+            _overlayMat = new Material(WorldMaterials.VertexColorTransparent);
             SleepCommandIcon = ContentFinder<Texture2D>.Get("UI/Commands/RimExodus_SleepMap", reportFailure: false);
             DeleteCommandIcon = ContentFinder<Texture2D>.Get("UI/Commands/RimExodus_DeleteMap", reportFailure: false);
         }
 
-        /// <summary>按地图运行时状态选三态 Material（无图/资源缺失返回 null = 不画）。</summary>
-        public static Material PickFor(MapParent parent)
+        /// <summary>
+        /// 按地图运行时状态取状态索引（无图/已 Dispose 返回 -1 = 不画）。
+        /// </summary>
+        public static int GetStateIndex(MapParent parent)
         {
             var map = parent?.Map;
-            if (map == null || map.Disposed) return null;
+            if (map == null || map.Disposed) return -1;
 
-            if (SeamlessDormancyManager.IsDormant(map)) return _dormantMat;
+            if (SeamlessDormancyManager.IsDormant(map)) return StateDormant;
             // "有人"判定唯一出处 = SeamlessMapGovernance.HasPlayerPawn（与 governor 距离源同口径，
             // 勿在此自写 pawn 遍历——首版用 AllPawnsSpawnedCount 把野生动物也算有人）。
-            if (SeamlessMapGovernance.HasPlayerPawn(map)) return _activeMat;
-            return _unmannedMat;
+            if (SeamlessMapGovernance.HasPlayerPawn(map)) return StateActive;
+            return StateUnmanned;
         }
 
-        private static Material BuildMat(string texturePath)
+        /// <summary>
+        /// 取/建 tile 的渐变填充 mesh 并确保顶点色对应当前状态（进程缓存几何，状态变化才重写颜色）。
+        /// 图删除时经 <see cref="ReleaseTileMesh"/> 释放。世界图 tile 数有穷且受管辖图 ≤ deleteHops 球，
+        /// 缓存有界。
+        /// </summary>
+        public static Mesh GetStateMesh(PlanetTile tile, int state)
         {
-            // 与 WorldObjectDef.Material 同款 shader/altit 制（renderQueue 3550）。
-            return MaterialPool.MatFrom(texturePath, ShaderDatabase.WorldOverlayTransparentLit, 3550);
+            if (!tile.Valid || state < 0 || state >= StateColors.Length) return null;
+            if (!TileMeshes.TryGetValue(tile, out var entry) || entry?.mesh == null)
+            {
+                entry = BuildTileMesh(tile);
+                if (entry == null) return null;
+                TileMeshes[tile] = entry;
+            }
+            if (entry.bakedState != state)
+            {
+                BakeStateColors(entry.mesh, state);
+                entry.bakedState = state;
+            }
+            return entry.mesh;
+        }
+
+        private static TileFillMesh BuildTileMesh(PlanetTile tile)
+        {
+            Find.WorldGrid.GetTileVertices(tile, TmpVerts);
+            if (TmpVerts.Count < 3 || TmpVerts.Count + 1 > TmpColors.Length) return null;
+
+            // 顶点布局：[0] = tile 中心，[1..n] = 环形顶点。均沿法向抬升 0.02 防 z-fighting
+            // （原版 WorldDrawLayer_SingleTile/DebugTile 同款）。
+            Vector3 center = Find.WorldGrid.GetTileCenter(tile);
+            var verts = new List<Vector3>(TmpVerts.Count + 1)
+            {
+                center + center.normalized * 0.02f
+            };
+            for (int i = 0; i < TmpVerts.Count; i++)
+            {
+                Vector3 v = TmpVerts[i];
+                verts.Add(v + v.normalized * 0.02f);
+            }
+
+            // 三角扇（中心为公共顶点）：跨三角形对 alpha 线性插值 = 中心→边缘径向渐变。
+            TmpIndices.Clear();
+            for (int j = 0; j < TmpVerts.Count; j++)
+            {
+                int a = 1 + j;
+                int b = 1 + (j + 1) % TmpVerts.Count;
+                TmpIndices.Add(b);
+                TmpIndices.Add(a);
+                TmpIndices.Add(0);
+            }
+
+            var mesh = new Mesh { name = "RimExodus_TileFill" };
+            mesh.SetVertices(verts);
+            mesh.SetTriangles(new List<int>(TmpIndices), 0);
+            mesh.RecalculateNormals();
+            return new TileFillMesh { mesh = mesh };
+        }
+
+        private static void BakeStateColors(Mesh mesh, int state)
+        {
+            Color stateColor = StateColors[state];
+            int vertCount = mesh.vertexCount;
+            // [0] 中心最实，[1..n] 环形边缘全透（渐变由 GPU 对顶点色插值得到）。
+            for (int i = 0; i < vertCount; i++)
+            {
+                float a = i == 0 ? CenterAlpha : 0f;
+                TmpColors[i] = new Color32(
+                    (byte)Mathf.RoundToInt(stateColor.r * 255f),
+                    (byte)Mathf.RoundToInt(stateColor.g * 255f),
+                    (byte)Mathf.RoundToInt(stateColor.b * 255f),
+                    (byte)Mathf.RoundToInt(a * 255f));
+            }
+            var colors = new Color32[vertCount];
+            System.Array.Copy(TmpColors, colors, vertCount);
+            mesh.colors32 = colors;
+        }
+
+        /// <summary>释放 tile 的缓存 mesh（图删除/销毁 WorldObject 时调用，防 Mesh 累积泄漏）。</summary>
+        public static void ReleaseTileMesh(PlanetTile tile)
+        {
+            if (TileMeshes.TryGetValue(tile, out var entry))
+            {
+                if (entry?.mesh != null) UnityEngine.Object.Destroy(entry.mesh);
+                TileMeshes.Remove(tile);
+            }
         }
 
     }

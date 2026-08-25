@@ -656,6 +656,9 @@ namespace RimExodus
         {
             if (parent == null) return;
 
+            // 释放世界图状态填充的缓存 mesh（tile 顶点固定但 WorldObject 即将销毁，防累积）。
+            TileWorldIcons.ReleaseTileMesh(parent.Tile);
+
             var interiorMap = parent.Map;
             if (interiorMap != null)
             {
