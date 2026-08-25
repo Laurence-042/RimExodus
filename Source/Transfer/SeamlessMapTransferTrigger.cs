@@ -158,7 +158,15 @@ namespace RimExodus
             {
                 SeamlessTransferGrants.Remove(pawn);
                 AfterTransfer(pawn, map, thing, arrivalMap, grant);
+                return;
             }
+
+            // 传送被拒（TryTransferPawn 内已 Warning：对端接缝无整车可站地块 / 网格异常态等）：
+            // 撤销许可止住"站在 spot 上每步重试"的循环（2026-08 实测：许可残留 → Bridge
+            // immediate + 拒绝日志往复刷屏）。拒绝是确定性判据，玩家换边/换点重下令即可。
+            SeamlessTransferGrants.Remove(pawn);
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] Bridge grant revoked for {pawn.LabelShort}: transfer rejected at seam (see warning above), re-order to retry.");
         }
 
         /// <summary>

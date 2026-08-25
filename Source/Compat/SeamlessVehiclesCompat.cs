@@ -75,12 +75,18 @@ namespace RimExodus
         private static MethodInfo _requestGridsForMethod;
         private static MethodInfo _canReachVehicleMethod;
         private static MethodInfo _nonStandableBlockedMethod;
+        private static MethodInfo _tryFindNearestStandableMethod;
+
+        // 重入守卫：patch E 的 Prefix 会经选点链调用被 patch 的同一方法（TryFindNearestStandableCell），
+        // 包装器 Invoke 期间置位、Prefix 看到即放行原方法体，防无限递归。
+        private static bool _inVehicleStandableSearch;
 
         // 就绪判定链：VehiclePathingSystem[def]（get_Item）→ pathData.Suspended + pathData.VehiclePathGrid.Enabled。
         private static MethodInfo _pathDataIndexerMethod;
         private static PropertyInfo _pathGridProp;
         private static PropertyInfo _pathGridEnabledProp;
         private static PropertyInfo _pathDataSuspendedProp;
+        private static MethodInfo _pathGridWalkableMethod;
 
         // =====================================================================================
         // 绑定（RimExodusMod 构造器调用，PatchAll 之后）
@@ -114,7 +120,11 @@ namespace RimExodus
                 _vehiclePatherField = AccessTools.Field(_vehiclePawnType, "vehiclePather");
                 _notifyTeleportedMethod = AccessTools.Method(_pathFollowerType, "Notify_Teleported");
                 _vehicleDefProp = AccessTools.Property(_vehiclePawnType, "VehicleDef");
-                _vehicleDefSizeField = _vehicleDefType == null ? null : AccessTools.Field(_vehicleDefType, "Size");
+                // VehicleDef 的尺寸成员是小写 size 字段（VF 源码直接 size.x/size.z）；
+                // 首版反射取 "Size" 恒 null → 落点搜索半径退化为默认 6（2026-08 实测
+                // "no standable arrival cell within radius 6" 对大型载具过小）。双名兜底。
+                _vehicleDefSizeField = _vehicleDefType == null ? null
+                    : (AccessTools.Field(_vehicleDefType, "size") ?? AccessTools.Field(_vehicleDefType, "Size"));
 
                 // 传送三步的反射面。
                 var mapHelperType = AccessTools.TypeByName("Vehicles.MapHelper");
@@ -139,6 +149,7 @@ namespace RimExodus
                         if (pathGridType != null)
                         {
                             _pathGridEnabledProp = AccessTools.Property(pathGridType, "Enabled");
+                            _pathGridWalkableMethod = AccessTools.Method(pathGridType, "Walkable", new[] { typeof(IntVec3) });
                         }
                     }
                     if (_pathDataIndexerMethod == null || _pathGridProp == null || _pathDataSuspendedProp == null || _pathGridEnabledProp == null)
@@ -150,6 +161,13 @@ namespace RimExodus
                     }
                 }
                 _canReachVehicleMethod = AccessTools.Method(AccessTools.TypeByName("Vehicles.VehicleReachabilityUtility"), "CanReachVehicle");
+
+                // VF 原生"就近合法终点"（PathingHelper.cs:460）：Standable + DrivableRectOnCell(AnyRotation)
+                // + 无他车 + CanReachVehicle——整车矩形口径，菜单 GoHere 的 gotoLoc 即来自它（2026-08 第三轮
+                // 核心判据：region 可达是单格语义，单独用它选终点会被 VF A* 的终点矩形门槛截断 →
+                // "ran out of path nodes" PatherFailed）。
+                _tryFindNearestStandableMethod = AccessTools.Method(AccessTools.TypeByName("Vehicles.PathingHelper"),
+                    "TryFindNearestStandableCell");
 
                 var bound = 0;
 
@@ -190,6 +208,20 @@ namespace RimExodus
                     bound++;
                 }
 
+                // E. 菜单门槛（2026-08-25 回程灰显修复）：VF GetSingleOption 拿重放邻图框架坐标在本图
+                // 跑 TryFindNearestStandableCell——投影区域对大型载具不友好时 GoHere 直接灰显
+                //（VehicleCanGoto 都没被调，Postfix D 无从介入；去程能过纯靠投影区域恰好开阔的地形运气，
+                // 方向不对称）。重放窗口内改用"指向目标图的桥接 goto 格"（同一 VF 整车矩形判据选出）。
+                if (_tryFindNearestStandableMethod != null)
+                {
+                    var standablePrefix = AccessTools.Method(typeof(SeamlessVehiclesCompat), nameof(TryFindNearestStandableCellPrefix));
+                    if (standablePrefix != null)
+                    {
+                        harmony.Patch(_tryFindNearestStandableMethod, prefix: new HarmonyMethod(standablePrefix));
+                        bound++;
+                    }
+                }
+
                 if (bound == 0)
                 {
                     Log.Warning($"[RimExodus] VF compat: signature drift, no patches bound (TryEnterNextPathCell={tryEnter != null}, StartPath={startPath != null}, PawnGotoAction={gotoAction != null}, VehicleCanGoto={canGoto != null}) — compat disabled.");
@@ -227,11 +259,12 @@ namespace RimExodus
                 if (vehicle.Map == mapBefore
                     && SeamlessTransferGrants.TryGet(vehicle, out var vGrant)
                     && vGrant.BoundSpot.IsValid
-                    && SeamlessGridMath.ChebyshevDistance(vehicle.Position, vGrant.BoundSpot) <= 2)
+                    && SeamlessGridMath.ChebyshevDistance(vehicle.Position, vGrant.BoundSpot) <= VehicleNearRadius(vehicle))
                 {
                     // 近距兜底：VF 的 A* 对多格载具把 Goto 终点解析成"整车可站"的 spot 邻近格，
-                    // 路径不正好止于 spot 格——距 BoundSpot ≤2（车头已探进传送圈）直接以 BoundSpot
-                    // 触发传送（坐标映射只依赖 spot，"不校验格距"既有契约）。
+                    // 路径不正好止于 spot 格——距 BoundSpot 在车长口径内（车头已探进传送圈）
+                    // 直接以 BoundSpot 触发传送（坐标映射只依赖 spot，"不校验格距"既有契约）。
+                    // 半径按整车最长边/2 缩放（2026-08：固定 ≤2 对大型载具过窄）。
                     SeamlessMapTransferTrigger.TryTriggerTransfer(vehicle, vGrant.BoundSpot, mapBefore);
                 }
 
@@ -395,6 +428,45 @@ namespace RimExodus
         }
 
         // =====================================================================================
+        // E. 菜单门槛：重放窗口内的载具 GoHere 亮暗/gotoLoc 改用桥接 goto 格
+        // =====================================================================================
+
+        /// <summary>
+        /// Prefix 挂 VF 的 <c>PathingHelper.TryFindNearestStandableCell</c>（GetSingleOption 用它把
+        /// clickCell 解析成 gotoLoc——重放时 clickCell 是邻图框架坐标，读在本图上对大型载具常是
+        /// 敌意地形 → 恒 false → GoHere 灰显且 Postfix D 无从介入，去程能过纯靠地形运气 = 方向
+        /// 不对称的根源）。重放激活且载具在宿主图上时改答"指向目标图的桥接 goto 格"（与执行侧
+        /// 同一 VF 整车矩形判据）；选不出 = 本图该 VehicleDef 真到不了缝，诚实灰显（原生在无意义
+        /// 的框架坐标上搜索只会撞运气）。重入守卫见 _inVehicleStandableSearch。
+        /// </summary>
+        private static bool TryFindNearestStandableCellPrefix(object vehicle, IntVec3 cell, ref IntVec3 result, ref bool __result)
+        {
+            if (!_initialized || _inVehicleStandableSearch) return true;
+            if (!SeamlessReplayContext.Active) return true;
+            try
+            {
+                var pawn = vehicle as Pawn;
+                if (pawn?.Map == null || pawn.Map != SeamlessReplayContext.Host) return true;
+                if (!IsVehicle(pawn) || !SeamlessBoundaryRules.IsCrossMapOrderable(pawn)) return true;
+
+                if (SeamlessCrossMapOrders.TryFindVehicleMenuGoto(pawn, SeamlessReplayContext.Target, out var gotoCell))
+                {
+                    result = gotoCell;
+                    __result = true;
+                    return false;
+                }
+                __result = false;
+                result = IntVec3.Invalid;
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[RimExodus] VF compat: TryFindNearestStandableCell prefix error (swallowed, vanilla continues): {ex}");
+                return true;
+            }
+        }
+
+        // =====================================================================================
         // 传送三步（TryTransferPawn 车辆分支消费；未装 VF / 非vehicles = no-op）
         // =====================================================================================
 
@@ -402,6 +474,64 @@ namespace RimExodus
         public static bool IsVehicle(Pawn pawn)
         {
             return _initialized && pawn != null && _vehiclePawnType.IsInstanceOfType(pawn);
+        }
+
+        /// <summary>VF 规范"就近合法终点"反射是否在位（缺失时选点退回 region 口径环扫）。</summary>
+        public static bool VehicleStandableReflectionAvailable => _tryFindNearestStandableMethod != null;
+
+        /// <summary>
+        /// 载具的"近 spot 统一半径"（锚格距 spot 的最大切比雪夫距离，选点搜索/触发兜底/菜单共用）：
+        /// R = max(min(边)×2, ⌈最长边/2⌉+1)。min(边)×2 = VF 原生 TryFindNearestStandableCell 的默认
+        /// 搜索半径；⌈最长边/2⌉+1 = 长条车朝核心侧内偏的余量（接缝带 ~3 格宽、OuterRing 之外即 void，
+        /// 大车矩形只能向内安放）。三处必须同口径，否则"选得到 goto 格但触发兜底够不着"。
+        /// 反射失败回落 2（旧口径）。
+        /// </summary>
+        public static int VehicleNearRadius(Pawn vehicle)
+        {
+            if (!_initialized || vehicle == null) return 2;
+            try
+            {
+                var def = _vehicleDefProp?.GetValue(vehicle);
+                var size = def == null ? null : _vehicleDefSizeField?.GetValue(def);
+                if (size is IntVec2 s && (s.x > 0 || s.z > 0))
+                {
+                    var r = Math.Max(Math.Min(s.x, s.z) * 2, (Math.Max(s.x, s.z) + 1) / 2 + 1);
+                    return Math.Max(r, 2);
+                }
+            }
+            catch { /* 尺寸反射失败回落旧口径 */ }
+            return 2;
+        }
+
+        /// <summary>
+        /// VF 原生"就近合法终点"包装（整车矩形口径）：Standable + DrivableRectOnCell(AnyRotation) +
+        /// 无他车阻挡 + CanReachVehicle（从载具当前位置）。半径用 <see cref="VehicleNearRadius"/> 统一口径。
+        /// 反射缺失返回 false（调用方回落旧环扫逻辑）。
+        /// </summary>
+        public static bool TryFindVehicleStandableNear(Pawn vehicle, IntVec3 cell, out IntVec3 result)
+        {
+            result = IntVec3.Invalid;
+            if (!_initialized || vehicle == null || vehicle.Map == null || _tryFindNearestStandableMethod == null) return false;
+            try
+            {
+                var args = new object[] { vehicle, cell, IntVec3.Invalid, (float)VehicleNearRadius(vehicle) };
+                _inVehicleStandableSearch = true;
+                try
+                {
+                    var ok = (bool)_tryFindNearestStandableMethod.Invoke(null, args);
+                    if (ok) result = (IntVec3)args[2];
+                    return ok;
+                }
+                finally
+                {
+                    _inVehicleStandableSearch = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[RimExodus] VF compat: TryFindNearestStandableCell invoke failed (falling back to ring scan): {ex}");
+                return false;
+            }
         }
 
         /// <summary>
@@ -457,23 +587,26 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// ②落点解析：arrivalCell（spot 镜像格）对整车（矩形可站 ∪ 他车占用，VF 官方判据
-        /// NonStandableOrVehicleBlocked）不可用时径向找最近可用格（上限 2×车长，防把车挪去远处）。
+        /// ②落点解析：arrivalCell（spot 镜像格）按 <see cref="IsBlockedAt"/>（VF Drivable 口径：
+        /// 目标图 pathGrid 整车矩形 + 他车占用，容忍 thing）不可用时径向找最近可用格（上限 2×车长，
+        /// 防把车挪去远处）。每个候选格对 <see cref="Rot4"/> 四向放宽（当前朝向优先、命中即写回
+        /// rotation 供 Spawn 落地）——不能复用 TryFindNearestStandableCell：它内部全走
+        /// vehicle.Map（源图）与 CanReachVehicle（从当前位置），跨图落点判定必须显式传目标 map。
         /// 返回 false = 半径内无任何整车可站格 → 调用方拒绝传送（对端接缝无车辆可站地块）。
         /// 反射缺失时返回 true 保持旧行为（不校验）。
         /// </summary>
-        public static bool TryResolveVehicleArrivalCell(Pawn vehicle, Map map, ref IntVec3 cell)
+        public static bool TryResolveVehicleArrivalCell(Pawn vehicle, Map map, ref IntVec3 cell, ref Rot4 rotation)
         {
             if (!_initialized || !IsVehicle(vehicle) || _nonStandableBlockedMethod == null) return true;
             try
             {
-                if (!IsBlocked(vehicle, map, cell)) return true;
+                if (!IsBlockedAt(vehicle, map, cell, rotation)) return true;
 
                 var cap = 6;
                 try
                 {
                     var def = _vehicleDefProp?.GetValue(vehicle);
-                    var size = _vehicleDefSizeField?.GetValue(def);
+                    var size = def == null ? null : _vehicleDefSizeField?.GetValue(def);
                     if (size is IntVec2 s)
                     {
                         cap = Math.Max(6, 2 * Math.Max(s.x, s.z));
@@ -487,21 +620,77 @@ namespace RimExodus
                     var candidate = cell + offset;
                     if (!candidate.InBounds(map)) continue;
                     if (SeamlessGridMath.ChebyshevDistance(candidate, cell) > cap) break;
-                    if (IsBlocked(vehicle, map, candidate)) continue;
+                    var rot = ResolveStandableRotation(vehicle, map, candidate, rotation);
+                    if (!rot.IsValid) continue;
                     if (RimExodusMod.Settings?.verboseLogging ?? false)
-                        Log.Message($"[RimExodus] VF compat: arrival cell {cell} unusable for {vehicle.LabelShort}, resolved to {candidate} on map {map.uniqueID}.");
+                        Log.Message($"[RimExodus] VF compat: arrival cell {cell} unusable for {vehicle.LabelShort}, "
+                            + $"resolved to {candidate} (rot {rot.AsInt}) on map {map.uniqueID}.");
                     cell = candidate;
+                    rotation = rot;
                     return true;
                 }
 
                 Log.Warning($"[RimExodus] VF compat: no standable arrival cell within radius {cap} of {cell} on map {map.uniqueID} "
-                    + $"for {vehicle.LabelShort} — transfer rejected (seam terrain impassable for this vehicle).");
+                    + $"for {vehicle.LabelShort} (any rotation) — transfer rejected (seam terrain impassable for this vehicle).");
+                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    LogArrivalDiagnostics(vehicle, map, cell, cap);
                 return false;
             }
             catch (Exception ex)
             {
                 Log.Error($"[RimExodus] VF compat: TryResolveVehicleArrivalCell failed (cell kept as-is): {ex}");
                 return true;
+            }
+        }
+
+        /// <summary>候选格上首个可站朝向（当前朝向优先；四向全败返回 Invalid）。</summary>
+        private static Rot4 ResolveStandableRotation(Pawn vehicle, Map map, IntVec3 cell, Rot4 current)
+        {
+            if (!IsBlockedAt(vehicle, map, cell, current)) return current;
+            for (int i = 0; i < 4; i++)
+            {
+                var rot = new Rot4(i);
+                if (rot == current) continue;
+                if (!IsBlockedAt(vehicle, map, cell, rot)) return rot;
+            }
+            return Rot4.Invalid;
+        }
+
+        /// <summary>
+        /// 拒绝时的裁决诊断（verbose）：采样最近若干界内候选格，报告 VF pathGrid（Drivable 口径）
+        /// 可走比例——grid-blocked 为主 = 地形/网格对该车型不可走（真实地形限制）；grid-ok 为主但仍拒
+        /// = 他车占用或矩形越界（2026-08-25 回程拒绝长期无法定位的直接补课）。
+        /// </summary>
+        private static void LogArrivalDiagnostics(Pawn vehicle, Map map, IntVec3 center, int cap)
+        {
+            try
+            {
+                var pathGrid = GetPathGridFor(vehicle, map);
+                var samples = 0;
+                var gridWalkable = 0;
+                var sb = new System.Text.StringBuilder();
+                foreach (var offset in GenRadial.RadialPattern)
+                {
+                    if (offset == IntVec3.Zero) continue;
+                    var candidate = center + offset;
+                    if (!candidate.InBounds(map)) continue;
+                    if (SeamlessGridMath.ChebyshevDistance(candidate, center) > cap) break;
+                    if (samples >= 8) break;
+                    samples++;
+                    bool walkable = pathGrid == null || _pathGridWalkableMethod == null
+                        ? false
+                        : (bool)_pathGridWalkableMethod.Invoke(pathGrid, new object[] { candidate });
+                    if (walkable) gridWalkable++;
+                    if (sb.Length > 0) sb.Append(", ");
+                    sb.Append(candidate).Append(walkable ? ":grid-ok" : ":grid-blocked");
+                }
+                Log.Message($"[RimExodus] VF compat: arrival diagnostics near {center} on map {map.uniqueID}: "
+                    + $"{gridWalkable}/{samples} sampled center cells VF-grid walkable ({sb}). "
+                    + "grid-blocked 为主 = 地形/网格对该车型不可走；grid-ok 为主但仍拒 = 他车占用或整车矩形越界。");
+            }
+            catch (Exception ex)
+            {
+                Log.Message($"[RimExodus] VF compat: arrival diagnostics failed: {ex.Message}");
             }
         }
 
@@ -519,10 +708,49 @@ namespace RimExodus
             }
         }
 
-        /// <summary>整车占用判定（VF 官方判据，含他车）。</summary>
-        private static bool IsBlocked(Pawn vehicle, Map map, IntVec3 cell)
+        /// <summary>
+        /// 整车阻挡判定（跨图复刻 VF <c>Drivable</c> 口径，2026-08-25 第五轮修正）：
+        /// 矩形每格 = 目标图该车型 VF pathGrid 可走 + 无他车占用——**刻意不扫 thingGrid**
+        /// （VF 原生 <c>Drivable</c>/<c>DrivableRectOnCell</c> 同款宽容：树/植物在 costGrid 里只是
+        /// 通行代价非 Impassable，"树卡车底"合法；NonStandableOrVehicleBlocked 的 CellRectStandable
+        /// 对 passability != Standable 的 thing 全拒 = 野外接缝环上一棵树就毙掉整个候选，是回程
+        /// 四连拒的真根因之一）。矩形枚举零反射复刻 VehicleDef.VehicleRect（= GenAdj.OccupiedRect
+        /// + West→East/South→North 朝向归一化）。pathGrid 反射缺失时回落旧 NonStandableOrVehicleBlocked
+        /// （固定朝向调用，保底不崩）。
+        /// </summary>
+        private static bool IsBlockedAt(Pawn vehicle, Map map, IntVec3 cell, Rot4 rot)
         {
-            return (bool)_nonStandableBlockedMethod.Invoke(null, new object[] { vehicle, map, cell, vehicle.Rotation });
+            var pathGrid = GetPathGridFor(vehicle, map);
+            var def = _vehicleDefProp?.GetValue(vehicle);
+            var size = def == null ? null : _vehicleDefSizeField?.GetValue(def) as IntVec2?;
+            if (pathGrid == null || _pathGridWalkableMethod == null || size == null)
+            {
+                return (bool)_nonStandableBlockedMethod.Invoke(null, new object[] { vehicle, map, cell, rot });
+            }
+            if (rot == Rot4.West) rot = Rot4.East;
+            if (rot == Rot4.South) rot = Rot4.North;
+            var rect = GenAdj.OccupiedRect(cell, rot, size.Value);
+            foreach (var rectCell in rect.Cells)
+            {
+                if (!rectCell.InBounds(map)) return true;
+                if (!(bool)_pathGridWalkableMethod.Invoke(pathGrid, new object[] { rectCell })) return true;
+            }
+            foreach (var other in map.mapPawns.AllPawnsSpawned)
+            {
+                if (other == vehicle || !_vehiclePawnType.IsInstanceOfType(other)) continue;
+                if (other.OccupiedRect().Overlaps(rect)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>取目标图上该车型 VF pathGrid 实例（网格未生成/反射缺失 = null）。</summary>
+        private static object GetPathGridFor(Pawn vehicle, Map map)
+        {
+            var system = GetPathingSystem(map);
+            var def = _vehicleDefProp?.GetValue(vehicle);
+            if (system == null || def == null || _pathDataIndexerMethod == null || _pathGridProp == null) return null;
+            var pathData = _pathDataIndexerMethod.Invoke(system, new[] { def });
+            return pathData == null ? null : _pathGridProp.GetValue(pathData);
         }
 
         /// <summary>取 map 上的 VehiclePathingSystem 组件（找不到 = null）。</summary>

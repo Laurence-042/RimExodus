@@ -148,9 +148,58 @@ namespace RimExodus
                     SetupNativeParentMap();
                 }
             }
+            HealPocketNeighborLinks();
             // 消费异步预加载队列（全局静态队列，任意图块 tick 触发消费，幂等）。
             // 不限地图类型：玩家聚焦口袋地图时也能及时消费（避免饥饿延迟）。
             SeamlessTilePreloader.ConsumeQueued();
+        }
+
+        /// <summary>
+        /// 邻居表口袋链接自愈（2026-08，修已毒化的旧档）：SetupNativeParentMap 曾用裸 map.Tile
+        /// 接线，VMF 载具内部图（Tile 被同步成载具所在图 tile）被 AutoConnect 登记进各邻图并
+        /// 覆盖对真家园的链接。扫描本图邻居表：链接对端是口袋 parent 时重解析该 worldTile 的
+        /// 真实图（Find.Maps 中非口袋且 tile 匹配者，如家园）改指过去；无真实图则删链接。
+        /// 命中时刷新本图传送点对端缓存（_cachedArrival 曾指向车内坐标）。正常档零命中，
+        /// 每帧成本 = 邻居数（≤6）次类型判读。
+        /// </summary>
+        private void HealPocketNeighborLinks()
+        {
+            var links = SeamlessMapData.Neighbors(map);
+            if (links == null) return;
+            var anyHeal = false;
+            for (int i = links.Count - 1; i >= 0; i--)
+            {
+                var link = links[i];
+                if (link?.neighbor == null || link.neighbor is not PocketMapParent) continue;
+
+                MapParent real = null;
+                foreach (var m in Find.Maps)
+                {
+                    if (m == null || m.Disposed || m.Parent is PocketMapParent) continue;
+                    if (SeamlessTileRegistry.GetMapWorldTile(m) == link.worldTile)
+                    {
+                        real = m.Parent;
+                        break;
+                    }
+                }
+                if (real != null)
+                {
+                    link.neighbor = real;
+                    anyHeal = true;
+                    Log.Message($"[RimExodus] Healed neighbor link: map {map.uniqueID} wt={link.worldTile} " +
+                                $"re-pointed from pocket map to {real.LabelCap}.");
+                }
+                else
+                {
+                    links.RemoveAt(i);
+                    anyHeal = true;
+                    Log.Message($"[RimExodus] Healed neighbor link: map {map.uniqueID} dropped stale pocket link wt={link.worldTile}.");
+                }
+            }
+            if (anyHeal)
+            {
+                SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(map);
+            }
         }
 
         public override void MapGenerated()
@@ -162,6 +211,11 @@ namespace RimExodus
             // 地块图（MapParent_SeamlessTile）的接线在 GenerateTileMap 的 onComplete（不经
             // MapGenerated 自动级联，避免生成风暴）。
             if (map.Parent is MapParent_SeamlessTile) return;
+            // 口袋图早退（2026-08 实测教训）：VMF 载具内部图（MapParent_Vehicle : PocketMapParent）
+            // 的 genStep 链被 MapGeneration.xml 通配注入（VMF_VehicleMapBiome），本组件随之挂上；
+            // VMF 的 SetTile() 会把内部图 Parent.Tile 同步成载具所在图 tile —— 不在此挡住，
+            // 延迟 1 tick 的 SetupNativeParentMap 会把"车的内部图"当原生家族图接线（见下）。
+            if (map.Parent is PocketMapParent) return;
             if (!setupOnStartDone)
             {
                 setupOnStartDone = true;
@@ -188,10 +242,14 @@ namespace RimExodus
         /// </summary>
         private void SetupNativeParentMap()
         {
-            // 表面层守卫（2026-08）：空间层图（SpaceMapParent 等）的 tileId 属轨道层，打进表面
-            // WorldGrid 会读错地形/邻居数据（潜伏 bug 顺带修复）；口袋图 Tile 无效，同样早退。
-            var worldTile = map.Tile;
-            if (worldTile < 0 || worldTile.LayerDef != RimWorld.PlanetLayerDefOf.Surface) return;
+            // 表面层 + 口袋图守卫（2026-08 实测教训，勿回退为裸 map.Tile）：VMF 载具内部图
+            // （MapParent_Vehicle）的 SetTile() 把 Parent.Tile 同步成载具所在图 tile（如家园）——
+            // 裸读会把"车的内部图"当该 tile 的原生家族图接线：PlaceEnterSpots 在车内铺点 +
+            // AutoConnect 把内部图登记为各邻图的"直接邻居"并**覆盖对真家园的链接**（游戏内
+            // 表现 = 邻图上不再显示家园地形、跨缝目标指向车内）。GetMapWorldTile 统一排除
+            // 口袋图（PocketMapParent）与空间层，一处收口。
+            var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
+            if (worldTile < 0) return;
 
             SeamlessWeatherClusterManager.BindMap(map);
             SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(map, worldTile);

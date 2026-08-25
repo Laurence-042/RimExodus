@@ -314,7 +314,21 @@ namespace RimExodus
             }
             if (grant.FinalDestMap != arrivalMap) return;
             var finalCell = grant.FinalDestCell;
-            if (!finalCell.InBounds(arrivalMap) || !finalCell.Walkable(arrivalMap))
+            // 载具终点判据（2026-08 第三轮对齐）：pawn 用 Walkable；载具终点必须是整车矩形可立格
+            //（region/Walkable 单格语义的终点会被 VF A* 终点门槛截断 → "ran out of path nodes"
+            // PatherFailed），经 VF 原生"就近合法终点"解析，放不下时自动取最近合法格。
+            if (SeamlessVehiclesCompat.IsVehicle(pawn))
+            {
+                if (!finalCell.InBounds(arrivalMap)
+                    || !SeamlessVehiclesCompat.TryFindVehicleStandableNear(pawn, finalCell, out finalCell))
+                {
+                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                        Log.Message($"[RimExodus] Bridge continuation skipped: no vehicle-standable cell near final dest "
+                            + $"{grant.FinalDestCell} on map {arrivalMap.uniqueID} for {pawn.LabelShort}.");
+                    return;
+                }
+            }
+            else if (!finalCell.InBounds(arrivalMap) || !finalCell.Walkable(arrivalMap))
             {
                 if (RimExodusMod.Settings?.verboseLogging ?? false)
                     Log.Message($"[RimExodus] Bridge continuation skipped: final cell {finalCell} on map {arrivalMap.uniqueID} is not walkable.");

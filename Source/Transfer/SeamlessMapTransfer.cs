@@ -64,6 +64,8 @@ namespace RimExodus
                 Log.Warning($"[RimExodus] Seamless transfer rejected: arrival cell {arrivalCell} on map {arrivalMap.uniqueID} is not walkable (overlap band should guarantee walkability).");
                 return false;
             }
+            var departureCell = pawn.Position;
+            var rotation = pawn.Rotation;
             if (SeamlessVehiclesCompat.IsVehicle(pawn))
             {
                 // ① 对图 VF 网格同步就绪化（Urgent，官方模式）——未就绪时一切 VF 判定都是错的
@@ -72,16 +74,14 @@ namespace RimExodus
                 {
                     return false;
                 }
-                // ② 落点解析：整车矩形 + 他车占用（VF 官方判据），不行就径向找；找不到 = 对端
-                //   接缝无车辆可站地块，如实拒绝（真实地形限制）。
-                if (!SeamlessVehiclesCompat.TryResolveVehicleArrivalCell(pawn, arrivalMap, ref arrivalCell))
+                // ② 落点解析：整车矩形 + 他车占用（VF 官方判据，四向放宽），不行就径向找；找不到 =
+                //   对端接缝无车辆可站地块，如实拒绝（真实地形限制）。解析可能改写落地朝向
+                //   （长边车换朝向才放得下——与 VF DrivableRectOnCell(AnyRotation) 同口径）。
+                if (!SeamlessVehiclesCompat.TryResolveVehicleArrivalCell(pawn, arrivalMap, ref arrivalCell, ref rotation))
                 {
                     return false;
                 }
             }
-
-            var departureCell = pawn.Position;
-            var rotation = pawn.Rotation;
 
             // === 转移前：保存需要跨 DeSpawn/Spawn 保留的状态 ===
             // DeSpawn 会销毁整个 Pawn_DraftController（RemoveComponentsOnDespawned 把 drafter 置 null），

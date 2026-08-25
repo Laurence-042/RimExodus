@@ -174,20 +174,28 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 载具近 spot 选格（2026-08-25"无畏舰始终无法到达"修复）：VF 的 CanReachVehicle 要求
-        /// 终点格上整车矩形可立，接缝带 ~3 格宽装不下大型多格载具 → spot 格恒不可达。先试 spot 格
-        /// 直达，失败则切比雪夫 ≤2 环内找首个 VF 口径可达格当 Goto 目标——半径与执行侧触发器的
-        /// 近距兜底（TryEnterNextPathCellPrefix ≤2）一致，车停在 gotoCell 时仍能以 BoundSpot 触发传送。
-        /// 半径 2 方形窗口无原版数组，显式环形遍历（窗口口径纪律见 SeamlessGridMath 类注释）。
+        /// 载具近 spot 选格：优先 VF 原生"就近合法终点"（TryFindNearestStandableCell——整车矩形
+        /// DrivableRectOnCell(AnyRotation) + 无他车 + CanReachVehicle，径向第 0 格即 spot 自身，
+        /// 直达/近搜一体）。region 可达（CanReachLocal）是单格语义、对矩形一无所知——单独用它选
+        /// 终点会被 VF A* 的终点矩形门槛截断 → "ran out of path nodes" PatherFailed（2026-08 第三轮
+        /// 教训，勿回退为纯 region 判据）；反射缺失时回落旧环扫（此时只能保证 region 可达）。
         /// </summary>
         private static bool TryResolveVehicleGotoCell(Pawn pawn, Map fromMap, IntVec3 spotCell, out IntVec3 gotoCell)
         {
+            if (SeamlessVehiclesCompat.TryFindVehicleStandableNear(pawn, spotCell, out gotoCell))
+            {
+                return true;
+            }
+            // 回落仅当 VF 规范函数反射缺失（此时无法按矩形判据选点，退回 region 口径的旧环扫）；
+            // 反射在位而搜索失败 = 半径内真无整车可立格，不得用 region 可达格顶替（A* 终点门槛会截断）。
+            if (SeamlessVehiclesCompat.VehicleStandableReflectionAvailable) return false;
             if (SeamlessVehiclesCompat.CanReachLocal(pawn, fromMap, pawn.Position, spotCell))
             {
                 gotoCell = spotCell;
                 return true;
             }
-            for (int ring = 1; ring <= 2; ring++)
+            var maxRing = SeamlessVehiclesCompat.VehicleNearRadius(pawn);
+            for (int ring = 1; ring <= maxRing; ring++)
             {
                 for (int dx = -ring; dx <= ring; dx++)
                 {
@@ -272,6 +280,18 @@ namespace RimExodus
         }
 
         /// <summary>
+        /// 菜单门槛用：载具指向 toMap 的桥接 goto 格（与执行侧选点同一判据/同一半径）。供 patch E
+        /// （TryFindNearestStandableCell Prefix）在重放窗口内替代 VF 对重放坐标的原生解析——
+        /// 亮暗语义与执行能力一致。pawn（非载具）不走本口（保持 VF 原生）。
+        /// </summary>
+        internal static bool TryFindVehicleMenuGoto(Pawn pawn, Map toMap, out IntVec3 gotoCell)
+        {
+            gotoCell = IntVec3.Invalid;
+            return SeamlessVehiclesCompat.IsVehicle(pawn)
+                && TryFindNearestReachableBridgeSpot(pawn, toMap, out _, out gotoCell);
+        }
+
+        /// <summary>
         /// 在 fromMap 上找到所有能桥接到 toMap 的传送点，按到 pawn 的距离排序，
         /// 返回第一个 pawn 能到达的。满铺接缝后候选很多，最近的通常可达即返回。
         /// 候选判定：传送点的 <see cref="CompSeamlessTileEnterSpot.hasArrival"/> 且
@@ -281,7 +301,13 @@ namespace RimExodus
         /// </summary>
         private static bool TryFindNearestReachableBridgeSpot(Pawn pawn, Map toMap, out Thing exitSpot)
         {
+            return TryFindNearestReachableBridgeSpot(pawn, toMap, out exitSpot, out _);
+        }
+
+        private static bool TryFindNearestReachableBridgeSpot(Pawn pawn, Map toMap, out Thing exitSpot, out IntVec3 gotoCell)
+        {
             exitSpot = null;
+            gotoCell = IntVec3.Invalid;
             var fromMap = pawn.Map;
             var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
             if (enterSpotDef == null)
@@ -313,12 +339,14 @@ namespace RimExodus
                 // 悬浮/轮式/涉水网格判定）——原版 CanReach + TraverseParms.For(pawn) 对载具不成立。
                 // 2026-08-25 放宽：spot 格对大型多格载具的整车矩形常不可立（接缝带 ~3 格宽），
                 // 近 spot ≤2 选格与执行侧同口径（TryResolveVehicleGotoCell）。
+                IntVec3 gc = IntVec3.Invalid;
                 var ok = isVehicle
-                    ? TryResolveVehicleGotoCell(pawn, fromMap, spot.Position, out _)
+                    ? TryResolveVehicleGotoCell(pawn, fromMap, spot.Position, out gc)
                     : SeamlessVehiclesCompat.CanReachLocal(pawn, fromMap, pawn.Position, spot.Position);
                 if (ok)
                 {
                     exitSpot = spot;
+                    gotoCell = isVehicle ? gc : spot.Position;
                     return true;
                 }
             }
