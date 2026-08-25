@@ -56,4 +56,7 @@
   <RimExodus_DeleteTileMap>Delete this map</RimExodus_DeleteTileMap>
   <RimExodus_DeleteTileMapDesc>Remove this map from memory entirely. Revisiting this world tile will regenerate it from scratch - everything built or left here will be lost.</RimExodus_DeleteTileMapDesc>
   <RimExodus_DeleteTileMapConfirm>Delete the map at "{0}"?\n\nEverything on it will be lost. Revisiting the tile will regenerate it from scratch.</RimExodus_DeleteTileMapConfirm>
+  <!-- Save during incremental map generation (2026-08): rejected until generation completes. -->
+  <RimExodus.SaveBlockedDuringGenerationLabel>Save rejected</RimExodus.SaveBlockedDuringGenerationLabel>
+  <RimExodus.SaveBlockedDuringGeneration>Save rejected: a neighboring map is still being generated.\n\nPlease do not save during map generation to test this mod's reliability. Its author has already gained a profound understanding of how unreliable it is.\n\nSaving will work normally again in a few seconds, once generation finishes.</RimExodus.SaveBlockedDuringGeneration>
 </LanguageData>

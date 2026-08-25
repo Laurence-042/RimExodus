@@ -56,4 +56,7 @@
   <RimExodus_DeleteTileMap>删除此地图</RimExodus_DeleteTileMap>
   <RimExodus_DeleteTileMapDesc>将此地图从内存中彻底移除。重访该世界地块时会从头重新生成——在此建造或遗留的一切都会丢失。</RimExodus_DeleteTileMapDesc>
   <RimExodus_DeleteTileMapConfirm>删除"{0}"的地图？\n\n其上的一切都将丢失。重访该地块时会从头重新生成。</RimExodus_DeleteTileMapConfirm>
+  <!-- 分帧生成期间存档（2026-08）：生成完成前拒绝。 -->
+  <RimExodus.SaveBlockedDuringGenerationLabel>存档已被拒绝</RimExodus.SaveBlockedDuringGenerationLabel>
+  <RimExodus.SaveBlockedDuringGeneration>存档已被拒绝：相邻地图正在生成中。\n\n请勿在地图加载过程中存档来测试本mod可靠性——这个mod的作者已经深刻理解到它的不可靠了。\n\n几秒后生成完成，届时即可正常存档。</RimExodus.SaveBlockedDuringGeneration>
 </LanguageData>
