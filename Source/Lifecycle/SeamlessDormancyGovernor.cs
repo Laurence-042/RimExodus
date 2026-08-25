@@ -45,7 +45,57 @@ namespace RimExodus
         /// <summary>下次扫描的 game tick（不序列化：读档后立即首轮扫描，见类注释）。</summary>
         private int nextSweepTick;
 
+        /// <summary>
+        /// 手动休眠锁的持久化面（2026-08，用户要求存档保留）：存世界 tile id 而非 Map 引用——
+        /// 手动休眠对任意受管辖图（地块图 ∪ 原生家族 Settlement 等）均可用，挂 MapParent_SeamlessTile
+        /// 会漏原生家族。运行时真值仍是 <see cref="SeamlessDormancyManager"/> 的静态集合，本集合由
+        /// Manager 的 Sleep(manual)/Wake/Forget 桥接增删；读档后图全活跃（休眠不序列化），首轮 Sweep
+        /// 对 tile ∈ 本集合的图 Sleep 时传 manual:true，锁跨档续期。
+        /// </summary>
+        private HashSet<int> manualDormantTiles = new HashSet<int>();
+
         public SeamlessDormancyGovernor(Game game) { }
+
+        public override void ExposeData()
+        {
+            Scribe_Collections.Look(ref manualDormantTiles, "manualDormantTiles", LookMode.Value);
+            if (Scribe.mode == LoadSaveMode.LoadingVars && manualDormantTiles == null)
+                manualDormantTiles = new HashSet<int>();
+        }
+
+        /// <summary>手动休眠登记（Manager 的 Sleep(manual:true) 桥接调用）。</summary>
+        internal void RecordManualDormant(int worldTile)
+        {
+            if (worldTile >= 0) manualDormantTiles.Add(worldTile);
+        }
+
+        /// <summary>手动休眠解除（Manager 的 Wake/Forget 桥接调用——任意钥匙唤醒都解除锁）。</summary>
+        internal void ClearManualDormant(int worldTile)
+        {
+            manualDormantTiles.Remove(worldTile);
+        }
+
+        /// <summary>
+        /// 读档即睡（2026-08，方案 3）：休眠状态本身不序列化（读档后图全活跃是软休眠模型的读档语义），
+        /// 手动锁图若等首轮 Sweep 再睡回会有一个"活跃进场 → 睡回"的横跳窗口（几十 tick 白跑）——
+        /// 玩家多次存读档时可能把窗口期的 tick 误读为休眠漏洞。本回调在 maps.FinalizeLoading()
+        /// （tick 重注册完成）之后、首个游戏 tick 之前调用（Game.cs LoadGame 时序），锁内图从第一
+        /// tick 起即休眠。保活三条件同 Sweep（CurrentMap / 玩家 pawn / 家园）——CurrentMap 情形
+        /// 本就是唤醒钥匙，保持活跃正确。Sweep 的重睡分支保留为幂等安全网（mod 交互等异常路径）。
+        /// </summary>
+        public override void LoadedGame()
+        {
+            if (manualDormantTiles.Count == 0) return;
+            foreach (var m in new List<Map>(Find.Maps))
+            {
+                if (m == null || m.Disposed) continue;
+                if (!SeamlessMapGovernance.IsGoverned(m)) continue;
+                if (!manualDormantTiles.Contains(SeamlessTileRegistry.GetMapWorldTile(m))) continue;
+                if (m == Find.CurrentMap || SeamlessMapGovernance.HasPlayerPawn(m)
+                    || SeamlessMapGovernance.IsProtectedHome(m)) continue;
+                SeamlessDormancyManager.Sleep(m, "governor: manual dormancy restored from save", true);
+            }
+        }
 
         public override void GameComponentTick()
         {
@@ -181,6 +231,15 @@ namespace RimExodus
 
                 if (!enabled) continue; // 关闭时只唤醒（上面的保活分支），不休眠/不删除。
 
+                // 手动锁的安全网（主路径 = 上方 LoadedGame 的读档即睡，2026-08 方案 3）：
+                // 覆盖"锁内图读档后处于活跃圈（d < sleepHops）"等异常路径——Sleep 分支够不着、
+                // 唤醒守卫又只挡"已休眠"的图，没有本分支它就永远醒着。幂等（已休眠零操作）。
+                if (manualDormantTiles.Contains(tile) && !SeamlessDormancyManager.IsDormant(m))
+                {
+                    SeamlessDormancyManager.Sleep(m, "governor: manual dormancy restored from save", true);
+                    continue;
+                }
+
                 if (d >= deleteHops)
                 {
                     // 滚动删除（可删判定归一层：受管辖且非家园——家园已在上方保活分支 return）。
@@ -196,11 +255,17 @@ namespace RimExodus
 
                 if (d >= sleepHops)
                 {
-                    SeamlessDormancyManager.Sleep(m, $"governor: BFS dist={d} ≥ sleepHops={sleepHops}");
+                    // manual 续期：读档后休眠状态不序列化（图全活跃），本分支对持久化手动锁
+                    // （manualDormantTiles）内的图以 manual:true 重新入睡——锁跨档保留（2026-08）。
+                    SeamlessDormancyManager.Sleep(m, $"governor: BFS dist={d} >= sleepHops={sleepHops}",
+                        manualDormantTiles.Contains(tile));
                 }
                 else if (SeamlessDormancyManager.IsDormant(m))
                 {
                     // 距离回落到活跃圈（玩家走近）：唤醒（正常由边界预加载带先行触发，此处兜底）。
+                    // 手动休眠锁同样挡此兜底（2026-08 实测遗漏：玩家走到手动睡的图旁 1 跳即被
+                    // 本分支唤醒——保活分支有守卫、回落分支漏加，日志 "BFS dist=1 < sleepHops" 即此）。
+                    if (SeamlessDormancyManager.IsManuallyDormant(m)) continue;
                     SeamlessDormancyManager.Wake(m, $"governor: BFS dist={d} < sleepHops={sleepHops}");
                 }
             }

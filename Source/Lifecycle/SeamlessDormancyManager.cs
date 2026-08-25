@@ -38,7 +38,10 @@ namespace RimExodus
         /// 手动休眠锁（2026-08，玩家世界图 gizmo）：锁定的休眠图不被 governor 的保活/距离回落
         /// 分支唤醒——只有玩家主动进图（CurrentMap setter）与 pawn 被命令接近其接缝
         /// （BorderPreloader 的 TryWakeByWorldTile）两类入口能唤醒（用户定夺）。
-        /// 任意来源的 <see cref="Wake"/> 都会解除锁定。与休眠状态同不序列化（读档回自动策略）。
+        /// 任意来源的 <see cref="Wake"/> 都会解除锁定。
+        /// 休眠状态本身不序列化，但**手动锁随档保留**（2026-08 用户要求）：登记/解除同步桥接到
+        /// <see cref="SeamlessDormancyGovernor"/> 的持久化 tile 集合，读档后 governor 首轮 Sweep
+        /// 对锁内图以 manual:true 重新入睡。
         /// governor 的删除分支不受锁影响（距离 ≥ deleteHops 照常滚动删除）。
         /// </summary>
         private static readonly HashSet<Map> manualDormantMaps = new HashSet<Map>();
@@ -62,7 +65,11 @@ namespace RimExodus
             if (map == null || map.Disposed || dormantMaps.Contains(map)) return;
 
             dormantMaps.Add(map);
-            if (manual) manualDormantMaps.Add(map);
+            if (manual)
+            {
+                manualDormantMaps.Add(map);
+                SyncManualTile(map, register: true);
+            }
 
             // 摘除全局 Thing tick（原版 API，MapDeiniter.Deinit 同款——按 x.Map == map 从
             // tickListNormal/Rare/Long 与注册缓冲中全摘）。governor 的调用时点在 GameComponentTick
@@ -93,7 +100,8 @@ namespace RimExodus
             if (map == null || map.Disposed || !dormantMaps.Contains(map)) return;
 
             dormantMaps.Remove(map);
-            manualDormantMaps.Remove(map); // 任意来源的唤醒都解除手动锁（含 CurrentMap/预加载带）。
+            if (manualDormantMaps.Remove(map)) // 任意来源的唤醒都解除手动锁（含 CurrentMap/预加载带）。
+                SyncManualTile(map, register: false);
 
             // 重注册全局 Thing tick：遍历 spawnedThings 逐个注册（读档路径 FinalizeLoading 的
             // 重 spawn 走的就是同一 API，语义等价"这张图像刚读档一样恢复"）。
@@ -138,8 +146,23 @@ namespace RimExodus
             if (map != null)
             {
                 dormantMaps.Remove(map);
-                manualDormantMaps.Remove(map);
+                if (manualDormantMaps.Remove(map))
+                    SyncManualTile(map, register: false); // 图销毁：残留 tile id 一并清出持久化集合。
             }
+        }
+
+        /// <summary>
+        /// 手动锁 ↔ governor 持久化集合的桥接（登记/解除）。静态集合并存为运行时真值，
+        /// 桥接 null 安全（无 Game/无 governor 实例时只动静态集合——旧档/异常态不炸）。
+        /// </summary>
+        private static void SyncManualTile(Map map, bool register)
+        {
+            var tile = SeamlessTileRegistry.GetMapWorldTile(map);
+            if (tile < 0) return;
+            var governor = Current.Game?.GetComponent<SeamlessDormancyGovernor>();
+            if (governor == null) return;
+            if (register) governor.RecordManualDormant(tile);
+            else governor.ClearManualDormant(tile);
         }
 
         /// <summary>

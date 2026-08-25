@@ -2,7 +2,10 @@
 
 ## 当前问题
 
+- **分帧生成中途存档 → 读档雪崩（用户实测 2026-08-25，已修复待回归）**：半成品图随档整体保存但 parent WO 未登记（onComplete 才 Add），读档后 `Map.TileInfo → WorldGrid[invalid tile]` 越界、VacuumComponent/温度/植物 tick/FinalizeLoading 全线异常且无人丢弃该图。修复 = `GameDataSaveLoader.SaveGame` Prefix：`IsAnyGenerating` 时直接拒绝存档，用 **ThreatBig 信件**告知（左上角消息条不显眼被用户否决；文案带玩笑"请勿在地图加载过程中存档来测试本mod可靠性，这个mod的作者已经深刻理解到它的不可靠了"）。回归点：分帧生成进行中手动/自动存档被拒并收威胁信、生成完成后存档正常；正常时机存读档无回归。**已被毒化的旧档（生成中途存的）不可救，重开档**——genStep 共享数据在进程级 static 不序列化，恢复生成结构性不可行。
 - 存档读档后无法触发邻接地图的生成（用户实测 2026-08-25；**根因已确诊并修复 2026-08-25**）：`SeamlessBorderLookup.ExposeData` 持久化了 `built` 旗标而 `borderCells` 不持久化——读档恢复 built==true + 字典 null，`MapComponentTick` 的 `!built` 补建分支永不进 → `TryGetPreloadTarget` 恒 false → `CheckPawnGoto` 永远 skip，邻图预加载/生成整链第一环即断。次生：`IsInNoBuildBand` 同因失效（读档后禁建带放行建造）。修复 = ExposeData 清空（运行时状态全不序列化，读档首 tick 补建）。回归点：读档 → 下令 pawn 走向接缝带 → verbose 出 `SeamlessBorderLookup built for map ...` 补建日志 + 邻图预加载/生成恢复；读档后接缝带内侧禁建仍生效；新档零回归。原猜疑（口袋图污染/HpL 同源）不是本症状根因——整条链序列化面已全面审计，BorderLookup 是唯一断点。
+- **手动休眠锁两修复（2026-08-25，已修复待回归）**：①距离回落分支漏 `IsManuallyDormant` 守卫——手动睡的图在玩家 pawn 走到旁 1 跳时被 `BFS dist=1 < sleepHops` 兜底唤醒（保活分支有守卫、回落分支漏加）；②手动锁随档保留（用户要求）——持久化面 = governor 的 `manualDormantTiles`（世界 tile id，GameComponent 序列化），读档后 governor 首轮 Sweep 对锁内图以 manual:true 重新入睡。**第二轮（同日实测 + 方案 3 收口）**：①缺口 = 锁内图若读档后恰在活跃圈（d < sleepHops，玩家在隔壁）则 Sleep 分支不触发、唤醒守卫又只挡已休眠图 → 永远醒着；②首版 Sweep 兜底重睡有横跳窗口（读档后图先活跃进场几十 tick 再被睡回，玩家可能误读为休眠漏洞——用户定夺消除）。收口 = **主路径 `GameComponent.LoadedGame()` 读档即睡**（maps.FinalizeLoading 之后、首 tick 之前，锁内图从第一 tick 起即休眠），Sweep 重睡分支降级为幂等安全网；日志 reason 均为 `manual dormancy restored from save`。回归点：手动休眠 → 走到邻图晃动 → 无 WAKE 日志；手动休眠 → 存档读档 → **读档完成时（首个 tick 前）即出 SLEEP restored 日志**、该图无活跃窗口；进图/命令 pawn 走近接缝两类钥匙仍可唤醒。
+- **三态世界图图标重绘（2026-08-25 待游戏内目测）**：统一六边形去中心点，有人实心橙 / 无人实心蓝 / 休眠灰空心（色盲友好 + 形状冗余）。回归点：世界图三态颜色形状符合、休眠/有人/无人转换即时刷新。
 
 ## VF 载具兼容 v2（2026-08 机制重写后全链回归）
 
