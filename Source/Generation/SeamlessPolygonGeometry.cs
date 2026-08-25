@@ -8,7 +8,9 @@ namespace RimExodus
 {
     /// <summary>
     /// 无缝地块多边形几何工具（阶段3：多边形裁切）。
-    /// 基于内切圆顶点模型：多边形顶点 = 地图中心 + 0.5S × 顶点方向单位向量。
+    /// 基于等边顶点模型（2026-08，勿回退为外接圆半径恒 0.5S）：目标边长 = 0.5S，
+    /// 半径按相邻顶点方向平均弦长反算（正六边形下精确回落 0.5S；五边形收缩为 ≈0.4253S，
+    /// 边长与六边形相等——世界网格上各边球面等长，旧半径恒定模型五边形边长长 ~17.6% 且五-六共享边两图投影不等长）。
     /// 所有方法统一遍历 N 个顶点（N=5 或 6），不区分五边形/六边形。
     ///
     /// 提供多边形顶点构造、点在多边形内判定、
@@ -274,7 +276,17 @@ namespace RimExodus
             if (dirs.Count == 0) return;
 
             var center = new Vector2(mapSize * 0.5f, mapSize * 0.5f);
-            var radius = mapSize * 0.5f;
+
+            // 等边模型：目标边长 = 0.5S（世界网格上五-五/五-六/六-六边球面等长，
+            // 外接圆半径恒定的旧模型会让五边形边长比六边形长 ~17.6%，五-六共享边两图投影不等长）。
+            // 半径 = 目标边长 / 相邻顶点方向的平均弦长；正六边形平均弦长 = 1，radius 精确回落 0.5S（零回归）。
+            var avgEdge = 0f;
+            for (var i = 0; i < dirs.Count; i++)
+            {
+                avgEdge += (dirs[(i + 1) % dirs.Count] - dirs[i]).magnitude;
+            }
+            avgEdge /= dirs.Count;
+            var radius = avgEdge > 1e-4f ? (mapSize * 0.5f) / avgEdge : mapSize * 0.5f;
 
             foreach (var dir in dirs)
             {
