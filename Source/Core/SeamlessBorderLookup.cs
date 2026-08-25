@@ -43,9 +43,10 @@ namespace RimExodus
         public override void ExposeData()
         {
             base.ExposeData();
-            Scribe_Values.Look(ref pendingBuildTicks, "pendingBuildTicks", -1);
-            Scribe_Values.Look(ref built, "built", false);
-            // borderCells 不持久化：读档后由 MapGenerated/首次 tick 重建（多边形几何可重现，无需存档）。
+            // 刻意什么都不序列化：borderCells/noBuildBandCells/built/pendingBuildTicks 全是运行时状态，
+            // 读档后由 MapComponentTick 的 !built 分支首 tick 补建（多边形几何可重现，无需存档）。
+            // 教训（2026-08）：曾持久化 built——读档恢复 built==true 而 borderCells==null，
+            // 堵死补建分支 → TryGetPreloadTarget 恒 false → 读档后邻图预加载/生成整链断裂。
         }
 
         public override void MapGenerated()

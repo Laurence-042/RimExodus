@@ -2,7 +2,7 @@
 
 ## 当前问题
 
-- 存档读档后无法触发邻接地图的生成了（用户实测 2026-08-25；疑与下条口袋图污染同源——读档后指向口袋 parent 的邻居链接使 TryPreloadNeighbor 去重跳过生成，本轮 HealPocketNeighborLinks 应已覆盖，待回归确认）。
+- 存档读档后无法触发邻接地图的生成（用户实测 2026-08-25；**根因已确诊并修复 2026-08-25**）：`SeamlessBorderLookup.ExposeData` 持久化了 `built` 旗标而 `borderCells` 不持久化——读档恢复 built==true + 字典 null，`MapComponentTick` 的 `!built` 补建分支永不进 → `TryGetPreloadTarget` 恒 false → `CheckPawnGoto` 永远 skip，邻图预加载/生成整链第一环即断。次生：`IsInNoBuildBand` 同因失效（读档后禁建带放行建造）。修复 = ExposeData 清空（运行时状态全不序列化，读档首 tick 补建）。回归点：读档 → 下令 pawn 走向接缝带 → verbose 出 `SeamlessBorderLookup built for map ...` 补建日志 + 邻图预加载/生成恢复；读档后接缝带内侧禁建仍生效；新档零回归。原猜疑（口袋图污染/HpL 同源）不是本症状根因——整条链序列化面已全面审计，BorderLookup 是唯一断点。
 
 ## VF 载具兼容 v2（2026-08 机制重写后全链回归）
 
