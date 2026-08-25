@@ -198,6 +198,10 @@ namespace RimExodus
         private static void AfterTransfer(Pawn pawn, Map departureMap, Thing departureSpot, Map arrivalMap, SeamlessTransferGrants.Grant grant)
         {
             SeamlessCameraFocus.TryAutoFocusOnArrival(pawn, arrivalMap);
+            // PS 兼容聚焦（2026-08，PS 未装 = no-op）：被传走的是 PS avatar 本人或 avatar 所乘单位
+            // （VF 载具舱内/被扛抬）→ 切 CurrentMap 到落地图 + 缩放保留。PS×VF 驾驶场景的命脉：
+            // 不切图则 Avatar.UpdatePhysics 首行 "avatar.Map != CurrentMap" 冻结驾驶输入且永不自愈。
+            SeamlessPerspectiveShiftCompat.FocusIfAvatarAboard(pawn, departureMap, arrivalMap);
             // 切图后恢复选中状态：若 pawn 在选中保持集里（玩家下达跨图指令时登记）则 re-Select。
             if (SeamlessSelectionTracker.Consume(pawn) && Find.Selector != null)
             {

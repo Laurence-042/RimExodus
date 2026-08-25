@@ -57,12 +57,27 @@ namespace RimExodus
                 Log.Warning($"[RimExodus] Seamless transfer rejected: arrival cell {arrivalCell} out of bounds on map {arrivalMap.uniqueID}.");
                 return false;
             }
-            // 按"容纳扭曲"设计，重叠带保证 arrivalCell 可通行。若不可通行，说明寻路本就该不可达——
-            // 不做兜底，记录警告以暴露几何问题，仍拒绝转移。
+            // 按"容纳扭曲"设计，重叠带保证 arrivalCell 对 **pawn** 可通行；载具另走 VF 口径的
+            // 三步管线（网格同步就绪化 → 整车矩形落点解析），见 SeamlessVehiclesCompat 类注释。
             if (!arrivalCell.Walkable(arrivalMap))
             {
                 Log.Warning($"[RimExodus] Seamless transfer rejected: arrival cell {arrivalCell} on map {arrivalMap.uniqueID} is not walkable (overlap band should guarantee walkability).");
                 return false;
+            }
+            if (SeamlessVehiclesCompat.IsVehicle(pawn))
+            {
+                // ① 对图 VF 网格同步就绪化（Urgent，官方模式）——未就绪时一切 VF 判定都是错的
+                //   （Drivable 假阳性 / CanReach 恒 false，v1 五轮补丁的根因）。
+                if (!SeamlessVehiclesCompat.EnsureGridsReady(pawn, arrivalMap))
+                {
+                    return false;
+                }
+                // ② 落点解析：整车矩形 + 他车占用（VF 官方判据），不行就径向找；找不到 = 对端
+                //   接缝无车辆可站地块，如实拒绝（真实地形限制）。
+                if (!SeamlessVehiclesCompat.TryResolveVehicleArrivalCell(pawn, arrivalMap, ref arrivalCell))
+                {
+                    return false;
+                }
             }
 
             var departureCell = pawn.Position;
@@ -93,6 +108,11 @@ namespace RimExodus
 
             pawn.DeSpawn();
             GenSpawn.Spawn(pawn, arrivalCell, arrivalMap, rotation);
+
+            // VF 载具 ③：清 vehiclePather 旧图 path/nextCell 残留（Notify_Teleported =
+            // StopDead + ResetToCurrentPosition，VF 原生语义）。非载具/未装 VF = no-op。
+            // 网格已在传送前同步就绪化（车辆分支①）——续程 StartJob 无等待窗口。
+            SeamlessVehiclesCompat.ResetVehiclePather(pawn);
 
             // === 转移后：恢复状态 ===
             // 确保 lord 字段干净（DeSpawn 不清它，上面已 Notify_PawnLost，这里确保字段为 null）。

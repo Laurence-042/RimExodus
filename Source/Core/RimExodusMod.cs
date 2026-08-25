@@ -39,6 +39,12 @@ namespace RimExodus
             // 软检测未装短路；手动绑定全程 try/catch（签名变更降级 Warning，绝不杀死 mod）。
             SeamlessPerspectiveShiftCompat.Register(harmony);
 
+            // Vehicle Framework 兼容（2026-08）：VF 载具的移动被 vehiclePather 整体接管，
+            // 挂在 Pawn_PathFollower 上的传送/跨图桥接触发器对载具失明——补绑 VF 侧四个 patch
+            // （逐格传送 / StartPath 桥接 / 右键 GoHere 桥接 / 可达性灰显放行）。
+            // 软检测未装短路；手动绑定全程 try/catch（签名变更降级 Warning，绝不杀死 mod）。
+            SeamlessVehiclesCompat.Register(harmony);
+
             // 绑定核对（2026-08，配合离线验证器甄别 CLR 伪迹 vs 死代码）：GetPatchedMethods 列出
             // 本 harmony 实例实际绑定的方法（真实 Mono 运行时结果，不受离线 CLR 伪迹影响）。
             // 离线验证器的 9 个伪迹失败 patch（GetClearRects/SelectInternal/SetTerrain/MapPreTick·MapUpdate/

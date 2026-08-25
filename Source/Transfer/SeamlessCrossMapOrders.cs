@@ -34,6 +34,17 @@ namespace RimExodus
             grant.FinalDestCell = targetLocalCell;
             grant.NextJob = nextJob;
 
+            // 已站在 spot 上（联合选点 C1=0 的退化情形，2026-08 实测）：Goto 目标即当前格 →
+            // JobDriver 即时完成、不产生任何 pather 步进 → 触发器永不运行 → 许可被 think tree
+            // 下一个 job 清掉（日志表现 = Bridge issued 后紧跟 Grant cleared）。直接以当前格触发传送。
+            if (pawn.Position == exitSpot.Position)
+            {
+                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    Log.Message($"[RimExodus] Bridge immediate: {pawn.LabelShort} already on spot {exitSpot.Position}, transferring now.");
+                SeamlessMapTransferTrigger.TryTriggerTransfer(pawn, exitSpot.Position, pawn.Map);
+                return true;
+            }
+
             var job = JobMaker.MakeJob(JobDefOf.Goto, exitSpot.Position);
             job.dutyTag = SeamlessTransferGrants.TransitTag;
             pawn.jobs.StartJob(job, JobCondition.InterruptForced);
@@ -97,8 +108,20 @@ namespace RimExodus
             }
 
             // 双侧代价场：本图从 pawn 出发到各 spot；对图从 dest 出发到各落点（反向泛洪即"落点→dest"成本）。
+            // VF 载具已知近似（2026-08）：代价场按 pawn 权重泛洪，不感知 VehicleDef 的通行差异
+            // （悬浮/轮式/涉水）——仅选点启发式，段内执行与可达性均由 VF 口径判定，接受。
             var costs1 = SeamlessPathCostField.FloodCosts(fromMap, pawn.Position, spotCells, pawn);
             var costs2 = SeamlessPathCostField.FloodCosts(toMap, destCell, arrivals, pawn);
+
+            // VF 载具（2026-08-25"无法通过此处"修复）：pawn 权重选出的 spot 对 VehicleDef 可能不可达
+            // （带外圈地形/网格状态），对 VF 的 A* 是 "ran out of cells to process" → PatherFailed →
+            // 许可被清、循环刷红字。车辆分支改按 total 代价序逐个过 CanReachLocal（VF 口径可达性，
+            // region 缓存）验证，首个真可达者当选；全部不可达 → 请求 VF 网格惰性重建（状态自愈）后
+            // 本轮如实返回 false（菜单侧同步诚实化，见 VehicleCanGotoPostfix）。pawn 分支保持原逻辑零变化。
+            if (SeamlessVehiclesCompat.IsVehicle(pawn))
+            {
+                return TryPickVehicleBridgeSpot(pawn, fromMap, spots, costs1, costs2, out exitSpot, out costDebug);
+            }
 
             int bestIdx = -1;
             long bestTotal = long.MaxValue;
@@ -147,6 +170,56 @@ namespace RimExodus
         }
 
         /// <summary>
+        /// 载具版桥接选点：按"单跳总代价"升序（平手取 C1 小者）逐个过 VF 口径可达性
+        /// （<see cref="SeamlessVehiclesCompat.CanReachLocal"/>——对 VehicleDef 的 region 图判真），
+        /// 首个真可达者当选；无有限 total 的按 C1 序兜底（"走到最近可达点停下"降级）。
+        /// 全部不可达 = 本图该 VehicleDef 无路可到接缝（真实地形/网格状态），如实返回 false
+        /// （菜单侧 VehicleCanGotoPostfix 同口径实测，不会出现"放行后空转"）。
+        /// </summary>
+        private static bool TryPickVehicleBridgeSpot(Pawn pawn, Map fromMap, List<Thing> spots,
+            int[] costs1, int[] costs2, out Thing exitSpot, out string costDebug)
+        {
+            exitSpot = null;
+            costDebug = null;
+
+            var ordered = new List<int>();
+            var fallback = new List<int>();
+            for (var i = 0; i < spots.Count; i++)
+            {
+                if (costs1[i] == int.MaxValue) continue;
+                if (costs2[i] != int.MaxValue) ordered.Add(i);
+                fallback.Add(i);
+            }
+            ordered.Sort((a, b) =>
+            {
+                var ta = costs1[a] + costs2[a];
+                var tb = costs1[b] + costs2[b];
+                return ta != tb ? ta.CompareTo(tb) : costs1[a].CompareTo(costs1[b]);
+            });
+            fallback.Sort((a, b) => costs1[a].CompareTo(costs1[b]));
+
+            foreach (var idx in ordered)
+            {
+                if (!SeamlessVehiclesCompat.CanReachLocal(pawn, fromMap, pawn.Position, spots[idx].Position)) continue;
+                exitSpot = spots[idx];
+                costDebug = $"VF-reached C1={costs1[idx]} C2={costs2[idx]} total={costs1[idx] + costs2[idx]} (rank {ordered.IndexOf(idx) + 1}/{ordered.Count})";
+                return true;
+            }
+            foreach (var idx in fallback)
+            {
+                if (!SeamlessVehiclesCompat.CanReachLocal(pawn, fromMap, pawn.Position, spots[idx].Position)) continue;
+                exitSpot = spots[idx];
+                costDebug = $"VF-reached fallback C1-only={costs1[idx]}";
+                return true;
+            }
+
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] Cross-map move: no VF-reachable bridge spot for {pawn.LabelShort} on map {fromMap.uniqueID} "
+                    + $"({ordered.Count + fallback.Count} candidates) — seam not traversable for this vehicle.");
+            return false;
+        }
+
+        /// <summary>
         /// 检查 pawn 是否能从本图桥接到 toMap（是否本图存在 pawn 可到达的、对端指向 toMap 的传送点）。
         /// 仅供前端菜单判断"跨图移动是否可行"用——不 Record pending、不返回 spot、不触发桥接。
         /// 与 <see cref="TryFindNearestReachableBridgeSpot"/> 共用同一可达性判定逻辑。
@@ -191,10 +264,11 @@ namespace RimExodus
 
             // 按距离升序排序，依次尝试可达性。
             candidates.Sort((a, b) => a.distSq.CompareTo(b.distSq));
-            var traverseParms = TraverseParms.For(pawn);
             foreach (var (spot, _) in candidates)
             {
-                if (fromMap.reachability.CanReach(pawn.Position, spot.Position, PathEndMode.OnCell, traverseParms))
+                // VF 载具（2026-08）：可达性走 VF 口径（CanReachVehicle，按该 VehicleDef 的
+                // 悬浮/轮式/涉水网格判定）——原版 CanReach + TraverseParms.For(pawn) 对载具不成立。
+                if (SeamlessVehiclesCompat.CanReachLocal(pawn, fromMap, pawn.Position, spot.Position))
                 {
                     exitSpot = spot;
                     return true;

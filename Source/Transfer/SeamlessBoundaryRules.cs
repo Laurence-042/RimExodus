@@ -19,6 +19,9 @@ namespace RimExodus
         internal static bool IsCrossMapOrderable(Pawn pawn)
         {
             if (pawn == null) return false;
+            // VF 载具（2026-08）：VehiclePawn 不是 IsColonist/Animal，无此分支会被一切跨图
+            // 下单链拒绝（菜单灰显 + 桥接 Prefix 放行原生）。
+            if (SeamlessVehiclesCompat.IsVehicle(pawn)) return pawn.Faction == Faction.OfPlayer;
             if (pawn.IsColonist || pawn.IsColonyMech) return true;
             return pawn.RaceProps.Animal && pawn.Faction == Faction.OfPlayer;
         }

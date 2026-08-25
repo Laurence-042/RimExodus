@@ -27,7 +27,9 @@ namespace RimExodus
             var lookup = map.GetComponent<SeamlessBorderLookup>();
             if (lookup == null)
             {
-                Log.Warning($"[RimExodus] CheckPawnGoto: no SeamlessBorderLookup on map {map.uniqueID}.");
+                // 无组件 = 口袋图 / VMF 车辆内部图等按设计排除出无缝语义的地图（GetMapWorldTile < 0
+                // 同族守卫），原版行为即可——静默跳过。2026-08 前此处 Log.Warning：pawn 在车辆图内
+                // 走动/下船时逐 Goto 刷我们标签的警告（实测被当缺陷上报），口袋图缺组件是设计而非异常。
                 return;
             }
 
@@ -53,6 +55,12 @@ namespace RimExodus
             // 已加载则跳过。
             if (SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, worldTile, out _))
             {
+                // VF 载具（2026-08）：邻图已加载 → 预请求该载具的 VF 路径网格（异步生成，
+                // 让网格在载具走到传送点前就绪）；非载具/未装 VF = no-op。
+                if (SeamlessTileGraph.TryGetMapByWorldTile(worldTile, out var loadedNeighbor))
+                {
+                    SeamlessVehiclesCompat.RequestGridsOnMapFor(pawn, loadedNeighbor);
+                }
                 Log.Message($"[RimExodus] CheckPawnGoto: neighbor worldTile {worldTile} already loaded, skip.");
                 return;
             }
@@ -62,6 +70,11 @@ namespace RimExodus
             // （RegisterAllTickabilityFor 与原版 tick 中途 spawn 同源安全）。
             if (SeamlessDormancyManager.TryWakeByWorldTile(worldTile, $"border preload band (pawn {pawn.LabelShort} goto {targetCell})"))
             {
+                // VF 载具（2026-08）：唤醒成功 → 邻图已活跃，同样预请求 VF 网格。
+                if (SeamlessTileGraph.TryGetMapByWorldTile(worldTile, out var wokenNeighbor))
+                {
+                    SeamlessVehiclesCompat.RequestGridsOnMapFor(pawn, wokenNeighbor);
+                }
                 Log.Message($"[RimExodus] CheckPawnGoto: neighbor worldTile {worldTile} was dormant, woke it up.");
                 return;
             }

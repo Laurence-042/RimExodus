@@ -120,28 +120,50 @@ namespace RimExodus
     /// GetOptions 体内两处边界检查的重放语义 + 重放槽收口（Finalizer 必然执行，含异常路径）。
     /// L31 原始点击位：本图界内 **或** 可解析到邻图（重放入口）。
     /// L40 ClickedCell：重放激活时按目标图界内判（此时 cell 已是邻图局部坐标）。
+    ///
+    /// VMF 共存（2026-08，勿回退本优先级/链式回落）：VMF 对同一方法也有 transpiler
+    /// （CodeMatcher.MatchStartForward(Calls(InBounds(Vector3))) → .Set——**锚点找不到时
+    /// MatchStartForward 静默失败、位置无效，.Set 才抛 "Cannot set values at invalid
+    /// position"** = VMF 整类 patch 应用失败、红字）。VF 硬依赖 VMF 必然在场，而我们的
+    /// 替换式 transpiler 若先跑会把 InBounds 调用换掉、毁掉它的锚点（2026-08 实测启动
+    /// 红字根因）。修复 = 本 transpiler 降为 Low 优先级（VMF 的 Normal 先在原始 IL 上
+    /// 成功应用），我们在其输出上做**链式接管**：Vector3 调用点无论此时是原版 InBounds
+    /// 还是 VMF 的 InBounds（签名同 (Vector3, Map)→bool），都换成 ReplayInBoundsClick——
+    /// 它先走 VMF 判定（在场时，保留其车图语义：CurrentMap 是车图时以 TryGetVehicleMap
+    /// 取代原生判定），无缝解析作为其 false 后的扩展，VMF 缺席 = 纯原生+无缝。IntVec3
+    /// 调用点 VMF 只在后面 Insert 不替换（原调用仍在），我们的替换不影响其插入体。
+    /// transpiler 每次重打包都从原始方法体重跑全链，无顺序不稳定。
     /// </summary>
     [HarmonyPatch(typeof(FloatMenuMakerMap), nameof(FloatMenuMakerMap.GetOptions))]
     public static class Patch_FloatMenuMakerMap_GetOptions_Replay
     {
+        /// <summary>VMF 的 GetOptions InBounds 替换方法（软反射，VMF 缺席 = null）。</summary>
+        private static System.Reflection.MethodInfo _vmfInBoundsVec;
+
         public static void Finalizer()
         {
             SeamlessReplayContext.End();
         }
 
+        [HarmonyPriority(Priority.Low)]
         public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
         {
             var inBoundsVec = AccessTools.Method(typeof(GenGrid), nameof(GenGrid.InBounds),
                 new[] { typeof(Vector3), typeof(Map) });
             var inBoundsCell = AccessTools.Method(typeof(GenGrid), nameof(GenGrid.InBounds),
                 new[] { typeof(IntVec3), typeof(Map) });
+            var vmfPatchType = AccessTools.TypeByName("VehicleMapFramework.VMF_HarmonyPatches.Patch_FloatMenuMakerMap_GetOptions");
+            _vmfInBoundsVec = vmfPatchType == null ? null
+                : AccessTools.Method(vmfPatchType, "InBounds", new[] { typeof(Vector3), typeof(Map) });
             var vecReplay = AccessTools.Method(typeof(Patch_FloatMenuMakerMap_GetOptions_Replay), nameof(ReplayInBoundsClick));
             var cellReplay = AccessTools.Method(typeof(Patch_FloatMenuMakerMap_GetOptions_Replay), nameof(ReplayInBoundsCell));
             var replacedVec = 0;
             var replacedCell = 0;
             foreach (var ci in instructions)
             {
-                if (ci.Calls(inBoundsVec))
+                // Vector3 调用点：VMF 先跑时已被换成它的 InBounds（签名相同）——两种形态都接管，
+                // 由 ReplayInBoundsClick 内部链式回落保住 VMF 的车图语义（见类注释）。
+                if (ci.Calls(inBoundsVec) || (_vmfInBoundsVec != null && ci.Calls(_vmfInBoundsVec)))
                 {
                     ci.opcode = OpCodes.Call;
                     ci.operand = vecReplay;
@@ -160,10 +182,24 @@ namespace RimExodus
                     + "cross-map clicks will yield empty menus. Game version changed?");
         }
 
-        /// <summary>L31 语义：原始点击位在本图界内，或可解析到邻图（重放入口）。</summary>
+        /// <summary>
+        /// L31 语义：原始点击位在本图界内，或可解析到邻图（重放入口）。
+        /// VMF 在场时先走其判定（保留车图语义），无缝解析作为其 false 后的扩展。
+        /// </summary>
         public static bool ReplayInBoundsClick(Vector3 pos, Map map)
         {
-            if (pos.InBounds(map)) return true;
+            if (_vmfInBoundsVec != null)
+            {
+                try
+                {
+                    if ((bool)_vmfInBoundsVec.Invoke(null, new object[] { pos, map })) return true;
+                }
+                catch
+                {
+                    // VMF 反射调用异常（签名漂移等）：按 false 处理，落回无缝解析——菜单功能保守降级不炸。
+                }
+            }
+            else if (pos.InBounds(map)) return true;
             return SeamlessMapUtility.TryResolveMapPosition(pos, map, out _, out _);
         }
 
