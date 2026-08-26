@@ -36,7 +36,7 @@ Every tile map is carved into a hexagon matching its world tile shape (pentagon 
 [*][b]Native content integration[/b]: world-map POIs — faction settlements, ancient mechanitor compounds, ambushes, opportunity sites — generate as seamless tiles through the vanilla map generation pipeline as you approach, staying naturally compatible with other mods' custom structures. "Set up camp" maps are seamless tiles too.
 
 [*][b]据点贸易商[/b]：友好据点会从驻军中指定一位"贸易商"（头顶问号标记），右键即可对话交易——买用据点库存、卖随身物品、白银随身支付，完整的原版远行队交易语义，但不需要真的组远行队。据点对话面板同时收录该据点的全部交互选项，包括其他 mod 添加的据点特殊交互（比如金鸢尾兰的外交选项）。
-[*][b]Settlement traders[/b]: friendly settlements designate a "trader" from their garrison (marked with a question mark overhead); right-click them to talk and trade — buy from the settlement's stock, sell what you carry, pay with the silver on your body. Full vanilla caravan trading semantics, minus the caravan. The settlement dialog also gathers every interaction that settlement offers, including ones added by other mods (e.g. Iris Faclan's diplomacy options).
+[*][b]Settlement traders[/b]: friendly settlements designate a "trader" from their garrison (marked with a question mark overhead); right-click them to talk and trade — buy from the settlement's stock, sell what you carry, pay with the silver on your body. Full vanilla caravan trading semantics, minus the caravan. The settlement dialog also gathers every interaction that settlement offers, including ones added by other mods (e.g. Oberonia Aurea's diplomacy options).
 
 [img]https://raw.githubusercontent.com/Laurence-042/RimExodus/main/doc/img/trade.png[/img]
 与据点贸易商交易 / Trading with a settlement trader
