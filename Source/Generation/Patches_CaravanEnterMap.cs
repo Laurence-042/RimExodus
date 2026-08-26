@@ -26,6 +26,15 @@ namespace RimExodus
             CaravanDropInventoryMode dropInventoryMode, bool draftColonists,
             System.Predicate<IntVec3> extraCellValidator)
         {
+            // 影子远行队兜底守卫（2026-08-26 实测教训）：影子的成员是图上 spawned pawn，任何把它塞进
+            // Enter 的路径（SettlementUtility.AttackNow、mod 交互等）都会对成员二次 Spawn =
+            // "already spawned" 红字 + 归属簿记混乱。直接跳过整个 Enter（不做任何事，也勿放行原方法）。
+            if (SeamlessShadowCaravan.IsShadow(caravan))
+            {
+                Log.Warning("[RimExodus] CaravanEnterMap: blocked attempt to enter map with shadow caravan (projection of on-map pawns); skipping.");
+                return false;
+            }
+
             // 远行队进图 = 源集合变化（caravan 消耗、pawn 落图）：请求 governor 尽快重算距离。
             SeamlessDormancyGovernor.RequestSweepSoonStatic();
 

@@ -132,6 +132,17 @@ namespace RimExodus
                 {
                     if (gizmo is Command command)
                     {
+                        // 攻击命令过滤（2026-08-26 实测教训："可贸易据点 Attackable 恒 false"的旧假设错误——
+                        // OA 水仙花居住点可贸易且可攻击并存）：攻击走 SettlementUtility.AttackNow(caravan,
+                        // settlement) → CaravanEnterMapUtility.Enter 对影子成员（图上 spawned pawn）二次
+                        // Spawn = "already spawned" 红字 + 归属簿记混乱 + 后续战斗 NRE 连环。gizmo 管线的
+                        // 攻击 label 键 = CommandAttackSettlement（与 float 管线的 AttackSettlement 不同键，
+                        // 下文 float 过滤勿混）。用户定夺：另生成地图的攻击类交互不进对话面板。
+                        if (command.defaultLabel == "CommandAttackSettlement".Translate())
+                        {
+                            Log.Message("[RimExodus] TraderDialog: caravan gizmo filtered (attack).");
+                            continue;
+                        }
                         caravanCommands.Add(command);
                         Log.Message($"[RimExodus] TraderDialog: caravan gizmo '{command.LabelCap}' ({gizmo.GetType().Name})" +
                                     (command.Disabled ? $" DISABLED: {command.disabledReason}" : " enabled") +
