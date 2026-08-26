@@ -183,7 +183,7 @@
 - [跨图命令适配审计.md](doc/跨图命令适配审计.md) — 跨图命令 job 类型适配矩阵。
 - [第五阶段-跨图寻路与射击.md](doc/第五阶段-跨图寻路与射击.md) 等第 X 阶段文档 — 各阶段实现叙事与决策记录。
 - [TODO.md](doc/TODO.md) — 游戏内测试问题备忘。
-- [SteamWorkshop介绍草稿.md](doc/SteamWorkshop介绍草稿.md) — 创意工坊页面描述文案草稿（中英双语 BBCode，事实以本 README 为源）。
+- [SteamWorkshop介绍-中文.md](doc/SteamWorkshop介绍-中文.md) / [SteamWorkshop介绍-English.md](doc/SteamWorkshop介绍-English.md) — 创意工坊页面描述文案（中英分离的 BBCode，事实以本 README 为源）。
 - `AGENTS.md` — 开发工作文档（架构事实与勿回退要点，面向协作者/agent）。
 
 **维护约定**：对外可见的兼容性结论与已知限制变化，除各权威文档外须同步更新本 README（见 `AGENTS.md`"文档同步范围"条）。
