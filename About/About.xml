@@ -13,7 +13,19 @@
 · 原生内容接入——派系据点、远古机械师建筑群、埋伏等 POI 走近时经原版管线生成为无缝地块；
 · 据点贸易商——友好据点指定贸易商，右键对话交易，完整原版远行队交易语义但无需组队。
 
-⚠ 本 mod 仍在开发中，对地图机制改动较深，请做好遇到 bug 的心理准备；暂不支持加入后从存档移除。</description>
+⚠ 本 mod 仍在开发中，对地图机制改动较深，请做好遇到 bug 的心理准备；暂不支持加入后从存档移除。
+
+Say goodbye to the disjointed "exit map as caravan → world map → reload" travel loop. RimExodus stitches the local maps of adjacent world tiles together, visually and functionally: your colonists can walk straight out of the base gate into the wilderness, cross an invisible world-tile border, and keep going — no caravan, no loading screen.
+
+Key features:
+· Seamless cross-map walking — colonists cross a map seam and switch to the adjacent map with barely a hitch;
+· Cross-map combat — line of sight, target acquisition, and projectile handoff across seams; bullets fly over the seam and hit the right target on the right map (can be disabled to restore vanilla combat semantics);
+· Incremental frame-sliced generation — neighbor tile maps generate as colonists are ordered toward the border, usually without pausing the game or a loading screen;
+· Rolling map dormancy — far maps go dormant (contents fully preserved); even farther maps are deleted and regenerated on revisit (regeneration is fresh — left-behind items and buildings are lost); the home map is never dormant or deleted;
+· Native content integration — faction settlements, ancient mechanitor compounds, ambushes and other POIs generate as seamless tiles through the vanilla pipeline as you approach;
+· Settlement traders — friendly settlements designate a trader; right-click to talk and trade, full vanilla caravan trading semantics minus the caravan.
+
+⚠ This mod is still in development and makes deep changes to the map system — be mentally prepared for bugs; it currently cannot be removed from an existing save.</description>
   <modVersion IgnoreIfNoMatchingField="True">0.1.0</modVersion>
   <supportedVersions>
     <li>1.6</li>
