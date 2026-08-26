@@ -1,17 +1,8 @@
-# Steam Workshop 介绍草稿
-
-> 用途：创意工坊页面描述文案（Steam 支持 BBCode，下方正文即按 BBCode 写）。中文为主版本 + 英文版本。事实依据 = `README.md`（对外单一事实源）；发布前请按需增删截图/视频占位与最终打磨措辞。
-
----
-
-## 中文版（BBCode）
-
-```bbcode
 [h1]RimExodus — 无缝世界地块探索[/h1]
 
 告别"撤离地图 → 世界地图 → 重新加载"的割裂旅行。RimExodus 让相邻世界地块的局部地图在视觉与操作上连续连接：你的殖民者可以从基地门口直接走进荒野，穿过一条看不见的世界地块边界，继续走向下一片荒野——不需要远行队，不需要加载画面。
 
-[color=#7ee787][b]⚠ 由于对地图机制有较大改动，本 mod 暂不支持加入后移除，后续如有反馈可能会补充移除前主动调整地图为兼容模式的功能[/b][/color]
+[color=#7ee787][b]⚠ 由于对地图机制有较大改动，本 mod 暂不支持加入后从存档移除，后续如有反馈可能会补充卸载功能，供玩家在移除本mod前主动调整地图为兼容模式[/b][/color]
 
 [h1]它做了什么[/h1]
 
@@ -55,88 +46,13 @@
 
 [h1]性能[/h1]
 
-热路径全部按"无跨图交互即早退"设计：不做跨图操作时近乎零开销；远端地图休眠实际上是净省（不再 tick）。主要可感成本是邻居地图渲染与邻图生成期间的 TPS 下降（生成分帧推进、总量不变，平滑优先）。每项开销的完整说明见 GitHub README。
+热路径全部按"无跨图交互即早退"设计：不做跨图操作时近乎零开销；远端地图休眠时不再 tick。主要可感成本是邻居地图渲染与邻图生成期间的 TPS 下降（默认在游戏运行过程中逐步生成地图，可以通过设置项切换为原版的一次性生成整个地图的模式）。每项开销的完整说明见 GitHub README。
 
 [h1]设置[/h1]
 
-设置窗口按功能分四个 tab（地图生成 / 滚动休眠 / 跨图战斗 / 高级诊断），全部条目带 tooltip：预加载距离、禁建带宽度、分帧生成开关与批次大小、休眠/删除距离（最低 1/1 = 离开即休眠并销毁）、休眠扫描间隔、跨图战斗总开关等。另有地图右下角全局控制条的沉浸模式开关（隐藏撤离带与接缝划线，为录视频/截图设计）。
+全部条目带 tooltip，鼠标在条目上悬停就可以看到说明，此处不赘述。
 
 [h1]链接与反馈[/h1]
 
-源码与完整文档：[url=GitHub仓库地址]GitHub[/url]
+源码与完整文档：[url=https://github.com/Laurence-042/RimExodus]GitHub[/url]
 发现问题欢迎在评论区或 GitHub Issues 反馈，附上日志与复现步骤会非常有帮助。
-```
-
----
-
-## English Version (BBCode)
-
-```bbcode
-[h1]RimExodus — Seamless World Tiles[/h1]
-
-No more "reach map edge → world map → reload". RimExodus stitches neighboring world tiles' local maps together, visually and mechanically: your colonists can walk straight out of the base gate into the wilderness, cross an invisible world-tile border, and keep going — no caravan, no loading screen.
-
-[color=#7ee787][b]⚠ Use on a NEW save (no old-save migration). Requires RimWorld 1.6 + Harmony.[/b][/color]
-
-[h1]What it does[/h1]
-
-Each tile map is clipped to its world-tile shape (pentagon and hexagon tiles supported), and adjacent tiles are aligned through a "seam band": terrain, rock and roof blend across the seam; rivers and roads line up. As you approach a seam, the neighboring tile's live terrain is already rendered beyond your border — the pawns, animals and buildings over there are real entities, not a backdrop.
-
-[list]
-[*][b]Walk across tiles[/b] — step into the seam and you seamlessly continue into the neighboring map. Player orders (move/attack/mine/haul/tame...) can target the neighboring tile directly.
-[*][b]Cross-map combat[/b] — line of sight, target acquisition and projectile handoff across the seam: bullets fly over the border and resolve on the correct map; enemies will pursue you across seams. Can be disabled in settings to restore vanilla combat.
-[*][b]Gradual map generation[/b] — neighboring tiles generate frame-by-frame on the main thread as you approach (progress shown top-left), no pause, no loading screen. Saving is blocked while generation is in progress (you'll get a (threat-level!) reminder letter); a few seconds later it finishes and saving works again.
-[*][b]Rolling map dormancy[/b] — maps far from players fall dormant (no ticking; contents fully preserved — items and terrain edits are all there when you return), and even farther maps are deleted and regenerated on revisit by distance policy. Player home maps never sleep and never get deleted. Distances are configurable.
-[*][b]Native content integration[/b] — world-map POIs (faction settlements, ancient complexes, ambush sites, etc.) generate as seamless tiles through the vanilla pipeline when approached, so other mods' custom structures stay compatible; player camps are seamless tiles too.
-[*][b]Settlement traders[/b] — friendly settlements appoint a "trader" from their garrison (question-mark marker); right-click to talk and trade — buy from settlement stock, sell from your pawns' inventories, silver paid from pockets. Full vanilla caravan-trade semantics without the caravan. The dialog also collects the settlement's other interactions (mod-added ones included).
-[*][b]World map status icons[/b] — solid orange = active & occupied / solid blue = active & empty / hollow grey = dormant (colorblind-friendly with shape redundancy). Select a tile to manually dorm it (won't auto-wake by distance; persists in save) or delete it.
-[/list]
-
-[h1]Mod Compatibility[/h1]
-
-[b]Adapted:[/b]
-[list]
-[*][b]Geological Landforms[/b] — fully adapted (landforms generate on tile maps, previews included).
-[*][b]MapPreview[/b] — previews show the hexagon clipping and seams; neither breaks the other.
-[*][b]Vehicle Framework[/b] — vehicles cross seams: drive into a transfer point to cross, cross-map orders work, and multi-cell vehicles get full hull-rect arrival checks (honestly refused if there's genuinely no room on the other side). Vehicles count as pawns for dormancy.
-[*][b]Perspective Shift[/b] — first-person WASD movement and driving cross seams seamlessly, camera follows automatically.
-[/list]
-
-[b]Coexists (vanilla behavior):[/b] Odyssey space maps and pocket maps (including vehicle interiors) stay outside the surface seamless system.
-
-[b]Expected incompatible:[/b] skyblock-style mods (design conflict, not planned). Mods deeply modifying map generation/borders/world tiles are untested — if you hit a conflict, disable "Gradual map generation" in settings and regular tile maps will use the vanilla synchronous pipeline (other mods' generation patches then apply natively, at the cost of a brief freeze).
-
-[h1]Known Limitations[/h1]
-
-[list]
-[*]Explosion AoE and mortar-style shells don't cross seams (resolve on the impact map).
-[*]Cross-map pathing is single-hop; issue orders one tile at a time.
-[*]Designation-first commands (mine/chop/harvest...) don't appear in cross-map right-click menus (everything works once you walk over).
-[*]Settlement trading only covers carried items (prisoner/slave selling not yet supported); the trader is appointed once at generation.
-[*]Cross-map orders into an ungenerated tile wait for gradual generation (progress top-left).
-[*]Neighbor-map rendering is approximate (no shadows/water detail); neighbor sky tint across weather clusters follows the current map.
-[/list]
-
-[h1]Performance[/h1]
-
-All hot paths early-out when no cross-map interaction happens — near-zero overhead in normal play; dormant maps are a net saving (they stop ticking). The main noticeable costs are neighbor-map rendering and a TPS dip while a neighboring tile generates (frame-spread, same total work, smoothness first). Full breakdown in the GitHub README.
-
-[h1]Settings[/h1]
-
-Four tabs (Map Generation / Rolling Dormancy / Cross-map Combat / Advanced & Diagnostics), every entry with a tooltip: preload distance, no-build band width, gradual generation toggle & batch size, dormancy/delete distances (down to 1/1 = sleep & delete on leaving), scan interval, cross-map combat toggle, and an immersion toggle on the in-map PlaySettings bar (hides the evacuation band & seam lines — for screenshot/video purposes).
-
-[h1]Links & Feedback[/h1]
-
-Source & full docs: [url=GitHub repo URL]GitHub[/url]
-Bug reports with logs and repro steps are much appreciated — here or on GitHub Issues.
-```
-
----
-
-## 发布前检查清单（不进页面正文）
-
-- [ ] 替换两处 GitHub 链接占位（中文版"链接与反馈"、英文版"Links & Feedback"）。
-- [ ] 补充截图/视频：建议至少一张"站在地图 A 看见邻居地块 B 实时地形"的全景图、一张跨缝战斗截图、一张据点贸易商对话面板图、（可选）世界地图三态图标特写。
-- [ ] 标签建议：`1.6`、`Harmony`、`Gameplay`、`Utility(?)`；Visibility 公开前先朋友可见测试 BBCode 渲染。
-- [ ] 页面描述与 README 的口径已对齐（本草稿全部事实取自 README 2026-08-25 版）；后续 README 兼容性/限制变更须同步页面。
-- [ ] 首条评论/置顶建议附"新存档使用 + Harmony 前置"提示。
