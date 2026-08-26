@@ -218,9 +218,12 @@ namespace RimExodus
             {
                 var attackLabel = "AttackSettlement".Translate(settlement.Label);
                 var enterLabel = "EnterMap".Translate(settlement.Label);
+                var visitLabel = "VisitSettlement".Translate(settlement.Label);
                 // StartsWith 吃后缀变体（"(Dev: instantly)"、禁用原因内联——2026-08-26 实测：Dev 攻击
                 // 变体从精确匹配漏网进面板，点击走 AttackNow → Enter 影子二次入场连环 NRE）。
-                if (fmo.Label.StartsWith(attackLabel) || fmo.Label.StartsWith(enterLabel))
+                // 访问（VisitSettlement）与进入地图同理过滤：pawn 已在图上，对影子执行 Arrived 会
+                // 二次入场/触发进入信件（2026-08-26 用户定夺：友方据点的"访问"一律不进面板）。
+                if (fmo.Label.StartsWith(attackLabel) || fmo.Label.StartsWith(enterLabel) || fmo.Label.StartsWith(visitLabel))
                 {
                     Log.Message($"[RimExodus] TraderDialog: caravan float option filtered (attack/enter): '{fmo.Label}'.");
                     continue;
