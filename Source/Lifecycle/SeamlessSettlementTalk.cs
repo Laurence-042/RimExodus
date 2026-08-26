@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using RimWorld;
 using RimWorld.Planet;
 using UnityEngine;
@@ -138,7 +139,9 @@ namespace RimExodus
                         // Spawn = "already spawned" 红字 + 归属簿记混乱 + 后续战斗 NRE 连环。gizmo 管线的
                         // 攻击 label 键 = CommandAttackSettlement（与 float 管线的 AttackSettlement 不同键，
                         // 下文 float 过滤勿混）。用户定夺：另生成地图的攻击类交互不进对话面板。
-                        if (command.defaultLabel == "CommandAttackSettlement".Translate())
+                        // StartsWith 而非精确匹配（2026-08-26 实测教训）：原版/mod 会给 label 加后缀变体
+                        //（Dev 秒杀 "(Dev: instantly)"、禁用原因内联），精确匹配漏网。
+                        if (command.defaultLabel.StartsWith("CommandAttackSettlement".Translate()))
                         {
                             Log.Message("[RimExodus] TraderDialog: caravan gizmo filtered (attack).");
                             continue;
@@ -165,6 +168,12 @@ namespace RimExodus
                         (shadow == null ? " (shadow unavailable — see ShadowCaravan log above)" : "") +
                         $"; settlement def={settlement.def.defName}, Attackable={settlement.Attackable}.");
 
+            // 贸易回退条件 = "采集到的命令里没有交易命令"而非"零命令"（2026-08-26 水仙花实测教训：
+            // SettlementVisitedNow 要求 settlement.Visitable，OA 居住点 false → 原版 TradeCommand 不产生，
+            // 但 gizmo 采集仍拿到"外交交互"等其它命令 → 旧条件 caravanCommands.Count == 0 不触发
+            // → 面板上完全没有交易项）。原版交易命令存在时优先原版（谈判者选取等原版语义）。
+            var tradeLabel = "CommandTrade".Translate();
+            bool hasTradeCommand = caravanCommands.Any(c => c.defaultLabel == tradeLabel);
             if (caravanCommands.Count > 0)
             {
                 foreach (var command in caravanCommands)
@@ -180,7 +189,7 @@ namespace RimExodus
                     }));
                 }
             }
-            else
+            if (!hasTradeCommand)
             {
                 // 交易（可用性口径镜像原版贸易浮窗；Disable 的原因由原版内联显示在按钮文本上）。
                 var trade = new DiaOption("RimExodus_SettlementTraderTrade".Translate());
@@ -209,7 +218,9 @@ namespace RimExodus
             {
                 var attackLabel = "AttackSettlement".Translate(settlement.Label);
                 var enterLabel = "EnterMap".Translate(settlement.Label);
-                if (fmo.Label == attackLabel || fmo.Label == enterLabel)
+                // StartsWith 吃后缀变体（"(Dev: instantly)"、禁用原因内联——2026-08-26 实测：Dev 攻击
+                // 变体从精确匹配漏网进面板，点击走 AttackNow → Enter 影子二次入场连环 NRE）。
+                if (fmo.Label.StartsWith(attackLabel) || fmo.Label.StartsWith(enterLabel))
                 {
                     Log.Message($"[RimExodus] TraderDialog: caravan float option filtered (attack/enter): '{fmo.Label}'.");
                     continue;

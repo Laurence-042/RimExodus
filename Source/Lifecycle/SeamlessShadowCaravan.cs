@@ -22,9 +22,11 @@ namespace RimExodus
     ///   把 pawn.holdingOwner 临时改指影子容器（<see cref="ThingOwner.Contains(Thing)"/> 的判定就是
     ///   `item.holdingOwner == this`，<see cref="Caravan.IsOwner"/> 全走它——不转移则 FindBestDiplomat
     ///   等恒 null）。pawn 实体与地图注册全程不动。
-    /// ②**副作用抑制**：影子唯一的行为面 = <see cref="Caravan.TickInterval"/>（needs/进食/
-    ///   CheckAnyNonWorldPawns/pather……对图上 spawned pawn = 需求双计 + 真吃玩家库存），Prefix 按实例
-    ///   身份整体跳过——影子纯数据视图，零 tick 行为。成员的需求照常由所在地图 tick（不缺不漏）。
+    /// ②**零副作用模型（2026-08-26 方案 B）**：影子**不进 Find.WorldObjects**（不 Add）——不 tick
+    ///   （WorldObject.DoTick 只遍历世界对象表，成员需求照常由所在地图 tick）、不序列化、殖民者栏
+    ///   组框/框选/闲站告警/远行队合并/世界图绘制与选中（全部遍历 WorldObjects.Caravans）天然不可见。
+    ///   代价：Spawned 恒 false → SettlementVisitedNow 恒 null → 原版 TradeCommand 不产生（TraderDialog
+    ///   的"无交易命令则回退自建交易项"覆盖）。
     /// ③**GetCaravan 语义还原**：holdingOwner 指影子后 <see cref="Pawn.GetCaravan"/> 对图上殖民者恒
     ///   非空，原版 ~40 处消费面（心情/娱乐/殖民者栏/Dialog_Trade…）会误判"在远行队"——Postfix 对
     ///   影子返回 null。远行队身份判定不受影响：<see cref="Caravan.IsOwner"/> 走 pawns.Contains
@@ -46,6 +48,12 @@ namespace RimExodus
 
         /// <summary>tile → 影子。每 tile 至多一个（据点图唯一）。</summary>
         private static readonly Dictionary<int, Caravan> shadows = new();
+
+        /// <summary>影子 → 据点图（GetRootMap patch 的持有链解析用；建影子/同步时写入、拆除时清除）。
+        /// 2026-08 教训：影子成员 holdingOwner 指影子后，其 inventory 物品的 MapHeld 走
+        /// ThingOwnerUtility.GetRootMap 沿持有链（inventory→pawn→Caravan→世界）解析，链上无 Map
+        /// → "Got temperature for null map" 每 TickRare 刷屏（CompRottable.AmbientTemperature）。</summary>
+        private static readonly Dictionary<Caravan, Map> shadowMaps = new();
 
         /// <summary>成员注入前的原容器（地图 spawnedThings），拆除/同步移除时归还。按 pawn 键控（名单跨刷新增减，顺序不稳定）。</summary>
         private static readonly Dictionary<Pawn, ThingOwner> originalOwners = new();
@@ -82,6 +90,13 @@ namespace RimExodus
             if (map == null) return false;
             var tile = SeamlessTileRegistry.GetMapWorldTile(map);
             return tile >= 0 && shadows.TryGetValue(tile, out shadow) && shadow != null && !shadow.Destroyed;
+        }
+
+        /// <summary>影子的据点图（GetRootMap patch 用）：图仍在且未 Disposed 才有效。</summary>
+        public static bool TryGetShadowMap(Caravan caravan, out Map map)
+        {
+            map = null;
+            return caravan != null && shadowMaps.TryGetValue(caravan, out map) && map != null && !map.Disposed;
         }
 
         /// <summary>
@@ -135,10 +150,17 @@ namespace RimExodus
                     shadow.SetFaction(Faction.OfPlayer);
                     shadow.SetUniqueId(Find.UniqueIDsManager.GetNextCaravanID());
                     shadow.Tile = kv.Key;
-                    Find.WorldObjects.Add(shadow);
+                    // 刻意不 Find.WorldObjects.Add（2026-08-26 用户定夺方案 B）：不进世界对象表 =
+                    // Spawned 恒 false——殖民者栏组框（CheckRecacheEntries 遍历 WorldObjects.Caravans）、
+                    // 框选（经殖民者栏条目）、闲站告警、远行队合并、世界图绘制/选中**全部自然不可见**，
+                    // 无需逐消费面打地鼠。交互链不依赖 Spawned：成员注入/IsOwner/FindBestDiplomat 走
+                    // holdingOwner；面板选项执行 = pather.StartPath(同 tile)→AtDestinationPosition→
+                    // PatherArrived 全链无 Spawned 检查。代价：SettlementVisitedNow 恒 null → 原版
+                    // TradeCommand 不产生（由 TraderDialog 的"无交易命令则回退自建交易项"覆盖）。
                     shadows[kv.Key] = shadow;
-                    Log.Message($"[RimExodus] ShadowCaravan: created at tile {kv.Key} for '{kv.Value.Parent.Label}'.");
+                    Log.Message($"[RimExodus] ShadowCaravan: created at tile {kv.Key} for '{kv.Value.Parent.Label}' (unspawned).");
                 }
+                shadowMaps[shadow] = kv.Value; // 期望集本轮确认的据点图（防旧图删除后残留）
                 SyncMembership(shadow, kv.Value);
             }
         }
@@ -165,7 +187,10 @@ namespace RimExodus
                 if (p != null && !p.Destroyed && tmpDesired.Contains(p)) continue;
                 if (p != null && p.holdingOwner == shadow.pawns)
                 {
-                    p.holdingOwner = TakeOriginalOwner(p) ?? null;
+                    // 归还持有（2026-08 奴役实测教训）：快照不可信（加入与归还之间容器可能已变——
+                    // 奴役/受伤倒地等路径会重挂容器），pawn 仍 spawned 时唯一正确容器就是所在图；
+                    // 未 spawn（死亡抬尸/被装容器）才还快照，快照缺失置 null 由其新持有者接管。
+                    p.holdingOwner = p.Spawned ? p.Map.spawnedThings : (TakeOriginalOwner(p) ?? null);
                 }
                 innerList.RemoveAt(i);
             }
@@ -194,11 +219,10 @@ namespace RimExodus
                     {
                         var p = innerList[i];
                         if (p == null || p.holdingOwner != shadow.pawns) continue;
-                        p.holdingOwner = TakeOriginalOwner(p) ?? null;
+                        p.holdingOwner = p.Spawned ? p.Map.spawnedThings : (TakeOriginalOwner(p) ?? null);
                     }
                     innerList.Clear();
                 }
-                if (shadow.Spawned) Find.WorldObjects.Remove(shadow);
                 Log.Message($"[RimExodus] ShadowCaravan: dismantled at tile {tile} ({reason}).");
             }
             catch (System.Exception e)
@@ -208,6 +232,7 @@ namespace RimExodus
             finally
             {
                 shadows.Remove(tile);
+                if (shadow != null) shadowMaps.Remove(shadow);
             }
         }
 
@@ -232,25 +257,19 @@ namespace RimExodus
     }
 
     /// <summary>
-    /// 影子远行队的三个行为面 patch（2026-08 v2 常驻模型）：
-    /// ①<see cref="Caravan"/>.TickInterval 整体跳过——影子零 tick 行为（需求/进食/pather 全免疫），
-    ///   纯数据视图；②<see cref="Pawn.GetCaravan"/> 对影子返回 null——还原原版 ~40 处消费面的地图语义
+    /// 影子远行队的行为面 patch（2026-08-26 方案 B 收敛：影子不进 Find.WorldObjects——不 tick、
+    /// 不序列化、殖民者栏/框选/告警/合并/世界图绘制与选中全部天然不可见，原 TickInterval 抑制与
+    /// 三个世界图隐藏 patch 随之删除）。保留两件：
+    /// ①<see cref="Pawn.GetCaravan"/> 对影子返回 null——还原原版 ~40 处消费面的地图语义
     ///   （holdingOwner 指影子不应改变地图行为；Caravan.IsOwner 走 pawns.Contains 不受影响）；
-    /// ③<see cref="Caravan.GetGizmos"/> 清空——防玩家在世界图选中影子下令移动/合并（影子是投影，
-    ///   被移动 = 投影与图脱钩）。
+    /// ②<see cref="Caravan.GetGizmos"/> 清空——防御性兜底（影子不可选中后本不应被调到）。
+    /// ③<see cref="ThingOwnerUtility.GetRootMap"/> Prefix——影子成员 inventory 物品的 MapHeld 还原：
+    /// holdingOwner 指影子后持有链（inventory→pawn→Caravan→世界）不含 Map → null，CompRottable 的
+    /// AmbientTemperature 每 TickRare 刷 "Got temperature for null map"（2026-08 奴役场景实测暴露，
+    /// 实为一切影子成员带腐烂食物即触发）；遇影子时返回其据点图，掉落/腐烂/心情等全消费面一并还原。
     /// </summary>
     internal static class Patches_ShadowCaravan
     {
-        // TickInterval 是 protected override，按名绑定（字符串名 + 实例参数）。
-        [HarmonyPatch(typeof(Caravan), "TickInterval")]
-        static class Patch_ShadowCaravan_SkipTickInterval
-        {
-            static bool Prefix(Caravan __instance)
-            {
-                return !SeamlessShadowCaravan.IsShadow(__instance); // true = 照常原方法
-            }
-        }
-
         // GetCaravan 是 CaravanUtility 上的扩展方法（this Pawn），patch 挂定义类、实例参数为 Pawn。
         [HarmonyPatch(typeof(CaravanUtility), nameof(CaravanUtility.GetCaravan))]
         static class Patch_ShadowCaravan_GetCaravanNull
@@ -268,6 +287,25 @@ namespace RimExodus
             static void Postfix(Caravan __instance, ref IEnumerable<Gizmo> __result)
             {
                 if (SeamlessShadowCaravan.IsShadow(__instance)) __result = empty;
+            }
+        }
+
+        // 持有链 Map 解析收口（静态方法，链遍历成本与原方法同级）：沿链遇影子 Caravan → 返回其据点图。
+        // 影子不在链上（绝大多数调用）首步即放行原方法，零额外语义面。
+        [HarmonyPatch(typeof(ThingOwnerUtility), nameof(ThingOwnerUtility.GetRootMap))]
+        static class Patch_ShadowCaravan_RootMap
+        {
+            static bool Prefix(IThingHolder holder, ref Map __result)
+            {
+                for (var h = holder; h != null; h = h.ParentHolder)
+                {
+                    if (h is Caravan c && SeamlessShadowCaravan.TryGetShadowMap(c, out var map))
+                    {
+                        __result = map;
+                        return false;
+                    }
+                }
+                return true;
             }
         }
     }
