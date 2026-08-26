@@ -21,12 +21,12 @@
 |-----|------|
 | **Geological Landforms**（实测 1.7.13.1） | 完整适配，两轮：①分帧增量生成路径软反射复刻其生成上下文（其 Harmony patch 挂在原生同步管线上，分帧路径天然绕过）；②启动时把我们的地块 parent 注册进其 `IgnoredWorldObjects` 白名单——否则 GL 会把无派系的地块 parent 当作外来 site，把该地块的全部 landform 概率归零（症状：营地图 landform 缺失且被永久写入空数据、地块存在期间预览丢 landform）。 |
 | **MapPreview** | 预览兼容：RimExodus 裁切/接缝 genStep 进预览白名单（预览可见六边形与接缝效果），预览线程守卫防组件裁剪 NRE；增量分帧生成与后台预览互相避让（预览进行中预加载自动排队，代价 1-2 tick）。 |
-| **Perspective Shift**（ferny.PerspectiveShift，第一人称自由移动） | 适配（待游戏内回归）：其 WASD 移动绕过原版 job/寻路系统，RimExodus 在其移动处理上补挂了"走近接缝自动预加载邻图 + 踩传送点无缝过缝"；其右键下令走原版菜单链，天然兼容。已知边界：第一人称下鼠标瞄准解析限当前地图（跨缝瞄准射击未适配）。 |
-| **Vehicle Framework**（SmashPhil.VehicleFramework，载具） | 适配（待游戏内回归）：跨图传送复刻 VF 官方进图管线——传送前同步就绪化对图载具网格 + 整车矩形落点校验（找不到可站地块时如实拒绝，属真实地形限制）；载具征召驶近传送点即跨缝、点击邻图可跨图下令、菜单可达性与执行同口径。载具（含乘员）在地图滚动休眠中视同 pawn。与 Perspective Shift 双装支持第一人称 WASD 驾驶跨缝。已知边界：NPC 敌对载具不跨图追击；跨图不保留朝向；对端接缝若整圈无该载具可站地块则无法从该边跨越。 |
+| **Perspective Shift**（ferny.PerspectiveShift，第一人称自由移动） | 适配：其 WASD 移动绕过原版 job/寻路系统，RimExodus 在其移动处理上补挂了"走近接缝自动预加载邻图 + 踩传送点无缝过缝"；其右键下令走原版菜单链，天然兼容。第一人称下鼠标瞄准解析看起来已经随常规模式的适配生效而适配了。 |
+| **Vehicle Framework**（SmashPhil.VehicleFramework，载具） | 适配：跨图传送复刻 VF 官方进图管线——传送前同步就绪化对图载具网格 + 整车矩形落点校验（找不到可站地块时如实拒绝，属真实地形限制）；载具征召驶近传送点即跨缝、点击邻图可跨图下令、菜单可达性与执行同口径。载具（含乘员）在地图滚动休眠中视同 pawn。与 Perspective Shift 双装支持第一人称 WASD 驾驶跨缝。已知边界：NPC 敌对载具不跨图追击；跨图不保留朝向；对端接缝若整圈无该载具可站地块则无法从该边跨越。 |
 
 ### 共存（无运行时依赖）
 
-- **Vehicle Map Framework**：仅作架构调研参考，无依赖、无兼容承诺。**Vehicle Framework 已升级为已适配**（见上表）。
+- **Vehicle Map Framework**：仅作架构调研参考，无依赖、无兼容承诺（但实际上兼容性还行）。**Vehicle Framework 已升级为已适配**（见上表）。
 - **Odyssey 空间层地图与其他口袋图**（Pocket Map，含 VMF 载具内部图）：被排除出表面无缝语义——这类地图回到原生行为（轨道 tileId 与表面地块撞号、口袋图硬编码 tile 会污染邻居解析，接入反而出错）。
 
 ### 预期不兼容 / 未深入测试
@@ -187,3 +187,9 @@
 - `AGENTS.md` — 开发工作文档（架构事实与勿回退要点，面向协作者/agent）。
 
 **维护约定**：对外可见的兼容性结论与已知限制变化，除各权威文档外须同步更新本 README（见 `AGENTS.md`"文档同步范围"条）。
+
+## 许可与鸣谢
+
+本项目以 [MIT 许可证](LICENSE) 开源。
+
+特别鸣谢 [Vehicle Map Framework](https://github.com/Vehicle-Map-Framework/Vehicle-Map-Framework)——正是它作为先驱者证明了跨地图 mod 是可行的，本项目的最初调研也从它开始。虽然深入调研后发现架构假设差异较大（VMF 以口袋地图与载具跨图为中心，而 RimExodus 需要的是对等地块连续世界），最终未能复用其代码、从头另起炉灶，但没有它就没有 RimExodus。

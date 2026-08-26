@@ -29,8 +29,8 @@ Every tile map is carved into a hexagon matching its world tile shape (pentagon 
 [*][b]分帧增量生成[/b]：邻居地块地图在殖民者被命令靠近边界时开始生成，且加载大部分时候不会暂停游戏、也不会显示无加载画面（生成地图的过程中无法存档，但也就几秒的事）。
 [*][b]Incremental frame-sliced generation[/b]: neighbor tile maps start generating when a colonist is ordered toward the border, and the load usually neither pauses the game nor shows a loading screen (saving is blocked while a map is generating, but that only takes a few seconds).
 
-[*][b]地图滚动休眠[/b]：远离玩家的地图自动休眠（停止 tick，内容完好保留、可随时唤醒折返，遗留物品与地形修改都在），更远的地图会被删除、再访时重新生成（避免内存占用过高）。家园地图永不自动休眠、删除。休眠/删除距离均可在设置中调整。
-[*][b]Rolling map dormancy[/b]: maps far from the player automatically go dormant (no ticking; contents fully preserved and can be reawakened at any time — dropped items and terrain edits are all still there), and maps even farther away are deleted and regenerated on revisit (keeping memory usage in check). The home map is never auto-dormified or deleted. Both dormancy and deletion distances are adjustable in the settings.
+[*][b]地图滚动休眠[/b]：远离玩家的地图自动休眠（停止 tick，内容完好保留、可随时唤醒折返，遗留物品与地形修改都在），更远的地图会被删除、再访时重新生成（避免内存占用过高）。注意：被删除的地图重新生成时是全新生成，此前遗留在该地图上的物品、建造的建筑与做出的地形修改都会丢失。家园地图永不自动休眠、删除。休眠/删除距离均可在设置中调整。
+[*][b]Rolling map dormancy[/b]: maps far from the player automatically go dormant (no ticking; contents fully preserved and can be reawakened at any time — dropped items and terrain edits are all still there), and maps even farther away are deleted and regenerated on revisit (keeping memory usage in check). Note: regeneration creates a fresh map — items left behind, buildings constructed, and terrain changes made on a deleted map are lost. The home map is never auto-dormified or deleted. Both dormancy and deletion distances are adjustable in the settings.
 
 [*][b]原生内容接入[/b]：世界地图上的 POI——其他派系据点、远古机械师建筑群、埋伏、机会地点——走近时经原版地图生成管线生成为无缝地块，与其他 mod 的自定义结构天然兼容；"设立营地"生成的也是无缝地块。
 [*][b]Native content integration[/b]: world-map POIs — faction settlements, ancient mechanitor compounds, ambushes, opportunity sites — generate as seamless tiles through the vanilla map generation pipeline as you approach, staying naturally compatible with other mods' custom structures. "Set up camp" maps are seamless tiles too.
@@ -70,7 +70,7 @@ Every tile map is carved into a hexagon matching its world tile shape (pentagon 
 [b]Expected to be incompatible:[/b]
 [list]
 [*][b]边缘战争空岛[/b] — 其空岛改造流程会破坏本mod的地图设置，导致空岛地图无法无缝。而且未深入调研空岛移动逻辑，可能造成额外问题。考虑到玩法调性冲突，不计划支持。
-[*][b]Edge of War sky islands[/b] — their sky-island conversion breaks this mod's map setup, leaving sky-island maps non-seamless. Their movement logic is also unresearched and may cause further issues. Given the gameplay tone clash, support is not planned.
+[*][b]RimSkyBlock[/b] — their sky-island conversion breaks this mod's map setup, leaving sky-island maps non-seamless. Their movement logic is also unresearched and may cause further issues. Given the gameplay tone clash, support is not planned.
 
 [*][b]深度修改地图生成管线/地图边界/世界地块的其他 mod [/b] — 未系统测试，若遇冲突，可关闭设置中的"分帧生成开关"让普通地块图改走原版同步生成管线（保证其他 mod 在原版同步生成管线上的 patch 生效，代价是生成时短暂冻结）。
 [*][b]Other mods that deeply modify the map generation pipeline, map borders, or world tiles[/b] — not systematically tested. If you hit conflicts, turn off "incremental generation" in the settings so regular tile maps use the vanilla synchronous generation pipeline instead (guaranteeing other mods' patches on the vanilla pipeline apply, at the cost of a brief freeze during generation).
@@ -79,8 +79,8 @@ Every tile map is carved into a hexagon matching its world tile shape (pentagon 
 [h1]已知限制 / Known Limitations[/h1]
 
 [list]
-[*]如果天气被某种原因强制修改，而修改源所在的地图被删除，天气可能无法恢复正常。
-[*]If the weather is force-modified by something and the source map is later deleted, the weather may never return to normal.
+[*]如果天气被某种原因强制修改，而在修改源本身未被处理（如游戏条件未结束）的情况下，修改源所在的地图就被删除，天气将无法恢复正常——不是本 mod 不去恢复，而是恢复的途径随修改源一起被删除、被封死了。
+[*]If the weather is force-modified by something and the source map gets deleted before the source itself is dealt with (e.g. its game condition hasn't ended), the weather can never return to normal — not because this mod won't restore it, but because the restoration path was deleted along with the source, sealing it off.
 
 [*]挖矿/砍伐等"designation 前置型"命令不出现在跨图右键菜单（走近过缝后一切正常）。
 [*]Commands that require a designation first (mining, chopping, etc.) don't appear in cross-map right-click menus (everything works once you've walked over the seam).
@@ -119,6 +119,14 @@ See the GitHub README for a full breakdown of every cost.
 
 全部条目带 tooltip，鼠标在条目上悬停就可以看到说明，此处不赘述。
 Every entry has a tooltip — just hover over an entry to see its explanation, so they aren't repeated here.
+
+[h1]许可与鸣谢 / License & Credits[/h1]
+
+本项目以 MIT 许可证开源，源码见 GitHub。
+This project is open-sourced under the MIT License; see the GitHub repo for source code.
+
+特别鸣谢 [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3426502333]Vehicle Map Framework[/url]——正是它作为先驱者证明了跨地图 mod 是可行的，本项目的最初调研也从它开始。虽然深入调研后发现架构假设差异较大（VMF 以口袋地图与载具跨图为中心，而 RimExodus 需要的是对等地块连续世界），最终未能复用其代码、从头另起炉灶，但没有它就没有 RimExodus。
+Special thanks to [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3426502333]Vehicle Map Framework[/url] — as a pioneer it proved cross-map modding was possible, and it was where this project's initial research began. Deeper investigation later revealed the architectural assumptions diverge too far (VMF is built around pocket maps and vehicle crossings, while RimExodus needed peer tiles forming one continuous world), so none of its code was reused and RimExodus was built from scratch — but without it, RimExodus wouldn't exist.
 
 [h1]链接与反馈 / Links & Feedback[/h1]
 
