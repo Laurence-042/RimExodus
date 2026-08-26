@@ -10,7 +10,9 @@ namespace RimExodus
     /// 地图内据点交易（2026-08 Settlement 无缝接入，用户定夺："直接走原版远行队交易，patch 让地图内的
     /// 交易识别 pawn 身上的内容，并在交易后直接在贸易商身边掉落交易品、白银之类的"）。
     ///
-    /// 统一守卫：谈判者在远行队（GetCaravan() != null）→ 放行原版——**世界地图远行队交易零回归**。
+    /// 统一守卫：谈判者在**真实**远行队（GetCaravan() != null）→ 放行原版——**世界地图远行队交易零回归**。
+    /// 注意（2026-08 影子远行队 v2）：据点图殖民者的 holdingOwner 指向常驻影子，但 Pawn.GetCaravan 的
+    /// patch 对影子返回 null（还原地图语义），故本守卫对影子成员恒走下方地图分支——正确。
     /// 地图内谈判者（走到据点里与贸易商对话的 spawned pawn）时：
     /// - ColonyThingsWillingToBuy：原版体开头解引用远行队（AllInventoryItems(null) 会 NRE），必须 Prefix
     ///   接管——改为枚举谈判者所在图全部玩家阵营 pawn 的 inventory（"识别 pawn 身上的内容"；随身白银即支付来源）；

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using HarmonyLib;
 using RimWorld;
+using RimWorld.Planet;
 using Verse;
 
 namespace RimExodus
@@ -68,14 +69,17 @@ namespace RimExodus
         {
             static void Postfix(List<IIncidentTarget> __result)
             {
-                // 剔除两类图：①休眠图（既定——防袭击打到冻结图）；②无玩家阵营 pawn 在场的**非玩家家**
+                // 剔除：①休眠图（既定——防袭击打到冻结图）；②无玩家阵营 pawn 在场的**非玩家家**
                 // 活跃图（2026-08 Settlement 接入补）。原版假设"没有玩家的图不存在"（人走即删），滚动
                 // 模型让这类图常驻活跃圈：中立据点图（IsDefeated 误真被打 Map_PlayerHome 标签——已有
                 // IsDefeated patch 修正标签，此处兜底）与废墟图（DestroyedSettlement 无条件 yield
                 // Map_PlayerHome——原版给拾荒玩家设计）都会成为 RaidEnemy/疾病等"玩家家"事件的合法
                 // 目标。玩家家图（含临时无人的家）保留 = 原版"空家可被袭击"语义。
-                __result.RemoveAll(t => t is Map m && (SeamlessDormancyManager.IsDormant(m)
-                    || (!m.IsPlayerHome && m.mapPawns.SpawnedPawnsInFaction(Faction.OfPlayer).Count == 0)));
+                // ③影子远行队（2026-08 v2 常驻模型）——据点图玩家 pawn 的世界投影，袭击打到它
+                // 无意义（成员真身在图上，图本身已是合法目标）。
+                __result.RemoveAll(t => (t is Map m && (SeamlessDormancyManager.IsDormant(m)
+                    || (!m.IsPlayerHome && m.mapPawns.SpawnedPawnsInFaction(Faction.OfPlayer).Count == 0)))
+                    || (t is Caravan c && SeamlessShadowCaravan.IsShadow(c)));
             }
         }
 

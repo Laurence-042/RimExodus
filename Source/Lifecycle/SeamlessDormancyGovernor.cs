@@ -104,6 +104,8 @@ namespace RimExodus
             // GameComponent 恒 tick，与一切地图的活跃状态解耦。
             SeamlessSelectionTracker.PurgeInvalid();
             SeamlessTransferGrants.TickSweep();
+            // 影子远行队常驻维护（2026-08 v2：60 ticks 间隔门控，建/同步/拆据点图影子，读档重建）。
+            SeamlessShadowCaravan.TickMaintain();
 
             if (Find.TickManager.TicksGame < nextSweepTick) return;
             // 间隔设置化（2026-08，原 const 600）：每轮现读，改设置即时生效（含 UI 滑条拖动）。
