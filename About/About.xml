@@ -1,9 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>RimExodus - Seamless World Tile Exploration</name>
+  <name>RimExodus — Seamless World</name>
   <packageId>RimExodus.SeamlessWorld</packageId>
-  <author>RimExodus</author>
-  <description>无缝世界地块探索原型：使相邻世界地块的局部地图在视觉与操作上连续连接，Pawn 可直接从一张地图走入相邻地图。</description>
+  <author>Laurence-042</author>
+  <description>告别"撤离地图 → 世界地图 → 重新加载"的割裂旅行。RimExodus 让相邻世界地块的局部地图在视觉与操作上连续连接：你的殖民者可以从基地门口直接走进荒野，穿过一条看不见的世界地块边界继续走向下一片荒野——不需要远行队，不需要加载画面。
+
+主要特性：
+· 直接跨图行走——殖民者跨过两图接缝几乎无感切换到相邻地图；
+· 跨图战斗——跨缝视线/索敌与弹道交接，子弹飞过接缝在正确的地图上命中正确的目标（可整体关闭回到原版战斗语义）；
+· 分帧增量生成——邻居地块在殖民者被命令靠近边界时开始生成，通常不暂停游戏、无加载画面；
+· 地图滚动休眠——远离的地图自动休眠（内容完好保留），更远的删除、再访时重新生成（重新生成是全新的，遗留物品与建筑会丢失）；家园永不休眠/删除；
+· 原生内容接入——派系据点、远古机械师建筑群、埋伏等 POI 走近时经原版管线生成为无缝地块；
+· 据点贸易商——友好据点指定贸易商，右键对话交易，完整原版远行队交易语义但无需组队。
+
+⚠ 本 mod 仍在开发中，对地图机制改动较深，请做好遇到 bug 的心理准备；暂不支持加入后从存档移除。</description>
   <modVersion IgnoreIfNoMatchingField="True">0.1.0</modVersion>
   <supportedVersions>
     <li>1.6</li>
