@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>RimExodus — Seamless World</name>
-  <packageId>RimExodus.SeamlessWorld</packageId>
+  <name>RimExodus — Seamless World Dev</name>
+  <packageId>RimExodus.SeamlessWorld.Dev</packageId>
   <author>Laurence-042</author>
   <description>告别"撤离地图 → 世界地图 → 重新加载"的割裂旅行。RimExodus 让相邻世界地块的局部地图在视觉与操作上连续连接：你的殖民者可以从基地门口直接走进荒野，穿过一条看不见的世界地块边界继续走向下一片荒野——不需要远行队，不需要加载画面。
 
