@@ -61,4 +61,49 @@ namespace RimExodus
     {
         internal static bool Enabled => RimExodusMod.Settings?.seamExitBandEnabled ?? true;
     }
+
+    /// <summary>
+    /// 隐藏无人的殖民者栏分组开关（2026-08，默认关 = 殖民者栏原生行为）：与接缝带开关同族的
+    /// PlaySettings 全局控制条 toggle。开启后殖民者栏不画"无玩家 pawn 的非玩家家地图"空分组框
+    /// （过滤实现在 Patches_Dormancy 的 ColonistBar patch，门控走 <see cref="HideEmptyColonistBarGroups"/>）。
+    /// ToggleableIcon 走 ref 无回调，切换前后自行比较字段值并 MarkColonistsDirty 触发立即重算。
+    /// 不设 HasSeamEdge 门——殖民者栏与接缝无关，任何局都可用。
+    /// </summary>
+    [HarmonyPatch(typeof(PlaySettings), nameof(PlaySettings.DoPlaySettingsGlobalControls))]
+    [StaticConstructorOnStartup]
+    static class Patch_PlaySettings_ColonistBarToggle
+    {
+        private static Texture2D _icon;
+
+        static Patch_PlaySettings_ColonistBarToggle()
+        {
+            _icon = ContentFinder<Texture2D>.Get("UI/Commands/RimExodus_ColonistBarToggle", reportFailure: false)
+                ?? ContentFinder<Texture2D>.Get("UI/Commands/RimExodus_SeamBandToggle", reportFailure: false);
+        }
+
+        static void Postfix(WidgetRow row, bool worldView)
+        {
+            if (worldView || row == null) return;
+            if (RimExodusMod.Settings == null) return;
+            if (_icon == null) return;
+
+            var before = RimExodusMod.Settings.hideEmptyColonistBarGroups;
+            row.ToggleableIcon(
+                ref RimExodusMod.Settings.hideEmptyColonistBarGroups,
+                _icon,
+                "RimExodus_ColonistBarToggleTooltip".Translate(),
+                SoundDefOf.Mouseover_ButtonToggle);
+            if (RimExodusMod.Settings.hideEmptyColonistBarGroups != before)
+                Find.ColonistBar?.MarkColonistsDirty();
+        }
+    }
+
+    /// <summary>
+    /// 隐藏无人的殖民者栏分组的门控读取口（hideEmptyColonistBarGroups，默认 false = 原生行为）。
+    /// 设置对象缺失（极早期调用）时按默认关闭处理。
+    /// </summary>
+    internal static class HideEmptyColonistBarGroups
+    {
+        internal static bool Enabled => RimExodusMod.Settings?.hideEmptyColonistBarGroups ?? false;
+    }
 }

@@ -106,6 +106,14 @@ namespace RimExodus
         /// </summary>
         public bool seamExitBandEnabled = true;
 
+        /// <summary>
+        /// 隐藏无人的殖民者栏分组（2026-08，默认 false = 原生行为）。true 时殖民者栏不显示
+        /// "无玩家 pawn 的非玩家家地图"的空分组框（原版每图一组、空组也画框可点击切图）。
+        /// 玩家家（含临时无人的家）保留 = 原版"空家仍显示"语义；休眠图过滤与此开关无关
+        /// （既定设计，常开）。PlaySettings 全局控制条 toggle（与接缝带开关同族）。
+        /// </summary>
+        public bool hideEmptyColonistBarGroups = false;
+
         public override void ExposeData()
         {
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
@@ -121,6 +129,7 @@ namespace RimExodus
             Scribe_Values.Look(ref dormancySweepIntervalTicks, "dormancySweepIntervalTicks", 600);
             Scribe_Values.Look(ref crossMapCombatEnabled, "crossMapCombatEnabled", true);
             Scribe_Values.Look(ref seamExitBandEnabled, "seamExitBandEnabled", true);
+            Scribe_Values.Look(ref hideEmptyColonistBarGroups, "hideEmptyColonistBarGroups", false);
             Scribe_Values.Look(ref incrementalGenerationEnabled, "incrementalGenerationEnabled", true);
             Scribe_Values.Look(ref generationBatchSize, "generationBatchSize", 64);
             base.ExposeData();

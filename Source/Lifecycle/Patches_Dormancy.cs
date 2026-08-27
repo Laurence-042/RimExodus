@@ -101,7 +101,14 @@ namespace RimExodus
                 var entriesField = AccessTools.Field(typeof(ColonistBar), "cachedEntries");
                 if (!(entriesField?.GetValue(__instance) is List<ColonistBar.Entry> entries)) return;
 
-                var removed = entries.RemoveAll(e => e.map != null && SeamlessDormancyManager.IsDormant(e.map));
+                // 休眠图过滤（既定设计，常开）+ 空组过滤（hideEmptyColonistBarGroups 开关，默认关 =
+                // 原生行为，2026-08 增）：非玩家家且无玩家 pawn 的图整组隐藏。玩家家含空家保留
+                // = 原版"空家仍显示可切图"语义。空组口径与 AllIncidentTargets 过滤②一致。
+                var hideEmpty = HideEmptyColonistBarGroups.Enabled;
+                var removed = entries.RemoveAll(e => e.map != null
+                    && (SeamlessDormancyManager.IsDormant(e.map)
+                        || (hideEmpty && !e.map.IsPlayerHome
+                            && e.map.mapPawns.SpawnedPawnsInFaction(Faction.OfPlayer).Count == 0)));
                 if (removed <= 0) return;
 
                 var lastOriginal = int.MinValue;

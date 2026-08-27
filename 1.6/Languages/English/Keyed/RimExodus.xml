@@ -49,6 +49,8 @@
   <!-- PlaySettings global controls toggle (2026-08, immersive mode). -->
   <RimExodus_SeamBandToggleTooltip>Show the seam band and allow leaving the map as a caravan through it.\n\nTurn OFF for immersive mode (screenshots / travel videos): the green seam band and its outline are hidden, and pawns can no longer leave through the seam to form a caravan - walking across seams to neighboring maps still works normally.\n\nNot intended for regular play: while OFF you cannot deliberately leave a map as a caravan either, and the seam area still has its usual building restrictions.</RimExodus_SeamBandToggleTooltip>
 
+  <RimExodus_ColonistBarToggleTooltip>Hide empty colonist bar groups.\n\nTurn ON to hide the colonist bar groups of maps that hold no player pawns (the vanilla bar draws a clickable empty frame for every map, which clutters the bar in a seamless world with many loaded maps). Player home maps are always kept, even when temporarily empty.\n\nDefault: OFF (vanilla behavior).</RimExodus_ColonistBarToggleTooltip>
+
   <!-- World map tile gizmos (2026-08): manual dormancy / delete. -->
   <RimExodus_SleepTileMap>Sleep this map</RimExodus_SleepTileMap>
   <RimExodus_SleepTileMapDesc>Put this map to sleep immediately. Everything on it is kept; the map simply stops simulating and is not shown as a neighboring map until you wake it.\n\nUnlike automatic dormancy, a manually slept map is NOT woken by distance again - it only wakes when you enter it (the "view map" command) or order a colonist to approach its side of the seam.</RimExodus_SleepTileMapDesc>

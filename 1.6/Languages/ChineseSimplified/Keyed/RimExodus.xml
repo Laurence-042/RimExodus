@@ -49,6 +49,8 @@
   <!-- PlaySettings 全局控制条开关（2026-08，沉浸模式）。 -->
   <RimExodus_SeamBandToggleTooltip>显示接缝带，并允许经接缝带离开地图组建远行队。\n\n关闭 = 沉浸模式（截图 / 旅行视频）：隐藏浅绿撤离带与接缝划线，且 pawn 不再会经接缝带离开成队——跨缝步行去相邻地图不受影响。\n\n并非为正常游玩设计：关闭期间你也将无法主动经接缝带离图组队，且接缝区域仍保留平时的禁建限制。</RimExodus_SeamBandToggleTooltip>
 
+  <RimExodus_ColonistBarToggleTooltip>隐藏无人的殖民者栏分组。\n\n开启后，殖民者栏不再显示"没有玩家 pawn 的地图"的空分组框（原版为每张地图画一个可点击的空框，无缝世界常驻多图时会挤占栏位）。玩家家园地图始终保留显示，即使暂时无人。\n\n默认：关闭（原生行为）。</RimExodus_ColonistBarToggleTooltip>
+
   <!-- 世界地图地块 gizmo（2026-08）：手动休眠 / 删除。 -->
   <RimExodus_SleepTileMap>休眠此地图</RimExodus_SleepTileMap>
   <RimExodus_SleepTileMapDesc>立即让此地图进入休眠。地图上的一切都保留，只是停止模拟、且不再作为邻接地图显示，直到被唤醒。\n\n与自动休眠不同：手动休眠的地图**不会**再按距离被自动唤醒——只有你主动进入该图（"查看地图"）或命令殖民者走近其接缝一侧时才会唤醒。</RimExodus_SleepTileMapDesc>
