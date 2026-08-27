@@ -67,6 +67,16 @@ namespace RimExodus
         private int pendingAutoGenerateTicks = -1;
 
         /// <summary>
+        /// 传送点对端缓存待刷新（首 tick 一次性自愈，2026-08 读档断链修复）：
+        /// <see cref="CompSeamlessTileEnterSpot.cachedArrivalCell"/>/<see cref="CompSeamlessTileEnterSpot.hasArrival"/>
+        /// 不序列化，事件刷新点（邻居登记/生成 onComplete/Sleep/Wake）在读档后一个都不触发 →
+        /// 全图 spot hasArrival=false → 跨图选点候选集空、双向全拒。与 SeamlessBorderLookup 的
+        /// "built 旗标"旧教训同类：非序列化缓存必须有读档自愈路径（首 tick 补算）。
+        /// 新图生成后首 tick 多刷一次幂等无害；休眠图首 tick 不跑，由 Sleep/Wake 的双端刷新覆盖。
+        /// </summary>
+        private bool enterSpotArrivalsStale = true;
+
+        /// <summary>
         /// 正在经 RimExodus 预加载链原生生成 Settlement 据点图（try/finally 维护，勿手工置位）。
         /// 供 <c>Patch_Settlement_PostMapGenerate_SkipDetectionRaids</c> 判定跳过 TimedDetectionRaids
         /// 倒计时——原版该倒计时语义是"玩家闯入/进攻据点被发现的报复"，中立据点的预加载生成不该启动。
@@ -147,6 +157,11 @@ namespace RimExodus
                     pendingAutoGenerateTicks = -1;
                     SetupNativeParentMap();
                 }
+            }
+            if (enterSpotArrivalsStale)
+            {
+                enterSpotArrivalsStale = false;
+                SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(map);
             }
             HealPocketNeighborLinks();
             // 消费异步预加载队列（全局静态队列，任意图块 tick 触发消费，幂等）。
