@@ -4,7 +4,7 @@ Say goodbye to the disjointed "exit map → world map → reload" travel loop. R
 
 [img]https://raw.githubusercontent.com/Laurence-042/RimExodus/main/doc/img/demo.gif[/img]
 
-[b]⚠ Still in development and changes the map system deeply — expect bugs in odd places; reports welcome. The save format is settled, so play without worry. It can't be removed from a save, though; an unload utility may come later (to make maps compatible first).[/b]
+[b]⚠ Still in development and changes the map system deeply — expect bugs in odd places; reports welcome. The save format is settled, so play without worry. It can't be removed from a save, though; an unload utility may come later (to make maps compatible before removing).[/b]
 
 [h1]What It Does[/h1]
 
@@ -74,8 +74,6 @@ In theory, anything that doesn't modify base maps (the per-tile maps on the plan
 
 [*]Odyssey space-layer maps and pocket maps (underground vaults, pits, VMF vehicle interiors, etc.) stay outside the seamless system, keeping vanilla behavior.
 
-[*]Explosion AoE and mortar-style projectiles don't cross seams (they resolve where they land).
-
 [*]Settlement trading only supports carried items (prisoners/slaves not yet); the trader is designated once at generation, never re-picked.
 
 [*]Saving is blocked while an adjacent map generates (progress shows in the top-left corner).
@@ -91,7 +89,7 @@ In theory, anything that doesn't modify base maps (the per-tile maps on the plan
 
 Near-zero overhead when no cross-map action or generation is happening — and while too many maps is itself a RimWorld problem, this mod improves on it. Beyond dormancy and far-map deletion, you can configure the **tick rate of pawnless non-home maps**, plus a **seam fast zone (N cells around each seam, ignored by the rate)** to keep cross-map combat intact.
 
-With both set to 0, a 5-year-old laptop (a first-gen OMEN 16) gets 360 TPS with 14 active maps of pure grassland and rainforest — only 2 maps are truly active then. Tune these two settings, keep fewer jungle/grassland maps than this stress test, and performance is perfectly acceptable.
+With both set to 0, an extreme stress test of 14 active grassland/rainforest maps still measured 360 TPS on a 5-year-old laptop (a first-gen OMEN 16).
 
 [img]https://raw.githubusercontent.com/Laurence-042/RimExodus/main/doc/img/performance.png[/img]
 
@@ -105,7 +103,7 @@ Every entry has a tooltip — hover to see it, not repeated here.
 
 Open source under the MIT License; code on GitHub.
 
-Special thanks to [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3426502333]Vehicle Map Framework[/url] — it proved cross-map modding possible and started this project. The architectures diverged too far to share code (VMF centers on pocket maps and vehicle crossings; RimExodus needed peer tiles in one world), so this was built from scratch — but without it, none of this would exist.
+Special thanks to [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3426502333]Vehicle Map Framework[/url] — it proved that simultaneously rendering multiple interactive maps is possible, and this project's research started there. No code was shared with it; only ideas were referenced.
 
 [h1]Links[/h1]
 
