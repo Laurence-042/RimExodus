@@ -146,6 +146,13 @@ namespace RimExodus
                         continue;
                     }
 
+                    // 雾过滤镜像 DynamicDrawManager：原版靠"雾中不画"而非 fog mesh 遮挡隐藏雾中动态绘制物，
+                    // 立即模式绘制绕过了该管理器，必须自带此判定（seeThroughFog 豁免同原版）。
+                    if (!pawn.def.seeThroughFog && neighborMap.fogGrid.IsFogged(pawn.Position))
+                    {
+                        continue;
+                    }
+
                     pawn.DrawNowAt(drawPos);
                 }
                 catch (Exception ex)
@@ -173,6 +180,11 @@ namespace RimExodus
                     var drawPos = thing.DrawPos + offset;
                     if (!hostViewRect.Contains(new IntVec3(
                             Mathf.FloorToInt(drawPos.x), 0, Mathf.FloorToInt(drawPos.z))))
+                    {
+                        continue;
+                    }
+
+                    if (!thing.def.seeThroughFog && neighborMap.fogGrid.IsFogged(thing.Position))
                     {
                         continue;
                     }
