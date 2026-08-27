@@ -36,6 +36,8 @@ namespace RimExodus
             }
 
             // 远行队进图 = 源集合变化（caravan 消耗、pawn 落图）：请求 governor 尽快重算距离。
+            // 同时即时恢复落图全速（2026-08 分级休眠——同跨缝传送的 AfterTransfer 口径）。
+            SeamlessTickThrottle.Unthrottle(map, "player caravan entering map");
             SeamlessDormancyGovernor.RequestSweepSoonStatic();
 
             // 对所有有 RimExodus 传送点的地图生效（含玩家家园图——原生 MapParent 也是无缝世界一员）；其他地图放行原方法。

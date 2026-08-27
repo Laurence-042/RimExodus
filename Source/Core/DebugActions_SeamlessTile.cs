@@ -31,39 +31,14 @@ namespace RimExodus
             }
         }
 
-        /// <summary>生成当前地块的指定世界邻居地块。</summary>
-        private static void GenerateForNeighbor(int neighborWorldTile)
-        {
-            var manager = CurrentManager;
-            if (manager == null)
-            {
-                Log.Warning("[RimExodus] No SeamlessTileManager on current map.");
-                return;
-            }
-
-            var currentMap = Find.CurrentMap;
-            var currentWorldTile = SeamlessTileRegistry.GetMapWorldTile(currentMap);
-            if (currentWorldTile < 0)
-            {
-                Log.Warning("[RimExodus] Current map has no valid world tile.");
-                return;
-            }
-
-            if (manager.GetNeighborByWorldTile(neighborWorldTile) != null)
-            {
-                Log.Message($"[RimExodus] World tile {neighborWorldTile} already has a seamless tile map.");
-                return;
-            }
-
-            // void 铺设在 GenerateTileMap 内部邻居登记后自动刷新。
-            var mapSize = new IntVec3(currentMap.Size.x, 1, currentMap.Size.z);
-            var parent = manager.GenerateTileMap(currentWorldTile, neighborWorldTile, mapSize);
-            if (parent != null)
-            {
-                Log.Message($"[RimExodus] Generated seamless tile map for world tile {neighborWorldTile}.");
-            }
-        }
-
+        /// <summary>
+        /// 生成当前地块的全部邻居地块（2026-08-27 入口统一化）：走预加载队列
+        /// <see cref="SeamlessTilePreloader.QueuePreload"/>——与玩家命令 pawn 触发的边界预加载
+        /// 完全同一条链（队列 → ConsumeQueued → TryPreloadNeighbor → 私有 GenerateTileMap），
+        /// 忙时自动重排队下一 tick，六邻图逐个串行生成完。**勿改为同步直调 GenerateTileMap**：
+        /// 分帧增量生成全程持有 mapBeingGenerated，同步循环里第一个调用启动后其余全撞忙守卫被拒
+        /// （曾致"只生成了一个图"，原 GenerateForNeighbor 即此病灶，已删）。
+        /// </summary>
         [DebugAction(Category, "Generate All Seamless Neighbors", allowedGameStates = AllowedGameStates.PlayingOnMap)]
         private static void GenerateAllNeighbors()
         {
@@ -77,10 +52,14 @@ namespace RimExodus
 
             var worldNeighbors = new List<PlanetTile>();
             Find.WorldGrid.GetTileNeighbors(currentWorldTile, worldNeighbors);
+            var queued = 0;
             foreach (var neighborTile in worldNeighbors)
             {
-                GenerateForNeighbor(neighborTile.tileId);
+                if (neighborTile.tileId == currentWorldTile) continue;
+                SeamlessTilePreloader.QueuePreload(currentMap, neighborTile.tileId);
+                queued++;
             }
+            Log.Message($"[RimExodus] Queued generation for {queued} seamless neighbor tiles (consumed one per tick via preloader).");
         }
 
         [DebugAction(Category, "Remove All Tile Maps", allowedGameStates = AllowedGameStates.PlayingOnMap)]

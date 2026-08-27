@@ -29,7 +29,10 @@ namespace RimExodus
         {
             static bool Prefix(Map __instance)
             {
-                return !SeamlessDormancyManager.IsDormant(__instance); // 休眠图跳过 tick。
+                // 休眠 → 跳过；降频 → 与 thing tick 同相位放行（Pre/Post/ThingTick 必须同拍，
+                // 防 haulables/powerNet 与 thing 状态错位，见 SeamlessTickThrottle 类注释）。
+                return !SeamlessDormancyManager.IsDormant(__instance)
+                    && SeamlessTickThrottle.MapSimulatesThisTick(__instance);
             }
         }
 
@@ -38,7 +41,8 @@ namespace RimExodus
         {
             static bool Prefix(Map __instance)
             {
-                return !SeamlessDormancyManager.IsDormant(__instance);
+                return !SeamlessDormancyManager.IsDormant(__instance)
+                    && SeamlessTickThrottle.MapSimulatesThisTick(__instance);
             }
         }
 
@@ -47,7 +51,10 @@ namespace RimExodus
         {
             static bool Prefix(Map __instance)
             {
-                return !SeamlessDormancyManager.IsDormant(__instance); // 休眠图跳过每帧更新（含组件 Update）。
+                // 休眠 → 跳过每帧更新（含组件 Update）。降频图**照常 Update**：仍作为邻图可见/
+                // 可渲染，动画插值冻结属预期（MapSimulatesThisTick 是 tick 相位、不适用于每帧调用，
+                // 勿并入——按 tick 取模门控每帧方法会造成渲染抖动）。
+                return !SeamlessDormancyManager.IsDormant(__instance);
             }
         }
 
@@ -60,6 +67,11 @@ namespace RimExodus
                 if (value != null && SeamlessDormancyManager.IsDormant(value))
                 {
                     SeamlessDormancyManager.Wake(value, "entering map (CurrentMap switch)");
+                }
+                // 进入降频图同理（2026-08 分级休眠）：玩家正看着的图冻结会卡 UI，保活圈含 CurrentMap。
+                if (value != null && !SeamlessDormancyManager.IsDormant(value))
+                {
+                    SeamlessTickThrottle.Unthrottle(value, "entering map (CurrentMap switch)");
                 }
             }
         }

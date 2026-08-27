@@ -75,6 +75,21 @@ namespace RimExodus
         public int dormancySweepIntervalTicks = 600;
 
         /// <summary>
+        /// 分级休眠中间档（2026-08）：活跃圈内（BFS dist &lt; sleepHops）**无玩家 pawn** 的图按
+        /// 百分比降频 tick（100 = 原生全速；50 = 每两 tick 一拍；0 = 永不放行 = 可见的凝固，
+        /// 等价休眠但保留显示与 tick 注册）。Pawn 一并降频（远处世界变慢属预期语义）。
+        /// 见 <see cref="SeamlessTickThrottle"/>。运行时 clamp [0,100]。
+        /// </summary>
+        public int dormancyThrottlePercent = 50;
+
+        /// <summary>
+        /// 降频图的接缝快速区半径（格，2026-08 空间分区）：距接缝边 ≤ 此值的格内 thing 全速 tick
+        /// （跨缝战斗的 turret/投射物/追兵不吃降频），区外按相位跳。0 = 关闭空间分区（全图降频）。
+        /// 图级系统（powerNet/天气/野生生成）不分区，整图同相位。运行时 clamp [0,50]。
+        /// </summary>
+        public int throttleSeamFastRadius = 15;
+
+        /// <summary>
         /// 分帧增量生成开关（2026-08，默认 true）。false 时普通 tile 地图改走**原版
         /// <see cref="Verse.MapGenerator.GenerateMap"/> 方法本体**同步单帧生成（与 POI 分支同族）
         /// ——任何 patch 原版生成管线的第三方 mod（Geological Landforms 等）原生生效，
@@ -127,6 +142,8 @@ namespace RimExodus
             Scribe_Values.Look(ref dormancySleepHops, "dormancySleepHops", 2);
             Scribe_Values.Look(ref dormancyDeleteHops, "dormancyDeleteHops", 3);
             Scribe_Values.Look(ref dormancySweepIntervalTicks, "dormancySweepIntervalTicks", 600);
+            Scribe_Values.Look(ref dormancyThrottlePercent, "dormancyThrottlePercent", 50);
+            Scribe_Values.Look(ref throttleSeamFastRadius, "throttleSeamFastRadius", 15);
             Scribe_Values.Look(ref crossMapCombatEnabled, "crossMapCombatEnabled", true);
             Scribe_Values.Look(ref seamExitBandEnabled, "seamExitBandEnabled", true);
             Scribe_Values.Look(ref hideEmptyColonistBarGroups, "hideEmptyColonistBarGroups", false);

@@ -19,7 +19,8 @@ namespace RimExodus
     ///   2026-08 用户定夺"不休眠不删除"）→ 永不休眠、永不删除**。覆盖开局家园/定居/逆重飞船
     ///   降落产生的原生 Settlement 与建了引力引擎的图（含地块图营地）。家园特权判定全项目
     ///   唯一行为消费点 = 本类保活分支；
-    /// - 距离 &lt; sleepHops（默认 2）→ 活跃（距离 0/1）；
+    /// - 距离 &lt; sleepHops（默认 2）→ 活跃（距离 0/1）；其中**无玩家 pawn 的空图**按百分比降频
+    ///   tick（2026-08 分级休眠中间档，<see cref="SeamlessTickThrottle"/>——接缝快速区内全速）；
     /// - 距离 ≥ sleepHops → 休眠（软休眠：内容完好，见 <see cref="SeamlessDormancyManager"/>）；
     /// - 距离 ≥ deleteHops（默认 3）且可删（<see cref="SeamlessMapGovernance.CanRollingDelete"/>）
     ///   → 删除（<see cref="SeamlessTileManager.RemoveRollingMap"/>：地块图销毁 Map+WorldObject，
@@ -213,6 +214,8 @@ namespace RimExodus
                 // 降落/引力引擎营地——特权判定全项目唯一行为消费点在此，删除分支不再有独立豁免。
                 if (m == current || sources.Contains(tile) || SeamlessMapGovernance.IsProtectedHome(m))
                 {
+                    // 保活 = 恢复全速（降频一并解除；玩家落图/进图的即时解除另有事件入口，此处兜底）。
+                    SeamlessTickThrottle.Unthrottle(m, "governor keep-alive");
                     if (SeamlessDormancyManager.IsDormant(m))
                     {
                         // 手动休眠锁（2026-08 玩家 gizmo）：玩家手动睡的图不被保活/距离回落自动唤醒
@@ -231,7 +234,11 @@ namespace RimExodus
                     continue;
                 }
 
-                if (!enabled) continue; // 关闭时只唤醒（上面的保活分支），不休眠/不删除。
+                if (!enabled)
+                {
+                    SeamlessTickThrottle.Unthrottle(m, "dormancy disabled"); // 降频随总开关关闭。
+                    continue; // 关闭时只唤醒（上面的保活分支），不休眠/不删除。
+                }
 
                 // 手动锁的安全网（主路径 = 上方 LoadedGame 的读档即睡，2026-08 方案 3）：
                 // 覆盖"锁内图读档后处于活跃圈（d < sleepHops）"等异常路径——Sleep 分支够不着、
@@ -269,6 +276,22 @@ namespace RimExodus
                     // 本分支唤醒——保活分支有守卫、回落分支漏加，日志 "BFS dist=1 < sleepHops" 即此）。
                     if (SeamlessDormancyManager.IsManuallyDormant(m)) continue;
                     SeamlessDormancyManager.Wake(m, $"governor: BFS dist={d} < sleepHops={sleepHops}");
+                    // 降频判定（2026-08 分级休眠中间档）：唤醒后立即评估——空图（无玩家 pawn，
+                    // 到达此处即非源非 CurrentMap 非家园）按百分比降频，不等下轮 Sweep。
+                    if (SeamlessTickThrottle.ThrottleEnabled)
+                        SeamlessTickThrottle.Throttle(m, $"governor: BFS dist={d} < sleepHops, no player pawn");
+                }
+                else if (SeamlessTickThrottle.ThrottleEnabled)
+                {
+                    // 活跃圈内空图：维持/进入降频（幂等重入，半径变更时自动重建快速区）。
+                    // Sweep 是唯一常态入口——玩家落图/切图/贴近接缝的即时解除走各事件的 Unthrottle，
+                    // 这里按最新距离与设置重新收敛。
+                    SeamlessTickThrottle.Throttle(m, $"governor: BFS dist={d} < sleepHops, no player pawn");
+                }
+                else
+                {
+                    // 降频关闭（100% = 原生）：活跃圈内空图全速。
+                    SeamlessTickThrottle.Unthrottle(m, "throttle disabled (100%)");
                 }
             }
         }

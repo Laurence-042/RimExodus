@@ -166,8 +166,13 @@ namespace RimExodus
                 new TabRecord("RimExodus_SettingsGroupAdvanced".Translate(),
                     () => settingsTab = SettingsTab.Advanced, settingsTab == SettingsTab.Advanced),
             };
-            TabDrawer.DrawTabs(inRect, tabs);
-            inRect.yMin += 30f;
+            // tab 行画进内容区顶部（2026-08-27 修复标题被挡）：TabDrawer 会把 tab 画在传入 rect 的
+            // yMin **之上**（占 32px）——原样传 inRect 时 tab 行侵入 Dialog_ModSettings 顶部 40px 的
+            // 标题区把"RimExodus"盖住。传下移 32px 的 rect，tab 占内容区顶行，标题让位不删
+            // （SettingsCategory 不能返回空：Dialog_Options 用它过滤"有设置的 mod"，空串会让整个
+            // 设置入口从列表消失）。
+            TabDrawer.DrawTabs(new Rect(inRect.x, inRect.y + 32f, inRect.width, inRect.height - 32f), tabs);
+            inRect.yMin += 32f;
 
             var viewRect = new Rect(0f, 0f, inRect.width - 16f, settingsContentHeight);
             Widgets.BeginScrollView(inRect, ref settingsScrollPosition, viewRect);
@@ -205,6 +210,12 @@ namespace RimExodus
                     SliderRow(listing, "RimExodus_SettingsSweepIntervalLabel", "RimExodus_SettingsSweepIntervalTip",
                         s.dormancySweepIntervalTicks / 60f, 1f, 60f,
                         v => s.dormancySweepIntervalTicks = Mathf.Max((int)(v * 60f), 60), "{0:F0}");
+                    // 分级休眠中间档（2026-08）：百分比/快速区半径每 tick 现读（SeamlessTickThrottle），
+                    // 拖动即时生效；百分比变更后快速区在下一轮 Sweep 幂等重入时按新值重建。
+                    SliderRow(listing, "RimExodus_SettingsThrottlePercentLabel", "RimExodus_SettingsThrottlePercentTip",
+                        s.dormancyThrottlePercent, 0, 100, v => s.dormancyThrottlePercent = (int)v);
+                    SliderRow(listing, "RimExodus_SettingsThrottleRadiusLabel", "RimExodus_SettingsThrottleRadiusTip",
+                        s.throttleSeamFastRadius, 0, 50, v => s.throttleSeamFastRadius = (int)v);
                     break;
 
                 case SettingsTab.Combat:

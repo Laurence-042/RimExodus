@@ -64,6 +64,9 @@ namespace RimExodus
         {
             if (map == null || map.Disposed || dormantMaps.Contains(map)) return;
 
+            // 降频 → 休眠升档：tick 注册即将全摘，降频集合一并清（保持三档互斥）。
+            SeamlessTickThrottle.Unthrottle(map, "sleeping (dormancy supersedes throttle)");
+
             dormantMaps.Add(map);
             if (manual)
             {
@@ -94,11 +97,13 @@ namespace RimExodus
             Log.Message($"[RimExodus] Dormancy SLEEP: map {map.uniqueID} (wt={SeamlessTileRegistry.GetMapWorldTile(map)}) — {reason}");
         }
 
-        /// <summary>唤醒休眠地图（幂等；对未休眠图无操作）。同步轻量，可在任意调用栈执行。</summary>
+        /// <summary>唤醒休眠地图（幂等；对未休眠图无操作）。同步轻量，可在任意调用栈执行。
+        /// 唤醒 = 恢复全速（降频一并解除；活跃圈内无玩家 pawn 的图由 governor 下轮 Sweep 重新降频）。</summary>
         public static void Wake(Map map, string reason)
         {
             if (map == null || map.Disposed || !dormantMaps.Contains(map)) return;
 
+            SeamlessTickThrottle.Unthrottle(map, "waking (dormant → full speed)");
             dormantMaps.Remove(map);
             if (manualDormantMaps.Remove(map)) // 任意来源的唤醒都解除手动锁（含 CurrentMap/预加载带）。
                 SyncManualTile(map, register: false);
@@ -132,7 +137,13 @@ namespace RimExodus
             var parent = Find.World.worldObjects.MapParentAt(new RimWorld.Planet.PlanetTile(worldTile));
             var map = parent?.Map;
             if (map == null || map.Disposed) return false;
-            if (!IsDormant(map)) return false;
+            if (!IsDormant(map))
+            {
+                // 降频图同理（2026-08 分级休眠）：玩家 pawn 被命令接近其接缝 = 即将交互，
+                // 提前恢复全速（governor 下轮 Sweep 会因玩家 pawn 临近自然维持活跃）。
+                SeamlessTickThrottle.Unthrottle(map, "pawn approaching seam (border preload band)");
+                return false;
+            }
             Wake(map, reason);
             return true;
         }
@@ -145,6 +156,7 @@ namespace RimExodus
         {
             if (map != null)
             {
+                SeamlessTickThrottle.Forget(map);
                 dormantMaps.Remove(map);
                 if (manualDormantMaps.Remove(map))
                     SyncManualTile(map, register: false); // 图销毁：残留 tile id 一并清出持久化集合。

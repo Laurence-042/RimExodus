@@ -216,6 +216,9 @@ namespace RimExodus
                 Find.Selector.Select(pawn, playSound: false, forceDesignatorDeselect: false);
             }
             SeamlessTransferGrants.NotifyPawnTransferred(pawn, departureMap, departureSpot, arrivalMap, grant);
+            // 玩家 pawn 落图 = 即时恢复全速（2026-08 分级休眠）：不等 governor 下轮 Sweep——
+            // 降频相位内玩家 pawn 会走走停停，落图当 tick 就该全速。
+            SeamlessTickThrottle.Unthrottle(arrivalMap, "player pawn transferred in");
             // 源集合变化（离图端可能失去最后一个玩家 pawn）：请求 governor 尽快重算距离。
             SeamlessDormancyGovernor.RequestSweepSoonStatic();
         }

@@ -350,9 +350,15 @@ namespace RimExodus
         /// 生成无缝地块口袋地图（分帧增量生成，主线程每帧跑 1 genStep，不暂停 tick）。
         /// 准备阶段（ConstructComponents→AddMap→组装 genSteps）同步完成，genStep 链分帧执行，
         /// FinalizeInit + 后续配置（邻居登记/传送点铺设/void 刷新）在最后帧的 onComplete 回调执行。
-        /// 调用者：TryPreloadNeighbor（事件驱动预加载）、TrySetupOnStart（开档加载全部邻居）。
+        ///
+        /// 【入口统一化（2026-08-27，用户定夺勿回退）】私有化——**唯一的对外生成入口 =
+        /// <see cref="SeamlessTilePreloader.QueuePreload"/>**（队列 → ConsumeQueued →
+        /// <see cref="TryPreloadNeighbor"/> → 本方法）：忙态自动重排队下一 tick，多个请求逐个
+        /// 串行生成完（玩家 1 秒内连点六邻与 Dev "Generate All" 同链同语义）。勿新增同步直调
+        /// 调用方：分帧增量生成全程持有 mapBeingGenerated，直调方撞入口忙守卫被拒
+        /// （曾致 Dev action "只生成了一个图"，原 GenerateForNeighbor 病灶已删）。
         /// </summary>
-        public MapParent_SeamlessTile GenerateTileMap(int sourceWorldTile, int newWorldTile, IntVec3 mapSize)
+        private MapParent_SeamlessTile GenerateTileMap(int sourceWorldTile, int newWorldTile, IntVec3 mapSize)
         {
             // 入口防御（TryPreloadNeighbor 已带同款判据并重排队；此处兜底其他调用方——如
             // TrySetupOnStart）：预览在飞时启动增量同样互踩（见 TryPreloadNeighbor 注释）。
