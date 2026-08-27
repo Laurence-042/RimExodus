@@ -49,6 +49,10 @@
   <RimExodus_SettingsNoiseTip>两张地图接缝处的地形混合被随机化的强度（0 = 完全平直的过渡，数值越高 = 更自然的不规则边界）。默认值：0.15。</RimExodus_SettingsNoiseTip>
   <RimExodus_SettingsVerboseLabel>详细日志（诊断）</RimExodus_SettingsVerboseLabel>
   <RimExodus_SettingsVerboseTip>写入详细诊断日志。仅在报告问题时有用。</RimExodus_SettingsVerboseTip>
+  <RimExodus_SettingsTickProfileLabel>tick 花费剖析（诊断）</RimExodus_SettingsTickProfileLabel>
+  <RimExodus_SettingsTickProfileTip>每 600 ticks（10 游戏秒）输出一次日志，逐图拆解模拟耗时去向：事物 tick、地图 pre/post tick、每帧的地图 update，并报告游戏 tick 的总 CPU 耗时。\n\n用于验证"降频地图 tick 比例"实际省了多少、剩余开销在哪（例如"update"桶很大而"事物"桶近零 = 成本在帧侧——地图每帧更新与邻图背景渲染——而非 tick 侧）。开启时有轻微插桩开销，诊断完请关闭。</RimExodus_SettingsTickProfileTip>
+  <RimExodus_SettingsTickProfileIntervalLabel>tick 剖析汇报间隔：每 {0} 游戏秒</RimExodus_SettingsTickProfileIntervalLabel>
+  <RimExodus_SettingsTickProfileIntervalTip>仅在上方的"tick 花费剖析"开启时有实义。\n\n逐图耗时汇总每隔多久写入一次日志（游戏时间秒；范围 1-50，即 60-3000 ticks）。三档速度下游戏每现实秒最多跑约 360 ticks，间隔太小 = 汇报太频繁且样本太小。默认值：10。</RimExodus_SettingsTickProfileIntervalTip>
 
   <!-- PlaySettings 全局控制条开关（2026-08，沉浸模式）。 -->
   <RimExodus_SeamBandToggleTooltip>显示接缝带，并允许经接缝带离开地图组建远行队。\n\n关闭 = 沉浸模式（截图 / 旅行视频）：隐藏浅绿撤离带与接缝划线，且 pawn 不再会经接缝带离开成队——跨缝步行去相邻地图不受影响。\n\n并非为正常游玩设计：关闭期间你也将无法主动经接缝带离图组队，且接缝区域仍保留平时的禁建限制。</RimExodus_SeamBandToggleTooltip>

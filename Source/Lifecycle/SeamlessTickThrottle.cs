@@ -77,6 +77,12 @@ namespace RimExodus
             return map != null && !map.Disposed && throttledMaps.Contains(map);
         }
 
+        /// <summary>该降频图快速区格数（0 = 无快速区/未降频；剖析报告用——0% 档下 calls 即来自这些格）。</summary>
+        public static int FastRegionCellCount(Map map)
+        {
+            return map != null && fastRegions.TryGetValue(map, out var fr) && fr.cells != null ? fr.cells.Count : 0;
+        }
+
         /// <summary>
         /// 本 tick 该图是否放行图级模拟（MapPreTick/MapPostTick 门控）。非降频图恒 true。
         /// 与 thing 门控同相位（同一谓词），但不含快速区白名单——图级系统不分区（已知限制）。
@@ -97,6 +103,21 @@ namespace RimExodus
             var map = thing.Map;
             if (map == null || !throttledMaps.Contains(map)) return true;
             if (fastRegions.TryGetValue(map, out var fr) && fr.cells != null && fr.cells.Contains(thing.Position)) return true;
+            // Rare/Long 桶按调用序号门控（2026-08-27 两轮修正，勿删）：这两个桶的 DoTick 只在
+            // (TicksGame % 250/2000)==hash 的 tick 被调用——第一版相位门控 (TicksGame+mapId)%N==0
+            // 与它 gcd 混叠（同 hash 分野的 thing 永不命中 = 整个冻死）；第二版整体豁免又被实测
+            // 否决（0%+fastZone 0 下 calls 不降反稳：野外图数万植物全是 Rare 桶，~15k calls/window，
+            // 违背"0% = 全图凝固"预期）。正解 = 对 t/bucketInterval（调用序号，每次调用 +1）取模
+            // ——序号严格递增，无混叠可言，每个 thing 恒好每 N 次调用放行 1 次。
+            var tt = thing.def.tickerType;
+            if (tt != TickerType.Normal)
+            {
+                var bucket = tt == TickerType.Long ? 2000 : 250;
+                var n = IntervalTicks;
+                if (n <= 1) return true;
+                if (n == NeverTick) return false;
+                return ((GenTicks.TicksGame / bucket) + map.uniqueID) % n == 0;
+            }
             return PhaseAllowed(map);
         }
 
@@ -107,6 +128,24 @@ namespace RimExodus
             if (n <= 1) return true;
             if (n == NeverTick) return false;
             return (GenTicks.TicksGame + map.uniqueID) % n == 0;
+        }
+
+        /// <summary>
+        /// pawn 移动成本倍率（2026-08-27 动物变慢修复）：pawn 移动是纯累加器式
+        /// （<c>Pawn_PathFollower.nextCellCostLeft -= CostToPayThisTick()</c>，每 tick 减、减穿换格，
+        /// 无 TicksGame 差值补偿）——跳 tick 后放行 tick 也只缴 1 份成本 = 移动慢 N 倍（实测确认）。
+        /// 补偿 = 放行 tick 缴 N 份（N 个真实 tick 只跑一次、一次补齐 N-1 个跳过 tick 的份额），
+        /// 平均格推进速率回到满速。快速区内 pawn 每 tick 都跑 → 必须 1 倍（否则 N 倍速）；
+        /// 非降频图同理 1 倍。0%（NeverTick）时 pawn 不 tick，本倍率无人消费。
+        /// </summary>
+        public static float MoveCostMultiplier(Thing thing)
+        {
+            if (throttledMaps.Count == 0) return 1f;
+            var map = thing.Map;
+            if (map == null || !throttledMaps.Contains(map)) return 1f;
+            if (fastRegions.TryGetValue(map, out var fr) && fr.cells != null && fr.cells.Contains(thing.Position)) return 1f;
+            var n = IntervalTicks;
+            return n <= 1 ? 1f : n; // NeverTick 无人调用（DoTick 恒跳），返回原值无害。
         }
 
         /// <summary>

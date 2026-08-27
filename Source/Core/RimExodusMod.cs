@@ -230,6 +230,12 @@ namespace RimExodus
                         s.seamOverrideNoiseAmplitude, 0f, 0.5f, v => s.seamOverrideNoiseAmplitude = v, "{0:F2}");
                     CheckRow(listing, "RimExodus_SettingsVerboseLabel", "RimExodus_SettingsVerboseTip",
                         v => s.verboseLogging = v, s.verboseLogging);
+                    CheckRow(listing, "RimExodus_SettingsTickProfileLabel", "RimExodus_SettingsTickProfileTip",
+                        v => s.tickProfilingEnabled = v, s.tickProfilingEnabled);
+                    // 汇报间隔以游戏秒展示（存储为 ticks，60-3000）；每轮现读，拖动即时生效。
+                    SliderRow(listing, "RimExodus_SettingsTickProfileIntervalLabel", "RimExodus_SettingsTickProfileIntervalTip",
+                        s.tickProfileIntervalTicks / 60f, 1f, 50f,
+                        v => s.tickProfileIntervalTicks = System.Math.Max((int)(v * 60f), 60), "{0:F0}");
                     break;
             }
 

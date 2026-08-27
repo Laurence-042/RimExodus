@@ -16,6 +16,17 @@ namespace RimExodus
         /// <summary>详细诊断日志开关。</summary>
         public bool verboseLogging = false;
 
+        /// <summary>
+        /// tick 花费剖析器（2026-08-27 诊断分级休眠收益）：每 600 ticks 输出一次每图分桶耗时
+        /// （thing/MapPreTick/MapPostTick/MapUpdate）+ 全局 DoSingleTick 总耗时日志。
+        /// 见 <see cref="SeamlessTickProfiler"/>。开启时有微小插桩开销，诊断用、平时关。
+        /// </summary>
+        public bool tickProfilingEnabled = false;
+
+        /// <summary>剖析器汇报间隔（ticks，2026-08-27 设置化，原 const 600）。运行时 clamp [60, 3000]。
+        /// 注意游戏内三档速度每现实秒最多 ~360 ticks，间隔太小汇报太频繁、样本也小。</summary>
+        public int tickProfileIntervalTicks = 600;
+
         /// <summary>多边形边内侧 N 格禁建（阶段4 安全约束）。</summary>
         public int borderNoBuildDistance = 3;
 
@@ -133,6 +144,8 @@ namespace RimExodus
         {
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
             Scribe_Values.Look(ref verboseLogging, "verboseLogging", false);
+            Scribe_Values.Look(ref tickProfilingEnabled, "tickProfilingEnabled", false);
+            Scribe_Values.Look(ref tickProfileIntervalTicks, "tickProfileIntervalTicks", 600);
             Scribe_Values.Look(ref borderNoBuildDistance, "borderNoBuildDistance", 3);
             Scribe_Values.Look(ref seamOverrideNoiseAmplitude, "seamOverrideNoiseAmplitude", 0.15f);
             Scribe_Values.Look(ref coastalEdgeDeepWaterDistance, "coastalEdgeDeepWaterDistance", 0.15f);

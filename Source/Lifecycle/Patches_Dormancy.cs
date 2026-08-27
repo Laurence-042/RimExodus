@@ -29,10 +29,16 @@ namespace RimExodus
         {
             static bool Prefix(Map __instance)
             {
+                SeamlessTickProfiler.BeginPre(__instance);
                 // 休眠 → 跳过；降频 → 与 thing tick 同相位放行（Pre/Post/ThingTick 必须同拍，
                 // 防 haulables/powerNet 与 thing 状态错位，见 SeamlessTickThrottle 类注释）。
                 return !SeamlessDormancyManager.IsDormant(__instance)
                     && SeamlessTickThrottle.MapSimulatesThisTick(__instance);
+            }
+
+            static void Postfix(Map __instance)
+            {
+                SeamlessTickProfiler.EndPre(__instance);
             }
         }
 
@@ -41,8 +47,14 @@ namespace RimExodus
         {
             static bool Prefix(Map __instance)
             {
+                SeamlessTickProfiler.BeginPost(__instance);
                 return !SeamlessDormancyManager.IsDormant(__instance)
                     && SeamlessTickThrottle.MapSimulatesThisTick(__instance);
+            }
+
+            static void Postfix(Map __instance)
+            {
+                SeamlessTickProfiler.EndPost(__instance);
             }
         }
 
@@ -51,12 +63,25 @@ namespace RimExodus
         {
             static bool Prefix(Map __instance)
             {
+                SeamlessTickProfiler.BeginUpdate(__instance);
                 // 休眠 → 跳过每帧更新（含组件 Update）。降频图**照常 Update**：仍作为邻图可见/
                 // 可渲染，动画插值冻结属预期（MapSimulatesThisTick 是 tick 相位、不适用于每帧调用，
                 // 勿并入——按 tick 取模门控每帧方法会造成渲染抖动）。
                 return !SeamlessDormancyManager.IsDormant(__instance);
             }
+
+            static void Postfix(Map __instance)
+            {
+                SeamlessTickProfiler.EndUpdate(__instance);
+            }
         }
+
+        /// <summary>
+        /// （已删）全局 tick 总耗时曾尝试 patch <c>TickManager.DoSingleTick</c>——该方法
+        /// BurstCompile，离线验证器 ECall 伪迹且 Stance_Warmup 有"伪迹但游戏内真炸"前科，
+        /// 撤回。现用 governor GameComponentTick 心跳测每 tick 墙钟（SeamlessTickProfiler.
+        /// OnGameComponentTick），零 patch 风险。
+        /// </summary>
 
         [HarmonyPatch(typeof(Game), nameof(Game.CurrentMap), MethodType.Setter)]
         static class Patch_Game_CurrentMap_Setter

@@ -100,6 +100,10 @@ namespace RimExodus
 
         public override void GameComponentTick()
         {
+            // tick 剖析器心跳（2026-08-27）：每游戏 tick 恒调，测相邻调用墙钟差 = 每 tick 墙钟
+            // 耗时 + 触发周期汇报。关闭时零开销（内部首行早退）。
+            SeamlessTickProfiler.OnGameComponentTick();
+
             // 全局静态清扫（自 SeamlessMapTransferTrigger.MapComponentTick 迁移，2026-08 软休眠）：
             // 原挂"仅家园图 tick"——家园无玩家 pawn 时可随软休眠冻结，图 tick 不再可靠；
             // GameComponent 恒 tick，与一切地图的活跃状态解耦。
