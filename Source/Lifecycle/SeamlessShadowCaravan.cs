@@ -244,6 +244,25 @@ namespace RimExodus
             foreach (var tile in tiles) DismantleAt(tile, "save");
         }
 
+        /// <summary>把 pawn 从其所属影子中释放（若有）：移出影子名单并归还 holdingOwner。
+        /// 真远行队 <see cref="Caravan.AddPawn"/> 前必须调用（2026-08 组队冲突修复）——
+        /// 影子成员同步是 60 ticks 一轮，赶不上组队瞬间；holdingOwner 指影子时 AddPawn 的
+        /// DeSpawnOrDeselect 只清地图容器、TryAdd 因 "already in another container" 拒绝。
+        /// 释放后 pawn 仍 Spawned → 归还所在图容器，AddPawn 走完整原版路径。</summary>
+        public static bool ReleaseIfShadowMember(Pawn p)
+        {
+            if (p == null || p.holdingOwner == null) return false;
+            foreach (var kv in shadows)
+            {
+                var shadow = kv.Value;
+                if (shadow == null || shadow.pawns != p.holdingOwner) continue;
+                PawnInnerList(shadow.pawns)?.Remove(p);
+                p.holdingOwner = p.Spawned ? p.Map.spawnedThings : (TakeOriginalOwner(p) ?? null);
+                return true;
+            }
+            return false;
+        }
+
         /// <summary>取回成员注入前的原容器并移除记录；无记录返回 null。</summary>
         private static ThingOwner TakeOriginalOwner(Pawn p)
         {
@@ -287,6 +306,20 @@ namespace RimExodus
             static void Postfix(Caravan __instance, ref IEnumerable<Gizmo> __result)
             {
                 if (SeamlessShadowCaravan.IsShadow(__instance)) __result = empty;
+            }
+        }
+
+        // 真组队释放（2026-08 组队冲突修复）：玩家在据点图上组建真远行队（ExitMapAndCreateCaravan→
+        // MakeCaravan→AddPawn）时，成员 holdingOwner 还指着影子容器（60 ticks 同步赶不上组队瞬间）→
+        // TryAdd "already in another container" 拒绝、pawn 进不了新远行队。Prefix 先释放：
+        // pawn 仍 Spawned 则归还地图容器，AddPawn 原生的 DeSpawnOrDeselect+TryAdd 走完整原版路径。
+        // 用 __0 位置参数绑定（vanilla 签名 AddPawn(Pawn, bool)，参数名不在公开源内勿按名绑）。
+        [HarmonyPatch(typeof(Caravan), nameof(Caravan.AddPawn))]
+        static class Patch_ShadowCaravan_ReleaseForRealCaravan
+        {
+            static void Prefix(Pawn __0)
+            {
+                SeamlessShadowCaravan.ReleaseIfShadowMember(__0);
             }
         }
 
