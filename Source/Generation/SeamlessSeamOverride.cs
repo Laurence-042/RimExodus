@@ -17,11 +17,16 @@ namespace RimExodus
     /// 每格反向找邻居参考）。带外圈（新定义下为实地形）也参与混合，跨缝两侧地形成对一致。
     ///
     /// 【混合规则（用户定夺 2026-08，规则轴 = 本端圈层，对端只提供数据不参与规则判定）】
-    /// - **B_C（接缝带三圈）→ 字面照抄对端对应格**：a = c − offset，strip 有数据即抄地形与岩体
-    ///   （岩体用对端 def——跨缝岩色连续；地形未变时岩体同步仍执行）。无任何地形例外（对端是
-    ///   Marsh/深水本端就是——不能走 pawn 自然绕路）。错位时 a 落在对端哪个圈层无所谓，
-    ///   strip 覆盖 B_A∪T_A∪外条带，照抄天然免疫错位（历史：按对端圈层分规则的版本需要
-    ///   B_A/T_A/外条带/核心区四条判定 + 错位补偿补丁，已废弃勿回退）；
+/// - **B_C（接缝带三圈）→ 字面照抄对端对应格**：a = c − offset，strip 有数据即抄地形与岩体
+///   （岩体用对端 def——跨缝岩色连续；地形未变时岩体同步仍执行）。无任何地形例外（对端是
+///   Marsh/深水本端就是——不能走 pawn 自然绕路）。错位时 a 落在对端哪个圈层无所谓，
+///   strip 覆盖 B_A∪T_A∪外条带，照抄天然免疫错位（历史：按对端圈层分规则的版本需要
+///   B_A/T_A/外条带/核心区四条判定 + 错位补偿补丁，已废弃勿回退）。参考 = **对端生成时
+///   snapshot 的渲染映射格值**（B_A∪T_A 段=混合后定格实况；外条带段=对端 391 清 void 前的
+///   原生快照——对端 void 之下的自然山体，T·1 复刻原生岩体 = 山体延续"假设成真"。曾把外条带
+///   岩体/屋顶参考改存清除后实际(null)"数据归一"，实测误杀对端带内有延续岩的真实山体，
+///   2026-08 回退勿复犯）。一切参考只认 a = c − offset 渲染映射（地图偏移带旋转，
+///   切比雪夫圈对应 ≠ 渲染映射对应）；
     /// - **void_C → 不在枚举范围**（直接用自己的 void）；
     /// - **T_C（过渡带）→ 卷积权重覆盖（源地图轴权重）**：过渡带数据驱动（a 在邻居 strip 内
     ///   即参与，外条带数据全深到源方形边）。w = dSq/(dSq+dOut)——dOut = a 距源接缝带切比雪夫
@@ -198,9 +203,9 @@ namespace RimExodus
                 // 照抄区 = B ∪ {T depth=1}（2026-08 用户逻辑，距缝切比雪夫 0/1/2 三带完全参考对端）：
                 // T depth=1（本图带内侧一圈）与对侧 OuterStrip depth=1（对侧 void 第一圈）是同一条
                 // 空间带——先生成侧在该 void 带上按 own snapshot 放的 void rock，要求后生成侧在
-                // 镜像位置"直接复刻"（含岩体），本图 T depth=1 因此不走卷积、与 B 同款字面照抄；
-                // 对端该位置读的是其外条带原生快照（先生成侧 own snapshot 的镜像数据），两侧判定
-                // 同源自洽。depth≥2 的 T 仍走卷积（对端无对应义务，渐进混合归位）。
+                // 镜像位置"直接复刻"（含岩体，对端外条带段快照=清 void 前原生岩 = 山体延续），
+                // 本图 T depth=1 因此不走卷积、与 B 同款字面照抄。depth≥2 的 T 仍走卷积
+                //（对端无对应义务，渐进混合归位）。
                 var isCopyZone = inBand
                     || (band.TransitionDepth.TryGetValue(cCell, out var tDepth) && tDepth == 1);
 
@@ -211,7 +216,10 @@ namespace RimExodus
                     // 照抄区（B 或 T·1）：三层统一框架——每层读对端参考值，与本端不同则写。
                     // 无任何地形例外（对端是 Marsh/深水本端就是——不能走 pawn 自然绕路）；
                     // 岩体用对端 def（跨缝岩色连续，"岩石地形无岩体"中间带状态正确继承）；
-                    // 屋顶照抄对端原生岩顶（Thick/Thin，不裸顶）。地形未变时岩体/屋顶同步仍执行。
+                    // 屋顶照抄对端岩顶（Thick/Thin，不裸顶）。地形未变时岩体/屋顶同步仍执行。
+                    // 参考一律 = 对端生成时 snapshot 的渲染映射格值（B∪T 段=定格实况 /
+                    // 外条带段=391 清 void 前原生——T·1 复刻对端 void 之下的自然山体延续，
+                    // 不是清除后的实际；曾改存 null"实际状态"误杀真实山体，2026-08 回退）。
                     var ref0 = cellRefs[0];
                     var anyWritten = false;
                     foreach (var layer in seamLayers)
@@ -238,6 +246,7 @@ namespace RimExodus
 
                     seamLayers[0].Write(map, cCell, chosenTerrain);
                     var dominant = DominantRef(cellRefs);
+                    // 离散层跟随主导参考的渲染映射格 snapshot 值（band 段=定格实况 / 外条带段=原生）。
                     for (var i = 1; i < seamLayers.Length; i++)
                     {
                         seamLayers[i].Write(map, cCell, seamLayers[i].ReadStrip(dominant.owner.strip, dominant.aCell));
@@ -502,134 +511,230 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 探针重放（只读诊断，不写任何 grid）：对单个 cell 重跑 <see cref="ApplyOneWay"/> 的混合判定，
-        /// 返回多行诊断文本（无前导换行，调用方拼进自己的 StringBuilder）。供 InspectSnapshotAtPosition
-        /// （Dev ToolMap）使用——复用 Convolve3x3/Convolve3x3FromStrip/BlendDistributions/GetMode/
-        /// BuildRoadGuard/CollectNeighborRefs，重放与真实逻辑共享同一份代码，不会因复刻而漂移。
+        /// 单格接缝结构化诊断报告（本侧 + 各对侧对应位置），供 InspectSnapshotAtPosition（Dev ToolMap）。
+        /// 每侧三段：**位置**（坐标 + 圈层，以"接缝带中圈 = 离散边圈"为基准的相对圈数）/
+        /// **生成时 snapshot**（391 三层原生备份，非序列化——读档后不可用时如实注明）/
+        /// **当前实际**（会进 snapshot 的三层现值：topGrid 地面 / 岩石 edifice / roof）。
+        /// 本侧另附**混合情况追踪**（权重 / 本侧 snapshot 各层 3×3 卷积 / 各对侧 strip 各层 3×3 卷积 /
+        /// 各层混合结果）；对侧附**条带快照值**（本侧混合实际读到的参考源）。
+        /// 权重/卷积/混合复用 ApplyOneWay 同一实现（CollectCellRefs/DominantRef/GetMode）——
+        /// 报告与真实逻辑共享同一份代码，不会因复刻而漂移。
         ///
-        /// 失真声明：self 侧 3×3 采样自当前 topGrid（生成后的状态），neighbor 侧采样自接缝条带快照
-        /// （生成期定格，不可变）。故重放回答的是"以当前状态再跑一次会怎样"，而非生成那一刻的历史。
+        /// 失真声明：生成期混合的 self 卷积采样自当时 topGrid（= 原生值）；此处重放优先用 391 备份
+        /// snapshot 采样，快照不可用（读档后）回落当前 topGrid 并注明——回答的是"以该数据源再跑一次
+        /// 会怎样"。
         /// </summary>
-        public static string DescribeCellMixing(Map map, int worldTile, IntVec3 cell)
+        public static string DescribeCellReport(Map map, int worldTile, IntVec3 cell)
         {
             var sb = new System.Text.StringBuilder();
-            var mapSize = map.Size.x;
-            var band = SeamlessPolygonGeometry.BuildSeamBand(worldTile, mapSize);
-
+            var band = SeamlessPolygonGeometry.BuildSeamBand(worldTile, map.Size.x);
             var voidDef = DefDatabase<TerrainDef>.GetNamedSilentFail("RimExodus_Void");
-            var cIdx = map.cellIndices.CellToIndex(cell);
-            var localTerrain = map.terrainGrid.topGrid[cIdx];
+            var mapSize = map.Size.x;
+            var idx = map.cellIndices.CellToIndex(cell);
+            var localTerrain = map.terrainGrid.topGrid[idx];
+            var localRock = SeamStripData.RockDefAt(map, cell);
+            var localRoof = map.roofGrid.RoofAt(cell);
 
-            sb.AppendLine("  == SeamOverride 重放（3 圈接缝带架构，只读） ==");
-            sb.AppendLine("  (重放 = 以当前状态再跑一次：self 卷积采样用当前 topGrid——若与 self snapshot 不同，说明生成期已被混合覆写)");
-            sb.AppendLine($"  本格地形: {localTerrain?.defName ?? "(null)"}");
+            // ―― 本侧 ――
+            var baseT = SeamlessMapData.GetBaseTerrainSnapshot(map);
+            var baseB = SeamlessMapData.GetBaseBuildingSnapshot(map);
+            var baseR = SeamlessMapData.GetBaseRoofSnapshot(map);
 
-            // 圈分类（权威定义见 doc/接缝带定义.md）。规则轴 = 本端圈层：
-            // B_C（三圈）∪ T·1 → 照抄区；T_C depth≥2 → 卷积区。
-            var inBand = band.Band.Contains(cell);
-            var tDepth = band.TransitionDepth.TryGetValue(cell, out var t) ? t : 0;
-            var isCopyZone = inBand || tDepth == 1;
-            if (band.OuterRing.Contains(cell)) sb.AppendLine("  圈层: 带外圈（B_C 照抄区；传送圈，格中心在多边形外）");
-            else if (band.DiscreteEdge.Contains(cell)) sb.AppendLine("  圈层: 离散边圈（B_C 照抄区；传送圈，横跨连续边）");
-            else if (band.InnerRing.Contains(cell)) sb.AppendLine("  圈层: 带内圈（B_C 照抄区；无传送点，格中心在多边形内）");
-            else if (tDepth > 0) sb.AppendLine($"  圈层: 过渡带 T_C 深度 {tDepth}（{(tDepth == 1 ? "T·1 照抄区：与 B 同款字面照抄（2026-08 用户逻辑，复刻对端 void rock 假设）" : "卷积区，源地图轴权重")}）");
-            else
-            {
-                sb.AppendLine("  圈层: 接缝带 ∪ 过渡带之外（void/核心区）→ 不参与混合");
-                return sb.ToString().TrimEnd();
-            }
+            sb.AppendLine("―― 本侧 ――");
+            sb.AppendLine($"  位置: ({cell.x},{cell.z})  圈层: {RingLabel(band, cell)}");
+            sb.AppendLine($"  生成时 snapshot:  {LayerTriple(SnapAt(baseT, idx), SnapAt(baseB, idx), SnapAt(baseR, idx))}{(baseT != null ? "" : "  (非序列化，读档后不可用)")}");
+            sb.AppendLine($"  当前实际:         {LayerTriple(localTerrain, localRock, localRoof)}");
 
-            var roadComp = map.GetComponent<SeamlessRoadPaths>();
-            var roadGuard = BuildRoadGuard(map);
-            if (roadComp == null || roadComp.paths.Count == 0)
-                sb.AppendLine("  (注意: SeamlessRoadPaths 为空——本图无路，或读档后快照丢失，道路保护②判据可能失真)");
-
-            // 跳过保护（与 ApplyOneWay 主循环同序逐条判定）。只有道路保护——无地形例外。
-            var skipReason =
-                localTerrain == null || localTerrain == voidDef ? "localTerrain 为 null/void" :
-                localTerrain.IsRoad || localTerrain.bridge ? "道路保护①(IsRoad/bridge 地形判据)" :
-                roadGuard.Contains(cell) ? "道路保护②(A* 路径 ±3 格缓冲)" : null;
-            if (skipReason != null)
-            {
-                sb.AppendLine($"  在混合范围内，但被跳过: {skipReason} → 不参与混合");
-                return sb.ToString().TrimEnd();
-            }
-
-            // 邻居参考（与 ApplyOneWay 同源逻辑）。
+            // 参考收集（混合追踪与对侧栏共用；被跳过的格也展示对侧对应位置）。
+            var inMixRange = band.Band.Contains(cell) || band.TransitionBand.Contains(cell);
+            var tDepth = band.TransitionDepth.TryGetValue(cell, out var td) ? td : 0;
+            var isCopyZone = band.Band.Contains(cell) || tDepth == 1;
             var noiseAmp = RimExodusMod.Settings?.seamOverrideNoiseAmplitude ?? 0.15f;
             Perlin weightNoise = null;
             if (noiseAmp > 0f)
                 weightNoise = new Perlin(0.04f, 2.0, 0.5, 4, worldTile * 31 + 7919, QualityMode.Medium);
-
             CollectNeighborRefs(map, worldTile);
-            if (neighborRefs.Count == 0)
+            var hasRefs = neighborRefs.Count > 0 && CollectCellRefs(cell, isCopyZone, weightNoise, noiseAmp);
+
+            // ―― 混合情况追踪（本侧）――
+            sb.AppendLine("  混合情况追踪:");
+            var roadComp = map.GetComponent<SeamlessRoadPaths>();
+            var roadGuard = BuildRoadGuard(map);
+            if (roadComp == null || roadComp.paths.Count == 0)
+                sb.AppendLine("    (注意: SeamlessRoadPaths 为空——本图无路，或读档后快照丢失，道路保护②判据可能失真)");
+            string skipReason = null;
+            if (!inMixRange)
+                skipReason = localTerrain == voidDef ? "本格为 void，不在混合枚举范围" : "核心区，不在混合枚举范围";
+            else if (localTerrain == null)
+                skipReason = "本格地形为 null";
+            else if (localTerrain.IsRoad || localTerrain.bridge)
+                skipReason = "道路保护①(IsRoad/bridge 地形判据)";
+            else if (roadGuard.Contains(cell))
+                skipReason = "道路保护②(A* 路径 ±3 格缓冲)";
+            else if (!hasRefs)
+                skipReason = "无已生成邻居参考（或对齐格不在任何邻居 strip 内）";
+
+            if (skipReason != null)
             {
-                sb.AppendLine("  → 无已生成邻居（无接缝条带快照）→ 不混合");
-                return sb.ToString().TrimEnd();
+                sb.AppendLine($"    被跳过: {skipReason} → 不混合，保持本侧当前值");
+            }
+            else
+            {
+                var totalW = 0f;
+                foreach (var r in cellRefs) totalW += r.w;
+                var selfW = Mathf.Clamp01(1f - totalW);
+                sb.AppendLine($"    权重: self={selfW:F3}  {string.Join("  ", cellRefs.ConvertAll(r => $"wt={r.owner.worldTile} w={r.w:F3}"))}{(isCopyZone ? "（照抄区 B∪T·1，参考 w=1）" : "（卷积区 T·≥2，源地图轴权重 × dither）")}");
+
+                // 本侧 snapshot 各层 3×3 卷积（快照缺失回落当前实际并注明）。
+                var selfTerrDist = Convolve3x3(baseT ?? map.terrainGrid.topGrid, mapSize, baseT != null ? null : voidDef, cell);
+                sb.AppendLine($"    本侧 snapshot 3×3:  地面: {FormatDist(selfTerrDist)}  岩体: {ConvolveLayer3x3(SelfReader(map, baseB, static (m, c) => SeamStripData.RockDefAt(m, c)), cell)}  屋顶: {ConvolveLayer3x3(SelfReader(map, baseR, static (m, c) => c.GetRoof(m)), cell)}{(baseT != null ? "" : "  (snapshot 不可用，self 回落当前实际)")}");
+
+                // 各对侧 strip 各层 3×3 卷积。
+                foreach (var r in cellRefs)
+                {
+                    var strip = r.owner.strip;
+                    sb.AppendLine($"    对侧 wt={r.owner.worldTile} strip 3×3:  地面: {FormatDist(Convolve3x3FromStrip(strip.terrainLookup, r.aCell))}  岩体: {ConvolveLayer3x3(StripReader(strip.buildingLookup), r.aCell)}  屋顶: {ConvolveLayer3x3(StripReader(strip.roofLookup), r.aCell)}");
+                }
+
+                // 各层混合结果（照抄区单参考 = 逐层 ReadStrip；卷积区 = terrain 加权众数 + 离散层跟随主导参考）。
+                TerrainDef terrPart; ThingDef rockPart; RoofDef roofPart; string modeLabel;
+                if (isCopyZone && cellRefs.Count == 1)
+                {
+                    var ref0 = cellRefs[0];
+                    terrPart = (TerrainDef)seamLayers[0].ReadStrip(ref0.owner.strip, ref0.aCell);
+                    rockPart = (ThingDef)seamLayers[1].ReadStrip(ref0.owner.strip, ref0.aCell);
+                    roofPart = (RoofDef)seamLayers[2].ReadStrip(ref0.owner.strip, ref0.aCell);
+                    modeLabel = "照抄区单参考";
+                }
+                else
+                {
+                    blendParts.Clear();
+                    if (selfW > 0f && selfTerrDist != null) blendParts.Add((selfTerrDist, selfW));
+                    foreach (var r in cellRefs)
+                    {
+                        var refDist = Convolve3x3FromStrip(r.owner.strip.terrainLookup, r.aCell);
+                        if (refDist != null) blendParts.Add((refDist, r.w));
+                    }
+                    var dominant = DominantRef(cellRefs);
+                    terrPart = blendParts.Count > 0 ? GetMode(BlendDistributions(blendParts)) : null;
+                    rockPart = (ThingDef)seamLayers[1].ReadStrip(dominant.owner.strip, dominant.aCell);
+                    roofPart = (RoofDef)seamLayers[2].ReadStrip(dominant.owner.strip, dominant.aCell);
+                    modeLabel = $"卷积区/多参考，离散层随主导 wt={dominant.owner.worldTile}";
+                }
+                sb.AppendLine($"    各层混合结果({modeLabel}):  {LayerTriple(terrPart, rockPart, roofPart)}{VerdictSuffix(terrPart, localTerrain, "地面")}{VerdictSuffix(rockPart, localRock, "岩体")}{VerdictSuffix(roofPart, localRoof, "屋顶")}");
             }
 
-            // CollectCellRefs 走静态 cellRefs——探针调用后其内容对下一次 ApplyOneWay 无影响
-            //（ApplyOneWay 每格先 Clear），此处直接读结果。
-            if (!CollectCellRefs(cell, isCopyZone, weightNoise, noiseAmp))
-            {
-                sb.AppendLine("  → 无邻居参考此格（对齐格不在任何邻居 strip 内）→ 保持原生");
-                return sb.ToString().TrimEnd();
-            }
-
+            // ―― 对侧对应位置（每个参考邻居一栏）――
             foreach (var r in cellRefs)
             {
-                var terrain = seamLayers[0].ReadStrip(r.owner.strip, r.aCell)?.defName ?? "(null)";
-                var building = seamLayers[1].ReadStrip(r.owner.strip, r.aCell)?.defName ?? "无";
-                var roof = seamLayers[2].ReadStrip(r.owner.strip, r.aCell)?.defName ?? "无";
-                sb.AppendLine($"  -- 邻居 wt={r.owner.worldTile}  aCell=({r.aCell.x},{r.aCell.z}) 参考地形={terrain} 岩体={building} 屋顶={roof} w={r.w:F3}");
-            }
+                var strip = r.owner.strip;
+                var nBand = SeamlessPolygonGeometry.BuildSeamBand(r.owner.worldTile, strip.mapSize);
+                sb.AppendLine($"―― 对侧 wt={r.owner.worldTile}  对应格 ({r.aCell.x},{r.aCell.z})  offset={r.owner.offset} ――");
+                sb.AppendLine($"  位置: ({r.aCell.x},{r.aCell.z})  圈层: {RingLabel(nBand, r.aCell)}");
 
-            if (isCopyZone && cellRefs.Count == 1)
-            {
-                var ref0 = cellRefs[0];
-                var parts = new List<string>();
-                foreach (var layer in seamLayers)
+                Map nMap = null;
+                if (SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, r.owner.worldTile, out var nInfo))
+                    nMap = nInfo.map;
+                if (nMap != null && r.aCell.InBounds(nMap))
                 {
-                    var target = layer.ReadStrip(ref0.owner.strip, ref0.aCell);
-                    var local = layer.ReadLocal(map, cell);
-                    parts.Add(target == null
-                        ? $"{layer.Name}=无"
-                        : $"{layer.Name}={target.defName}{(ReferenceEquals(target, local) ? "(同本端)" : $"({local?.defName ?? "无"}→)")}");
+                    var nIdx = nMap.cellIndices.CellToIndex(r.aCell);
+                    var nBaseT = SeamlessMapData.GetBaseTerrainSnapshot(nMap);
+                    var nBaseB = SeamlessMapData.GetBaseBuildingSnapshot(nMap);
+                    var nBaseR = SeamlessMapData.GetBaseRoofSnapshot(nMap);
+                    sb.AppendLine($"  生成时 snapshot:  {LayerTriple(SnapAt(nBaseT, nIdx), SnapAt(nBaseB, nIdx), SnapAt(nBaseR, nIdx))}{(nBaseT != null ? "" : "  (非序列化，读档后不可用)")}");
+                    sb.AppendLine($"  当前实际:         {LayerTriple(nMap.terrainGrid.topGrid[nIdx], SeamStripData.RockDefAt(nMap, r.aCell), nMap.roofGrid.RoofAt(r.aCell))}");
                 }
-                sb.AppendLine($"  → B_C 照抄区: 三层统一同步 {string.Join(" ", parts)}");
-                return sb.ToString().TrimEnd();
+                else
+                {
+                    sb.AppendLine("  图未加载或对应格越界 → 生成时 snapshot / 当前实际不可读");
+                }
+
+                var stripT = (TerrainDef)seamLayers[0].ReadStrip(strip, r.aCell);
+                var stripB = (ThingDef)seamLayers[1].ReadStrip(strip, r.aCell);
+                var stripR = (RoofDef)seamLayers[2].ReadStrip(strip, r.aCell);
+                sb.AppendLine($"  条带快照(本侧参考源):  {LayerTriple(stripT, stripB, stripR)}{(stripT == null ? "  (不在条带区域)" : "")}");
             }
-
-            // 卷积合成重放（T_C，或 B_C 顶点楔形多参考）。
-            CollectBlendParts(map.terrainGrid.topGrid, mapSize, voidDef, cell);
-            if (blendParts.Count == 0)
-            {
-                sb.AppendLine("  → 卷积分布全空(total=0) → 跳过");
-                return sb.ToString().TrimEnd();
-            }
-
-            var totalW2 = 0f;
-            foreach (var r in cellRefs) totalW2 += r.w;
-            sb.AppendLine($"  合成{(isCopyZone ? "(照抄区顶点多参考)" : "(T_C 卷积)")}: Σw={totalW2:F2} → selfW={Mathf.Clamp01(1f - totalW2):F2}，{blendParts.Count} 路分布：");
-            foreach (var (dist, w) in blendParts)
-                sb.AppendLine($"    ×w={w:F3}: {FormatDist(dist)}");
-
-            var blended = BlendDistributions(blendParts);
-            sb.AppendLine($"    blend: {FormatDist(blended)}");
-            var chosen = GetMode(blended);
-            if (chosen == null)
-                sb.AppendLine("  → chosen=null → 不覆写");
-            else if (chosen == localTerrain)
-                sb.AppendLine($"  → chosen={chosen.defName} == local(当前) → 不覆写（当前值已与混合结果一致）");
-            else
-                sb.AppendLine($"  → 会覆写: {localTerrain.defName} → {chosen.defName}");
 
             return sb.ToString().TrimEnd();
         }
 
-        /// <summary>分布格式化：按占比降序拼接 defName=0.xxx。</summary>
+        /// <summary>
+        /// 圈层标签（以"接缝带中圈 = 离散边圈"为基准的相对圈数）：带内圈 = 以内第1圈、过渡带 T·d =
+        /// 以内第d+1圈；带外圈 = 以外第1圈、外条带·d = 以外第d+1圈（void）；其余 = 核心区。
+        /// 括号内附原始圈名（与 doc/接缝带定义.md 术语对齐）。
+        /// </summary>
+        private static string RingLabel(SeamlessPolygonGeometry.SeamBandInfo band, IntVec3 c)
+        {
+            if (band.DiscreteEdge.Contains(c)) return "接缝带中圈（离散边圈）";
+            if (band.OuterRing.Contains(c)) return "接缝带中圈以外第1圈（带外圈）";
+            if (band.InnerRing.Contains(c)) return "接缝带中圈以内第1圈（带内圈）";
+            if (band.TransitionDepth.TryGetValue(c, out var td)) return $"接缝带中圈以内第{td + 1}圈（过渡带T·{td}）";
+            if (band.OuterStripDepth.TryGetValue(c, out var od)) return $"接缝带中圈以外第{od + 1}圈（外条带·{od}，void）";
+            return "核心区（接缝带中圈以内远处）";
+        }
+
+        /// <summary>三层一行式：地面=/岩体=/屋顶=（null 安全）。</summary>
+        private static string LayerTriple(Def t, Def b, Def r) =>
+            $"地面={t?.defName ?? "(null)"}  岩体={b?.defName ?? "无"}  屋顶={r?.defName ?? "无"}";
+
+        /// <summary>数组快照安全取值。</summary>
+        private static T SnapAt<T>(T[] arr, int i) where T : Def =>
+            arr != null && i < arr.Length ? arr[i] : null;
+
+        /// <summary>混合结果 vs 当前的差异标注：[层:同] / [层:X→Y] / [层:X→清除]。</summary>
+        private static string VerdictSuffix(Def target, Def local, string label)
+        {
+            if (ReferenceEquals(target, local)) return $"  [{label}:同]";
+            if (target == null) return $"  [{label}:{local?.defName ?? "无"}→清除]";
+            return $"  [{label}:{local?.defName ?? "无"}→{target.defName}]";
+        }
+
+        /// <summary>
+        /// 3×3 窗口逐层分布（通用读子）：reader 返回 (has, v)——has=false（越界/不在条带）跳过该格，
+        /// v=null 计入"无"。输出"defName=占比"降序（与 <see cref="FormatDist"/> 同款）。
+        /// </summary>
+        private static string ConvolveLayer3x3(Func<int, int, (bool has, Def v)> read, IntVec3 c)
+        {
+            var counts = new Dictionary<string, int>();
+            var total = 0;
+            var window = GenAdj.AdjacentCellsAndInside;
+            for (var i = 0; i < window.Length; i++)
+            {
+                var (has, v) = read(c.x + window[i].x, c.z + window[i].z);
+                if (!has) continue;
+                var key = v?.defName ?? "无";
+                counts.TryGetValue(key, out var n);
+                counts[key] = n + 1;
+                total++;
+            }
+            if (total == 0) return "(窗口无数据)";
+            var entries = new List<KeyValuePair<string, int>>(counts);
+            entries.Sort((a, b) => b.Value.CompareTo(a.Value));
+            return string.Join("  ", entries.ConvertAll(kv => $"{kv.Key}={(float)kv.Value / total:F3}"));
+        }
+
+        /// <summary>本侧读子：快照数组可用时读 391 原生快照（数组直索），否则回落当前实际（live 读子）。</summary>
+        private static Func<int, int, (bool has, Def v)> SelfReader(Map map, Def[] snapshot, Func<Map, IntVec3, Def> live)
+        {
+            var mapSize = map.Size.x;
+            return (x, z) =>
+            {
+                if (x < 0 || z < 0 || x >= mapSize || z >= mapSize) return (false, null);
+                if (snapshot != null) return (true, snapshot[z * mapSize + x]);
+                return (true, live(map, new IntVec3(x, 0, z)));
+            };
+        }
+
+        /// <summary>对侧条带读子：lookup 含 null 值（无岩/无顶），缺键 = 不在条带。</summary>
+        private static Func<int, int, (bool has, Def v)> StripReader<T>(Dictionary<IntVec3, T> lookup) where T : Def
+        {
+            return (x, z) => lookup.TryGetValue(new IntVec3(x, 0, z), out var v) ? (true, v) : (false, null);
+        }
+
+        /// <summary>分布格式化：按占比降序拼接 defName=0.xxx（null = 窗口无数据）。</summary>
         private static string FormatDist(Dictionary<TerrainDef, float> dist)
         {
+            if (dist == null) return "(窗口无数据)";
             var entries = new List<KeyValuePair<TerrainDef, float>>(dist);
             entries.Sort((a, b) => b.Value.CompareTo(a.Value));
             return string.Join("  ", entries.ConvertAll(kv => $"{kv.Key.defName}={kv.Value:F3}"));

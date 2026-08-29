@@ -157,12 +157,11 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 调试工具（Dev 地图工具）：点击地图格，输出该格的 snapshot 值 + 接缝条带快照 + SeamOverride 混合时引用的邻居格信息。
-        /// 用于精确定位"某格 snapshot 是水/沙，但被邻居土卷积成了泥"等海岸侵蚀问题。
-        /// 输出 self snapshot（本地 snapshot 在该格的值）vs neighbor（邻居对应格的条带快照值），
-        /// 以及 NeighborLink offset、邻居对应格坐标（与传送点同源，已验证正确）。
-        /// 末尾附 <see cref="SeamlessSeamOverride.DescribeCellMixing"/> 重放段：圈层归属、跳过保护、
-        /// 各邻居参考（重叠带 w=1 完全一致 / 外条带深度衰减）、卷积分布与覆写判定。
+        /// 调试工具（Dev 地图工具）：点击地图格，输出该格的**结构化接缝诊断报告**
+        /// （<see cref="SeamlessSeamOverride.DescribeCellReport"/>）：本侧 + 各对侧对应位置两栏，
+        /// 每侧 = 位置（坐标+圈层）/ 生成时 snapshot（391 三层原生备份）/ 当前实际（三层现值）；
+        /// 本侧另附混合情况追踪（权重 / 两侧各层 3×3 卷积 / 各层混合结果），对侧附条带快照参考值。
+        /// 用于精确定位"某格 snapshot 是水/沙，但被邻居土卷积成了泥"、孤儿岩墙等接缝混合问题。
         /// </summary>
         [DebugAction(Category, "Inspect Snapshot At Position", false, false, false, false, false, 0, false,
             actionType = DebugActionType.ToolMap, allowedGameStates = AllowedGameStates.PlayingOnMap)]
@@ -174,96 +173,19 @@ namespace RimExodus
             if (!cell.InBounds(map)) return;
 
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            var cellIndices = map.cellIndices;
-            var idx = cellIndices.CellToIndex(cell);
-            var currentTerrain = map.terrainGrid.topGrid[idx];
-
-            // 本地 snapshot（载体差异由 SeamlessMapData 屏蔽）。
-            var selfSnapshot = SeamlessMapData.GetBaseTerrainSnapshot(map);
-
-            var selfSnapDef = (selfSnapshot != null && idx < selfSnapshot.Length) ? selfSnapshot[idx] : null;
-
             var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"[RimExodus-SnapshotInspect] cell=({cell.x},{cell.z}) wt={worldTile}");
-            sb.AppendLine($"  current topGrid: {TerrainName(currentTerrain)}");
-            sb.AppendLine($"  self snapshot:   {TerrainName(selfSnapDef)}{(selfSnapDef != null && currentTerrain != null && selfSnapDef != currentTerrain ? "  <<< DIFFERS from topGrid（原生与当前不同：若本格在混合范围内，通常是生成期 SeamOverride 已把原生覆写成了当前值——重放的 self 采样用的就是当前值）" : "")}");
+            sb.AppendLine($"[RimExodus-SnapshotInspect] map={map.uniqueID} cell=({cell.x},{cell.z}) wt={worldTile}");
 
             if (worldTile < 0)
             {
                 sb.AppendLine("  (no valid worldTile, no polygon/neighbor info)");
-                Log.Message(sb.ToString().TrimEnd());
-                return;
-            }
-
-            // 最近多边形边 + 对应邻居 worldTile。
-            var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, map.Size.x);
-            if (verts.Count < 3)
-            {
-                sb.AppendLine("  (polygon verts < 3, no neighbor info)");
-                Log.Message(sb.ToString().TrimEnd());
-                return;
-            }
-
-            var edgeIdx = SeamlessPolygonGeometry.FindClosestEdgeIndex(verts, cell.x + 0.5f, cell.z + 0.5f);
-            var worldNeighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
-            var neighborWorldTile = (edgeIdx >= 0 && edgeIdx < worldNeighbors.Count) ? worldNeighbors[edgeIdx].tileId : -1;
-
-            sb.AppendLine($"  nearestEdge={edgeIdx}  neighborWT={neighborWorldTile}");
-
-            // 邻居是否已加载（用 NeighborLink，与传送点同源）。最近边邻居仅作上下文参考，
-            // 重放段自行遍历全部已加载邻居，故此处不再提前返回。
-            if (neighborWorldTile < 0 || !SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, neighborWorldTile, out var info))
-            {
-                sb.AppendLine("  neighbor loaded: NO");
             }
             else
             {
-                var neighborMap = info.map;
-                var neighborCell = cell - info.offset;
-                sb.AppendLine($"  neighbor loaded: YES  (map={neighborMap?.uniqueID})");
-                sb.AppendLine($"    offset={info.offset}  (NeighborLink，与传送点同源)");
-                sb.AppendLine($"    neighborCell=({neighborCell.x},{neighborCell.z}) = cell - offset");
-
-                if (neighborMap == null || !neighborCell.InBounds(neighborMap))
-                {
-                    sb.AppendLine($"    neighborCell out of bounds → SeamOverride 卷积时会跳过(oob)");
-                }
-                else
-                {
-                    // 邻居对应格当前地形。
-                    var neighborCurrent = neighborMap.terrainGrid.topGrid[neighborMap.cellIndices.CellToIndex(neighborCell)];
-                    sb.AppendLine($"    neighbor current:  {TerrainName(neighborCurrent)}");
-
-                    // 邻居对应格在邻居 snapshot 的值（载体差异由 SeamlessMapData 屏蔽）。
-                    var neighborSnapshot = SeamlessMapData.GetBaseTerrainSnapshot(neighborMap);
-
-                    var nIdx = neighborMap.cellIndices.CellToIndex(neighborCell);
-                    var neighborSnapDef = (neighborSnapshot != null && nIdx < neighborSnapshot.Length) ? neighborSnapshot[nIdx] : null;
-                    sb.AppendLine($"    neighbor snapshot: {TerrainName(neighborSnapDef)}");
-
-                    // 邻居接缝条带快照在对应格的值（SeamOverride 实际参考源：B_A=最终值 / 外条带=原生值）。
-                    if (SeamlessTileGraph.TryGetNeighborSeamStrip(neighborWorldTile, out var nStrip) && nStrip.terrainLookup != null)
-                    {
-                        nStrip.terrainLookup.TryGetValue(neighborCell, out var stripDef);
-                        nStrip.buildingLookup.TryGetValue(neighborCell, out var stripRock);
-                        nStrip.roofLookup.TryGetValue(neighborCell, out var stripRoof);
-                        sb.AppendLine($"    neighbor seam-strip: {TerrainName(stripDef)}  岩体={stripRock?.defName ?? "无"}  屋顶={stripRoof?.defName ?? "无"}{(stripDef == null ? "  (不在条带区域)" : "")}");
-                    }
-                    else
-                    {
-                        sb.AppendLine("    neighbor seam-strip: 无快照（未生成或无数据）");
-                    }
-                }
+                sb.Append(SeamlessSeamOverride.DescribeCellReport(map, worldTile, cell));
             }
-
-            // SeamOverride 混合重放（圈层归属/跳过保护/各邻居参考权重/卷积分布/覆写判定）。
-            sb.Append(SeamlessSeamOverride.DescribeCellMixing(map, worldTile, cell));
 
             Log.Message(sb.ToString().TrimEnd());
         }
-
-        /// <summary>TerrainDef 的简短名（null 安全）。</summary>
-        private static string TerrainName(TerrainDef t) => t == null ? "(null)" : t.defName;
     }
 }

@@ -11,10 +11,11 @@ namespace RimExodus
     /// roof 层（RoofDef，null=无）——三层同点位、同来源、同生命周期，消费方对三层做同样的
     /// 查询（无单层特判）。
     ///
-    /// 【用途】新地图 C 生成时（GenStep 392）参考所有已生成邻居的接缝状态：
+    /// 【用途】新地图 C 生成时（GenStep 392）参考所有已生成邻居的接缝状态（= 对端生成时 snapshot）：
     /// - B ∪ T 格：接缝混合完成后的**最终实况**（重叠区"三层完全一致"的参考源）；
-    /// - 接缝带外条带格（void 侧浅层）：void 裁切前的**原生快照**（过渡混合参考源，权重随
-    ///   深度衰减）——三层都取原生（同源；岩体/屋顶实况已被 void 铺设清除，不可用）。
+    /// - 接缝带外条带格（void 侧）：void 裁切前的**原生快照**（对端 void 之下的自然地形/山体——
+    ///   过渡混合与 T·1 岩体复刻的参考源）。曾试改存"清除后实际(null)"，实测误杀真实山体延续，
+    ///   已回退（2026-08）。
     ///
     /// 【存储与生命周期（地图滚动加载卸载预埋）】地块图挂 <see cref="MapParent_SeamlessTile.seamStrip"/>
     /// （WorldObject，随存档序列化，**地图卸载后数据存活**）；原生 parent 图（家园/原生家族）挂
@@ -38,10 +39,10 @@ namespace RimExodus
         /// <summary>terrain 层：与 cells 一一对应（B∪T 格=最终值；外条带格=原生值）。</summary>
         public List<TerrainDef> terrains;
 
-        /// <summary>building 层：与 cells 一一对应的岩石体 BuildingDef（自然岩石 + 矿石 isResourceRock，null=无）。跨缝 spawn 用对端 def——岩色/矿脉也连续。</summary>
+        /// <summary>building 层：与 cells 一一对应的岩石体 BuildingDef（自然岩石 + 矿石 isResourceRock，null=无）。跨缝 spawn 用对端 def——岩色/矿脉也连续。外条带格=清 void 前原生值（山体延续复刻源）。</summary>
         public List<ThingDef> buildings;
 
-        /// <summary>roof 层：与 cells 一一对应的 RoofDef（null=无屋顶）。照抄区屋顶照抄对端——岩壁带原生岩顶（Thick/Thin），不裸顶。</summary>
+        /// <summary>roof 层：与 cells 一一对应的 RoofDef（null=无屋顶）。照抄区屋顶照抄对端——岩壁带原生岩顶（Thick/Thin），不裸顶。外条带格=清 void 前原生值。</summary>
         public List<RoofDef> roofs;
 
         /// <summary>深度层：与 cells 一一对应——B=0、T=过渡深度、外条带=外深度（距 B 的切比雪夫距离）。SeamOverride 权重衰减轴（接近源六边形高 → 源方形边 0）。</summary>
@@ -149,6 +150,9 @@ namespace RimExodus
 
             // 接缝带外条带（void 侧）：原生快照三层（391 备份，同源），**全深到方形边**
             // （权重衰减参考数据：接近源六边形高 → 源方形边 0，数据必须覆盖到边）。
+            // 岩体/屋顶刻意存清 void 前的原生值：外条带是"对端生成时 snapshot"的一部分——
+            // T·1 照抄复刻的是对端 void 之下的自然山体延续（含跨缝岩色），不是清除后的实际
+            // （曾试存 null"实际状态"，实测误杀对端带内有延续岩的山体——2026-08 已回退勿复犯）。
             foreach (var kv in band.OuterStripDepth)
             {
                 var c = kv.Key;
