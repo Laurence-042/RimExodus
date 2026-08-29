@@ -12,6 +12,6 @@ release:
     sed -e 's/Seamless World Dev</Seamless World</' -e 's/\.SeamlessWorld\.Dev</.SeamlessWorld</' About/About.xml > ../RimExodus.release/About/About.xml
     cp About/Preview.png About/PublishedFileId.txt ../RimExodus.release/About/
     cp -r 1.6 ../RimExodus.release/1.6
-    find ../RimExodus.release/1.6/Assemblies -name '*.pdb' -delete
+    rm -f ../RimExodus.release/1.6/Assemblies/*.pdb
     cp -r Textures ../RimExodus.release/Textures
     cp LICENSE ../RimExodus.release/
