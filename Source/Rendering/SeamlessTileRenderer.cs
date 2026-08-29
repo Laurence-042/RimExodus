@@ -71,6 +71,16 @@ namespace RimExodus
                 return;
             }
 
+            // 表面层守卫（与 GetMapWorldTile 收口同族，勿删）：太空/轨道图（renderWorld
+            // 模式下 DrawingMap 恒 true，上文守卫拦不住）的背景由世界相机（星空+星球层，
+            // depth 0/1）先画好、主地图相机只清深度叠加——本 renderer 的全屏
+            // ClearRenderTarget 会把星球背景整屏擦成黑（2026-08 太空背景变黑实测根因）。
+            // 口袋图（VMF 载具内部图）同理排除。
+            if (SeamlessTileRegistry.GetMapWorldTile(map) < 0)
+            {
+                return;
+            }
+
             // 收集当前地图的所有直接邻居（对称：原生图/地块图都遍历）。复用缓存列表避免每帧分配。
             cachedNeighbors.Clear();
             SeamlessTileGraph.PopulateNeighbors(map, cachedNeighbors);
