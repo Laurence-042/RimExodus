@@ -60,7 +60,7 @@ namespace RimExodus
                     tileParents.Add(tileParent);
             }
 
-            var occupiedTiles = new List<int>();
+            var occupiedTiles = new List<string>();
             foreach (var tp in tileParents)
             {
                 var m = tp.Map;
@@ -69,7 +69,9 @@ namespace RimExodus
                 {
                     if (p.Faction == Faction.OfPlayer)
                     {
-                        occupiedTiles.Add(tp.worldTile);
+                        // 报地块经纬度而非 tile id（与原版世界地图检视面板同款格式，玩家可直接对照找图）。
+                        var latLong = Find.WorldGrid.LongLatOf(tp.Tile);
+                        occupiedTiles.Add(latLong.y.ToStringLatitude() + " " + latLong.x.ToStringLongitude());
                         break;
                     }
                 }

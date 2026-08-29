@@ -32,9 +32,17 @@
   <RimExodus_SettingsDormancyLabel>启用地图滚动休眠</RimExodus_SettingsDormancyLabel>
   <RimExodus_SettingsDormancyTip>目的：当你探索了大量地图后仍保持游戏流畅。\n\n效果——距所有殖民者足够远的地图会被"休眠"或"删除"：休眠 = 保留你的全部修改，地图只是停止模拟，返回时恢复运行；删除 = 从内存中彻底移除，重访时从头重新生成。下方两个距离滑条分别决定在哪个距离发生哪种处理。你的家园地图和当前正在查看的地图永远不会受影响。\n\n强烈建议保持开启：每张活跃地图上的植物和野生动物都会持续消耗性能。本 mod 自身的开销全部是触发式的（没有按 tick 的常驻轮询），但仅仅保留大量活跃地图本身就很容易造成性能问题。\n\n下方的两个距离滑条仅在本项开启时生效。默认：开启。</RimExodus_SettingsDormancyTip>
   <RimExodus_SettingsSleepLabel>休眠距离：{0} 个世界地块</RimExodus_SettingsSleepLabel>
-  <RimExodus_SettingsSleepTip>仅在上方的"启用地图滚动休眠"开启时生效。\n\n地图距所有殖民者多远（世界地块数）后进入休眠：保留你的全部修改，但停止模拟。1 = 你一离开，除当前所在地图外全部休眠。数值越低 = 性能越好。默认值：2。</RimExodus_SettingsSleepTip>
+  <RimExodus_SettingsSleepTip>仅在上方的"启用地图滚动休眠"开启时生效。
+
+地图距所有殖民者多远（世界地块数）后进入休眠：保留你的全部修改，但停止模拟。数值越低 = 性能越好；最低 2——设 1 会导致刚生成的邻接地图立刻被休眠甚至删除。默认值：2。</RimExodus_SettingsSleepTip>
   <RimExodus_SettingsDeleteLabel>删除距离：{0} 个世界地块</RimExodus_SettingsDeleteLabel>
-  <RimExodus_SettingsDeleteTip>仅在上方的"启用地图滚动休眠"开启时生效。\n\n地图距所有殖民者多远后被彻底删除：从内存中移除，重访时从头重新生成。设成与休眠距离相等（如 1/1）= 一离开就删除地图——低配电脑上的最佳性能选择。\n\n当前所在地图与家园地图永远不会被删除。默认值：3。</RimExodus_SettingsDeleteTip>
+  <RimExodus_SettingsDeleteTip>仅在上方的"启用地图滚动休眠"开启时生效。
+
+地图距所有殖民者多远后被彻底删除：从存档中移除，重访时从头重新生成（遗留物品与建筑会丢失）。
+
+删除距离不会低于休眠距离（自动取二者较大值）——地图总是先满足休眠条件才可能被删除；到达删除距离的当轮即被删除，不需要先休眠一段时间。例：休眠 2 / 删除 3 时，距殖民者 2 跳的地图休眠、3 跳的地图直接删除；设成与休眠距离相等 = 休眠当轮即删除。
+
+当前所在地图与家园地图永远不会被删除。默认值：3。</RimExodus_SettingsDeleteTip>
   <RimExodus_SettingsSweepIntervalLabel>休眠扫描间隔：每 {0} 秒</RimExodus_SettingsSweepIntervalLabel>
   <RimExodus_SettingsSweepIntervalTip>mod 每隔多久重新检查一次"哪些地图应该休眠/删除"（地图滚动休眠背后的周期扫描）。\n\n调小 = 你离开后地图更快休眠/清理，但扫描跑得更勤；调大 = 稍微省一点事，但你离开后远处的地图会多保持活跃一段时间。扫描本身很轻量（一次受删除距离限界的、很小的世界地图搜索）。\n\n即时事件（殖民者跨缝、远行队进出地图）不受此间隔限制——它们始终立刻触发重新检查。仅在上方的"启用地图滚动休眠"开启时生效。默认值：10。</RimExodus_SettingsSweepIntervalTip>
   <RimExodus_SettingsThrottlePercentLabel>降频地图 tick 比例：{0}%</RimExodus_SettingsThrottlePercentLabel>
@@ -103,7 +111,7 @@
 
 完成后请立即存档；存档此后可以在没有 RimExodus 的情况下正常游玩。</RimExodus_UninstallRestoreConfirm>
   <RimExodus_UninstallRestoreBlockedGenerating>仍有地图在生成中，请等待几秒后重试。</RimExodus_UninstallRestoreBlockedGenerating>
-  <RimExodus_UninstallRestoreBlockedPawns>仍有玩家 pawn 位于无缝地块图上（世界地块：{0}）。
+  <RimExodus_UninstallRestoreBlockedPawns>仍有玩家 pawn 位于无缝地块图上（地块经纬度：{0}）。
 
 请先把所有人带回家园（或任意原生地图）——被删地块图上的一切都会丢失。</RimExodus_UninstallRestoreBlockedPawns>
   <RimExodus_UninstallRestoreDone>已恢复原版兼容模式：{0} 张图按快照恢复、{1} 张图按边界复制降级恢复（无快照）。

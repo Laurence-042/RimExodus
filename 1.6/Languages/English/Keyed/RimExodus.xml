@@ -32,9 +32,17 @@
   <RimExodus_SettingsDormancyLabel>Enable map rolling dormancy</RimExodus_SettingsDormancyLabel>
   <RimExodus_SettingsDormancyTip>Purpose: keep the game fast when you have explored many maps.\n\nEffect - maps far enough away from all your colonists are either put to SLEEP (all your changes are kept; the map simply stops simulating until you return) or DELETED (removed entirely from memory; revisiting regenerates it from scratch). The two distance sliders below decide which happens at which distance. Your home map and the map you are currently looking at are never affected.\n\nStrongly recommended to keep this ON: every active map's plants and wildlife keep consuming performance. RimExodus itself only does event-triggered work (no constant per-tick polling), but simply keeping many maps active is a heavy performance cost on its own.\n\nThe two distance sliders below only take effect while this option is ON. Default: ON.</RimExodus_SettingsDormancyTip>
   <RimExodus_SettingsSleepLabel>Dormancy sleep distance: {0} world tile(s)</RimExodus_SettingsSleepLabel>
-  <RimExodus_SettingsSleepTip>Only effective while map rolling dormancy is enabled above.\n\nHow far away (in world tiles) a map must be before it is put to sleep: it keeps all your changes but stops simulating. 1 = everything except the map you are on sleeps the moment you leave. Lower = better performance. Default: 2.</RimExodus_SettingsSleepTip>
+  <RimExodus_SettingsSleepTip>Only effective while map rolling dormancy is enabled above.
+
+How far away (in world tiles) a map must be before it is put to sleep: it keeps all your changes but stops simulating. Lower = better performance. Minimum 2 — at 1, a newly generated neighbor map would be slept (or even deleted) the moment it finishes generating. Default: 2.</RimExodus_SettingsSleepTip>
   <RimExodus_SettingsDeleteLabel>Dormancy delete distance: {0} world tile(s)</RimExodus_SettingsDeleteLabel>
-  <RimExodus_SettingsDeleteTip>Only effective while map rolling dormancy is enabled above.\n\nHow far away a map must be before it is deleted entirely: it is removed from memory, and revisiting regenerates it from scratch. Setting this equal to the sleep distance (e.g. 1/1) deletes maps as soon as you leave - best performance on weak PCs.\n\nThe map you are currently on and your home map are never deleted. Default: 3.</RimExodus_SettingsDeleteTip>
+  <RimExodus_SettingsDeleteTip>Only effective while map rolling dormancy is enabled above.
+
+How far away a map must be before it is deleted entirely: it is removed from the save, and revisiting regenerates it from scratch (left-behind items and buildings are lost).
+
+The delete distance never goes below the sleep distance (the larger of the two applies) — a map always has to pass the sleep threshold before it can be deleted; once the delete distance is reached, it is deleted on that very sweep, without having to stay dormant first. Example: sleep 2 / delete 3 — maps 2 tiles from your colonists sleep, maps 3 tiles away are deleted outright; equal to the sleep distance = deleted on the same sweep it would sleep.
+
+The map you are currently on and your home map are never deleted. Default: 3.</RimExodus_SettingsDeleteTip>
   <RimExodus_SettingsSweepIntervalLabel>Dormancy scan interval: every {0} second(s)</RimExodus_SettingsSweepIntervalLabel>
   <RimExodus_SettingsSweepIntervalTip>How often the mod re-checks which maps should be slept or deleted (the periodic scan behind map rolling dormancy).\n\nLower = maps fall asleep / get cleaned up sooner after you leave, but the scan runs more often. Higher = slightly less work, but distant maps keep simulating longer after you leave. The scan itself is cheap (a small world-map search bounded by the delete distance).\n\nImmediate events (a colonist crossing a seam, a caravan entering or leaving a map) are NOT throttled by this - they always trigger a re-check right away. Only effective while map rolling dormancy is enabled above. Default: 10.</RimExodus_SettingsSweepIntervalTip>
   <RimExodus_SettingsThrottlePercentLabel>Throttled-map tick rate: {0}%</RimExodus_SettingsThrottlePercentLabel>
@@ -103,7 +111,7 @@ All seamless tile maps will be deleted - evacuate your colonists from them first
 
 Afterwards, save the game immediately; the save will then work without RimExodus.</RimExodus_UninstallRestoreConfirm>
   <RimExodus_UninstallRestoreBlockedGenerating>A map is still being generated. Wait a few seconds and try again.</RimExodus_UninstallRestoreBlockedGenerating>
-  <RimExodus_UninstallRestoreBlockedPawns>Player pawns are still on seamless tile maps (world tiles: {0}).
+  <RimExodus_UninstallRestoreBlockedPawns>Player pawns are still on seamless tile maps (tile positions: {0}).
 
 Bring everyone home (or to a native map) first - everything on deleted tile maps is lost.</RimExodus_UninstallRestoreBlockedPawns>
   <RimExodus_UninstallRestoreDone>Vanilla compatibility restored: {0} map(s) restored from snapshots, {1} map(s) restored by border-copy (no snapshot).

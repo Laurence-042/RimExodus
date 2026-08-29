@@ -199,14 +199,14 @@ namespace RimExodus
                 case SettingsTab.Dormancy:
                     // ===== tab：地图滚动休眠（性能） =====
                     // 总开关 tooltip 明确机制目的与效果（休眠=保留但不模拟 / 删除=彻底删除）+ 建议保持开启；
-                    // 两个距离滑条 tooltip 首句注明"需总开关开启才生效"+ 备注默认值；两者取值范围一致（1-8，
+                    // 两个距离滑条 tooltip 首句注明"需总开关开启才生效"+ 备注默认值；两者取值范围一致（2-8，
                     // 同值滑块位置相同，避免 UX 错位感）。
                     CheckRow(listing, "RimExodus_SettingsDormancyLabel", "RimExodus_SettingsDormancyTip",
                         v => s.dormancyEnabled = v, s.dormancyEnabled);
                     SliderRow(listing, "RimExodus_SettingsSleepLabel", "RimExodus_SettingsSleepTip",
-                        s.dormancySleepHops, 1, 8, v => s.dormancySleepHops = (int)v);
+                        s.dormancySleepHops, 2, 8, v => s.dormancySleepHops = (int)v);
                     SliderRow(listing, "RimExodus_SettingsDeleteLabel", "RimExodus_SettingsDeleteTip",
-                        s.dormancyDeleteHops, 1, 8, v => s.dormancyDeleteHops = (int)v);
+                        s.dormancyDeleteHops, 2, 8, v => s.dormancyDeleteHops = (int)v);
                     // 间隔滑条以秒为单位展示（存储为 ticks）；每轮现读设置，拖动即时生效。
                     SliderRow(listing, "RimExodus_SettingsSweepIntervalLabel", "RimExodus_SettingsSweepIntervalTip",
                         s.dormancySweepIntervalTicks / 60f, 1f, 60f,

@@ -143,10 +143,12 @@ namespace RimExodus
 
             var settings = RimExodusMod.Settings;
             var enabled = settings?.dormancyEnabled ?? true;
-            // sleepHops 下限 1（2026-08 放宽，原下限 2 + deleteHops ≥ sleep+1）：性能不佳的玩家可
-            // "离开即休眠并销毁"（1/1）；deleteHops 允许与 sleepHops 相等（同一轮先睡后删）。
+            // sleepHops 下限 2（2026-08-29 收回：1 会导致刚生成的邻接地图立刻被休眠甚至删除——
+            // 邻图预加载生成时玩家就在旁边，距离 1 恒达；放宽到 1 系 2026-08 误判，UI 同步 2-8）。
+            // deleteHops 允许与 sleepHops 相等（同一轮即删，无需先休眠一段时间）；语义 =
+            // "地图先满足休眠条件才可能被删除"（delete < sleep 时取较大值），到达删除距离当轮直接删除。
             // 脚下安全仍由三条保活保证：CurrentMap / 有玩家 pawn / IsProtectedHome。
-            var sleepHops = System.Math.Max(settings?.dormancySleepHops ?? 2, 1);
+            var sleepHops = System.Math.Max(settings?.dormancySleepHops ?? 2, 2);
             var deleteHops = System.Math.Max(settings?.dormancyDeleteHops ?? 3, sleepHops);
 
             // 快照 Find.Maps：删除分支会移除地图（RemoveTileMap → DeinitAndRemoveMap），遍历中修改原列表不安全。

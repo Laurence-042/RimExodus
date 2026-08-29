@@ -65,16 +65,16 @@ namespace RimExodus
 
         /// <summary>
         /// 距所有玩家 pawn 至少跨图 N 次才能到达的图进入休眠（软休眠：不 tick、不显示为邻接地图、
-        /// 无地图访问入口，内容完好）。下限 1（2026-08 放宽，原下限 2——性能不佳的玩家可
-        /// "离开即休眠"；CurrentMap / 玩家 pawn 在场保活仍在，不会睡脚下的图）。
+        /// 无地图访问入口，内容完好）。下限 2（2026-08-29 收回 1——邻图预加载生成时玩家就在旁边，
+        /// 距离 1 恒达，1 会导致刚生成的图立刻休眠甚至删除；CurrentMap / 玩家 pawn 在场保活仍在）。
         /// </summary>
         public int dormancySleepHops = 2;
 
         /// <summary>
         /// 距所有玩家 pawn 至少跨图 N 次才能到达的受管辖图被删除（地块图销毁 Map+WorldObject、
         /// 下次进入走生成链重建；原生家族延迟执行原版删除偏好——Settlement 删图留对象等；
-        /// 玩家家园（IsPlayerHome）不休眠不删除）。允许与 sleepHops 相等（2026-08 放宽，
-        /// 1/1 = 离开即休眠并销毁；运行时 clamp 为 ≥ sleepHops）。
+        /// 玩家家园（IsPlayerHome）不休眠不删除）。允许与 sleepHops 相等（= 休眠当轮即删）；
+        /// 运行时 clamp 为 ≥ sleepHops（"先满足休眠条件才可能被删除"），到达删除距离当轮直接删除。
         /// </summary>
         public int dormancyDeleteHops = 3;
 
