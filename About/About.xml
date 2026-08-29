@@ -13,7 +13,7 @@
 · 原生内容接入——派系据点、远古机械师建筑群、埋伏等 POI 走近时经原版管线生成为无缝地块；
 · 据点贸易商——友好据点指定贸易商，右键对话交易，完整原版远行队交易语义但无需组队。
 
-⚠ 本 mod 仍在开发中，对地图机制改动较深，请做好遇到 bug 的心理准备；暂不支持加入后从存档移除。
+⚠ 本 mod 仍在开发中，对地图机制改动较深，请做好遇到 bug 的心理准备。当前支持在移除 mod 前，通过设置界面的"恢复原版兼容模式"按钮将地图设置为兼容原版模式：设置为兼容后存档即可卸载 mod。不带 mod 再次加载存档会出现一次性的红字，不影响游玩，再次存档读档后就会消失。但受限于地图生成机制，仍然会有一些限制，详情请参考讨论区的帖子"关于卸载"。
 
 Say goodbye to the disjointed "exit map as caravan → world map → reload" travel loop. RimExodus stitches the local maps of adjacent world tiles together, visually and functionally: your colonists can walk straight out of the base gate into the wilderness, cross an invisible world-tile border, and keep going — no caravan, no loading screen.
 
@@ -25,7 +25,7 @@ Key features:
 · Native content integration — faction settlements, ancient mechanitor compounds, ambushes and other POIs generate as seamless tiles through the vanilla pipeline as you approach;
 · Settlement traders — friendly settlements designate a trader; right-click to talk and trade, full vanilla caravan trading semantics minus the caravan.
 
-⚠ This mod is still in development and makes deep changes to the map system — be mentally prepared for bugs; it currently cannot be removed from an existing save.</description>
+⚠ This mod is still in development and makes deep changes to the map system — be mentally prepared for bugs. Before removing it, use the "Restore vanilla compatibility" button in the mod settings to convert your maps; save after converting, then uninstall. Loading that save without the mod shows one-time red errors — harmless, and gone after one more save/load cycle. Some map-generation-related limitations remain; see the "About uninstalling" post in the discussions.</description>
   <modVersion>0.1.3</modVersion>
   <supportedVersions>
     <li>1.6</li>

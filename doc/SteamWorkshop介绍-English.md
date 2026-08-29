@@ -4,7 +4,7 @@ Say goodbye to the disjointed "exit map → world map → reload" travel loop. R
 
 [img]https://raw.githubusercontent.com/Laurence-042/RimExodus/main/doc/img/demo.gif[/img]
 
-[b]⚠ Still in development and changes the map system deeply — expect bugs in odd places; reports welcome. The save format is settled, so play without worry. It can't be removed from a save, though; an unload utility may come later (to make maps compatible before removing).[/b]
+[b]⚠ In development; deep map-system changes — expect bugs in odd places, reports welcome. Before uninstalling, run "Restore vanilla compatibility" in settings and save; the first mod-free load shows harmless one-time red errors, gone after one more save. Generation-related limits apply — see the "About uninstalling" post.[/b]
 
 [h1]What It Does[/h1]
 
