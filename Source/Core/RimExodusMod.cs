@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using HarmonyLib;
+using RimWorld;
 using UnityEngine;
 using Verse;
 
@@ -236,6 +237,24 @@ namespace RimExodus
                     SliderRow(listing, "RimExodus_SettingsTickProfileIntervalLabel", "RimExodus_SettingsTickProfileIntervalTip",
                         s.tickProfileIntervalTicks / 60f, 1f, 50f,
                         v => s.tickProfileIntervalTicks = System.Math.Max((int)(v * 60f), 60), "{0:F0}");
+                    // 三层快照序列化开关（2026-08 卸载恢复支撑）：关开关需二次确认 + 可选清除已有快照。
+                    SnapshotToggleRow(listing, s);
+                    // 卸载前恢复原版兼容模式（2026-08）：一次性动作，二次确认后执行。
+                    if (listing.ButtonText("RimExodus_UninstallRestoreButton".Translate(),
+                            "RimExodus_UninstallRestoreButtonTip".Translate()))
+                    {
+                        if (Current.ProgramState != ProgramState.Playing)
+                        {
+                            Messages.Message("RimExodus_UninstallRestoreNoGame".Translate(),
+                                MessageTypeDefOf.RejectInput, false);
+                        }
+                        else
+                        {
+                            Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                                "RimExodus_UninstallRestoreConfirm".Translate(), SeamlessUninstallRestore.RunRestore,
+                                destructive: true));
+                        }
+                    }
                     break;
             }
 
@@ -262,6 +281,48 @@ namespace RimExodus
             var tmp = current;
             listing.CheckboxLabeled(labelKey.Translate(), ref tmp, tipKey.Translate());
             set(tmp);
+        }
+
+        /// <summary>
+        /// 三层快照序列化开关行（2026-08）：开→关需二次确认（警告无快照图的卸载恢复只能就近复制回填、
+        /// 观感可能奇怪），确认关闭后若有已序列化快照再询问是否同步清除省体积；关→开直接生效。
+        /// CheckboxLabeled 直接写 ref 本地变量——不落 Settings 即可拦截（取消确认时下帧重绘回勾选态）。
+        /// </summary>
+        private static void SnapshotToggleRow(Listing_Standard listing, RimExodusSettings s)
+        {
+            var tmp = s.serializeBaseSnapshots;
+            listing.CheckboxLabeled("RimExodus_SettingsSnapshotLabel".Translate(), ref tmp,
+                "RimExodus_SettingsSnapshotTip".Translate());
+            if (tmp == s.serializeBaseSnapshots) return; // 无变化。
+            if (tmp)
+            {
+                s.serializeBaseSnapshots = true; // 关→开无风险，直接生效。
+                return;
+            }
+            // 开→关：二次确认，取消 = 保持开（不写 s，下帧重绘回勾选态）。
+            Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                "RimExodus_SettingsSnapshotDisableConfirm".Translate(), delegate
+                {
+                    s.serializeBaseSnapshots = false;
+                    // 第二层：当前存档已有已序列化快照时，询问是否同步清除（下次存档瘦 body）。
+                    if (Current.ProgramState == ProgramState.Playing && AnySerializedSnapshots())
+                    {
+                        Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                            "RimExodus_SettingsSnapshotPurgeConfirm".Translate(),
+                            SeamlessUninstallRestore.PurgeAllSnapshots, destructive: true));
+                    }
+                }, destructive: true));
+        }
+
+        /// <summary>当前存档是否有已序列化的基础快照（决定是否弹"清除已有快照"第二层确认）。</summary>
+        private static bool AnySerializedSnapshots()
+        {
+            foreach (var map in Find.Maps)
+            {
+                if (map?.Parent is MapParent_SeamlessTile) continue;
+                if (map.GetComponent<SeamlessTileManager>()?.baseSnapshotData != null) return true;
+            }
+            return false;
         }
     }
 }

@@ -76,6 +76,12 @@ namespace RimExodus
             manualDormantTiles.Remove(worldTile);
         }
 
+        /// <summary>卸载前恢复原版兼容模式（2026-08）：清空手动休眠锁（所锁图多已删，锁随 mod 卸载无意义，纯善后）。</summary>
+        internal void ClearAllManualDormantForRestore()
+        {
+            manualDormantTiles.Clear();
+        }
+
         /// <summary>
         /// 读档即睡（2026-08，方案 3）：休眠状态本身不序列化（读档后图全活跃是软休眠模型的读档语义），
         /// 手动锁图若等首轮 Sweep 再睡回会有一个"活跃进场 → 睡回"的横跳窗口（几十 tick 白跑）——

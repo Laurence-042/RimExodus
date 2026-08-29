@@ -69,4 +69,45 @@
   <!-- Save during incremental map generation (2026-08): rejected until generation completes. -->
   <RimExodus.SaveBlockedDuringGenerationLabel>Save rejected</RimExodus.SaveBlockedDuringGenerationLabel>
   <RimExodus.SaveBlockedDuringGeneration>Save rejected: a neighboring map is still being generated.\n\nPlease do not save during map generation to test this mod's reliability. Its author has already gained a profound understanding of how unreliable it is.\n\nSaving will work normally again in a few seconds, once generation finishes.</RimExodus.SaveBlockedDuringGeneration>
+
+  <!-- Uninstall-safe restore + base snapshot serialization (2026-08). -->
+  <RimExodus_SettingsSnapshotLabel>Save base terrain snapshots into the savefile</RimExodus_SettingsSnapshotLabel>
+  <RimExodus_SettingsSnapshotTip>Store each native map's pre-seam terrain/rock/roof snapshot in the savefile (compact format, per map).
+
+This lets the "restore vanilla compatibility before uninstalling" button rebuild the real original terrain on ANY session. Without snapshots, maps without one can only be restored by copying nearby border terrain inward, which can look odd. Costs some savefile size; keep ON if you might ever remove this mod.
+
+Default: ON.</RimExodus_SettingsSnapshotTip>
+  <RimExodus_SettingsSnapshotDisableConfirm>Stop saving terrain snapshots?
+
+Maps generated from now on will have NO snapshot. If you later run "restore vanilla compatibility before uninstalling", those maps can only be restored by copying nearby border terrain inward - the restored edge terrain may look strange, and rocks/roofs there cannot be restored at all.
+
+Existing snapshots are kept for now (they still work).
+
+Are you sure?</RimExodus_SettingsSnapshotDisableConfirm>
+  <RimExodus_SettingsSnapshotPurgeConfirm>Also delete the snapshots already stored in this savegame?
+
+This frees savefile size on the next save. Maps without a snapshot will only have the degraded (border-copy) restore available if you ever uninstall the mod.
+
+This cannot be undone.</RimExodus_SettingsSnapshotPurgeConfirm>
+  <RimExodus_SnapshotPurged>Deleted stored terrain snapshots on {0} map(s). They disappear from the savefile on the next save.</RimExodus_SnapshotPurged>
+  <RimExodus_UninstallRestoreButton>Restore vanilla compatibility (before uninstalling)</RimExodus_UninstallRestoreButton>
+  <RimExodus_UninstallRestoreButtonTip>One-time action. Prepares the current savegame so RimExodus can be safely removed:
+- Seamless tile maps are deleted (revisiting regenerates them in vanilla).
+- Home and other native maps keep everything: seam void terrain is restored from snapshots (rocks and roofs too), teleport spots and seam link objects are removed.
+- Run this, then SAVE, then uninstall the mod.
+
+Removing the mod without running this leaves broken references (red errors and unusable maps).</RimExodus_UninstallRestoreButtonTip>
+  <RimExodus_UninstallRestoreConfirm>Restore vanilla compatibility now?
+
+All seamless tile maps will be deleted - evacuate your colonists from them first (anything left there is lost). Home maps are kept and restored in place.
+
+Afterwards, save the game immediately; the save will then work without RimExodus.</RimExodus_UninstallRestoreConfirm>
+  <RimExodus_UninstallRestoreBlockedGenerating>A map is still being generated. Wait a few seconds and try again.</RimExodus_UninstallRestoreBlockedGenerating>
+  <RimExodus_UninstallRestoreBlockedPawns>Player pawns are still on seamless tile maps (world tiles: {0}).
+
+Bring everyone home (or to a native map) first - everything on deleted tile maps is lost.</RimExodus_UninstallRestoreBlockedPawns>
+  <RimExodus_UninstallRestoreDone>Vanilla compatibility restored: {0} map(s) restored from snapshots, {1} map(s) restored by border-copy (no snapshot).
+
+SAVE NOW. After saving, RimExodus can be safely removed.</RimExodus_UninstallRestoreDone>
+  <RimExodus_UninstallRestoreNoGame>Load a game first.</RimExodus_UninstallRestoreNoGame>
 </LanguageData>

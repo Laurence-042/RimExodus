@@ -57,6 +57,13 @@ namespace RimExodus
         public RoofDef[] baseRoofSnapshot;
 
         /// <summary>
+        /// 基础三层快照的序列化载体（2026-08，仅原生 parent 图——地块图卸载恢复时必删不序列化）。
+        /// 保存时若开关开启且本图有内存快照则捕入；读档还原内存数组（旧档无数据 = null 维持现状）。
+        /// 见 <see cref="SeamlessBaseSnapshotData"/>。清除 = 设置 UI 二次确认流程（PurgeAllSnapshots）。
+        /// </summary>
+        public SeamlessBaseSnapshotData baseSnapshotData;
+
+        /// <summary>
         /// 原生 parent 图的接缝条带快照（见 <see cref="SeamStripData"/>）。随图组件序列化——
         /// 图在则数据在（软休眠不卸图）；图被滚动删除即失（再生成时由对端单侧照抄补缝连续）。
         /// 地块图的快照挂 WorldObject（卸图后存活）。读写经 <see cref="SeamlessMapData"/>。
@@ -107,6 +114,32 @@ namespace RimExodus
             Scribe_Values.Look(ref setupOnStartDone, "setupOnStartDone");
             Scribe_Values.Look(ref pendingAutoGenerateTicks, "pendingAutoGenerateTicks", -1);
             Scribe_Deep.Look(ref seamStrip, "seamStrip");
+
+            // 基础三层快照序列化（仅原生 parent 图；捕获受 serializeBaseSnapshots 门控，
+            // 已有数据无条件照存——清除是设置 UI 的显式动作）。
+            if (Scribe.mode == LoadSaveMode.Saving && !(map.Parent is MapParent_SeamlessTile)
+                && baseSnapshotData == null && baseTerrainSnapshot != null
+                && (RimExodusMod.Settings?.serializeBaseSnapshots ?? true))
+            {
+                baseSnapshotData = SeamlessBaseSnapshotData.Capture(
+                    baseTerrainSnapshot, baseBuildingSnapshot, baseRoofSnapshot);
+            }
+            Scribe_Deep.Look(ref baseSnapshotData, "baseSnapshotData");
+            if (Scribe.mode == LoadSaveMode.PostLoadInit && baseSnapshotData != null
+                && baseTerrainSnapshot == null && !(map.Parent is MapParent_SeamlessTile))
+            {
+                if (baseSnapshotData.ToArrays(map.Size.x * map.Size.z,
+                        out var terrain, out var building, out var roof))
+                {
+                    baseTerrainSnapshot = terrain;
+                    baseBuildingSnapshot = building;
+                    baseRoofSnapshot = roof;
+                }
+                else
+                {
+                    baseSnapshotData = null; // 尺寸不匹配（异常态）：丢弃防错位，走无快照降级。
+                }
+            }
 
             if (Scribe.mode == LoadSaveMode.Saving)
             {

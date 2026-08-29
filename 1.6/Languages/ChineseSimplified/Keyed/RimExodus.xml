@@ -69,4 +69,45 @@
   <!-- 分帧生成期间存档（2026-08）：生成完成前拒绝。 -->
   <RimExodus.SaveBlockedDuringGenerationLabel>存档已被拒绝</RimExodus.SaveBlockedDuringGenerationLabel>
   <RimExodus.SaveBlockedDuringGeneration>存档已被拒绝：相邻地图正在生成中。\n\n请勿在地图加载过程中存档来测试本mod可靠性——这个mod的作者已经深刻理解到它的不可靠了。\n\n几秒后生成完成，届时即可正常存档。</RimExodus.SaveBlockedDuringGeneration>
+
+  <!-- 卸载前恢复原版兼容模式 + 基础快照序列化（2026-08）。 -->
+  <RimExodus_SettingsSnapshotLabel>将基础地形快照存入存档</RimExodus_SettingsSnapshotLabel>
+  <RimExodus_SettingsSnapshotTip>把每张原生地图接缝裁切前的地形/岩石/屋顶三层快照以紧凑格式存入存档（按图计）。
+
+这样"卸载前恢复原版兼容模式"按钮在任何时候（包括读档后）都能按真实原始地形恢复。没有快照的图只能用"就近复制边界地形"降级恢复，观感可能奇怪，岩石与屋顶也无法恢复。会增大存档体积；只要将来有可能卸载本 mod 就建议保持开启。
+
+默认：开。</RimExodus_SettingsSnapshotTip>
+  <RimExodus_SettingsSnapshotDisableConfirm>确定停止保存地形快照？
+
+从现在起新生成的图将没有快照。之后若运行"卸载前恢复原版兼容模式"，这些图只能用"就近复制边界地形"降级恢复——恢复出的边缘地形可能看起来很奇怪，且该区域的岩石与屋顶完全无法恢复。
+
+已有的快照暂时保留（仍然可用）。
+
+确定吗？</RimExodus_SettingsSnapshotDisableConfirm>
+  <RimExodus_SettingsSnapshotPurgeConfirm>是否同时删除当前存档中已保存的快照？
+
+下次存档起体积回落。没有快照的图在将来卸载 mod 时只有降级（边界复制）恢复可用。
+
+此操作不可撤销。</RimExodus_SettingsSnapshotPurgeConfirm>
+  <RimExodus_SnapshotPurged>已删除 {0} 张图的已存快照，下次存档起从存档中消失。</RimExodus_SnapshotPurged>
+  <RimExodus_UninstallRestoreButton>恢复原版兼容模式（卸载前）</RimExodus_UninstallRestoreButton>
+  <RimExodus_UninstallRestoreButtonTip>一次性动作。把当前存档整理成卸载 RimExodus 后仍可正常游玩的状态：
+- 无缝地块图全部删除（原版重访会重新生成）。
+- 家园图等原生地图保留一切：接缝 void 地形按快照恢复（含岩石与屋顶），传送点与接缝链接物移除。
+- 运行本按钮 → 立即存档 → 之后即可安全卸载本 mod。
+
+不运行本按钮直接卸载会留下损坏引用（红字与不可用的地图）。</RimExodus_UninstallRestoreButtonTip>
+  <RimExodus_UninstallRestoreConfirm>现在恢复原版兼容模式？
+
+全部无缝地块图将被删除——请先把殖民者从这些图撤回（留在那的东西会丢失）。家园图保留并就地恢复。
+
+完成后请立即存档；存档此后可以在没有 RimExodus 的情况下正常游玩。</RimExodus_UninstallRestoreConfirm>
+  <RimExodus_UninstallRestoreBlockedGenerating>仍有地图在生成中，请等待几秒后重试。</RimExodus_UninstallRestoreBlockedGenerating>
+  <RimExodus_UninstallRestoreBlockedPawns>仍有玩家 pawn 位于无缝地块图上（世界地块：{0}）。
+
+请先把所有人带回家园（或任意原生地图）——被删地块图上的一切都会丢失。</RimExodus_UninstallRestoreBlockedPawns>
+  <RimExodus_UninstallRestoreDone>已恢复原版兼容模式：{0} 张图按快照恢复、{1} 张图按边界复制降级恢复（无快照）。
+
+请立即存档。存档后即可安全卸载 RimExodus。</RimExodus_UninstallRestoreDone>
+  <RimExodus_UninstallRestoreNoGame>请先进入一局游戏。</RimExodus_UninstallRestoreNoGame>
 </LanguageData>

@@ -33,6 +33,8 @@ namespace RimExodus
     {
         static bool Prefix(TerrainGrid __instance, IntVec3 c, TerrainDef newTerr)
         {
+            // 卸载前恢复（2026-08）：恢复流程本身就是"把 void 改回原生地形"的唯一合法例外。
+            if (SeamlessUninstallRestore.Restoring) return true;
             // 只拦"当前是 void 且新地形不是 void"的改写。
             if (newTerr == null) return true;
             var voidDef = DefDatabase<TerrainDef>.GetNamedSilentFail("RimExodus_Void");
