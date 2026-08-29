@@ -683,7 +683,8 @@ namespace RimExodus
             var interiorMap = parent.Map;
             if (interiorMap != null)
             {
-                // 从休眠集合移除（图即将 Dispose，防引用泄漏；对活跃图无操作）。
+                // 从休眠集合移除（图即将 Dispose，防引用泄漏；对活跃图无操作）。Forget 同时经统一追踪底座
+                // 触发删前全图清扫（2026-08 持有链审计：Deinit 的索引补偿/持有链遍历永跑干净列表）。
                 SeamlessDormancyManager.Forget(interiorMap);
                 SeamlessNeighborRegistry.CleanupNeighborLinks(parent);
                 // 第二参 false：DeinitAndRemoveMap 本身不销毁 WorldObject（原版行为），
@@ -750,6 +751,7 @@ namespace RimExodus
 
             var tile = parent.Tile.tileId;
             var mapId = interiorMap.uniqueID;
+            // Forget 经统一追踪底座触发删前清扫（同 RemoveTileMap 路径，见 SeamlessDormancyManager.Forget）。
             SeamlessDormancyManager.Forget(interiorMap);
             SeamlessNeighborRegistry.CleanupNeighborLinks(parent);
             // 第二参 false：DeinitAndRemoveMap 本身不销毁 WorldObject（原版行为），

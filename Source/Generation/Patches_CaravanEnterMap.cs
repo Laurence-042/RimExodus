@@ -35,10 +35,11 @@ namespace RimExodus
                 return false;
             }
 
-            // 远行队进图 = 源集合变化（caravan 消耗、pawn 落图）：请求 governor 尽快重算距离。
-            // 同时即时恢复落图全速（2026-08 分级休眠——同跨缝传送的 AfterTransfer 口径）。
+            // 远行队进图 = 源集合变化（caravan 消耗、pawn 落图）→ 统一追踪底座（2026-08-29 收拢架构）：
+            // 下一 GameComponentTick 位置刷新段即时同步影子名单 + 重算休眠距离。同时即时恢复落图全速
+            // （2026-08 分级休眠——同跨缝传送的 AfterTransfer 口径）。
             SeamlessTickThrottle.Unthrottle(map, "player caravan entering map");
-            SeamlessDormancyGovernor.RequestSweepSoonStatic();
+            SeamlessPawnLocationTracker.NotifyChanged();
 
             // 对所有有 RimExodus 传送点的地图生效（含玩家家园图——原生 MapParent 也是无缝世界一员）；其他地图放行原方法。
             if (!SeamlessExitSpotFinder.HasRimExodusEnterSpots(map)) return true;
@@ -76,15 +77,15 @@ namespace RimExodus
 
     /// <summary>
     /// 远行队组队完成离图（2026-08）：原版在远行队成立时调 parent 的 Notify_CaravanFormed——
-    /// 源图可能就此失去全部玩家 pawn，请求 governor 尽快重算距离（下一安全 tick，
-    /// 不在回调里直接睡/删图，见 SeamlessDormancyGovernor.RequestSweepSoon 的时序约束注释）。
+    /// 源图可能就此失去全部玩家 pawn，经统一追踪底座（2026-08-29 收拢架构）触发下一 GameComponentTick
+    /// 位置刷新段（不在回调里直接睡/删图/拆影子，时序约束见 SeamlessPawnLocationTracker 注释）。
     /// </summary>
     [HarmonyPatch(typeof(MapParent), nameof(MapParent.Notify_CaravanFormed))]
     static class Patch_MapParent_NotifyCaravanFormed
     {
         static void Postfix()
         {
-            SeamlessDormancyGovernor.RequestSweepSoonStatic();
+            SeamlessPawnLocationTracker.NotifyChanged();
         }
     }
 }

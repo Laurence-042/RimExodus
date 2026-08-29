@@ -32,8 +32,9 @@ namespace RimExodus
     ///   影子返回 null。远行队身份判定不受影响：<see cref="Caravan.IsOwner"/> 走 pawns.Contains
     ///   （holdingOwner 比对）而非 GetCaravan。
     ///
-    /// 维护：governor GameComponentTick 每 <see cref="RefreshIntervalTicks"/> 同步一次成员名单
-    /// （进/离图/死亡自动跟随），读档后首轮自动重建——**影子不序列化**（pawn 是图上 pawn，随档
+    /// 维护：统一 pawn 所在地追踪底座（<see cref="SeamlessPawnLocationTracker"/>，2026-08-29 收拢架构）
+    /// 的消费者——事件触发（跨缝传送/组队/进图，即时）+ 60 ticks 轮询兜底（进/离图/死亡自动跟随），
+    /// 读档后首轮自动重建——**影子不序列化**（pawn 是图上 pawn，随档
     /// 双存会变成真远行队成员；存档前 SaveGame Prefix 全量拆除）。
     ///
     /// 已知边界（观察项）：①世界图 tile 上据点与影子双图标、殖民者栏外的远行队 UI（Alert_CaravanIdle
@@ -64,12 +65,113 @@ namespace RimExodus
         /// <summary>
         /// ThingOwner 内部列表反射（v1 实测教训）：innerList 声明在泛型类 ThingOwner&lt;T&gt; 上
         /// （非基类 ThingOwner），反射目标必须带泛型参数，取基类恒 null。
+        /// spawnedThings 变体：Map.spawnedThings 声明类型是基类 ThingOwner 但实例是
+        /// ThingOwner&lt;Thing&gt;（Map 构造），清扫用（见 <see cref="ScrubMap"/>）。
         /// </summary>
         private static readonly FieldInfo innerListField = AccessTools.Field(typeof(ThingOwner<Pawn>), "innerList");
+        private static readonly FieldInfo spawnedInnerListField = AccessTools.Field(typeof(ThingOwner<Thing>), "innerList");
 
         private static List<Pawn> PawnInnerList(ThingOwner<Pawn> owner)
         {
             return (List<Pawn>)innerListField?.GetValue(owner);
+        }
+
+        // =====================================================================================
+        // 注入副作用清扫（2026-08 持有链审计根治件，两名玩家报告"pawn 同时在两个地点"的定案根因）
+        // =====================================================================================
+        // 成因：成员注入把 holdingOwner 改指影子容器后，该 pawn 在据点图上任何 DeSpawn（跨缝走出 /
+        // 原版 SplitOff 抱起 / 死亡）中 map.spawnedThings.Remove 都因 ThingOwner.Contains 的指针判定
+        // （Contains = item.holdingOwner == this）失配而**静默失败**，innerList 残留一条正常 API 删不掉的
+        // 陈旧条目（零 Error 日志、读档自愈故难复现）。三个 innerList 直读消费者：
+        // ① 休眠 Wake 按 innerList 重注册 tick——TickList.RegisterThing 无去重，陈旧条目把活在别图的
+        //    pawn 再注册一次（需求/衰老 2 倍速；Sleep 的 RemoveAllFromMap 按 Map 过滤摘不掉，即永久）；
+        // ② 删图时 MapDeiniter 对后续图逐条 DecrementMapIndex 补偿 Find.Maps 索引位移——陈旧条目给
+        //    活人多减一次 → pawn.Map 指向错图（"被计数在另一个 tile"：点殖民者栏头像相机跳错图、下令
+        //    失灵；玩家自救"重组远行队走到该 tile 进图"= 完整登记重写，与之精确吻合）；
+        // ③ 被删图自身的 NotifyEverythingWhichUsesMapReference 持有链遍历命中陈旧条目 → 活人被
+        //    Notify_MyMapRemoved 置 Discarded(-3) + holdingOwner 置 null（鬼影/雕像）。
+        //
+        // 修复机制（与地图休眠共享 SeamlessPawnLocationTracker 底座，2026-08-29 用户定夺收拢）：
+        // 触发 = 事件（跨缝传送/组队/进图 → 名单即时同步）+ 60t 轮询（本轮清扫兜底残余源）；
+        // 删图自洽 = 底座 NotifyMapRemoving（一切删图路径经 Forget）→ OnMapRemoving 删前清扫，
+        // 使 DecrementMapIndex 循环与持有链遍历永跑干净列表——不 patch MapDeiniter 消费者。
+        //
+        // 判据：t == null，或（t.Map != map 且 t.holdingOwner != map.spawnedThings）。活成员 t.Map == map
+        // 天然保留——**不可把活成员移出 innerList**：原版删图的 DecrementMapIndex 索引补偿遍历的就是
+        // 各图 spawnedThings.innerList，移走 = 漏补偿 = 反向制造 mapIndex 损坏（"注入时对称移出/释放时
+        // 加回"方案因此被否决，勿复犯）。holdingOwner 仍指本图容器的病态条目只跳过（移除留悬垂指针）。
+        // 清除时打 Message——兼野外诊断器：报告玩家看到该行即坐实本机制在其存档活动过。
+        // =====================================================================================
+
+        private static bool scrubReflectionFailed;
+        private static readonly List<string> TmpScrubLabels = new List<string>();
+
+        /// <summary>
+        /// 删图前清扫（底座 NotifyMapRemoving 转发；一切删图路径经 Forget 在 DeinitAndRemoveMap 之前到达）。
+        /// 刻意清扫全部图而非仅 <paramref name="map"/>：删图的 DecrementMapIndex 索引补偿遍历的是**其它图**
+        /// 的 spawnedThings——陈旧条目危害恰恰在被删图之外（载荷保留供未来按图差异化的消费者）。
+        /// </summary>
+        internal static void OnMapRemoving(Map map)
+        {
+            ScrubAllMaps();
+        }
+
+        /// <summary>遍历全部地图清扫（60t 轮询 + 删图前各一次；成本 = 一趟全图 innerList 指针比较，可忽略）。</summary>
+        private static void ScrubAllMaps()
+        {
+            var maps = Find.Maps;
+            if (maps == null) return;
+            for (var i = 0; i < maps.Count; i++)
+            {
+                ScrubMap(maps[i]);
+            }
+        }
+
+        /// <summary>清除 map.spawnedThings.innerList 中不属于本图的陈旧条目（判据见上方架构注释）。</summary>
+        private static void ScrubMap(Map map)
+        {
+            if (map == null || map.Disposed) return;
+            if (!(spawnedInnerListField?.GetValue(map.spawnedThings) is List<Thing> list))
+            {
+                if (!scrubReflectionFailed)
+                {
+                    scrubReflectionFailed = true;
+                    Log.Error("[RimExodus] ShadowCaravan scrub: ThingOwner<Thing>.innerList reflection failed; stale-entry cleanup disabled.");
+                }
+                return;
+            }
+
+            var removed = 0;
+            TmpScrubLabels.Clear();
+            for (var i = list.Count - 1; i >= 0; i--)
+            {
+                var t = list[i];
+                if (t == null)
+                {
+                    list.RemoveAt(i);
+                    removed++;
+                    continue;
+                }
+                if (t.Map == map) continue; // 活在本图（含影子成员）——DecrementMapIndex 索引补偿依赖其在列。
+                if (t.holdingOwner == map.spawnedThings) continue; // 病态条目（指针仍指本图）：跳过，勿留悬垂指针。
+                list.RemoveAt(i);
+                removed++;
+                if (TmpScrubLabels.Count < 5) TmpScrubLabels.Add(t.LabelShort ?? t.def?.defName ?? t.GetType().Name);
+            }
+
+            if (removed > 0)
+            {
+                var sb = new System.Text.StringBuilder();
+                for (var i = 0; i < TmpScrubLabels.Count; i++)
+                {
+                    if (i > 0) sb.Append(", ");
+                    sb.Append(TmpScrubLabels[i]);
+                }
+                if (removed > TmpScrubLabels.Count) sb.Append(" ...");
+                Log.Message($"[RimExodus] Scrubbed {removed} stale spawnedThings entr{(removed == 1 ? "y" : "ies")} "
+                    + $"on map {map.uniqueID} (wt={SeamlessTileRegistry.GetMapWorldTile(map)}): {sb}");
+            }
+            TmpScrubLabels.Clear();
         }
 
         /// <summary>实例身份判定（patch 与维护共用）。影子数 ≤ 并发据点图数，线性查够用。</summary>
@@ -100,18 +202,25 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 周期维护（governor GameComponentTick 每 tick 调，内部 60 ticks 间隔门控）：
-        /// 为每个"有玩家自由殖民者的据点图"建/同步影子，拆掉失去条件的影子。读档重建也走这里
-        /// （影子不序列化，首轮扫描自然补齐）。
+        /// 维护（统一 pawn 所在地追踪底座的消费者入口，2026-08-29 收拢架构）：governor GameComponentTick
+        /// 位置刷新段调用——事件触发（SeamlessPawnLocationTracker.NotifyChanged，下一 tick 即时）或
+        /// 60 ticks 轮询兜底二者其一即跑。读档后首轮自动重建（影子不序列化，首轮扫描自然补齐）。
+        /// 事件触发只做名单同步（便宜）；轮询到期额外清扫注入副作用（见 <see cref="ScrubAllMaps"/>）。
         /// </summary>
-        public static void TickMaintain()
+        internal static void Maintain(bool eventTriggered)
         {
             if (Find.TickManager == null || Find.Maps == null) return;
-            if (Find.TickManager.TicksGame < nextRefreshTick) return;
-            nextRefreshTick = Find.TickManager.TicksGame + RefreshIntervalTicks;
+            var pollDue = Find.TickManager.TicksGame >= nextRefreshTick;
+            if (!eventTriggered && !pollDue) return;
+            if (pollDue) nextRefreshTick = Find.TickManager.TicksGame + RefreshIntervalTicks;
             try
             {
                 Refresh(new List<Map>(Find.Maps));
+                // 注入副作用的周期兜底（2026-08 持有链审计）：残余源（原版 SplitOff 抱起 / 死亡 Destroy
+                // 内的 DeSpawn）不 patch 无法拦截，由轮询清扫把 spawnedThings 陈旧条目存活期压到 ≤60 ticks。
+                // 事件触发的刷新刻意不清扫——删图自洽已由底座 NotifyMapRemoving 全覆盖（一切删图路径经
+                // Forget），事件路径零清扫成本。
+                if (pollDue) ScrubAllMaps();
             }
             catch (System.Exception e)
             {
@@ -237,7 +346,7 @@ namespace RimExodus
         }
 
         /// <summary>全量拆除（存档前 SaveGame Prefix 调）：影子绝不随档序列化——其成员是图上 pawn，
-        /// Caravan.ExposeData 的 Scribe_Deep(pawns) 会把它们双存成远行队成员。读档后由 TickMaintain 重建。</summary>
+        /// Caravan.ExposeData 的 Scribe_Deep(pawns) 会把它们双存成远行队成员。读档后由位置刷新段首轮重建。</summary>
         public static void EnsureReleasedForSave()
         {
             var tiles = new List<int>(shadows.Keys);

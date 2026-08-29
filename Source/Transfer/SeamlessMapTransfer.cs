@@ -39,6 +39,11 @@ namespace RimExodus
                 Log.Warning("[RimExodus] Seamless transfer rejected: departure map invalid or same as arrival map.");
                 return false;
             }
+            if (arrivalMap.Disposed)
+            {
+                Log.Warning($"[RimExodus] Seamless transfer rejected: arrival map {arrivalMap.uniqueID} is disposed.");
+                return false;
+            }
             // 不校验 pawn 与 spot 的格距（教训勿回退）：Prefix 触发读 pather.nextCell，而原版
             // pather 在路径重建/节点去重（SetupMoveIntoNextCell 的 ConsumeNextNode 双消费）后
             // 可以合法地以"nextCell 距 pawn.Position ≥2 格"调用 TryEnterNextPathCell 并直接多格
@@ -106,6 +111,10 @@ namespace RimExodus
             if (grant != null) grant.PrevLordJob = prevLord?.LordJob;
             prevLord?.Notify_PawnLost(pawn, PawnLostCondition.Vanished);
 
+            // 影子成员的持有善后不在传送流程内做（2026-08-29 收拢架构，用户定夺）：传送只发 pawn 所在地
+            // 变动事件（AfterTransfer → SeamlessPawnLocationTracker），影子名单同步/陈旧条目清扫由底座在
+            // 下一 GameComponentTick 的位置刷新段完成；同 tick 内的删图决策先经 Forget 的删前清扫，
+            // 时序自洽——传送流程对影子系统零感知。
             pawn.DeSpawn();
             GenSpawn.Spawn(pawn, arrivalCell, arrivalMap, rotation);
 

@@ -110,9 +110,13 @@ namespace RimExodus
 
             // 重注册全局 Thing tick：遍历 spawnedThings 逐个注册（读档路径 FinalizeLoading 的
             // 重 spawn 走的就是同一 API，语义等价"这张图像刚读档一样恢复"）。
+            // Map 守卫（2026-08 持有链审计）：innerList 可能残留"已活在别图"的陈旧条目（影子注入期 DeSpawn
+            // 的 Remove 静默失败残留），重注册会造成 TickList 双注册（RegisterThing 无去重）= 活人双 tick。
+            // 影子系统的 60t 轮询清扫（SeamlessShadowCaravan.ScrubAllMaps）为主，此处按 Map 过滤兜底。
             var spawned = map.spawnedThings;
             for (var i = 0; i < spawned.Count; i++)
             {
+                if (spawned[i].Map != map) continue;
                 Find.TickManager.RegisterAllTickabilityFor(spawned[i]);
             }
 
@@ -160,6 +164,10 @@ namespace RimExodus
                 dormantMaps.Remove(map);
                 if (manualDormantMaps.Remove(map))
                     SyncManualTile(map, register: false); // 图销毁：残留 tile id 一并清出持久化集合。
+                // 删图 = 该图全体 pawn 所在地批量变动 → 统一追踪底座（2026-08-29 收拢架构）：影子消费为
+                // 删前全图清扫（一切删图路径的两个叶子都在 DeinitAndRemoveMap 之前到达这里），使 Deinit 的
+                // DecrementMapIndex 索引补偿与持有链遍历永跑干净列表——不 patch MapDeiniter。
+                SeamlessPawnLocationTracker.NotifyMapRemoving(map);
             }
         }
 

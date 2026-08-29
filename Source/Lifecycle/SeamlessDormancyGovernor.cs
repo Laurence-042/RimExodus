@@ -106,34 +106,29 @@ namespace RimExodus
 
             // 全局静态清扫（自 SeamlessMapTransferTrigger.MapComponentTick 迁移，2026-08 软休眠）：
             // 原挂"仅家园图 tick"——家园无玩家 pawn 时可随软休眠冻结，图 tick 不再可靠；
-            // GameComponent 恒 tick，与一切地图的活跃状态解耦。
+            // GameComponent 恒 tick，与一切地图的活跃状态解耦。（预约/UI 域，刻意不并入下方位置刷新段。）
             SeamlessSelectionTracker.PurgeInvalid();
             SeamlessTransferGrants.TickSweep();
-            // 影子远行队常驻维护（2026-08 v2：60 ticks 间隔门控，建/同步/拆据点图影子，读档重建）。
-            SeamlessShadowCaravan.TickMaintain();
 
-            if (Find.TickManager.TicksGame < nextSweepTick) return;
-            // 间隔设置化（2026-08，原 const 600）：每轮现读，改设置即时生效（含 UI 滑条拖动）。
-            var interval = System.Math.Max(RimExodusMod.Settings?.dormancySweepIntervalTicks ?? 600, MinSweepIntervalTicks);
-            nextSweepTick = Find.TickManager.TicksGame + interval;
-            Sweep();
-        }
+            // === pawn 所在地追踪·统一更新段（2026-08-29 收拢架构，底座 = SeamlessPawnLocationTracker）===
+            // 本方法 = 底座的唯一更新机制（安全执行点：刷新可能 Sleep 摘全局 tick 表 / 拆影子改写
+            // holdingOwner，不能落在 thing tick 遍历中途——所以事件回调只置旗标，见底座注释）。
+            // 两个消费者 = 同一事实（"pawn 现在在哪"）的两套派生计算，固定顺序、只在派生逻辑处差异：
+            var locationsDirty = SeamlessPawnLocationTracker.ConsumeDirty();
 
-        /// <summary>
-        /// 请求尽快扫描（事件触发入口，2026-08）：pawn 跨缝传送完成 / 远行队组队离图 / 远行队进图
-        /// 三类 pawn 变动把休眠决策提前到即时（600 ticks 周期保留兜底——远行队逐 tile 移动靠周期采样）。
-        /// 刻意只置零计数器、不在事件回调里直接 Sweep：Sleep 要摘全局 tick 表，落在 thing tick 遍历
-        /// 中途不安全（doc/地图滚动休眠.md 2.1 时序约束），GameComponentTick 是安全执行点。
-        /// </summary>
-        public void RequestSweepSoon()
-        {
-            nextSweepTick = 0;
-        }
+            // ① 影子远行队（事件即时 或 自持 60t 轮询兜底）：据点图名单同步 + 轮询清扫注入副作用。
+            SeamlessShadowCaravan.Maintain(locationsDirty);
 
-        /// <summary>静态便捷入口（事件处调用；无实例时静默跳过）。</summary>
-        public static void RequestSweepSoonStatic()
-        {
-            Current.Game?.GetComponent<SeamlessDormancyGovernor>()?.RequestSweepSoon();
+            // ② 休眠距离扫描（事件即时 或 自持间隔轮询兜底，原 RequestSweepSoon 语义并入本段）。
+            // **固定排在影子之后**：Sweep 的睡/删决策必须看到影子同步后的名单与清扫后的 spawnedThings
+            //（删除路径另经 Forget → 底座 NotifyMapRemoving 的删前清扫双保险）。
+            if (locationsDirty || Find.TickManager.TicksGame >= nextSweepTick)
+            {
+                // 间隔设置化（2026-08，原 const 600）：每轮现读，改设置即时生效（含 UI 滑条拖动）。
+                var interval = System.Math.Max(RimExodusMod.Settings?.dormancySweepIntervalTicks ?? 600, MinSweepIntervalTicks);
+                nextSweepTick = Find.TickManager.TicksGame + interval;
+                Sweep();
+            }
         }
 
         private void Sweep()

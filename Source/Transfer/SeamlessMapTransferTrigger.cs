@@ -219,8 +219,9 @@ namespace RimExodus
             // 玩家 pawn 落图 = 即时恢复全速（2026-08 分级休眠）：不等 governor 下轮 Sweep——
             // 降频相位内玩家 pawn 会走走停停，落图当 tick 就该全速。
             SeamlessTickThrottle.Unthrottle(arrivalMap, "player pawn transferred in");
-            // 源集合变化（离图端可能失去最后一个玩家 pawn）：请求 governor 尽快重算距离。
-            SeamlessDormancyGovernor.RequestSweepSoonStatic();
+            // pawn 所在地变动 → 统一追踪底座（2026-08-29 收拢架构）：下一 GameComponentTick 位置刷新段
+            // 即时同步影子名单 + 重算休眠距离（离图端可能失去最后一个玩家 pawn）。
+            SeamlessPawnLocationTracker.NotifyChanged();
         }
     }
 }
