@@ -251,6 +251,8 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ## 存档兼容性说明
 
+**自定义 Def 的裸字段必须显式赋值（2026-08-29 Dubs Mint Minimap 崩溃教训）**：`TerrainDef.texturePath` 是无默认值的裸字段——`RimExodus_Void` 不写即运行时为 null，Dubs Mint Minimap 的取色 `Blitter` 只防了 `def==null`/`Length==0` 没防 null → `def.texturePath.Length` NRE，且异常发生在 `Root.OnGUI`（小地图窗口 ctor 第一帧读图）会**打断整帧 GUI 绘制**（症状：底部选项卡/检查面板/小地图全部不显示、点击仍有效、日志每帧同 ref 红字）。修 = def 补 `texturePath`（`1.6/Textures/Void.png` 近黑 4×4，dontRender=true 下游戏内渲染不消费、仅第三方取色用）。纪律：新增自定义 Def 时逐字段过一遍"裸字段无默认值"清单（texturePath/uiIconPath 等），别依赖原版 configErrors 兜底——它对 `!dontRender` 才报 missing texturePath，我们恰好不触发。
+
 **mod 已发布，修改时需考虑旧存档兼容。** 需要涉及调整存档是，必须明确知会用户并要求用户确定方案
 
 **卸载前恢复原版兼容模式（2026-08-29 实现，待游戏内回归）**：根因定案——mod 移除后存档里 `MapParent_SeamlessTile` WorldObject 类解析失败 → `map.info.parent == null` → `Map.Tile = PlanetTile.Invalid(-1)` → `WorldGrid[-1]` 越界（每帧 UI 读 `CurrentMap.Biome` 触发循环红字；1.6 的 `MapInfo.Tile` 就是 `parent?.Tile ?? Invalid`，无独立 tile 字段），`RimExodus_Void`/传送点/岩链 def 失落为第二症状；卸载后无自愈可能——恢复必须在 mod 在场时执行。两件：

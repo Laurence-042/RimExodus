@@ -27,6 +27,11 @@
 		<label>void</label>
 		<description>Seamless tile boundary void. Impassable, transparent, non-buildable.</description>
 		<dontRender>true</dontRender>
+		<!-- texturePath 必须有值（2026-08-29 Dubs Mint Minimap 崩溃修复）：TerrainDef.texturePath 无默认值、
+		     不写即 null —— 第三方读地形贴图的 mod（Dubs Blitter 的 def.texturePath.Length）会 NRE，
+		     且异常发生在 Root.OnGUI 中会打断整帧 UI 绘制。dontRender=true 下游戏内渲染不消费此贴图，
+		     仅作小地图等第三方取色用（近黑 = void 语义）。 -->
+		<texturePath>Void</texturePath>
 		<fertility>0</fertility>
 		<passability>Impassable</passability>
 		<pathCost>300</pathCost>

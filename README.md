@@ -26,6 +26,7 @@
 
 ### 共存（无运行时依赖）
 
+- **Dubs Mint Minimap**（2026-08-29 修复）：曾因 `RimExodus_Void` 地形未设置 `texturePath`（该字段无默认值，未写即 null）令其取色代码 NRE——异常发生在 UI 绘制流程里会打断整帧 GUI（全部界面不显示、点击仍有效）。已给 void 地形补贴图路径修复（void 在小地图上显示为近黑色）。
 - **Vehicle Map Framework**：仅作架构调研参考，无依赖、无兼容承诺（但实际上兼容性还行）。**Vehicle Framework 已升级为已适配**（见上表）。
 - **Odyssey 空间层地图与其他口袋图**（Pocket Map，含 VMF 载具内部图）：被排除出表面无缝语义——这类地图回到原生行为（轨道 tileId 与表面地块撞号、口袋图硬编码 tile 会污染邻居解析，接入反而出错）。
 
