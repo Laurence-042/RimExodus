@@ -2,7 +2,7 @@
 <Patch>
 
   <!--
-    RimExodus 统一注入：给所有玩家可进入的原版 MapGeneratorDef 追加四个 RimExodus genStep，
+    RimExodus 统一注入：给所有玩家可进入的原版 MapGeneratorDef 追加五个 RimExodus genStep，
     使 Base_Player（玩家家园图（原生 parent），同时也是邻接地块 B 的 mapGenerator）、Base_Faction（派系基地）、
     Encounter（遭遇/fallback）走完全相同的海岸补铺 → void+snapshot → SeamOverride 链。
 
@@ -21,6 +21,7 @@
       RimExodus_CoastalEdgeFill (230，紧随 MutatorPostTerrain/原版 Coast mutator 220) →
       RimExodus_SeamlessTile (391, void+snapshot+pathGrid 刷新，Roads 390 后、Settlement 400 前) →
       RimExodus_SeamOverride (392, 混合+pathGrid 刷新) →
+      RimExodus_CenterCorridor (100, Caves 网格中心走廊——必须在 RocksFromGrid(200) 前) →
       RimExodus_EnterSpots (1490, 铺传送点) → Fog(1500)
     CoastalEdgeFill 提前到 230（此前在 1801）是为了让补铺的水在 Plants(900) 之前就位，避免植物浮在水上。
     SeamlessTile/SeamOverride 在 391/392（2026-08 从 1400/1410 再提前）：Settlement 及之后全部步骤在
@@ -57,6 +58,7 @@
   <Operation Class="PatchOperationAdd">
     <xpath>/Defs/MapGeneratorDef[defName and not(defName="Space") and not(defName="Asteroid") and not(defName="AsteroidBasic") and not(defName="OrbitalItemStash") and not(defName="OrbitalRelay") and not(defName="Mechhive") and not(defName="SettlementPlatform")]/genSteps</xpath>
     <value>
+      <li>RimExodus_CenterCorridor</li>
       <li>RimExodus_CoastalEdgeFill</li>
       <li>RimExodus_SeamlessTile</li>
       <li>RimExodus_SeamOverride</li>

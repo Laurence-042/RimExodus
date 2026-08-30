@@ -2,7 +2,11 @@
 <Defs>
 
   <!--
-    RimExodus 无缝地块四个 GenStepDef（不再有独立 MapGeneratorDef）。
+    RimExodus 无缝地块五个 GenStepDef（不再有独立 MapGeneratorDef）。
+
+    RimExodus_CenterCorridor (100)：中心走廊——邻接生成图在 MapGenerator.Caves 浮点网格上挖
+    "本图中心 → 生成源方向共享边"的走廊（端点 A 侧映射格须真实可达源图中心），RocksFromGrid(200)
+    对 caves>0 格不 spawn 岩石（原版洞窟同一条无后效通道）。必须在 200 之前，勿后移。
 
     **邻居地块复用原版 Base_Player MapGeneratorDef**：WorldObjects.xml 的 RimExodus_SeamlessTileMap
     <mapGenerator> 指向 Base_Player（与 Gravship 地表降落、远行队扎营定居共用同一条链）。
@@ -84,6 +88,15 @@
         <includeInPreviews>true</includeInPreviews>
       </li>
     </modExtensions>
+  </GenStepDef>
+
+  <!-- 中心走廊：写 Caves 网格，必须在 RocksFromGrid(200) 之前（否则岩石已 spawn、只能走带后效的
+       Destroy 路线）。不进 MapPreview 预览——预览纹理用 elevation≥0.7 代理画石色、不消费 Caves
+       网格，进了也不生效（预览里走廊处显示岩石属已知近似，与 void 预览残留岩石同族）。 -->
+  <GenStepDef>
+    <defName>RimExodus_CenterCorridor</defName>
+    <order>100</order>
+    <genStep Class="RimExodus.GenStep_CenterCorridor"/>
   </GenStepDef>
 
   <!-- 传送点铺设：不进 MapPreview 预览（预览只关心地形，铺 thing 无意义）。 -->
