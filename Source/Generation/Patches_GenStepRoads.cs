@@ -56,11 +56,11 @@ namespace RimExodus
     /// 选在目标方向对应的六边形接缝带上，而非原版方形地图边缘。
     ///
     /// 【为什么需要这个 patch】
-    /// <c>GenStep_Roads</c>（order=390）在 void 铺设（<c>RimExodus_SeamlessTile</c>, order=391）
-    /// **之前**执行。此时传送点尚未铺设 → <see cref="SeamlessEdgeCells.HasSeamEdge"/> 返回 false →
-    /// <see cref="Patches_CellFinder"/> 放行原版方形边缘 → 道路出口格被选在方形地图边缘（将来多为 void）
-    /// → 被 void 覆盖 + 两端不对齐。本 patch 直接用多边形几何算接缝锚点，不依赖传送点，
-    /// 解决 order 390 时接缝带尚未存在的问题。
+    /// 原版出口搜索用方形地图边缘语义：裁切图方形边缘将来全是 void，且 <see cref="Patches_CellFinder"/>
+    /// 的接缝语义 patch 以"传送点已铺"（HasSeamEdge，1490）为门、order 390 时不生效 → 出口格被选在
+    /// 方形边缘 → 被 void 覆盖 + 两端不对齐。本 patch 直接用多边形几何算接缝锚点，不依赖传送点。
+    /// （2026-08-30 起 Roads(390) 在 void(389) **之后**执行：出口锚点不受影响——锚点格是最外非
+    /// void 格，仍在接缝带上；A* 反而受益——六边形外不可走，路只能通向锚点。）
     ///
     /// 【穿越点对齐原理】
     /// 两端（A 和 C）都 patch 了 <c>FindRoadExitCell</c>，各自对自己那条边算锚点。锚点位置由
@@ -90,18 +90,18 @@ namespace RimExodus
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize);
             if (verts.Count < 3) return true; // 几何异常放行
 
-            // 找 angle 对应的边。**不能信任传入 angle 的精确值**：原版 CalculateNeededRoads
-            // 对多条路的 angle 加了向量平均偏置 + 随机抖动（为了让出口在方形边缘散开——
-            // 我们的锚点在边中点，偏置只有害处）——两条路夹角 60° 时偏置可达 60°，直接把
-            // 匹配推过邻居间隔到隔壁边（对面接不上）。与 river 同逻辑：用权威邻居身份映射，
-            // 且只遍历【有 road link 的邻居】（GetRoadDef != null）——匹配池缩到 road 邻居
-            //（彼此 ≥60° 且都是合法目标），偏置再大也命中正确 link 邻居，排除无路邻居干扰。
-            var bestEdge = FindRoadLinkEdgeByHeading(worldTile, angle);
+            // 找 angle 对应的边：统一接缝边匹配（SeamLink.Road = 匹配池缩到 road-link 邻居）。
+            // **不能信任传入 angle 的精确值**：原版 CalculateNeededRoads 对多条路的 angle 加了向量平均
+            // 偏置 + 随机抖动（为了让出口在方形边缘散开）——两条路夹角 60° 时偏置可达 60°，直接把
+            // 匹配推过邻居间隔到隔壁边（对面接不上）。匹配池缩到【有 road link 的邻居】
+            // （GetRoadDef != null，彼此 ≥60° 且都是合法目标），偏置再大也命中正确 link 邻居。
+            var bestEdge = SeamlessPolygonGeometry.FindSeamEdge(worldTile, angle, SeamlessPolygonGeometry.SeamLink.Road);
             if (bestEdge < 0 || bestEdge >= verts.Count) return true;
 
-            // 算该边接缝锚点格（多边形几何，不依赖传送点）。
+            // 算该边接缝锚点格：确定性穿越点（Road salt，两侧同点）沿真·边法线步进到最外非 void 格。
+            var crossing = SeamlessPolygonGeometry.SeamCrossingPoint(worldTile, bestEdge, mapSize, SeamlessPolygonGeometry.SeamLink.Road);
             var exitCell = SeamlessPolygonGeometry.ComputeSeamCellForEdge(verts, bestEdge, mapSize, map,
-                SeamlessTileManager.RoadAnchorInset);
+                SeamlessTileManager.RoadAnchorInset, crossing);
             if (!exitCell.IsValid || !exitCell.InBounds(map)) return true;
 
             // 可达性校验，对齐原版 FindRoadExitCell 的两级语义：
@@ -119,33 +119,6 @@ namespace RimExodus
 
             // 不可达放行原版。
             return true;
-        }
-
-        /// <summary>
-        /// 按世界图方向角在【有 road link 的邻居】里找对应边索引（与 river 的
-        /// <see cref="SeamlessPolygonGeometry.FindEdgeByWorldHeading"/> 同逻辑，但匹配池
-        /// 过滤到 GetRoadDef != null 的邻居）。返回邻居索引 = 边索引（边 j ↔ 邻居 j 同构），
-        /// 无 road link 邻居返回 -1。
-        /// </summary>
-        private static int FindRoadLinkEdgeByHeading(int worldTile, float angle)
-        {
-            var neighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(worldTile, neighbors);
-
-            var bestIdx = -1;
-            var bestDiff = float.MaxValue;
-            for (var j = 0; j < neighbors.Count; j++)
-            {
-                if (Find.WorldGrid.GetRoadDef(worldTile, neighbors[j]) == null) continue; // 只看 road-link 邻居
-                var heading = Find.WorldGrid.GetHeadingFromTo(worldTile, neighbors[j]);
-                var diff = GenGeo.AngleDifferenceBetween(heading, angle);
-                if (diff < bestDiff)
-                {
-                    bestDiff = diff;
-                    bestIdx = j;
-                }
-            }
-            return bestIdx;
         }
     }
 
@@ -202,15 +175,16 @@ namespace RimExodus
                 placeTerrain = rockDef;
             }
 
-            // 接缝锚点集：每条多边形边的锚点（与 FindRoadExitCell 同一套几何）。
+            // 接缝锚点集：每条多边形边的穿越点锚点（与 FindRoadExitCell 同一套几何，Road salt）。
             var mapSize = map.Size.x;
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize);
             if (verts.Count < 3) return;
             var anchors = new List<IntVec3>();
             for (var j = 0; j < verts.Count; j++)
             {
+                var c = SeamlessPolygonGeometry.SeamCrossingPoint(worldTile, j, mapSize, SeamlessPolygonGeometry.SeamLink.Road);
                 var anchor = SeamlessPolygonGeometry.ComputeSeamCellForEdge(verts, j, mapSize, map,
-                    SeamlessTileManager.RoadAnchorInset);
+                    SeamlessTileManager.RoadAnchorInset, c);
                 if (anchor.IsValid) anchors.Add(anchor);
             }
             if (anchors.Count == 0) return;
@@ -251,6 +225,106 @@ namespace RimExodus
 
             if (filled > 0 && (RimExodusMod.Settings?.verboseLogging ?? false))
                 Log.Message($"[RimExodus] Patch_GenStep_Roads_ApplyDistanceField: map={map.uniqueID} road={roadDef.defName} filled {filled} seam cells.");
+        }
+    }
+
+    /// <summary>
+    /// 道路末端垂直化（2026-08-31，手动绑定 Postfix 挂 <c>GenStep_Roads.RefinePath</c>，private
+    /// instance）：<c>RefinePath</c> 返回的折线是后续 Bezier 平滑与距离场的输入，其末端方向 = A*
+    /// 进近角——从地图中心斜着到达锚点，与对端图的道路在接缝处形成折角/错位。
+    ///
+    /// 【做法】对 refined 折线的每个端点：若等于某条边的接缝锚点格（与 FindRoadExitCell 同一套
+    /// crossing+真边法线几何），把末端 <see cref="StraightenCells"/> 格替换为"锚点沿**边内法线**
+    /// 的直线段"，接回原折线第 K 格。两侧图的直线段是同一空间法线（方向相反）→ 接缝上共线对接，
+    /// 与河流的垂直接近段（Patch_TileMutatorWorker_River_GetDisplacedPoint）同构。
+    ///
+    /// 【失败模式】端点不是锚点（原版出口/中心点）/ 直线格越界或落 void → 该端不处理（保持原样，
+    /// 即本 patch 之前的现状），无破坏面。直线上游的 Bezier 按折线点取控制点，直线段进近即得
+    /// 垂直出边。
+    /// </summary>
+    static class Patch_GenStep_Roads_RefinePath
+    {
+        /// <summary>末端垂直化长度（格，从锚点沿内法线向图内）。覆盖接缝带 3 圈 + 过渡余量。</summary>
+        private const int StraightenCells = 8;
+
+        internal static void Postfix(List<IntVec3> __result, Map map)
+        {
+            var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
+            if (worldTile < 0 || __result == null || __result.Count < StraightenCells + 4) return;
+
+            var mapSize = map.Size.x;
+            var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize);
+            if (verts.Count < 3) return;
+            var band = SeamlessPolygonGeometry.BuildSeamBand(worldTile, mapSize);
+
+            // 每条边的穿越点锚点 + 内法线（与 FindRoadExitCell 同一套几何，Road salt）。
+            var anchors = new List<(IntVec3 cell, Vector2 inward)>();
+            for (var j = 0; j < verts.Count; j++)
+            {
+                var c = SeamlessPolygonGeometry.SeamCrossingPoint(worldTile, j, mapSize, SeamlessPolygonGeometry.SeamLink.Road);
+                var anchor = SeamlessPolygonGeometry.ComputeSeamCellForEdge(verts, j, mapSize, map,
+                    SeamlessTileManager.RoadAnchorInset, c);
+                if (anchor.IsValid)
+                    anchors.Add((anchor, -SeamlessPolygonGeometry.EdgeOutwardNormal(verts, j)));
+            }
+            if (anchors.Count == 0) return;
+
+            var straightened = 0;
+            if (StraightenEnd(__result, map, worldTile, mapSize, band, anchors, fromStart: true)) straightened++;
+            if (StraightenEnd(__result, map, worldTile, mapSize, band, anchors, fromStart: false)) straightened++;
+
+            if (straightened > 0 && (RimExodusMod.Settings?.verboseLogging ?? false))
+                Log.Message($"[RimExodus] Patch_GenStep_Roads_RefinePath: map={map.uniqueID} straightened {straightened} seam end(s).");
+        }
+
+        /// <summary>
+        /// 垂直化折线一端。端点 = 锚点格时，把端点到第 <see cref="StraightenCells"/> 格之间的节点
+        /// 替换为沿边内法线的直线格序列；任一直线格越界/落 void 则整个端点放弃（保持原折线）。
+        /// </summary>
+        private static bool StraightenEnd(List<IntVec3> path, Map map, int worldTile, int mapSize,
+            SeamlessPolygonGeometry.SeamBandInfo band, List<(IntVec3 cell, Vector2 inward)> anchors, bool fromStart)
+        {
+            var endIdx = fromStart ? 0 : path.Count - 1;
+            var endCell = path[endIdx];
+
+            Vector2 inward = default;
+            var matched = false;
+            foreach (var a in anchors)
+            {
+                if (a.cell != endCell) continue;
+                inward = a.inward;
+                matched = true;
+                break;
+            }
+            if (!matched) return false; // 端点不是接缝锚点（原版出口/中心 crossroads）不处理
+
+            // 直线格：anchorCenter + inward·i（i=1..K），i=K 最接近接回点。
+            var endCenter = new Vector2(endCell.x + 0.5f, endCell.z + 0.5f);
+            var cells = new List<IntVec3>(StraightenCells);
+            for (var i = 1; i <= StraightenCells; i++)
+            {
+                var p = endCenter + inward * i;
+                var cell = new IntVec3(Mathf.RoundToInt(p.x), 0, Mathf.RoundToInt(p.y));
+                if (!cell.InBounds(map)) return false;
+                if (SeamlessPolygonGeometry.IsVoidCell(band, worldTile, mapSize, cell)) return false;
+                cells.Add(cell);
+            }
+
+            if (fromStart)
+            {
+                // [anchor][old 1..K][rest…] → [anchor][c1..cK][rest…]
+                path.RemoveRange(1, StraightenCells);
+                path.InsertRange(1, cells);
+            }
+            else
+            {
+                // […rest][old n-K..n-1][anchor] → […rest][cK..c1][anchor]
+                var at = path.Count - 1 - StraightenCells;
+                path.RemoveRange(at, StraightenCells);
+                cells.Reverse();
+                path.InsertRange(at, cells);
+            }
+            return true;
         }
     }
 }

@@ -20,7 +20,7 @@ namespace RimExodus
     ///   RandomClosewalkCellNear 找不到返回 center 本身 → 初始野生动物偶现生成在 void 上）。
     ///
     /// 置位判据两路（任一即置）：区域含传送圈格（IsSeamEdgeCell）或 4 邻格含 void 地形
-    /// （最外圈实地形）。void 邻接是关键：void=391 已铺而传送点 1490 才铺，只有 void 邻接
+    /// （最外圈实地形）。void 邻接是关键：void=389 已铺而传送点 1490 才铺，只有 void 邻接
     /// 能让生成期（Animals=1200）的消费者也拿到正确触边。
     /// 在此单点置位天然复用原版 District 计数与缓存；Region/District 不序列化
     /// （读档 FinalizeLoading 全量重建区域），无旧档陈旧旗标问题。
@@ -45,7 +45,7 @@ namespace RimExodus
 
         /// <summary>
         /// void 邻接：4 邻格是 void 地形 = 本格是最外圈实地形，触达六边形边界。
-        /// 不依赖传送点（1490 才铺），生成期（void=391 已铺、Animals=1200）即生效——
+        /// 不依赖传送点（1490 才铺），生成期（void=389 已铺、Animals=1200）即生效——
         /// RandomAnimalSpawnCell_MapGen 的 validator（district.TouchesMapEdge）在倾斜图上
         /// 结构性全败 → fallback RandomCell 零校验 + RandomClosewalkCellNear 找不到时返回
         /// center 本身 → 初始野生动物**偶现生成在 void 上**（方形角部距六边形 ≈69 格 >

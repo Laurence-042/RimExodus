@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using RimWorld;
 using RimWorld.Planet;
@@ -471,9 +472,17 @@ namespace RimExodus
         ///
         /// 调用方语义：road 的 angle 即 me→link邻居 heading（精确命中自身）；river 的 angle 是
         /// far→near 流向（≈ me→near），上游端用 angle+180° 再调一次。
+        ///
+        /// 【匹配池过滤（2026-08 河流错边根因修复，道路/河流共用的唯一实现）】
+        /// 传入的 angle 不可全信：road 侧原版 CalculateNeededRoads 对多条路加向量平均偏置（两条路
+        /// 夹角 60° 时偏置可达 60°）；river 侧 angle 只是流向近似（河链可弯折）。全邻居池最近角匹配
+        /// 会锚到错误边。调用方必须传 <paramref name="linkFilter"/> 把匹配池缩到合法 link 邻居
+        /// （road：GetRoadDef != null；river：GetRiverDef != null）——偏置再大也命中正确 link。
+        /// 过滤后匹配池为空返回 -1，调用方放行原版（与道路同款失败语义）。
         /// </summary>
         /// <returns>边索引（=-1 无邻居/匹配失败）。</returns>
-        internal static int FindEdgeByWorldHeading(int worldTile, float worldAngle)
+        internal static int FindEdgeByWorldHeading(int worldTile, float worldAngle,
+            Func<PlanetTile, bool> linkFilter = null)
         {
             var neighbors = new List<PlanetTile>();
             Find.WorldGrid.GetTileNeighbors(worldTile, neighbors);
@@ -483,6 +492,7 @@ namespace RimExodus
             var bestDiff = float.MaxValue;
             for (var j = 0; j < neighbors.Count; j++)
             {
+                if (linkFilter != null && !linkFilter(neighbors[j])) continue; // 匹配池过滤
                 var heading = Find.WorldGrid.GetHeadingFromTo(worldTile, neighbors[j]);
                 var diff = GenGeo.AngleDifferenceBetween(heading, worldAngle);
                 if (diff < bestDiff)
@@ -494,43 +504,152 @@ namespace RimExodus
             return bestIdx;
         }
 
+        /// <summary>接缝 link 种类（河/路共用同一套边匹配/穿越点/锚点服务，仅此枚举不同）。</summary>
+        internal enum SeamLink
+        {
+            River = 0,
+            Road = 1,
+        }
+
         /// <summary>
-        /// 统一接缝锚点工具：指定边的锚点 = 边中点沿外法向的**最外非 void 格**（= 新 void 边界
-        /// 内侧第一格，通常在带外圈），再向地图中心方向偏移 <paramref name="offsetCells"/> 格。
+        /// 统一接缝边匹配（2026-08-31 河/路收编）：link 种类决定匹配池过滤
+        /// （River → GetRiverDef != null；Road → GetRoadDef != null），其余逻辑全同
+        /// <see cref="FindEdgeByWorldHeading"/>。河的上下游 = 两次调用（angle / angle+180°），
+        /// 路的单次调用。过滤后匹配池空返回 -1，调用方放行原版。
+        /// </summary>
+        internal static int FindSeamEdge(int worldTile, float worldAngle, SeamLink linkKind)
+        {
+            return linkKind == SeamLink.River
+                ? FindEdgeByWorldHeading(worldTile, worldAngle, n => Find.WorldGrid.GetRiverDef(worldTile, n) != null)
+                : FindEdgeByWorldHeading(worldTile, worldAngle, n => Find.WorldGrid.GetRoadDef(worldTile, n) != null);
+        }
+
+        /// <summary>
+        /// 真·边法线（外向）：边向量 (v1−v0) 的垂直向量，取指向多边形外的一侧（用顶点质心判定）。
+        /// 比"边中点 − 地图中心"射线准确——后者在五边形/不规则投影下与真实边法线有偏差，
+        /// 是道路锚点"些许偏移"的来源之一（2026-08-31 修正）。等边模型下两者理论重合。
+        /// </summary>
+        internal static Vector2 EdgeOutwardNormal(List<Vector2> verts, int edgeIdx)
+        {
+            var n = verts.Count;
+            var v0 = verts[edgeIdx];
+            var v1 = verts[(edgeIdx + 1) % n];
+            var centroid = Vector2.zero;
+            for (var i = 0; i < n; i++) centroid += verts[i];
+            centroid /= n;
+
+            var dir = v1 - v0;
+            var perp = new Vector2(-dir.y, dir.x);
+            if (Vector2.Dot(perp, (v0 + v1) * 0.5f - centroid) < 0f) perp = -perp;
+            return perp.normalized;
+        }
+
+        /// <summary>
+        /// 确定性接缝穿越点（2026-08-31，河/路共用）：同一世界共享边在两侧地图上算出**同一空间点**，
+        /// 摆脱"恒边中点"限制。两侧一致性靠两点：
+        /// ① 对称哈希——t = 0.5 + u·0.25，u∈[−1,1) 由 SymHash(min(tileA,tileB), max(...), salt(linkKind))
+        ///   派生，两侧输入相同（tile 对 + link 种类），salt 区分河/路（同一条边上路和河错开）；
+        /// ② 参考端点对称化——t 的计量起点必须两侧一致。边 j 的两个世界 3D 顶点（GetTileVertices
+        ///   与 2D 投影逐索引对应）用对称谓词（四舍五入坐标字典序）选出"参考顶点"，本侧参考端是
+        ///   本地 v0 还是 v1 决定 t 折算为 t 或 1−t——不依赖任何绕序/投影方向假设。
+        /// </summary>
+        /// <returns>穿越点（本地 2D 连续坐标，落在边上）；几何异常返回边中点。</returns>
+        internal static Vector2 SeamCrossingPoint(int worldTile, int edgeIdx, int mapSize, SeamLink linkKind)
+        {
+            var verts = BuildPolygonVertices(worldTile, mapSize);
+            if (edgeIdx < 0 || edgeIdx >= verts.Count) return Vector2.zero;
+            var n = verts.Count;
+            var v0 = verts[edgeIdx];
+            var v1 = verts[(edgeIdx + 1) % n];
+
+            // 对端邻居（穿越点是"我↔邻居"这条共享边的属性，哈希输入必须两侧同值）。
+            var neighbors = new List<PlanetTile>();
+            Find.WorldGrid.GetTileNeighbors(worldTile, neighbors);
+            if (edgeIdx >= neighbors.Count) return (v0 + v1) * 0.5f;
+            var other = neighbors[edgeIdx].tileId;
+
+            // 对称哈希 → u ∈ [−1,1)。
+            // **固定 FNV-1a，勿换 System.HashCode**——后者带进程随机种子，跨会话/读档后再生成
+            // 会得出不同穿越点（2026-08-31 用户实测"读档后端点错位"的根因）。此哈希是跨存档
+            // 契约：算法与常数永不更改。
+            var salt = (int)linkKind * 7919 + 49297;
+            var a = (uint)Math.Min(worldTile, other);
+            var b = (uint)Math.Max(worldTile, other);
+            var h = 2166136261u;
+            foreach (var v in new[] { a, b, (uint)salt })
+            {
+                h ^= v;
+                h *= 16777619u;
+                h ^= v >> 11; h *= 16777619u;
+                h ^= v << 7; h *= 16777619u;
+            }
+            var u = (int)(h % 2000) - 1000;
+            var t = 0.5f + u / 1000f * 0.25f; // ±边长 1/4
+
+            // 参考端点对称化：3D 顶点对称谓词（四舍五入坐标字典序，两条端点坐标必不同）。
+            var verts3D = new List<Vector3>();
+            Find.WorldGrid.GetTileVertices(worldTile, verts3D);
+            if (edgeIdx >= verts3D.Count) return Vector2.Lerp(v0, v1, t);
+            var w0 = verts3D[edgeIdx];
+            var w1 = verts3D[(edgeIdx + 1) % verts3D.Count];
+            var refIsFirst = SymLess(w0, w1);
+            var localT = refIsFirst ? t : 1f - t;
+
+            return Vector2.Lerp(v0, v1, localT);
+        }
+
+        /// <summary>对称谓词：两个世界顶点的全序比较（先四舍五入坐标字典序，浮点构造顶点坐标必不同）。</summary>
+        private static bool SymLess(Vector3 a, Vector3 b)
+        {
+            var ax = Mathf.Round(a.x * 8f); var bx = Mathf.Round(b.x * 8f);
+            if (ax != bx) return ax < bx;
+            var ay = Mathf.Round(a.y * 8f); var by = Mathf.Round(b.y * 8f);
+            if (ay != by) return ay < by;
+            var az = Mathf.Round(a.z * 8f); var bz = Mathf.Round(b.z * 8f);
+            if (az != bz) return az < bz;
+            return false; // 同一顶点（不应发生——边端点必不同）
+        }
+
+        /// <summary>
+        /// 统一接缝锚点工具：指定边的锚点 = 穿越点沿**真·边外法线**（<see cref="EdgeOutwardNormal"/>，
+        /// 2026-08-31 起替代"中点−中心"射线近似）步进到的**最外非 void 格**（= 新 void 边界
+        /// 内侧第一格，通常在带外圈），再向内偏移 <paramref name="offsetCells"/> 格。
         ///
         /// 基于 <see cref="BuildSeamBand"/> / <see cref="IsVoidCell"/>（唯一 void 判定口径），
         /// **与带宽无关**——旧实现"边中点固定内偏 N 格"是旧抽象（void 边界 = 连续边）的写死
         /// 范围，接缝带定义变更后锚点与新 void 边界脱节（路出口距地图边缘 3-4 格，跨缝断路，
         /// 2026-08 用户实测）。道路出口锚点 offsetCells=0（贴 void 边界，跨缝两侧路相接）。
+        ///
+        /// <paramref name="crossingOverride"/>：穿越点（默认边中点）。河/路传
+        /// <see cref="SeamCrossingPoint"/> 的确定性偏移穿越点——两侧沿各自法线步进，
+        /// 渲染 offset 中点对齐后穿越点在 overlap 空间重合。
         /// </summary>
-        internal static IntVec3 ComputeSeamCellForEdge(List<Vector2> verts, int edgeIdx, int mapSize, Map map, int offsetCells)
+        internal static IntVec3 ComputeSeamCellForEdge(List<Vector2> verts, int edgeIdx, int mapSize, Map map, int offsetCells,
+            Vector2? crossingOverride = null)
         {
             var n = verts.Count;
             var v0 = verts[edgeIdx];
             var v1 = verts[(edgeIdx + 1) % n];
-            var mid = (v0 + v1) * 0.5f; // 边中点（在连续边上）
-            var center = new Vector2(mapSize * 0.5f, mapSize * 0.5f);
-            var outward = (mid - center).normalized; // 外法向（地图中心 → 边中点方向）
+            var crossing = crossingOverride ?? (v0 + v1) * 0.5f; // 穿越点（在连续边上）
+            var outward = EdgeOutwardNormal(verts, edgeIdx); // 真·边外法线
 
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
             if (worldTile < 0) return IntVec3.Invalid;
             var band = BuildSeamBand(worldTile, mapSize);
 
-            // 从边中点向外步进，记录最后一个非 void 格（新 void 边界内侧第一格）。
+            // 从穿越点向外步进，记录最后一个非 void 格（新 void 边界内侧第一格）。
             IntVec3 anchor = IntVec3.Invalid;
-            var anchorPos = mid;
             for (var i = 0; i <= 20; i++)
             {
-                var p = mid + outward * (i * 0.5f);
+                var p = crossing + outward * (i * 0.5f);
                 var cell = new IntVec3(Mathf.RoundToInt(p.x), 0, Mathf.RoundToInt(p.y));
                 if (!cell.InBounds(map)) break;
                 if (IsVoidCell(band, worldTile, mapSize, cell)) break; // 第一个 void 格：停
                 anchor = cell;
-                anchorPos = p;
             }
             if (!anchor.IsValid) return IntVec3.Invalid;
 
-            // 向地图中心方向偏移 offsetCells 格（0 = 贴 void 边界）。
+            // 向内偏移 offsetCells 格（0 = 贴 void 边界）。
             if (offsetCells > 0)
             {
                 var inward = new Vector2(anchor.x + 0.5f, anchor.z + 0.5f) - outward * offsetCells;

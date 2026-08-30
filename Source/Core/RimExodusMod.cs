@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using HarmonyLib;
 using RimWorld;
 using UnityEngine;
@@ -116,12 +117,35 @@ namespace RimExodus
             else
                 Log.Error($"[RimExodus] Failed to bind Patch_GenStep_Roads_ApplyDistanceField (target={fillTarget}, postfix={fillPostfix}).");
 
+            // 显式 patch GenStep_Roads.RefinePath（private instance，返回 List<IntVec3>）。
+            // 道路末端垂直化：接缝锚点端的折线末段替换为沿边内法线的直线（两侧共线对接，2026-08-31）。
+            var refineTarget = AccessTools.Method(typeof(RimWorld.GenStep_Roads), "RefinePath");
+            var refinePostfix = AccessTools.Method(typeof(Patch_GenStep_Roads_RefinePath), nameof(Patch_GenStep_Roads_RefinePath.Postfix));
+            if (refineTarget != null && refinePostfix != null)
+            {
+                harmony.Patch(refineTarget, postfix: new HarmonyMethod(refinePostfix));
+                var refineInfo = Harmony.GetPatchInfo(refineTarget);
+                var refineBound = refineInfo != null && refineInfo.Postfixes != null &&
+                                  refineInfo.Postfixes.Any(p => p.owner == harmony.Id);
+                Log.Message($"[RimExodus] GenStep_Roads.RefinePath manual bind: target=OK postfix={(refinePostfix != null)} postfixRegistered={refineBound}.");
+            }
+            else
+                Log.Error($"[RimExodus] Failed to bind Patch_GenStep_Roads_RefinePath (target={refineTarget}, postfix={refinePostfix}).");
+
             // 显式 patch TileMutatorWorker_River.GetMapEdgeNodes（protected，元组返回值需显式绑定）。
             // 河端点从"随机直线图外交点"替换为接缝边中点锚点，消除河在接缝处的随机错位。
             var riverTarget = AccessTools.Method(typeof(RimWorld.TileMutatorWorker_River), "GetMapEdgeNodes");
             var riverPrefix = AccessTools.Method(typeof(Patch_TileMutatorWorker_River_GetMapEdgeNodes), nameof(Patch_TileMutatorWorker_River_GetMapEdgeNodes.Prefix));
             if (riverTarget != null && riverPrefix != null)
+            {
                 harmony.Patch(riverTarget, prefix: new HarmonyMethod(riverPrefix));
+                // 诊断（2026-08-30 河断排查）：无条件确认绑定成功——手动绑定不在离线验证器覆盖内，
+                // 游戏内权威确认 = 本行 + PatchTools.GetPatchInfo（前缀已挂）。
+                var patchInfo = Harmony.GetPatchInfo(riverTarget);
+                var prefixBound = patchInfo != null && patchInfo.Prefixes != null &&
+                                  patchInfo.Prefixes.Any(p => p.owner == harmony.Id);
+                Log.Message($"[RimExodus] River GetMapEdgeNodes manual bind: target=OK prefix={(riverPrefix != null)} prefixRegistered={prefixBound}.");
+            }
             else
                 Log.Error($"[RimExodus] Failed to bind Patch_TileMutatorWorker_River_GetMapEdgeNodes (target={riverTarget}, prefix={riverPrefix}).");
 

@@ -38,7 +38,7 @@ namespace RimExodus
     /// 【诊断】生成收尾段计时 patch（2026-08）：genStep 链跑完后的 FinishGeneration 单帧
     /// 是"地图加载长尾"的历史黑盒，其中 map.FinalizeInit()（Verse/Map.cs:801）内部的
     /// 三个全图级重活在此拆解：
-    /// - Pathing.RecalculateAllPerceivedPathCosts：391/392 genStep 期各调一次 + FinalizeInit
+    /// - Pathing.RecalculateAllPerceivedPathCosts：389/392 genStep 期各调一次 + FinalizeInit
     ///   第三次，三处对比直接可见；
     /// - RegionAndRoomUpdater.RebuildAllRegionsAndRooms：全图 region/room 重建；
     /// - MapDrawer.RegenerateEverythingNow：mesh 全量重建——增量路径下生成由 MapComponentTick

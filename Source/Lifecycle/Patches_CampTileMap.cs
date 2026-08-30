@@ -19,7 +19,7 @@ namespace RimExodus
     /// 换成 RimExodus_SeamlessTileMap 后：生命周期归 governor（≥2 跳休眠 / ≥3 跳删除，与其他
     /// 地块图一致——"所有地图一视同仁"）；基类 MapParent.ShouldRemoveMapNow 默认 false，不再被
     /// 原版自动解散；"立即重组远行队"路径的 CheckRemoveMapNow 变 no-op。营地走 Base_Player
-    /// genStep 链（含注入的 391/392/1490），与家园/地块同链。
+    /// genStep 链（含注入的 389/392/1490），与家园/地块同链。
     ///
     /// 语义变化（用户原则下接受，见 doc/地图滚动休眠.md）：营地不再自动解散、不再留 AbandonedCamp
     /// 标记；失去 Camp def 的 TimedDetectionRaids / Map_TempIncident（与其他地块图对等）。
@@ -44,7 +44,7 @@ namespace RimExodus
             if (def == null) return true;
 
             var parent = (MapParent_SeamlessTile)WorldObjectMaker.MakeWorldObject(def);
-            // worldTile 必须在生成前设置（勿改）：391/392/1490 genStep 以 GetMapWorldTile >= 0 为门，
+            // worldTile 必须在生成前设置（勿改）：389/392/1490 genStep 以 GetMapWorldTile >= 0 为门，
             // 晚设则整条无缝链（void 裁切 / 接缝混合 / 传送点）被守卫跳过。
             parent.worldTile = tile.tileId;
             parent.Tile = tile;

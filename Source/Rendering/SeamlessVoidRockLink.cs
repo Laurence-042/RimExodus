@@ -9,15 +9,15 @@ namespace RimExodus
     /// 本侧 void 边界岩不该显示断崖"）。
     ///
     /// 机理：自然岩的 atlas 选片由 <c>Graphic_Linked.LinkedDrawMatFrom</c> 查本图 4 邻
-    /// <c>LinkGrid.LinkFlagsAt</c> 决定——void 格上岩石被 391 清掉 → flag None →
+    /// <c>LinkGrid.LinkFlagsAt</c> 决定——void 格上岩石被 389 清掉 → flag None →
     /// 边界岩格选带断崖侧面的子材质。修复 = 在 void 格上 spawn
     /// <c>RimExodus_VoidRockLink</c>（drawerType=None 不渲染、只向 LinkGrid 提供 Rock flag，
     /// Spawn 自动以 regenAdjacentCells 脏化邻格 Things mesh），边界岩即选"连续"片。
     ///
     /// **挂接时机 = genStep 392 末（<see cref="GenStep_SeamOverride.Generate"/> 混合之后、
     /// 条带快照捕获之后）**：紧贴 void 的那圈接缝带岩石多数是 392 混合 B 照抄
-    /// SyncRockBuildingTo 才 spawn 的（原生无岩），391 时点"4 邻含岩石"条件全灭一格都铺不出
-    /// （2026-08 实测教训，首版曾挂 391）；own baseBuildingSnapshot 虽非序列化但生成期仍在
+    /// SyncRockBuildingTo 才 spawn 的（原生无岩），389 时点"4 邻含岩石"条件全灭一格都铺不出
+    /// （2026-08 实测教训，首版曾挂 389）；own baseBuildingSnapshot 虽非序列化但生成期仍在
     /// 内存可读，双分支判据不受挂接时点影响。**单向原则（用户定夺 2026-08，勿回退）**：
     /// 一切决策发生在本图自己的生成期内，不做任何"对端生成后回头改本图"的回铺
     /// （首版 propagate 方案已被用户否决）。
@@ -28,8 +28,8 @@ namespace RimExodus
         /// 2. **判据 = 参考源镜像格的 3×3（切比雪夫 1）窗口内有岩**（对角邻也参与 rock 贴图角部，
         ///    与混合权重衰减的切比雪夫口径一致）：
         ///    - 归属邻居（按最近多边形边，"边 j ↔ 邻居 j"架构）**已生成** → 对端条带快照 building 层
-        ///      镜像格 a = c − offset 的 3×3（外条带存对端 391 清理前的原生岩体，对端图无需活跃）；
-        ///    - **未生成** → own baseBuildingSnapshot（本图 391 备份的清理前原生岩体）镜像位 3×3
+        ///      镜像格 a = c − offset 的 3×3（外条带存对端 389 清理前的原生岩体，对端图无需活跃）；
+        ///    - **未生成** → own baseBuildingSnapshot（本图 389 备份的清理前原生岩体）镜像位 3×3
         ///      ——本侧被截断的 rock 只能按本侧 snapshot 假设延续（初始家园图场景）；
         /// 3. **复刻闭环**：own-snapshot 假设要求后生成的对端在对应位置同样有岩——由 SeamOverride
         ///    的照抄区（B ∪ {T·1}）承担：本图 T depth=1 与对侧 OuterStrip depth=1 是同一条空间带，
@@ -74,7 +74,7 @@ namespace RimExodus
             var band = SeamlessPolygonGeometry.BuildSeamBand(worldTile, map.Size.x);
             if (band.OuterStripDepth.Count == 0) return;
 
-            // own 原生岩体快照（391 备份于清岩之前）——邻居未生成时的延续判据。
+            // own 原生岩体快照（389 备份于清岩之前）——邻居未生成时的延续判据。
             var ownBuildingSnapshot = SeamlessMapData.GetBaseBuildingSnapshot(map);
 
             // 邻居参考（含未生成者——strip 留 null 走 own snapshot 分支；按最近边归属时要用
@@ -165,7 +165,7 @@ namespace RimExodus
 
         /// <summary>
         /// 对端分支：strip building 层镜像格 a = c − offset 的**3×3（切比雪夫 1）邻域**内有岩
-        /// （外条带 = 对端 391 前原生岩体）。3×3 窗口与本地条件 1 的 8 邻候选口径一致——
+        /// （外条带 = 对端 389 前原生岩体）。3×3 窗口与本地条件 1 的 8 邻候选口径一致——
         /// 本地按对角判候选、对端只查镜像单格会错位。
         /// </summary>
         private static bool NeighborHasRockAt(NeighborRef nref, IntVec3 cell)
@@ -183,7 +183,7 @@ namespace RimExodus
             return false;
         }
 
-        /// <summary>own 分支：本图 391 备份的清理前原生岩体在 c 的 3×3 邻域内有岩（邻居未生成时的延续假设）。</summary>
+        /// <summary>own 分支：本图 389 备份的清理前原生岩体在 c 的 3×3 邻域内有岩（邻居未生成时的延续假设）。</summary>
         private static bool OwnSnapshotHasRockAt(ThingDef[] ownBuildingSnapshot, Map map, IntVec3 cell)
         {
             if (ownBuildingSnapshot == null) return false;

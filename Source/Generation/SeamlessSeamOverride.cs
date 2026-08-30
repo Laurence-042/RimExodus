@@ -22,7 +22,7 @@ namespace RimExodus
 ///   Marsh/深水本端就是——不能走 pawn 自然绕路）。错位时 a 落在对端哪个圈层无所谓，
 ///   strip 覆盖 B_A∪T_A∪外条带，照抄天然免疫错位（历史：按对端圈层分规则的版本需要
 ///   B_A/T_A/外条带/核心区四条判定 + 错位补偿补丁，已废弃勿回退）。参考 = **对端生成时
-///   snapshot 的渲染映射格值**（B_A∪T_A 段=混合后定格实况；外条带段=对端 391 清 void 前的
+///   snapshot 的渲染映射格值**（B_A∪T_A 段=混合后定格实况；外条带段=对端 389 清 void 前的
 ///   原生快照——对端 void 之下的自然山体，T·1 复刻原生岩体 = 山体延续"假设成真"。曾把外条带
 ///   岩体/屋顶参考改存清除后实际(null)"数据归一"，实测误杀对端带内有延续岩的真实山体，
 ///   2026-08 回退勿复犯）。一切参考只认 a = c − offset 渲染映射（地图偏移带旋转，
@@ -45,14 +45,16 @@ namespace RimExodus
     /// 同公式恒等）——genStep 392 运行时邻居表尚未登记（RegisterNeighborBidirectional 在
     /// onComplete，晚于整个 genStep 链），运行时消费方（传送/渲染）才走邻居表。
     ///
-    /// 【保护判据：只有道路，无地形例外（用户定夺 2026-08，勿回退）】SeamOverride 只做三件事：
-    /// 按卷积权重覆盖、随机化边缘（dither）、道路修复（保护）。唯一例外是道路——路是 1-2 格
-    /// 窄结构，3×3 众数卷积必然抹掉（窗口内少数派），且路由 A* 权威生成：①本格 IsRoad/bridge
-    /// 跳过；②<see cref="SeamlessRoadPaths"/> ±3 格切比雪夫缓冲兜底无 tag 路面。水体、沼泽等
-    /// 一切地形照常参与混合与拷贝——参考位置由连续边中点对齐保证精确，对端是水体本端就是
-    /// 水体（不能走 pawn 自然绕路）；河/海走廊位置由 river patch 端点对齐权威保证。历史的
-    /// 水体例外（本格 IsWater 跳过、卷积采样跳水）是旧 offset ±2 格系统误差下"防水蔓延"
-    /// 的补丁，中点对齐后不成立（其间还因 HasTag 前缀匹配误伤 Marsh 造成接缝断裂）。
+    /// 【保护判据：特征级例外（道路/走廊/河流），无地形类型例外（2026-08-30 河流并入，用户定夺）】
+    /// SeamOverride 只做三件事：按卷积权重覆盖、随机化边缘（dither）、特征保护。窄特征（1-2 格宽）
+    /// 在 3×3 众数卷积里必然是少数派被抹掉，且由各自 patch 权威生成：①本格 IsRoad/bridge 跳过；
+    /// ②<see cref="SeamlessRoadPaths"/> ±3 格切比雪夫缓冲兜底无 tag 路面；③中心走廊精确足迹
+    /// （CorridorCellsComponent）；④**河流实际修改格**（<see cref="SeamlessRiverCells"/>，2026-08-31
+    /// v3 抽象——河生成期不进 void、修改格免混合；替代 v2 的 riverGraph 走廊近似）。**地形类型无
+    /// 例外**：水体、沼泽等一切非河特征地形照常参与混合与拷贝——参考位置由连续边中点对齐保证精确，
+    /// 对端是水体本端就是水体（不能走 pawn 自然绕路）；历史的水体例外（本格 IsWater 跳过、卷积采样
+    /// 跳水）是旧 offset ±2 格系统误差下"防水蔓延"的补丁，中点对齐后不成立（其间还因 HasTag 前缀
+    /// 匹配误伤 Marsh 造成接缝断裂）——河的保护是**实际修改格级**，非水体类型级，海岸/沼泽不受影响。
     ///
     /// 【三层归一框架（用户定夺 2026-08）】terrain/building/roof 三层共用同一混合框架：
     /// 照抄区 = 每层读对端参考值（<see cref="seamLayers"/>.ReadStrip）→ 与本端不同（ReadLocal）则写
@@ -138,7 +140,7 @@ namespace RimExodus
 
         /// <summary>
         /// 对 map 的所有已生成邻居做单向接缝覆写（只改 map 自身，不改邻居）。
-        /// 在 GenStep_SeamOverride.Generate 里调用（order=392，接缝带 void 裁切 391 之后、
+        /// 在 GenStep_SeamOverride.Generate 里调用（order=392，接缝带 void 裁切 389 之后、
         /// Settlement 400 与 Fog 1500 之前）。
         /// </summary>
         public static void ApplyOneWay(Map map, int worldTile)
@@ -219,7 +221,7 @@ namespace RimExodus
                     // 岩体用对端 def（跨缝岩色连续，"岩石地形无岩体"中间带状态正确继承）；
                     // 屋顶照抄对端岩顶（Thick/Thin，不裸顶）。地形未变时岩体/屋顶同步仍执行。
                     // 参考一律 = 对端生成时 snapshot 的渲染映射格值（B∪T 段=定格实况 /
-                    // 外条带段=391 清 void 前原生——T·1 复刻对端 void 之下的自然山体延续，
+                    // 外条带段=389 清 void 前原生——T·1 复刻对端 void 之下的自然山体延续，
                     // 不是清除后的实际；曾改存 null"实际状态"误杀真实山体，2026-08 回退）。
                     var ref0 = cellRefs[0];
                     var anyWritten = false;
@@ -375,9 +377,16 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 构建 C 的道路路径缓冲保护集：<see cref="SeamlessRoadPaths"/> 快照的 A* 路径节点，
-        /// 每节点 ±<see cref="RoadGuardRadius"/> 格切比雪夫膨胀。有 Road tag / bridge 的路面
-        /// 由混合循环的地形判据精确保护，本缓冲兜底 Gravel 等无 tag 路面。
+        /// 构建 C 的特征保护集（道路/中心走廊/河流）：
+        /// ① <see cref="SeamlessRoadPaths"/> 快照的 A* 路径节点，每节点 ±<see cref="RoadGuardRadius"/> 格
+        /// 切比雪夫膨胀——有 Road tag / bridge 的路面由混合循环的地形判据精确保护，本缓冲兜底
+        /// Gravel 等无 tag 路面；
+        /// ② 中心走廊足迹（2026-08-30）；
+        /// ③ **河流实际修改格**（2026-08-31 v3 抽象：<see cref="SeamlessRiverCells"/>——生成期
+        /// RiverTerrainAt/RiverBankTerrainAt 返回非 null 的格集，即河真实铺过的水+岸格）。
+        /// 跨地块结构（河/路）不可被混合侵犯——照抄与卷积分流都跳过（用户定夺：地面类型/岩壁
+        /// 可混合调整，跨地块结构不可）。实际修改格比 v2 的"riverGraph 中线±halfWidth"走廊精确
+        /// （走廊已删——v3 中线延伸到方形边后几何近似失真）。
         /// </summary>
         private static HashSet<IntVec3> BuildRoadGuard(Map map)
         {
@@ -388,6 +397,7 @@ namespace RimExodus
             // 精确格集（WriteCaveDisc 记录的整条走廊宽度足迹），无需道路那样的 ±3 缓冲
             // （那是 Bezier 偏离 + 无 tag 路面半宽的兜底，走廊足迹无此近似）。
             guard.UnionWith(map.GetComponent<SeamlessCenterCorridor.CorridorCellsComponent>()?.cells ?? EmptyCells);
+            guard.UnionWith(map.GetComponent<SeamlessRiverCells>()?.cells ?? EmptyCells);
             if (comp == null) return guard;
 
             foreach (var path in comp.paths)
@@ -519,14 +529,14 @@ namespace RimExodus
         /// <summary>
         /// 单格接缝结构化诊断报告（本侧 + 各对侧对应位置），供 InspectSnapshotAtPosition（Dev ToolMap）。
         /// 每侧三段：**位置**（坐标 + 圈层，以"接缝带中圈 = 离散边圈"为基准的相对圈数）/
-        /// **生成时 snapshot**（391 三层原生备份，非序列化——读档后不可用时如实注明）/
+        /// **生成时 snapshot**（389 三层原生备份，非序列化——读档后不可用时如实注明）/
         /// **当前实际**（会进 snapshot 的三层现值：topGrid 地面 / 岩石 edifice / roof）。
         /// 本侧另附**混合情况追踪**（权重 / 本侧 snapshot 各层 3×3 卷积 / 各对侧 strip 各层 3×3 卷积 /
         /// 各层混合结果）；对侧附**条带快照值**（本侧混合实际读到的参考源）。
         /// 权重/卷积/混合复用 ApplyOneWay 同一实现（CollectCellRefs/DominantRef/GetMode）——
         /// 报告与真实逻辑共享同一份代码，不会因复刻而漂移。
         ///
-        /// 失真声明：生成期混合的 self 卷积采样自当时 topGrid（= 原生值）；此处重放优先用 391 备份
+        /// 失真声明：生成期混合的 self 卷积采样自当时 topGrid（= 原生值）；此处重放优先用 389 备份
         /// snapshot 采样，快照不可用（读档后）回落当前 topGrid 并注明——回答的是"以该数据源再跑一次
         /// 会怎样"。
         /// </summary>
@@ -719,7 +729,7 @@ namespace RimExodus
             return string.Join("  ", entries.ConvertAll(kv => $"{kv.Key}={(float)kv.Value / total:F3}"));
         }
 
-        /// <summary>本侧读子：快照数组可用时读 391 原生快照（数组直索），否则回落当前实际（live 读子）。</summary>
+        /// <summary>本侧读子：快照数组可用时读 389 原生快照（数组直索），否则回落当前实际（live 读子）。</summary>
         private static Func<int, int, (bool has, Def v)> SelfReader(Map map, Def[] snapshot, Func<Map, IntVec3, Def> live)
         {
             var mapSize = map.Size.x;

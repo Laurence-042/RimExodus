@@ -242,7 +242,7 @@ namespace RimExodus
                 if (changed)
                 {
                     // SetTerrain 自带逐格簿记（含 mesh/region 标脏），void 大区回填后全量重算一次保险
-                    //（与 391 genStep 同款收尾）。
+                    //（与 389 genStep 同款收尾）。
                     map.pathing.RecalculateAllPerceivedPathCosts();
                     map.regionAndRoomUpdater.RebuildAllRegionsAndRooms();
                 }

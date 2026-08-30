@@ -97,7 +97,7 @@ namespace RimExodus
         /// 幂等（覆盖旧快照）。
         ///
         /// 三层同来源分两段：B∪T → 最终实况（topGrid + 岩石 edifice def + RoofAt）；
-        /// 外条带 → 原生快照（baseTerrain/baseBuilding/baseRoofSnapshot，391 同点位备份）。
+        /// 外条带 → 原生快照（baseTerrain/baseBuilding/baseRoofSnapshot，389 同点位备份）。
         ///
         /// 调用时机：GenStep_SeamOverride.Generate（392）末尾——此时接缝混合已完成。
         /// </summary>
@@ -148,7 +148,7 @@ namespace RimExodus
                 Add(kv.Key, topGrid[cellIndices.CellToIndex(kv.Key)], RockDefAt(map, kv.Key), roofGrid.RoofAt(kv.Key), kv.Value);
             }
 
-            // 接缝带外条带（void 侧）：原生快照三层（391 备份，同源），**全深到方形边**
+            // 接缝带外条带（void 侧）：原生快照三层（389 备份，同源），**全深到方形边**
             // （权重衰减参考数据：接近源六边形高 → 源方形边 0，数据必须覆盖到边）。
             // 岩体/屋顶刻意存清 void 前的原生值：外条带是"对端生成时 snapshot"的一部分——
             // T·1 照抄复刻的是对端 void 之下的自然山体延续（含跨缝岩色），不是清除后的实际

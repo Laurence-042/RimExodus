@@ -3,9 +3,9 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// 接缝覆写 genStep（order=392，3 圈接缝带架构；SeamlessTile(391) 之后、Settlement(400) 之前）。
+    /// 接缝覆写 genStep（order=392，3 圈接缝带架构；SeamlessTile(389) 之后、Settlement(400) 之前）。
     ///
-    /// 在接缝带 void 裁切（RimExodus_SeamlessTile, 391）之后立刻执行。本 genStep 在接缝带 B ∪ 过渡带 T
+    /// 在接缝带 void 裁切（RimExodus_SeamlessTile, 389）之后立刻执行。本 genStep 在接缝带 B ∪ 过渡带 T
     /// 做 terrainDef 混合：参考所有已生成邻居的接缝条带快照（重叠带地形完全一致 + 外条带距离衰减），
     /// 让接缝处地形视觉/通行连续。放在 Settlement 之前使 Plants(900)/Animals(1200) 在混合后的最终
     /// 地形上生成（植物与地形一致，不再出现"树先生成后混成水"）；Fog(1500) 仍在本步之后，据最终地形揭雾。
@@ -33,7 +33,13 @@ namespace RimExodus
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
             if (worldTile < 0) return;
 
+            // 诊断（2026-08-30 河歪排查，verbose 门控）：混合前/后各报一次缝处水带实测位置，
+            // 区分"生成期就歪"vs"混合期弄歪"。
+            RiverSeamDiagnostics.Report(map, worldTile, "preMix");
+
             SeamlessSeamOverride.ApplyOneWay(map, worldTile);
+
+            RiverSeamDiagnostics.Report(map, worldTile, "postMix");
 
             // MapPreview 预览（后台线程，2026-08）：本步之后的三个动作都是真实图专用——
             // ①条带快照存储（预览图 parent null，捕获即白干）；
@@ -46,7 +52,7 @@ namespace RimExodus
 
             // void 边界岩的隐形 link 延续体（2026-08 视觉优化）：必须挂在 **392 末（混合之后）**——
             // 紧贴 void 的那圈接缝带岩石多数是上方混合 B 照抄 SyncRockBuildingTo 才 spawn 的
-            // （原生 Soil 无岩），391 时点"4 邻含岩石"条件全灭一格都铺不出（2026-08 实测）。
+            // （原生 Soil 无岩），389 时点"4 邻含岩石"条件全灭一格都铺不出（2026-08 实测）。
             // own snapshot 在生成期仍在内存可读（非序列化只影响读档），双分支判据不受影响。
             // 单向原则（用户定夺）：一切决策发生在本图生成期内，无回铺。
             SeamlessVoidRockLink.PlaceAfterSeamOverride(map, worldTile);

@@ -45,7 +45,7 @@ namespace RimExodus
 
         /// <summary>
         /// 基础地形快照（阶段4 接缝覆写）：void 裁切前的完整矩形地形备份。
-        /// 在 GenStep_SeamlessTile（order=391）开头备份——此时全部基础地形写入步骤（Terrain 210 /
+        /// 在 GenStep_SeamlessTile（order=389）开头备份——此时全部基础地形写入步骤（Terrain 210 /
         /// Coast 220 / CoastalEdgeFill 230 / Roads 390）已跑完，Plants(900)/Animals(1200) 尚未
         /// （它们不写 topGrid）；400+ 的 BaseGen 地板写入被选址 patch 拦在接缝带之外（残余缺口见
         /// SeamlessTileGenerator.xml 观察项）。

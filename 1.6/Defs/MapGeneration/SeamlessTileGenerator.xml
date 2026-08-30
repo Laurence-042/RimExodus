@@ -26,9 +26,13 @@
         TileMutatorWorker_Coast 无 GenerateFinal 方法，不会在后续 MutatorFinal(1600) 覆盖。
         RocksFromGrid(200) 在 230 之前，岩石山已 spawn 为 edifice，CoastalEdgeFill 的 Stone+edifice
         守门正常工作。
-      RimExodus_SeamlessTile    (391)：备份 snapshot（void 裁切前的完整矩形 topGrid）+ 按六边形铺 void
-        + pathGrid 全量刷新。snapshot 在 391 Clone，能记录 210/220/230/390 铺的地形（基础地形与道路）。
+      RimExodus_SeamlessTile    (389)：备份 snapshot（void 裁切前的完整矩形 topGrid）+ 按六边形铺 void
+        + pathGrid 全量刷新。snapshot 记录 210/220/230 铺的地形（**2026-08-30 从 391 提前到 Roads(390)
+        之前**：外条带快照只覆盖 void 侧格、道路被 TerrainGrid void 守卫拦住写不进 void 格，快照不受
+        Roads 影响；Roads 改在 void 之后跑 = 道路 A* 视界内六边形外全不可走，河端点无需再延伸到
+        方形边防绕行——河端点取缝中点即可，见 Patches_TileMutatorRiver）。
       RimExodus_SeamOverride    (392)：混合带卷积混合（读两端 snapshot，写本端 topGrid）+ pathGrid 刷新。
+        仍在 Roads(390) 之后：B∪T 最终实况快照须含道路（后生成邻图照抄复刻道路跨缝连续）。
       RimExodus_EnterSpots     (1490)：铺传送点（从 onComplete 提前）。必须在 Fog(1500) 之前——
         Fog 的 UnfogMapFromEdge 分支依赖 CanReachMapEdge/TryFindRandomEdgeCellWith 的接缝语义 patch，
         而这些 patch 以"传送点已铺"（HasSeamEdge = listerThings 实况）为门；点在 onComplete 才铺时
@@ -71,7 +75,7 @@
 
   <GenStepDef>
     <defName>RimExodus_SeamlessTile</defName>
-    <order>391</order>
+    <order>389</order>
     <genStep Class="RimExodus.GenStep_SeamlessTile"/>
     <modExtensions>
       <li Class="MapPreview.GenStepProperties" MayRequire="m00nl1ght.MapPreview">

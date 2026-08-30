@@ -19,7 +19,7 @@
 
 | Mod | 状态 |
 |-----|------|
-| **Geological Landforms**（实测 1.7.13.1） | 完整适配，两轮：①分帧增量生成路径软反射复刻其生成上下文（其 Harmony patch 挂在原生同步管线上，分帧路径天然绕过）；②启动时把我们的地块 parent 注册进其 `IgnoredWorldObjects` 白名单——否则 GL 会把无派系的地块 parent 当作外来 site，把该地块的全部 landform 概率归零（症状：营地图 landform 缺失且被永久写入空数据、地块存在期间预览丢 landform）。 |
+| **Geological Landforms**（实测 1.7.13.1） | 完整适配，两轮：①分帧增量生成路径软反射复刻其生成上下文（其 Harmony patch 挂在原生同步管线上，分帧路径天然绕过）；②启动时把我们的地块 parent 注册进其 `IgnoredWorldObjects` 白名单——否则 GL 会把无派系的地块 parent 当作外来 site，把该地块的全部 landform 概率归零（症状：营地图 landform 缺失且被永久写入空数据、地块存在期间预览丢 landform）。**例外：GL 的河流地貌（River / River Confluence / River Delta / River Island / River Source）与跨图河流对齐不兼容**——GL 用自有系统整体替换原版河流生成且穿越点每图独立随机，需在 GL 设置 → Landforms 分页禁用全部河流地貌（只关原版"River"词条无效，那些本来就会被 GL 移除）；已被 GL 写入世界数据的 tile 需用 GL 工具 Reset 或重开世界。 |
 | **MapPreview** | 预览兼容：RimExodus 裁切/接缝 genStep 进预览白名单（预览可见六边形与接缝效果），预览线程守卫防组件裁剪 NRE；增量分帧生成与后台预览互相避让（预览进行中预加载自动排队，代价 1-2 tick）。 |
 | **Perspective Shift**（ferny.PerspectiveShift，第一人称自由移动） | 适配：其 WASD 移动绕过原版 job/寻路系统，RimExodus 在其移动处理上补挂了"走近接缝自动预加载邻图 + 踩传送点无缝过缝"；其右键下令走原版菜单链，天然兼容。第一人称下鼠标瞄准解析看起来已经随常规模式的适配生效而适配了。 |
 | **Vehicle Framework**（SmashPhil.VehicleFramework，载具） | 适配：跨图传送复刻 VF 官方进图管线——传送前同步就绪化对图载具网格 + 整车矩形落点校验（找不到可站地块时如实拒绝，属真实地形限制）；载具征召驶近传送点即跨缝、点击邻图可跨图下令、菜单可达性与执行同口径。载具（含乘员）在地图滚动休眠中视同 pawn。与 Perspective Shift 双装支持第一人称 WASD 驾驶跨缝。已知边界：NPC 敌对载具不跨图追击；跨图不保留朝向；对端接缝若整圈无该载具可站地块则无法从该边跨越。 |

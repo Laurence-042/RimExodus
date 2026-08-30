@@ -11,7 +11,7 @@ namespace RimExodus
     /// 每个地块独立按自己的六边形铺 void：六边形内（含边）非 void，六边形外 void。
     /// 不看邻居——两个地图各自独立铺 void，重叠区的 void 在对方地图上恰好是非 void。
     /// 传送点铺在自己六边形的边经过的格子上（含边判定 → 非 void）。
-    /// 供 GenStep_SeamlessTile（order=391，Roads 之后、Settlement 之前）调用，该 genStep 通过 XML patch
+    /// 供 GenStep_SeamlessTile（order=389，Roads 之前、Settlement 之前）调用，该 genStep 通过 XML patch
     /// 注入到所有玩家可进入的 MapGeneratorDef（Base_Player / Base_Faction / Encounter）。
     /// 地块图与原生 parent 图（家园/原生家族）走完全相同的 genStep 链。
     /// </summary>
@@ -170,7 +170,7 @@ namespace RimExodus
 
             // pathGrid 必须在此即时全量刷新（勿删，2026-08 历史教训）：Walkable/Standable 读的是
             // PathGrid 缓存数组（GenGrid.Walkable → pathGrid.WalkableFast），不读 terrainGrid——
-            // 直写 topGrid 后若等 FinalizeInit 才重算，本 genStep(391) 与 FinalizeInit 之间的所有
+            // 直写 topGrid 后若等 FinalizeInit 才重算，本 genStep(389) 与 FinalizeInit 之间的所有
             // 步骤（Settlement 400 / Plants 900 / Animals 1200 / Fog 1500 / 威胁步骤 1600）全部
             // 拿着"void 可走"的旧缓存选址，动物/pawn 照落 void（2026-08 实测动物站 void 即此机理）。
             // 全图重算与 FinalizeInit(Map.cs:804) 同款（生成期无脏位模式，真实重算），一次性成本；
@@ -182,7 +182,7 @@ namespace RimExodus
             if (!SeamlessMapPreviewCompat.IsGeneratingPreviewOnCurrentThread)
                 map.pathing.RecalculateAllPerceivedPathCosts();
 
-            // 纯防御：清除生成在虚空格上的 Pawn。order=391 时图上正常无 pawn（Settlement 400+/ScenParts 875+
+            // 纯防御：清除生成在虚空格上的 Pawn。order=389 时图上正常无 pawn（Settlement 400+/ScenParts 875+
             // 都在本步之后），保留兜底以防 mod 化 genStep 等异常来源；pathGrid 已在上一步刷新，判定可靠。
             EvacuatePawnsOnCells(map, voidCells);
             if (sw != null)
@@ -196,7 +196,7 @@ namespace RimExodus
         /// <summary>
         /// 清除指定格集合上的所有实体（岩石 Building/植物/物品/草丛等），保留 Pawn（Pawn 单独处理）。
         ///
-        /// **当前时序下的实际工作量**：void 在 order=391（Roads 之后、Settlement 之前）铺。此时
+        /// **当前时序下的实际工作量**：void 在 order=389（Roads 之前、Settlement 之前）铺。此时
         /// RocksFromGrid(200) 的岩石已 spawn 在将来 void 格上，是本方法的主要清理对象；
         /// Plants(900)/Animals(1200) 在本步之后、于最终地形上生成（void fertility=0 / Standable=false
         /// 天然跳过 void 格），不再需要事后清理。清理开销在生成时一次性发生。
@@ -362,7 +362,7 @@ namespace RimExodus
 
         /// <summary>
         /// 把生成在虚空格上的 Pawn 移到最近的可通行格（避免它们卡在不可通行地形上）。
-        /// order=391 下图上正常无 pawn，纯防御路径（见调用处注释）。前提：调用前 pathGrid 已刷新——
+        /// order=389 下图上正常无 pawn，纯防御路径（见调用处注释）。前提：调用前 pathGrid 已刷新——
         /// 历史教训勿回退：旧序（1400）直写 topGrid 后未刷新 pathGrid，Walkable 读旧缓存且径向
         /// 搜索首候选即 pawn 自身格，判"可走"→ 撤离原地空转，动物留在 void 上。
         /// </summary>

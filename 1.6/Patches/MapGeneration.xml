@@ -19,12 +19,12 @@
 
     **执行顺序**由 GenStepDef.order 决定（非 xml 列表序）：
       RimExodus_CoastalEdgeFill (230，紧随 MutatorPostTerrain/原版 Coast mutator 220) →
-      RimExodus_SeamlessTile (391, void+snapshot+pathGrid 刷新，Roads 390 后、Settlement 400 前) →
+      RimExodus_SeamlessTile (389, void+snapshot+pathGrid 刷新，Roads 390 前、Settlement 400 前；2026-08-30 从 391 再提前——道路 A* 视界内六边形外不可走，河端点免延伸) →
       RimExodus_SeamOverride (392, 混合+pathGrid 刷新) →
       RimExodus_CenterCorridor (100, Caves 网格中心走廊——必须在 RocksFromGrid(200) 前) →
       RimExodus_EnterSpots (1490, 铺传送点) → Fog(1500)
     CoastalEdgeFill 提前到 230（此前在 1801）是为了让补铺的水在 Plants(900) 之前就位，避免植物浮在水上。
-    SeamlessTile/SeamOverride 在 391/392（2026-08 从 1400/1410 再提前）：Settlement 及之后全部步骤在
+    SeamlessTile/SeamOverride 在 389/392（2026-08 从 1400/1410 再提前）：Settlement 及之后全部步骤在
     最终地形上工作（Plants 肥力门/Animals 与威胁步骤 Standable 门天然跳过 void——动物站 void 历史 bug
     根治）；Fog(1500) 仍在其后，flood-fill 基于最终地形算可达性（void 外条带不可达→不揭雾）。
     时序演变与残余风险详见 doc/地图生成步骤.md 反转节。
@@ -48,7 +48,7 @@
     mod hook 原版管线自定义结构 + 我们的裁切 genStep 双不误）。
     **排除谓词两件事，勿删**：
     ① [defName] 存在性——Abstract 基类（MapCommonBase）无 defName 但有 genSteps，通配会命中它，
-      注入经 XML 继承给全部子类 = Base_Player/Encounter 等**双份注入**（391/392 重复跑）；
+      注入经 XML 继承给全部子类 = Base_Player/Encounter 等**双份注入**（389/392 重复跑）；
     ② 空间层家族（Space/Asteroid/AsteroidBasic/OrbitalItemStash/OrbitalRelay/Mechhive/SettlementPlatform
       —— 后三者同 ParentName="SpaceMapGenerator"）：GetMapWorldTile 对空间层返回 -1、genStep 内部守卫
       本会早退，但注入本身也应避免（语义上空间图不属于表面无缝网格）。

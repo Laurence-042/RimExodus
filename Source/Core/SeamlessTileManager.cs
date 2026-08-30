@@ -39,7 +39,7 @@ namespace RimExodus
 
         /// <summary>
         /// 原生 parent 图的基础地形快照（阶段4 接缝覆写）：void 裁切前的完整矩形 topGrid。
-        /// 在 GenStep_SeamlessTile（order=391）void 裁切之前备份（通过 BackupSnapshotAndApplyVoid 归一入口）。
+        /// 在 GenStep_SeamlessTile（order=389）void 裁切之前备份（通过 BackupSnapshotAndApplyVoid 归一入口）。
         /// 供接缝条带快照捕获读取。非序列化（生成期临时数据）。读写经 <see cref="SeamlessMapData"/>。
         /// </summary>
         public TerrainDef[] baseTerrainSnapshot;
@@ -306,13 +306,13 @@ namespace RimExodus
         /// ① 天气域绑定（<see cref="SeamlessWeatherClusterManager.BindMap"/>，幂等）；
         /// ② 沿全部世界邻居边预铺传送点（1490 已铺时幂等防御）；
         /// ③ AutoConnectWorldNeighbors——与已加载邻图补登记（2026-08 补的关键缺口：原生路径
-        ///    （远行队进入据点/埋伏图）生成的图此前无人接线，图虽被 391/392/1490 裁切
+        ///    （远行队进入据点/埋伏图）生成的图此前无人接线，图虽被 389/392/1490 裁切
         ///    （genStep 已 XML 注入 Base_Faction/Encounter），却接不进无缝网、无法跨缝互走）；
         /// ④ 刷新传送点对端缓存。
         ///
-        /// **void 铺设不在此处**：void 已由 RimExodus_SeamlessTile genStep（order=391）铺设，
+        /// **void 铺设不在此处**：void 已由 RimExodus_SeamlessTile genStep（order=389）铺设，
         /// 通过 XML patch 注入到 Base_Player/Base_Faction/Encounter，与地块图走完全相同的 genStep 链。
-        /// baseTerrainSnapshot 备份在 genStep 391 完成。
+        /// baseTerrainSnapshot 备份在 genStep 389 完成。
         ///
         /// （原"开档预加载全部邻居"可选级联（preloadAllNeighborsOnStart）已于 2026-08 删除——
         /// 调试功能被证明在调试中也无用，保留徒增维护负担；邻居生成本就走事件驱动边界预加载。）
@@ -633,7 +633,7 @@ namespace RimExodus
                     SeamlessNeighborRegistry.RegisterNeighborBidirectional(originMapCapture, mapParent, sourceWorldTileCapture, newWorldTile, hostOffset);
                     tRegister = timer?.Section() ?? 0;
                     // 不刷新 originMapCapture 的 void——void 只看自己的多边形（不因邻居关系变化而变），
-                    // 且原生图（家园等）的 void 在其生成链 genStep 391 已铺好；每次生成邻居都刷新
+                    // 且原生图（家园等）的 void 在其生成链 genStep 389 已铺好；每次生成邻居都刷新
                     // 会重新清 void 格上玩家游戏期间生长的植物/掉落物（耗时 12-23 秒）。
                     // interiorMap 自己的传送点由 GenStep_EnterSpots(1490) 在生成链内、Fog(1500) 之前铺
                     // （Fog 的 UnfogMapFromEdge fallback 依赖接缝语义 patch 在生成期生效，详见该 genStep
