@@ -1,27 +1,69 @@
-0.1.0 （8 月 26 日 下午 10:16）
-- 初次发布
+0.1.0（初次发布）
+0.1.0 (Initial Release)
+- 地图无缝拼接
+Seamless map stitching
+- 地图六边形/五边形裁剪
+Hexagonal/pentagonal map clipping
+- 跨图寻路
+Cross-map pathfinding
+- 分帧生成地图
+Frame-sliced map generation
+- 连续地形
+Continuous terrain
+- 跨图战斗
+Cross-map combat
+- 地图滚动休眠/删除
+Map suspension/deletion based on distance
+- 盟友定居点内的贸易商
+Traders in allied settlements
 
-0.1.1 （8 月 27 日 下午 1:52）
-- 添加了隐藏无人地图的顶部条目的开关
+0.1.1
+- 添加了隐藏无人地图顶部条目的开关
+Added an option to hide empty map entries from the top map bar
 - 修复了远行队的问题
+Fixed caravan-related issues
 - 修复了存档读档后无法跨图的问题
+Fixed the issue where cross-map functionality stopped working after loading a save
 - 精简发布包大小
+Reduced release package size
 
-0.1.2 （8 月 27 日 下午 9:23）
+0.1.2
 - 优化性能
+Improved performance
 - 优化邻接地图加载机制，允许短时间触发多个邻接地图的加载
-- 修复邻接地图的动物被渲染在迷雾上方的bug
+Improved the adjacent map loading mechanism, allowing multiple adjacent maps to be loaded within a short period of time
+- 修复邻接地图的动物被渲染在迷雾上方的 bug
+Fixed a bug where animals on adjacent maps were rendered above the fog of war
 
 0.1.3
 - 优化地图生成机制，应该有助于避免出现奇怪的石墙（@辰 报告的问题）
+Improved the map generation mechanism, which should help prevent strange rock wall formations (@辰's reported issue)
 - 优化地形探针的输出内容，让调试更加简单
-- 优化pawns归属地块状态追踪机制，应该有助于避免出现殖民者偶尔被同时计在两个地点的问题bug（@rex20d 报告的问题）
-- 添加了主动前将地图恢复为兼容原版的状态，以可控地卸载mod的功能（路线计划的一部分）
-- 将休眠和删除阈值下界设为2，并避免设置为1时频繁休眠删除带来的体验问题
+Improved terrain probe output to make debugging easier
+- 优化 pawns 归属地块状态追踪机制，应该有助于避免出现殖民者偶尔被同时计在两个地点的问题 bug（@rex20d 报告的问题）
+Improved pawn location tracking, which should help prevent the bug where colonists were occasionally counted as belonging to two locations at the same time (@rex20d's reported issue)
+- 添加主动将地图恢复为兼容原版的状态，以可控地卸载 mod 的功能（路线计划的一部分）
+Added the ability to actively restore maps to vanilla-compatible states, allowing controlled mod unloading (part of the roadmap)
+- 将休眠和删除阈值下界设为 2，并避免设置为 1 时频繁休眠删除带来的体验问题
+Increased the minimum suspension/deletion threshold to 2, avoiding the poor experience caused by frequent suspension and deletion when set to 1
 
 0.1.4
 - 修复偶现的与 Dubs Mint Minimap 共同使用时 OnGUI 每帧空引用崩溃的bug
+Fixed an intermittent NullReferenceException crash occurring every frame in OnGUI when used alongside Dubs Mint Minimap.
+
+TODO（优先级从高到低）
+TODO (Priority Order)
+- （常驻）bug 修复
+(Ongoing) Bug fixes
+- 添加任务系统，允许玩家在友方派系定居点浏览并接取任务
+Add a quest system that allows players to browse and accept quests in friendly faction settlements
+- 优化休眠逻辑，允许不超过10个做出过修改的地图（特指进行了建筑增删行为）持久地休眠而不被删除
+Optimize the hibernation logic to allow no more than 10 modified maps (specifically those with added or deleted buildings) to remain in hibernation without being deleted.
+- 添加定居点自定义能力，允许其他 mod 作者自定义其派系的定居点
+Add settlement customization support, allowing other mod authors to customize settlements for their factions
 
 0.1.5
 - 修复激活mod时太空地图背景被清除为黑色的bug
-- 邻接生成的地图保证从地图中心到接缝有一条不被岩石阻挡的走廊（只影响岩石生成，不改动地形）；走廊端点按邻图接缝带可达性分集合选取，多个已生成邻居的地图会生成连通各方向的洞穴网络
+Fixed a bug where the space map background was cleared to black while the mod was active
+- 邻接生成的地图保证从地图中心到接缝有一条不被岩石阻挡的走廊（只影响岩石生成，不改动地形）；走廊端点按邻图接缝带的可达性分集合选取，多个已生成邻居的地图会生成连通各方向的洞穴网络
+Maps generated as neighbors are now guaranteed a rock-free corridor from the map center to the seam (only affects rock generation, never modifies terrain); corridor endpoints are selected by grouping cells on each neighboring map's seam band by reachability, and maps with multiple generated neighbors get a cave network connecting all directions
