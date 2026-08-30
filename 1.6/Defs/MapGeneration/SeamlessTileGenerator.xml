@@ -5,8 +5,9 @@
     RimExodus 无缝地块五个 GenStepDef（不再有独立 MapGeneratorDef）。
 
     RimExodus_CenterCorridor (100)：中心走廊——邻接生成图在 MapGenerator.Caves 浮点网格上挖
-    "本图中心 → 生成源方向共享边"的走廊（端点 A 侧映射格须真实可达源图中心），RocksFromGrid(200)
-    对 caves>0 格不 spawn 岩石（原版洞窟同一条无后效通道）。必须在 200 之前，勿后移。
+    "本图中心 ↔ 各已生成邻居方向接缝"的星形走廊（端点 = 邻接侧接缝带按 region 分集合的随机代表
+    经可达性筛选后 offset 镜像到本图），RocksFromGrid(200) 对 caves>0 格不 spawn 岩石
+    （原版洞窟同一条无后效通道）。必须在 200 之前，勿后移。
 
     **邻居地块复用原版 Base_Player MapGeneratorDef**：WorldObjects.xml 的 RimExodus_SeamlessTileMap
     <mapGenerator> 指向 Base_Player（与 Gravship 地表降落、远行队扎营定居共用同一条链）。

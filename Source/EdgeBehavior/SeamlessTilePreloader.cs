@@ -25,19 +25,23 @@ namespace RimExodus
         {
             public Map originMap;
             public int targetWorldTile;
+            // 触发位置（2026-08-30，中心走廊端点算法）：玩家 goto 的目标格——走廊在触发图 A 侧的
+            // 可达性锚点（"代表格须可达触发位置"，比 A 中心更贴场景：pawn 就在那）。null = 未知
+            // （Dev / governor 兜底触发），走廊算法回落 A 中心。
+            public IntVec3? triggerCell;
         }
 
         /// <summary>
         /// 登记一个预加载请求到队列（异步）。不立即生成，由 MapComponentTick 在下一 tick 消费。
         /// 幂等：同一 (originMap, targetWorldTile) 重复入队只保留一条。
         /// </summary>
-        public static void QueuePreload(Map originMap, int targetWorldTile)
+        public static void QueuePreload(Map originMap, int targetWorldTile, IntVec3? triggerCell = null)
         {
             if (originMap == null || targetWorldTile < 0) return;
             var hash = HashKey(originMap, targetWorldTile);
             if (queuedHashes.Contains(hash)) return;
             queuedHashes.Add(hash);
-            pendingQueue.Add(new PreloadRequest { originMap = originMap, targetWorldTile = targetWorldTile });
+            pendingQueue.Add(new PreloadRequest { originMap = originMap, targetWorldTile = targetWorldTile, triggerCell = triggerCell });
         }
 
         /// <summary>
@@ -58,7 +62,7 @@ namespace RimExodus
                 if (req.originMap == null) continue;
                 var manager = req.originMap.GetComponent<SeamlessTileManager>();
                 if (manager == null) continue;
-                manager.TryPreloadNeighbor(req.targetWorldTile);
+                manager.TryPreloadNeighbor(req.targetWorldTile, req.triggerCell);
             }
         }
 

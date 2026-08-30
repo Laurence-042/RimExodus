@@ -260,7 +260,7 @@ namespace RimExodus
 
             if (RimExodusMod.Settings?.verboseLogging ?? false)
                 Log.Message($"[RimExodus] PS compat: avatar {pawn.LabelShort} entered border band at {cell}, queuing preload for worldTile {worldTile}.");
-            SeamlessTilePreloader.QueuePreload(map, worldTile);
+            SeamlessTilePreloader.QueuePreload(map, worldTile, cell);
         }
 
         /// <summary>avatar 踩传送点且对端活跃 → 即席 Bridge Grant + 既有分派链传送（对端未生成不触发）。</summary>

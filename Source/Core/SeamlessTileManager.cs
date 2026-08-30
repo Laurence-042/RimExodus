@@ -98,6 +98,35 @@ namespace RimExodus
         internal static int NeighborGenerationSourceTile = -1;
 
         /// <summary>
+        /// 触发本次邻接生成的 goto 目标格与源图 uniqueID（2026-08-30，中心走廊端点算法）：
+        /// 触发图 A 的走廊代表格可达性锚点 = "pawn 被命令前往的位置"（比 A 中心更贴场景）。
+        /// 与 <see cref="NeighborGenerationSourceTile"/> 同点设置/复位；Invalid / mapId 失配时
+        /// 走廊算法回落 A 中心（Dev / governor 兜底触发无位置）。
+        /// </summary>
+        internal static IntVec3 NeighborGenerationSourceTriggerCell = IntVec3.Invalid;
+        internal static int NeighborGenerationSourceMapId = -1;
+
+        /// <summary>设置/清除生成触发位置（与 NeighborGenerationSourceTile 同点成对调用）。</summary>
+        private static void SetGenerationTrigger(IntVec3? triggerCell, Map originMap)
+        {
+            if (triggerCell.HasValue && originMap != null && triggerCell.Value.InBounds(originMap))
+            {
+                NeighborGenerationSourceTriggerCell = triggerCell.Value;
+                NeighborGenerationSourceMapId = originMap.uniqueID;
+            }
+            else
+            {
+                ClearGenerationTrigger();
+            }
+        }
+
+        private static void ClearGenerationTrigger()
+        {
+            NeighborGenerationSourceTriggerCell = IntVec3.Invalid;
+            NeighborGenerationSourceMapId = -1;
+        }
+
+        /// <summary>
         /// 正在生成中的 worldTile 集合（阶段4a：防重入）。
         /// 生成地图是重操作（MapGenerator.GenerateMap），生成过程中若再次请求同一 worldTile 的生成会被拒绝。
         /// RimWorld 单线程 tick，无需锁。
@@ -317,7 +346,7 @@ namespace RimExodus
         /// 在 this.map 上生成指向 targetWorldTile 的邻居地块。
         /// </summary>
         /// <returns>是否触发了生成（false = 已存在/正在生成/源无效）。</returns>
-        public bool TryPreloadNeighbor(int targetWorldTile)
+        public bool TryPreloadNeighbor(int targetWorldTile, IntVec3? triggerCell = null)
         {
             if (targetWorldTile < 0 || map == null) return false;
 
@@ -348,7 +377,7 @@ namespace RimExodus
                 // queuedHashes，重入队安全）：Settlement 走近下令不被静默吞（2026-08），普通 tile
                 // 预加载意图同样保留（原"警告+丢弃"要玩家再次下令重触发，2026-08 一并改为重排队，
                 // 预览/生成窗口短暂，1-2 tick 内消化）。
-                SeamlessTilePreloader.QueuePreload(map, targetWorldTile);
+                SeamlessTilePreloader.QueuePreload(map, targetWorldTile, triggerCell);
                 return false;
             }
 
@@ -357,7 +386,7 @@ namespace RimExodus
             // 【实验分支】分帧增量生成：主线程每帧跑 1 genStep，不暂停 tick、无进度画面。
             // GenerateTileMap 内部启动 IncrementalMapGenerator（准备阶段同步，genStep 分帧，FinalizeInit 单帧）。
             // generating map 被 patch 跳过 MapPreTick/MapPostTick/MapUpdate，玩家可继续操作其他 map。
-            var result = GenerateTileMap(sourceWorldTile, targetWorldTile, mapSize);
+            var result = GenerateTileMap(sourceWorldTile, targetWorldTile, mapSize, triggerCell);
             if (result == null)
             {
                 ClearGeneratingTile(targetWorldTile);
@@ -391,7 +420,7 @@ namespace RimExodus
         /// 调用方：分帧增量生成全程持有 mapBeingGenerated，直调方撞入口忙守卫被拒
         /// （曾致 Dev action "只生成了一个图"，原 GenerateForNeighbor 病灶已删）。
         /// </summary>
-        private MapParent_SeamlessTile GenerateTileMap(int sourceWorldTile, int newWorldTile, IntVec3 mapSize)
+        private MapParent_SeamlessTile GenerateTileMap(int sourceWorldTile, int newWorldTile, IntVec3 mapSize, IntVec3? triggerCell = null)
         {
             // 入口防御（TryPreloadNeighbor 已带同款判据并重排队；此处兜底其他调用方——如
             // TrySetupOnStart）：预览在飞时启动增量同样互踩（见 TryPreloadNeighbor 注释）。
@@ -474,6 +503,7 @@ namespace RimExodus
                     Map nativeMap;
                     GeneratingNativeSeamlessly = true;
                     NeighborGenerationSourceTile = sourceWorldTile; // 生成方向（Fog patch 接缝揭雾取根）
+                    SetGenerationTrigger(triggerCell, map);
                     try
                     {
                         nativeMap = GetOrGenerateMapUtility.GetOrGenerateMap(new PlanetTile(newWorldTile), mapSize, null);
@@ -482,6 +512,7 @@ namespace RimExodus
                     {
                         GeneratingNativeSeamlessly = false;
                         NeighborGenerationSourceTile = -1;
+                        ClearGenerationTrigger();
                     }
                     if (nativeMap != null)
                     {
@@ -539,6 +570,7 @@ namespace RimExodus
                 Map syncMap = null;
                 GeneratingNativeSeamlessly = true; // Fog patch 走"从生成方向接缝洪水"分径（同 POI 分支语义）
                 NeighborGenerationSourceTile = sourceWorldTile;
+                SetGenerationTrigger(triggerCell, map);
                 try
                 {
                     syncMap = MapGenerator.GenerateMap(mapSize, mapParent, mapParent.MapGeneratorDef,
@@ -548,6 +580,7 @@ namespace RimExodus
                 {
                     GeneratingNativeSeamlessly = false;
                     NeighborGenerationSourceTile = -1;
+                    ClearGenerationTrigger();
                 }
                 if (syncMap != null)
                 {
@@ -624,16 +657,19 @@ namespace RimExodus
                     // 清理防重入锁（分帧生成完成）。
                     ClearGeneratingTile(newWorldTile);
                     NeighborGenerationSourceTile = -1;
+                    ClearGenerationTrigger();
                 });
 
             if (!started)
             {
                 Log.Warning($"[RimExodus] IncrementalMapGenerator.Start failed for tile {newWorldTile}.");
                 NeighborGenerationSourceTile = -1;
+                ClearGenerationTrigger();
                 return null;
             }
             // 生成方向（Fog patch 接缝揭雾取根）——genStep 分帧期间保持，onComplete 复位。
             NeighborGenerationSourceTile = sourceWorldTile;
+            SetGenerationTrigger(triggerCell, map);
             return mapParent;
         }
 

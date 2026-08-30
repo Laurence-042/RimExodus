@@ -134,6 +134,7 @@ namespace RimExodus
         private static readonly HashSet<IntVec3> bandCells = new();
         private static readonly List<CellRef> cellRefs = new();
         private static readonly List<(Dictionary<TerrainDef, float> dist, float w)> blendParts = new();
+        private static readonly HashSet<IntVec3> EmptyCells = new();
 
         /// <summary>
         /// 对 map 的所有已生成邻居做单向接缝覆写（只改 map 自身，不改邻居）。
@@ -382,6 +383,11 @@ namespace RimExodus
         {
             var guard = new HashSet<IntVec3>();
             var comp = map.GetComponent<SeamlessRoadPaths>();
+            // 中心走廊足迹（2026-08-30）：走廊格免疫混合（照抄 + 卷积）——N 侧 void 外条带快照
+            // 是清 void 前的原生连绵山体，照抄区会把岩体 spawn 回 B 的接缝带压掉走廊末端。
+            // 精确格集（WriteCaveDisc 记录的整条走廊宽度足迹），无需道路那样的 ±3 缓冲
+            // （那是 Bezier 偏离 + 无 tag 路面半宽的兜底，走廊足迹无此近似）。
+            guard.UnionWith(map.GetComponent<SeamlessCenterCorridor.CorridorCellsComponent>()?.cells ?? EmptyCells);
             if (comp == null) return guard;
 
             foreach (var path in comp.paths)
