@@ -14,7 +14,7 @@ Every tile map is carved into a hexagon matching its world tile shape (pentagons
 Hexagonal tile carving and seam alignment
 
 [list]
-[*][b]Seamless cross-map walking[/b]: order a colonist across a seam and they switch to the adjacent map with barely a hitch.
+[*][b]Seamless cross-map walking[/b]: order a colonist toward a seam to generate the adjacent map, order them across the seam and they switch to the adjacent map with barely a hitch, or order them to stand on the seam to form a vanilla caravan.
 
 [*][b]Cross-map combat[/b]: line of sight, targeting, and projectile handoff work across seams — bullets hit the right target on the right map. Chase enemies across maps; they can chase you back. Disable in settings to restore vanilla combat.
 
@@ -41,7 +41,7 @@ In theory, anything that doesn't modify base maps (the per-tile maps on the plan
 
 [b]Adapted:[/b]
 [list]
-[*][b]Geological Landforms[/b] — fully adapted (landforms generate correctly on tile maps, preview included).
+[*][b]Geological Landforms[/b] — broadly adapted: landforms generate correctly, but seamless river stitching isn't fully adapted yet.
 
 [*][b]MapPreview[/b] — previews faithful to the real terrain generation.
 
