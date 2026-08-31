@@ -53,23 +53,24 @@ Fixed an intermittent NullReferenceException crash occurring every frame in OnGU
 
 0.1.5
 - 修复激活mod时太空地图背景被清除为黑色的bug
-Fixed a bug where the space map background was cleared to black while the mod was active
-- 邻接生成的地图保证从地图中心到接缝有一条不被岩石阻挡的走廊（只影响岩石生成，不改动地形）；走廊端点按邻图接缝带的可达性分集合选取，多个已生成邻居的地图会生成连通各方向的洞穴网络
-Maps generated as neighbors are now guaranteed a rock-free corridor from the map center to the seam (only affects rock generation, never modifies terrain); corridor endpoints are selected by grouping cells on each neighboring map's seam band by reachability, and maps with multiple generated neighbors get a cave network connecting all directions
-- 重构河流的接缝穿越机制：河道中线 = 两个确定性穿越点（对称哈希或邻接地图实际记录，两侧地图恒得同一点）的连线并延伸到地图边界，截断楔口不再出现在接缝带；河流生成时不进入 void 区域（外条带快照不再携带河水），河流实际修改的格子受接缝混合保护；道路穿越点同样改为确定性偏移（不再固定边中点）且末端强制垂直于接缝
-Reworked the river seam crossing mechanism: the river centerline is the line through two deterministic crossing points (symmetric hash or the neighboring map's recorded position — both maps always agree) extended to the map border, eliminating truncation wedges near seams; rivers no longer generate into void regions (outer-strip snapshots no longer carry river water), and cells actually modified by rivers are protected from seam blending; road crossings now also use deterministic offsets instead of the fixed edge midpoint, with ends forced perpendicular to the seam
-- 已知限制：Geological Landforms 的河流地貌会整体替换原版河流生成且无法对齐跨图接缝，需在其设置中禁用全部河流地貌（详见 README 兼容性表）
-Known limitation: Geological Landforms river landforms replace vanilla river generation entirely and cannot be aligned across map seams; disable all river landforms in its settings (see the compatibility table in the README)
-
+  Fixed a bug where the space map background was cleared to black while the mod was active
+- 优化体验，邻接生成的地图保证从地图中心到接缝有一条不被岩石阻挡的走廊，避免玩家在 Geological Landforms 提供的五面环山地形走出唯一出口后发现是死路
+  Experience optimization: For adjacent map generation, a corridor free of rock obstructions is guaranteed between the map center and the edge, preventing players from encountering a dead end after exiting the only opening in the "surrounded by mountains on five sides" terrain provided by Geological Landforms.
+- 优化体验：重构河流相关地形生成，现在新地图上的河流的生成会更加自然，连续性也会更好
+  Experience optimization: Refactored river terrain generation; rivers on new maps now generate more naturally and with better continuity.
+  - 已知限制：优化过程中发现 Geological Landforms 的河流地貌会整体替换原版河流生成，这会导致GL的河流在不同地块生成的地图上不连续。如果非常在意连续性，可以在其设置中禁用全部河流地貌并打开原版河流地貌（详见 README 兼容性表）
+    Known limitation: During optimization, it was discovered that Geological Landforms' river features entirely replace vanilla river generation, causing GL rivers to lack continuity across adjacent map tiles. If continuity is a priority, you can disable all GL river features in the settings and enable vanilla river features instead (refer to the compatibility table in the README for details).
 
 TODO（优先级从高到低）
 TODO (Priority Order)
 - （常驻）bug 修复
 (Ongoing) Bug fixes
+- 优化对GL的适配，GL的各种河流生成机制需要单独优化，否则会导致河流断裂
+  Optimized compatibility with GL; the various river generation mechanisms in GL required specific adjustments to prevent river fragmentation.
 - 优化休眠逻辑，允许不超过10个做出过修改的地图（特指进行了建筑增删行为）持久地休眠而不被删除
-- 优化对GL的适配，GL的河流生成机制需要单独优化，否则会导致河流断裂
-Optimize the hibernation logic to allow no more than 10 modified maps (specifically those with added or deleted buildings) to remain in hibernation without being deleted.
+  Optimize the hibernation logic to allow no more than 10 modified maps (specifically those with added or deleted buildings) to remain in hibernation without being deleted.
 - 优化袭击生成逻辑，让袭击生成在已加载地图外边界，而非从当前当前地块对侧已加载地图的边界凭空出现
+  Optimized raid spawning logic so that raids spawn at the outer boundaries of the loaded map area, rather than appearing out of thin air at the boundary of the loaded area directly opposite the current tile.
 
 曾在计划中但调研后放弃
 Previously planned but abandoned after research
