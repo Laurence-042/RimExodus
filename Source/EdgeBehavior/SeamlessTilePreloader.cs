@@ -21,6 +21,16 @@ namespace RimExodus
         /// <summary>已入队的 (originMap, targetWorldTile) 集合，防重复入队。</summary>
         private static readonly HashSet<int> queuedHashes = new HashSet<int>();
 
+        /// <summary>
+        /// 进度提示预热帧门（2026-08-31）：上次入队帧 +2 之前不消费。重操作（快照精简重生成 /
+        /// 原版同步生成 / POI 原生生成）单帧冻结，冻结帧内 OnGUI 无从重绘——进度标签必须先
+        /// 渲染过至少一帧，冻结期间屏幕保持的才是带标签画面。不设门则入队与消费可能落在同一
+        /// 渲染帧（同 tick 的 MapPostTick 消费 / 高速档一帧多 tick / 玩家点击在 OnGUI 事件段入队
+        /// 且该帧 Repaint 已过），玩家看到的就是无标签画面直接卡住（2026-08-31 实测教训）。
+        /// +2 而非 +1：覆盖"OnGUI 事件段入队、首绘在下一帧"的最晚情形（Update 先于 OnGUI）。
+        /// </summary>
+        private static int minConsumeFrame = -1;
+
         private struct PreloadRequest
         {
             public Map originMap;
@@ -42,10 +52,9 @@ namespace RimExodus
             if (queuedHashes.Contains(hash)) return;
             queuedHashes.Add(hash);
             pendingQueue.Add(new PreloadRequest { originMap = originMap, targetWorldTile = targetWorldTile, triggerCell = triggerCell });
-            // 进度提示点亮（2026-08-31）：从入队起显示"生成邻接地图"占位——重操作（快照重生成/
-            // 原版同步生成/POI 原生生成）单帧冻结，冻结帧内 OnGUI 无从重绘，标签必须早一帧点亮，
-            // 冻结期间屏幕保持的正是带标签画面。熄灭条件见 MapGenerationProgressUI.GameComponentTick。
+            // 进度提示点亮（2026-08-31）+ 帧门（标签须先渲染过一帧，见 minConsumeFrame 注释）。
             MapGenerationProgressUI.NotifyQueued();
+            minConsumeFrame = System.Math.Max(minConsumeFrame, UnityEngine.Time.frameCount + 2);
         }
 
         /// <summary>队列中是否还有待处理请求（进度提示的熄灭判据之一）。</summary>
@@ -58,6 +67,8 @@ namespace RimExodus
         public static void ConsumeQueued()
         {
             if (pendingQueue.Count == 0) return;
+            // 帧门（进度提示预热）：标签渲染过至少一帧后才进重操作，见 minConsumeFrame 注释。
+            if (UnityEngine.Time.frameCount < minConsumeFrame) return;
 
             // 快照后清空（消费过程中可能因绑定/刷新产生新的间接请求，下一 tick 再处理）。
             var snapshot = new List<PreloadRequest>(pendingQueue);
