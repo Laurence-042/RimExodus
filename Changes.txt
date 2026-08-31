@@ -66,11 +66,11 @@ TODO (Priority Order)
 - （常驻）bug 修复
 (Ongoing) Bug fixes
 - 优化对GL的适配，GL的各种河流生成机制需要单独优化，否则会导致河流断裂
-  Optimized compatibility with GL; the various river generation mechanisms in GL required specific adjustments to prevent river fragmentation.
+  Optimize GL adaptation; GL's various river generation mechanisms need to be handled separately, otherwise rivers will break at seams.
 - 优化休眠逻辑，允许不超过10个做出过修改的地图（特指进行了建筑增删行为）持久地休眠而不被删除
   Optimize the hibernation logic to allow no more than 10 modified maps (specifically those with added or deleted buildings) to remain in hibernation without being deleted.
-- 优化袭击生成逻辑，让袭击生成在已加载地图外边界，而非从当前当前地块对侧已加载地图的边界凭空出现
-  Optimized raid spawning logic so that raids spawn at the outer boundaries of the loaded map area, rather than appearing out of thin air at the boundary of the loaded area directly opposite the current tile.
+- 优化袭击生成逻辑，让袭击生成在已加载地图外边界，而非从当前地块对侧已加载地图的边界凭空出现
+  Optimize raid spawning logic so that raids will spawn at the outer boundaries of the loaded map area, rather than appearing out of thin air at the boundary of the loaded area directly opposite the current tile.
 
 曾在计划中但调研后放弃
 Previously planned but abandoned after research

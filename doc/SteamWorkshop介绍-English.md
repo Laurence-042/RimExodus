@@ -4,7 +4,7 @@ Say goodbye to the disjointed "exit map → world map → reload" travel loop. R
 
 [img]https://raw.githubusercontent.com/Laurence-042/RimExodus/main/doc/img/demo.gif[/img]
 
-[b]⚠ In development; deep map-system changes — expect bugs in odd places, reports welcome. Before uninstalling, run "Restore vanilla compatibility" in settings and save; the first mod-free load shows harmless one-time red errors, gone after one more save. But map-generation-related limits remain — see the "About uninstalling" post.[/b]
+[b]⚠ In development; deep map-system changes — the save format is now basically stable, and problem reports are welcome. Before uninstalling, run "Restore vanilla compatibility" in settings and save; the first mod-free load shows harmless one-time red errors, gone after one more save. But map-generation-related limits remain — see the "About uninstalling" post.[/b]
 
 [h1]What It Does[/h1]
 
@@ -32,7 +32,7 @@ Shooting across a seam
 [img]https://raw.githubusercontent.com/Laurence-042/RimExodus/main/doc/img/trade.png[/img]
 Trading with a settlement trader
 
-[*][b]Three-state world map icons[/b]: tile icons show active/dormant state live; select a tile to dormify or delete it.
+[*][b]Three-state world map icons[/b]: tile icons show active/dormant state live; select a tile to manually dorm or delete it.
 [/list]
 
 [h1]Mod Compatibility[/h1]
@@ -56,7 +56,7 @@ In theory, anything that doesn't modify base maps (the per-tile maps on the plan
 [list]
 [*][b]RimSkyBlock (Edge of War sky islands)[/b] — its sky-island conversion breaks this mod's map setup, leaving those maps non-seamless, and its movement logic is uninvestigated and may cause extra issues. Not planned, given the tone clash.
 
-[*][b]CE[/b] — of course that means Character Editor. As for Combat Extended… cross-seam shooting isn't supported yet; single-map combat works. Vanilla comes first; cross-seam combat and related mod adaptation later.
+[*][b]CE[/b] — Character Editor is of course compatible. As for Combat Extended… cross-seam shooting isn't supported yet; single-map combat works. Vanilla comes first; cross-seam combat and related mod adaptation later.
 
 [*][b]As above, So below 2[/b] — its map assumptions conflict outright: it must resize and re-split maps, and RimExodus can't keep tile borders smooth under that. The veteran multi-floor mod MultiFloors is adapted, though.
 
