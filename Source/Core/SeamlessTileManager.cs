@@ -430,6 +430,12 @@ namespace RimExodus
                 return null;
             }
 
+            // 精简快照重生成（2026-08-31）：源图缺内存基础快照（旧档/关闭序列化读档）时同步补齐 +
+            // 重建条带快照——新图的 SeamOverride 混合（392）读源图条带快照作参考，缺失则静默跳过
+            // 混合（接缝不连续）。置于三分支（POI 原生/同步逃生/分帧增量）之前统一覆盖。
+            // 幂等：已有快照零成本早退；互斥避让与失败降级见 SeamlessSnapshotRegenerator。
+            SeamlessSnapshotRegenerator.EnsureSourceSnapshot(map, sourceWorldTile);
+
             // 防递归：该 worldTile 已有任意地图（含非直接邻居）则跳过，补登记邻居。
             if (SeamlessTileGraph.TryGetMapByWorldTile(newWorldTile, out var existingMap))
             {
@@ -504,12 +510,14 @@ namespace RimExodus
                     GeneratingNativeSeamlessly = true;
                     NeighborGenerationSourceTile = sourceWorldTile; // 生成方向（Fog patch 接缝揭雾取根）
                     SetGenerationTrigger(triggerCell, map);
+                    MapGenerationProgressUI.BeginSyncOp("RimExodus_SyncMapGenProgress".Translate());
                     try
                     {
                         nativeMap = GetOrGenerateMapUtility.GetOrGenerateMap(new PlanetTile(newWorldTile), mapSize, null);
                     }
                     finally
                     {
+                        MapGenerationProgressUI.EndSyncOp();
                         GeneratingNativeSeamlessly = false;
                         NeighborGenerationSourceTile = -1;
                         ClearGenerationTrigger();
@@ -571,6 +579,7 @@ namespace RimExodus
                 GeneratingNativeSeamlessly = true; // Fog patch 走"从生成方向接缝洪水"分径（同 POI 分支语义）
                 NeighborGenerationSourceTile = sourceWorldTile;
                 SetGenerationTrigger(triggerCell, map);
+                MapGenerationProgressUI.BeginSyncOp("RimExodus_SyncMapGenProgress".Translate());
                 try
                 {
                     syncMap = MapGenerator.GenerateMap(mapSize, mapParent, mapParent.MapGeneratorDef,
@@ -578,6 +587,7 @@ namespace RimExodus
                 }
                 finally
                 {
+                    MapGenerationProgressUI.EndSyncOp();
                     GeneratingNativeSeamlessly = false;
                     NeighborGenerationSourceTile = -1;
                     ClearGenerationTrigger();

@@ -144,14 +144,26 @@ namespace RimExodus
         /// 基础三层快照入存档（2026-08，默认开）：原生 parent 图（家园/原生家族）生成时的
         /// terrain/building/roof 三层快照以紧凑格式随图序列化，供"卸载前恢复原版兼容模式"
         /// 在**任意会话**回填真实地形（无快照只有"就近复制边界地形"降级，观感可能奇怪）。
-        /// 只门控捕获，已捕获数据照存（清除 = 设置 UI 关开关二次确认流程的显式动作）。
-        /// 长玩在意存档体积可关（关时有二次确认警告）。见 <see cref="SeamlessBaseSnapshotData"/>。
+        /// 只门控捕获，已捕获数据照存。关闭只影响"新数据不入档"——内存快照总保留、不再弹
+        /// "删除已有快照"提示（2026-08-31 语义收拢），读档后缺失由
+        /// <see cref="regenerateMissingSnapshots"/> 自动精简重生成补齐；清除 = 卸载恢复流程
+        /// 的显式动作（PurgeAllSnapshots）。长玩在意存档体积可关。见 <see cref="SeamlessBaseSnapshotData"/>。
         /// </summary>
         public bool serializeBaseSnapshots = true;
+
+        /// <summary>
+        /// 生成邻接地图时源图缺内存快照的精简重生成（2026-08-31，默认开）：读档后（旧档或
+        /// <see cref="serializeBaseSnapshots"/> 关闭）源图无基础三层快照 → 在临时 Map 上同步重跑
+        /// order &lt; 389 的地形/岩体/屋顶 genStep 子集得到精简快照，回填源图并重建条带快照
+        /// （新图接缝混合的参考源）。关闭 = 维持旧行为（混合静默跳过，接缝可能不连续）。
+        /// 见 <see cref="SeamlessSnapshotRegenerator"/>。
+        /// </summary>
+        public bool regenerateMissingSnapshots = true;
 
         public override void ExposeData()
         {
             Scribe_Values.Look(ref serializeBaseSnapshots, "serializeBaseSnapshots", true);
+            Scribe_Values.Look(ref regenerateMissingSnapshots, "regenerateMissingSnapshots", true);
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
             Scribe_Values.Look(ref verboseLogging, "verboseLogging", false);
             Scribe_Values.Look(ref tickProfilingEnabled, "tickProfilingEnabled", false);

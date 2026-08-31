@@ -261,8 +261,13 @@ namespace RimExodus
                     SliderRow(listing, "RimExodus_SettingsTickProfileIntervalLabel", "RimExodus_SettingsTickProfileIntervalTip",
                         s.tickProfileIntervalTicks / 60f, 1f, 50f,
                         v => s.tickProfileIntervalTicks = System.Math.Max((int)(v * 60f), 60), "{0:F0}");
-                    // 三层快照序列化开关（2026-08 卸载恢复支撑）：关开关需二次确认 + 可选清除已有快照。
+                    // 三层快照序列化开关（2026-08 卸载恢复支撑）：关闭只影响"新数据不入档"，
+                    // 内存快照总保留、不再弹"删除已有快照"提示（2026-08-31 语义收拢）。
                     SnapshotToggleRow(listing, s);
+                    // 精简快照重生成（2026-08-31）：读档后源图缺快照时生成邻图前自动补齐，
+                    // 接缝混合参考恢复。
+                    CheckRow(listing, "RimExodus_SettingsRegenSnapshotLabel", "RimExodus_SettingsRegenSnapshotTip",
+                        v => s.regenerateMissingSnapshots = v, s.regenerateMissingSnapshots);
                     // 卸载前恢复原版兼容模式（2026-08）：一次性动作，二次确认后执行。
                     if (listing.ButtonText("RimExodus_UninstallRestoreButton".Translate(),
                             "RimExodus_UninstallRestoreButtonTip".Translate()))
@@ -308,9 +313,11 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 三层快照序列化开关行（2026-08）：开→关需二次确认（警告无快照图的卸载恢复只能就近复制回填、
-        /// 观感可能奇怪），确认关闭后若有已序列化快照再询问是否同步清除省体积；关→开直接生效。
-        /// CheckboxLabeled 直接写 ref 本地变量——不落 Settings 即可拦截（取消确认时下帧重绘回勾选态）。
+        /// 三层快照序列化开关行（2026-08；2026-08-31 语义收拢）：开→关需一次确认（警告关闭后
+        /// 卸载恢复只能依赖读档时精简重生成/就地复制降级）；关闭后**不再弹"删除已有快照"提示**——
+        /// 已捕获数据照存、内存快照总保留，读档后缺失由 <see cref="RimExodusSettings.regenerateMissingSnapshots"/>
+        /// 自动精简重生成补齐（显式清除只剩卸载恢复流程）。CheckboxLabeled 直接写 ref 本地变量——
+        /// 不落 Settings 即可拦截（取消确认时下帧重绘回勾选态）。
         /// </summary>
         private static void SnapshotToggleRow(Listing_Standard listing, RimExodusSettings s)
         {
@@ -323,30 +330,12 @@ namespace RimExodus
                 s.serializeBaseSnapshots = true; // 关→开无风险，直接生效。
                 return;
             }
-            // 开→关：二次确认，取消 = 保持开（不写 s，下帧重绘回勾选态）。
+            // 开→关：一次确认，取消 = 保持开（不写 s，下帧重绘回勾选态）。
             Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
                 "RimExodus_SettingsSnapshotDisableConfirm".Translate(), delegate
                 {
                     s.serializeBaseSnapshots = false;
-                    // 第二层：当前存档已有已序列化快照时，询问是否同步清除（下次存档瘦 body）。
-                    if (Current.ProgramState == ProgramState.Playing && AnySerializedSnapshots())
-                    {
-                        Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                            "RimExodus_SettingsSnapshotPurgeConfirm".Translate(),
-                            SeamlessUninstallRestore.PurgeAllSnapshots, destructive: true));
-                    }
                 }, destructive: true));
-        }
-
-        /// <summary>当前存档是否有已序列化的基础快照（决定是否弹"清除已有快照"第二层确认）。</summary>
-        private static bool AnySerializedSnapshots()
-        {
-            foreach (var map in Find.Maps)
-            {
-                if (map?.Parent is MapParent_SeamlessTile) continue;
-                if (map.GetComponent<SeamlessTileManager>()?.baseSnapshotData != null) return true;
-            }
-            return false;
         }
     }
 }

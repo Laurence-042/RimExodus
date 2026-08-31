@@ -83,7 +83,7 @@ namespace RimExodus
             }
         }
 
-        private static void ClearWorkingDataStatic()
+        internal static void ClearWorkingDataStatic()
         {
             clearWorkingDataMethod?.Invoke(null, null);
         }

@@ -47,7 +47,7 @@ namespace RimExodus
         /// 备份全图建筑层快照（格 → 岩石体 BuildingDef，自然岩石 + 矿石，null=无）。遍历 listerThings
         /// 而非逐格 GetEdifice（岩石数量级几千，远小于全图 62500 格）。
         /// </summary>
-        private static ThingDef[] BackupBuildingSnapshot(Map map)
+        internal static ThingDef[] BackupBuildingSnapshot(Map map)
         {
             var defs = new ThingDef[map.Size.x * map.Size.z];
             var indices = map.cellIndices;
@@ -67,7 +67,7 @@ namespace RimExodus
         /// 备份全图屋顶层快照（格 → RoofDef，null=无）。RoofGrid 内部数组私有，逐格 RoofAt
         /// （生成期一次性全图遍历，可接受）。
         /// </summary>
-        private static RoofDef[] BackupRoofSnapshot(Map map)
+        internal static RoofDef[] BackupRoofSnapshot(Map map)
         {
             var defs = new RoofDef[map.Size.x * map.Size.z];
             var indices = map.cellIndices;

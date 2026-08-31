@@ -42,7 +42,14 @@ namespace RimExodus
             if (queuedHashes.Contains(hash)) return;
             queuedHashes.Add(hash);
             pendingQueue.Add(new PreloadRequest { originMap = originMap, targetWorldTile = targetWorldTile, triggerCell = triggerCell });
+            // 进度提示点亮（2026-08-31）：从入队起显示"生成邻接地图"占位——重操作（快照重生成/
+            // 原版同步生成/POI 原生生成）单帧冻结，冻结帧内 OnGUI 无从重绘，标签必须早一帧点亮，
+            // 冻结期间屏幕保持的正是带标签画面。熄灭条件见 MapGenerationProgressUI.GameComponentTick。
+            MapGenerationProgressUI.NotifyQueued();
         }
+
+        /// <summary>队列中是否还有待处理请求（进度提示的熄灭判据之一）。</summary>
+        internal static bool HasPendingRequests => pendingQueue.Count > 0;
 
         /// <summary>
         /// 由 SeamlessTileManager.MapComponentTick 调用：消费队列中所有待处理请求（每 tick 处理一次，可能含多条）。

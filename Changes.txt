@@ -61,6 +61,16 @@ Fixed an intermittent NullReferenceException crash occurring every frame in OnGU
   - 已知限制：优化过程中发现 Geological Landforms 的河流地貌会整体替换原版河流生成，这会导致GL的河流在不同地块生成的地图上不连续。如果非常在意连续性，可以在其设置中禁用全部河流地貌并打开原版河流地貌（详见 README 兼容性表）
     Known limitation: During optimization, it was discovered that Geological Landforms' river features entirely replace vanilla river generation, causing GL rivers to lack continuity across adjacent map tiles. If continuity is a priority, you can disable all GL river features in the settings and enable vanilla river features instead (refer to the compatibility table in the README for details).
 
+0.1.6
+- 修复读取旧存档（或关闭快照入存档后读档）时生成邻接地图接缝地形不连续的问题：生成邻图前若当前地图缺少地形快照，会在一张临时地图上只重跑地形/岩石/屋顶的精简生成来重建快照（每张图一次性几百毫秒），接缝混合参考由此恢复
+  Fixed seam terrain discontinuity on neighboring maps generated after loading older savegames (or with snapshot serialization disabled): if the current map lacks a terrain snapshot before a neighbor map is generated, a lean regeneration (terrain/rock/roof only) runs once on a temporary map to rebuild the snapshot, restoring the seam mixing reference.
+- 调整快照入存档开关的关闭语义：关闭只影响"新快照不再写入存档"，已存数据保留、内存快照常驻，且不再弹出"是否删除已有快照"的二次提示；读档后缺失的快照由上述精简重生成自动补齐
+  Adjusted the snapshot-serialization toggle: turning it off only stops NEW snapshots from being written to the savefile. Existing data is kept, in-memory snapshots always remain, and the "also delete stored snapshots" confirmation no longer appears; snapshots missing after a load are rebuilt automatically by the lean regeneration above.
+- 新增设置项"生成邻接地图时精简重生成缺失的快照"（默认开，可关闭以维持旧行为）
+  New setting "Regenerate missing snapshots when generating neighbor maps" (default ON; can be disabled to keep the old behavior).
+- 进度提示扩展：左上角生成进度条现在也覆盖同步加载阶段（旧存档的快照重建、原版管线的地图生成）——标签在生成开始前一帧点亮，卡顿期间画面上可见"正在做什么"
+  Progress indicator expanded: the top-left generation progress now also covers synchronous loading phases (snapshot rebuild for older saves, vanilla-pipeline map generation) - the label appears one frame before the heavy operation starts, so the frozen frame shows what is happening.
+
 TODO（优先级从高到低）
 TODO (Priority Order)
 - （常驻）bug 修复

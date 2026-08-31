@@ -13,6 +13,9 @@
   <RimExodus_SettlementTraderNoTrade>They have no interest in trading with you.</RimExodus_SettlementTraderNoTrade>
   <RimExodus_SettlementTraderNoStock>Their trade stock is empty right now.</RimExodus_SettlementTraderNoStock>
   <RimExodus_MapGeneratingProgress>Generating map... ({0})</RimExodus_MapGeneratingProgress>
+  <RimExodus_MapGeneratingPending>Generating neighboring map...</RimExodus_MapGeneratingPending>
+  <RimExodus_SyncMapGenProgress>Generating map (vanilla pipeline)...</RimExodus_SyncMapGenProgress>
+  <RimExodus_SnapshotRegenProgress>Rebuilding terrain snapshot (one-time, for older saves)...</RimExodus_SnapshotRegenProgress>
 
   <!-- Settings window (2026-08): grouped UI, all entries carry layman-friendly tooltips. -->
   <RimExodus_SettingsGroupGeneration>Map generation</RimExodus_SettingsGroupGeneration>
@@ -84,19 +87,20 @@ The map you are currently on and your home map are never deleted. Default: 3.</R
 
 This lets the "restore vanilla compatibility before uninstalling" button rebuild the real original terrain on ANY session. Without snapshots, maps without one can only be restored by copying nearby border terrain inward, which can look odd. Costs some savefile size; keep ON if you might ever remove this mod.
 
+Turning this OFF only stops NEW snapshots from being written to the savefile: already-stored snapshots are kept, in-memory snapshots are always kept, and any snapshot missing after a load is rebuilt automatically by the "lean snapshot regeneration" option below.
+
 Default: ON.</RimExodus_SettingsSnapshotTip>
   <RimExodus_SettingsSnapshotDisableConfirm>Stop saving terrain snapshots?
 
-Maps generated from now on will have NO snapshot. If you later run "restore vanilla compatibility before uninstalling", those maps can only be restored by copying nearby border terrain inward - the restored edge terrain may look strange, and rocks/roofs there cannot be restored at all.
+Maps generated from now on will not store their snapshot in the savefile. After loading such a save, seam mixing references are rebuilt automatically by "lean snapshot regeneration" (see the option below), and the uninstall restore uses that rebuilt snapshot - only if regeneration is disabled does it fall back to copying nearby border terrain inward (edge terrain may look strange, rocks/roofs there cannot be restored at all).
 
-Existing snapshots are kept for now (they still work).
+Existing stored snapshots are kept (they still work).
 
 Are you sure?</RimExodus_SettingsSnapshotDisableConfirm>
-  <RimExodus_SettingsSnapshotPurgeConfirm>Also delete the snapshots already stored in this savegame?
+  <RimExodus_SettingsRegenSnapshotLabel>Regenerate missing snapshots when generating neighbor maps</RimExodus_SettingsRegenSnapshotLabel>
+  <RimExodus_SettingsRegenSnapshotTip>When generating a neighboring map, if the current map has no terrain snapshot in memory (after loading an older savegame, or with snapshot serialization turned off), a temporary lean generation (terrain/rock/roof only) is run once to rebuild the snapshot, then the neighbor map is generated normally. This keeps seam mixing working after loading old saves (a brief one-time hitch of a few hundred milliseconds per map).
 
-This frees savefile size on the next save. Maps without a snapshot will only have the degraded (border-copy) restore available if you ever uninstall the mod.
-
-This cannot be undone.</RimExodus_SettingsSnapshotPurgeConfirm>
+Default: ON.</RimExodus_SettingsRegenSnapshotTip>
   <RimExodus_SnapshotPurged>Deleted stored terrain snapshots on {0} map(s). They disappear from the savefile on the next save.</RimExodus_SnapshotPurged>
   <RimExodus_UninstallRestoreButton>Restore vanilla compatibility (before uninstalling)</RimExodus_UninstallRestoreButton>
   <RimExodus_UninstallRestoreButtonTip>One-time action. Prepares the current savegame so RimExodus can be safely removed:

@@ -13,6 +13,9 @@
   <RimExodus_SettlementTraderNoTrade>他们没有与你交易的意愿。</RimExodus_SettlementTraderNoTrade>
   <RimExodus_SettlementTraderNoStock>他们现在没有可交易的商品。</RimExodus_SettlementTraderNoStock>
   <RimExodus_MapGeneratingProgress>正在生成地图……（{0}）</RimExodus_MapGeneratingProgress>
+  <RimExodus_MapGeneratingPending>正在生成邻接地图……</RimExodus_MapGeneratingPending>
+  <RimExodus_SyncMapGenProgress>正在生成地图（原版管线）……</RimExodus_SyncMapGenProgress>
+  <RimExodus_SnapshotRegenProgress>正在重建地形快照（旧存档一次性补齐）……</RimExodus_SnapshotRegenProgress>
 
   <!-- 设置窗口（2026-08）：分组 UI，全部条目带面向零基础玩家的 tooltip。 -->
   <RimExodus_SettingsGroupGeneration>地图生成</RimExodus_SettingsGroupGeneration>
@@ -84,19 +87,20 @@
 
 这样"卸载前恢复原版兼容模式"按钮在任何时候（包括读档后）都能按真实原始地形恢复。没有快照的图只能用"就近复制边界地形"降级恢复，观感可能奇怪，岩石与屋顶也无法恢复。会增大存档体积；只要将来有可能卸载本 mod 就建议保持开启。
 
+关闭本开关只会让**新快照不再写入存档**：已存的快照照存、内存中的快照始终保留、读档后缺失的快照由下方"精简重生成缺失快照"选项自动补齐。
+
 默认：开。</RimExodus_SettingsSnapshotTip>
   <RimExodus_SettingsSnapshotDisableConfirm>确定停止保存地形快照？
 
-从现在起新生成的图将没有快照。之后若运行"卸载前恢复原版兼容模式"，这些图只能用"就近复制边界地形"降级恢复——恢复出的边缘地形可能看起来很奇怪，且该区域的岩石与屋顶完全无法恢复。
+从现在起新生成的图不再把快照写入存档。读档后接缝混合参考会由"精简重生成缺失快照"自动重建（见下方选项），卸载恢复也会使用重建出的快照——只有该选项也关闭时才会退回"就近复制边界地形"降级恢复（边缘地形可能奇怪，岩石与屋顶完全无法恢复）。
 
-已有的快照暂时保留（仍然可用）。
+已存的快照保留（仍然可用）。
 
 确定吗？</RimExodus_SettingsSnapshotDisableConfirm>
-  <RimExodus_SettingsSnapshotPurgeConfirm>是否同时删除当前存档中已保存的快照？
+  <RimExodus_SettingsRegenSnapshotLabel>生成邻接地图时精简重生成缺失的快照</RimExodus_SettingsRegenSnapshotLabel>
+  <RimExodus_SettingsRegenSnapshotTip>生成邻接地图时，若当前地图内存中没有地形快照（旧存档读档后、或关闭了快照入存档），先在一张临时地图上只跑地形/岩石/屋顶的精简生成重建快照，再正常生成邻图。这保证旧存档读档后接缝混合仍然生效（每张图一次性卡顿几百毫秒）。
 
-下次存档起体积回落。没有快照的图在将来卸载 mod 时只有降级（边界复制）恢复可用。
-
-此操作不可撤销。</RimExodus_SettingsSnapshotPurgeConfirm>
+默认：开。</RimExodus_SettingsRegenSnapshotTip>
   <RimExodus_SnapshotPurged>已删除 {0} 张图的已存快照，下次存档起从存档中消失。</RimExodus_SnapshotPurged>
   <RimExodus_UninstallRestoreButton>恢复原版兼容模式（卸载前）</RimExodus_UninstallRestoreButton>
   <RimExodus_UninstallRestoreButtonTip>一次性动作。把当前存档整理成卸载 RimExodus 后仍可正常游玩的状态：
