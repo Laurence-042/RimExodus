@@ -3,7 +3,7 @@
   <!-- 无缝地块边界禁区：多边形边内侧 N 格禁建，防接缝卡位 exploit。 -->
   <RimExodus_BorderNoBuild>不能在无缝地块边界禁区内建造。</RimExodus_BorderNoBuild>
 
-  <!-- 据点贸易商对话（2026-08 Settlement 无缝接入）。 -->
+  <!-- 派系基地贸易商对话（2026-08 Settlement 无缝接入；官方简中 Settlement=派系基地）。 -->
   <RimExodus_TalkToSettlementTrader>与{0}交谈</RimExodus_TalkToSettlementTrader>
   <RimExodus_SettlementTraderBusy>{0}现在无法交谈。</RimExodus_SettlementTraderBusy>
   <RimExodus_SettlementTraderNoPath>无法走到贸易商身边。</RimExodus_SettlementTraderNoPath>
@@ -28,7 +28,7 @@
   <RimExodus_SettingsBorderNoBuildLabel>边界禁建距离：{0} 格</RimExodus_SettingsBorderNoBuildLabel>
   <RimExodus_SettingsBorderNoBuildTip>沿地图边缘的一条禁区宽度（格）：此范围内不能建造，以保持相邻地图之间穿越点的畅通。默认值：3。</RimExodus_SettingsBorderNoBuildTip>
   <RimExodus_SettingsIncrementalLabel>分帧渐进生成地图</RimExodus_SettingsIncrementalLabel>
-  <RimExodus_SettingsIncrementalTip>新的相邻地图在多个帧内渐进生成：游戏持续运行，仅在生成期间有轻微卡顿；关闭则使用原版的一次性生成器，地图生成完成前游戏完全冻结、无法操作。\n\n如果其他修改地图生成的 mod 出现异常，请关闭本项——RimExodus 届时改走原版生成管线，其他 mod 对地图生成的改动将照常生效（代价即上述的原版式冻结）。只影响普通地形地图；据点等兴趣点无论开关如何都走原版管线。默认：开启。</RimExodus_SettingsIncrementalTip>
+  <RimExodus_SettingsIncrementalTip>新的相邻地图在多个帧内渐进生成：游戏持续运行，仅在生成期间有轻微卡顿；关闭则使用原版的一次性生成器，地图生成完成前游戏完全冻结、无法操作。\n\n如果其他修改地图生成的 mod 出现异常，请关闭本项——RimExodus 届时改走原版生成管线，其他 mod 对地图生成的改动将照常生效（代价即上述的原版式冻结）。只影响普通地形地图；派系基地等兴趣点无论开关如何都走原版管线。默认：开启。</RimExodus_SettingsIncrementalTip>
   <RimExodus_SettingsBatchSizeLabel>生成批次大小：{0} 格/帧</RimExodus_SettingsBatchSizeLabel>
   <RimExodus_SettingsBatchSizeTip>分帧渐进生成运行时每帧处理多少格（仅在分帧渐进生成开启时有意义）。\n\n调大 = 地图更快出现，但每一帧更重（卡顿更明显）。默认值：64。</RimExodus_SettingsBatchSizeTip>
 
@@ -77,6 +77,10 @@
   <RimExodus_DeleteTileMap>删除此地图</RimExodus_DeleteTileMap>
   <RimExodus_DeleteTileMapDesc>将此地图从内存中彻底移除。重访该世界地块时会从头重新生成——在此建造或遗留的一切都会丢失。</RimExodus_DeleteTileMapDesc>
   <RimExodus_DeleteTileMapConfirm>删除"{0}"的地图？\n\n其上的一切都将丢失。重访该地块时会从头重新生成。</RimExodus_DeleteTileMapConfirm>
+  <!-- 原生家族 POI 图删除（2026-09）：原版地点语义 + 阻挡灰显原因。 -->
+  <RimExodus_DeletePoiMapDesc>将此地图从内存中移除。地点对象本身按原版规则处理：派系基地保留在世界地图上，再次靠近时重新生成驻军；其余地点（伏击、战场、已摧毁的基地等）会连同其世界图标一并移除。图上存在单位或运输舱时无法删除。</RimExodus_DeletePoiMapDesc>
+  <RimExodus_DeletePoiMapConfirm>删除"{0}"的地图？\n\n地图将从内存中移除。地点对象本身按原版规则处理：派系基地保留在世界地图上、再次靠近时重新生成；其余地点（伏击、战场等）会连同其世界图标一并移除。</RimExodus_DeletePoiMapConfirm>
+  <RimExodus_DeletePoiMapBlocked>无法删除：图上有阻碍移除的单位或运输舱（原版规则）。</RimExodus_DeletePoiMapBlocked>
   <!-- 分帧生成期间存档（2026-08）：生成完成前拒绝。 -->
   <RimExodus.SaveBlockedDuringGenerationLabel>存档已被拒绝</RimExodus.SaveBlockedDuringGenerationLabel>
   <RimExodus.SaveBlockedDuringGeneration>存档已被拒绝：相邻地图正在生成中。\n\n请勿在地图加载过程中存档来测试本mod可靠性——这个mod的作者已经深刻理解到它的不可靠了。\n\n几秒后生成完成，届时即可正常存档。</RimExodus.SaveBlockedDuringGeneration>

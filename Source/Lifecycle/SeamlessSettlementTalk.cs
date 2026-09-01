@@ -274,6 +274,11 @@ namespace RimExodus
                     Log.Message("[RimExodus] TraderDialog: settlement gizmo filtered (show map).");
                     continue;
                 }
+                if (command is Command_ManualDormancy) // 手动休眠/删除是地图生命周期操作，不进"远行者"面板（按标记类型过滤，不靠 label 匹配）。
+                {
+                    Log.Message("[RimExodus] TraderDialog: settlement gizmo filtered (manual dormancy).");
+                    continue;
+                }
                 Log.Message($"[RimExodus] TraderDialog: settlement gizmo '{command.LabelCap}' ({command.GetType().Name})" +
                             (command.Disabled ? $" DISABLED: {command.disabledReason}" : " enabled") + ".");
                 node.options.Add(CommandToOption(command, delegate { command.ProcessInput(Event.current); }));

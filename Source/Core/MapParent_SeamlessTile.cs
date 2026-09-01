@@ -100,7 +100,9 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 玩家在世界地图上的主动生命周期 gizmo（2026-08）：
+        /// 玩家在世界地图上的主动生命周期 gizmo（2026-08；2026-09 逻辑唯一出处移至
+        /// <see cref="SeamlessManualDormancyGizmos"/>，本覆写只保留地块图挂点——原生家族 POI 图由
+        /// <c>Patch_MapParent_GetGizmos_ManualDormancy</c> Postfix 提供同一套 gizmo）：
         /// - 活跃非家园图 → "休眠此图"（登记手动休眠锁，governor 不再按距离唤醒，只有玩家
         ///   主动进图 / pawn 被命令接近其接缝时唤醒）；
         /// - 休眠图 → "删除此图"（确认后走 <see cref="SeamlessTileManager.RemoveRollingMap"/>，
@@ -114,53 +116,9 @@ namespace RimExodus
                 yield return gizmo;
             }
 
-            var map = Map;
-            if (map == null || map.Disposed) yield break;
-            if (!SeamlessMapGovernance.IsGoverned(map)) yield break;
-            if (SeamlessMapGovernance.IsProtectedHome(map)) yield break; // 家园特权：不休眠不删除。
-            if (IncrementalMapGenerator.IsGenerating(map)) yield break; // 分帧生成中不可干预。
-
-            if (SeamlessDormancyManager.IsDormant(map))
+            foreach (var gizmo in SeamlessManualDormancyGizmos.ForParent(this))
             {
-                var delete = new Command_Action
-                {
-                    defaultLabel = "RimExodus_DeleteTileMap".Translate(),
-                    defaultDesc = "RimExodus_DeleteTileMapDesc".Translate(),
-                    icon = TileWorldIcons.DeleteCommandIcon,
-                    alsoClickIfOtherInGroupClicked = false,
-                    action = delegate
-                    {
-                        // 销毁 Map+WorldObject（"从未出现过"，下次进入走生成链重建）。确认防误触。
-                        Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                            "RimExodus_DeleteTileMapConfirm".Translate(Label), delegate
-                        {
-                            var manager = map.GetComponent<SeamlessTileManager>();
-                            manager?.RemoveRollingMap(this);
-                        }, destructive: true));
-                    },
-                };
-                yield return delete;
-            }
-            else
-            {
-                bool isCurrentMap = map == Find.CurrentMap;
-                var sleep = new Command_Action
-                {
-                    defaultLabel = "RimExodus_SleepTileMap".Translate(),
-                    defaultDesc = "RimExodus_SleepTileMapDesc".Translate(),
-                    icon = TileWorldIcons.SleepCommandIcon,
-                    alsoClickIfOtherInGroupClicked = false,
-                    action = delegate
-                    {
-                        SeamlessDormancyManager.Sleep(map, "player gizmo (world map)", manual: true);
-                    },
-                };
-                if (isCurrentMap)
-                {
-                    // CurrentMap 是 governor 无条件保活项——睡着会立刻被视作异常，玩家须先切走再睡。
-                    sleep.Disable("RimExodus_SleepTileMapDisabledCurrentMap".Translate());
-                }
-                yield return sleep;
+                yield return gizmo;
             }
         }
 

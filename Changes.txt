@@ -71,6 +71,18 @@ Fixed an intermittent NullReferenceException crash occurring every frame in OnGU
 - 进度提示扩展：左上角生成进度条现在也覆盖同步加载阶段（旧存档的快照重建、原版管线的地图生成）——标签在生成开始前一帧点亮，卡顿期间画面上可见"正在做什么"
   Progress indicator expanded: the top-left generation progress now also covers synchronous loading phases (snapshot rebuild for older saves, vanilla-pipeline map generation) - the label appears one frame before the heavy operation starts, so the frozen frame shows what is happening.
 
+0.1.7
+- 世界地图上选中已生成地图的派系基地等地点对象时，现在也可以手动休眠/删除（此前仅无缝地块图支持）。删除按原版规则处理：派系基地删图后世界对象保留、再次靠近时重新生成驻军，其余地点（伏击、战场等）连对象一并移除；图上有殖民者/运输舱等阻碍移除的单位时删除不可用（按钮灰显并提示原因）
+  Faction bases and other location objects with generated maps on the world map can now be manually suspended/deleted (previously only seamless tile maps had this). Deletion follows vanilla rules: faction bases keep their world object and regenerate their garrison when revisited, while other locations (ambushes, battlefields, etc.) are removed entirely; deletion is unavailable (button greyed out with a reason) while pawns or transporters block map removal.
+- 玩家可见中文文案统一为官方译名（Settlement=派系基地）
+  Player-facing Chinese texts now follow RimWorld's official localization terms (e.g., Settlement = 派系基地).
+- 修复 Perspective Shift 第一人称模式下持续按住方向跨缝时，在两张地图间来回弹射的问题
+  Fixed pawns bouncing back and forth between two maps when holding a movement direction across a seam in Perspective Shift first-person mode.
+- 修复生成进度标签偶尔完全来不及显示、卡顿期间画面上没有任何提示的问题
+  Fixed a race where the generation progress label could be skipped entirely (queuing and consumption on the same frame), leaving a frozen screen with no indication of what was happening.
+- 添加商队在地图边界卡住无法撤离时的详细诊断日志（verbose 开启时输出）
+  Added detailed verbose logging for diagnosing caravans getting stuck at map borders and failing to evacuate (player report follow-up).
+
 TODO（优先级从高到低）
 TODO (Priority Order)
 - （常驻）bug 修复

@@ -77,6 +77,10 @@ The map you are currently on and your home map are never deleted. Default: 3.</R
   <RimExodus_DeleteTileMap>Delete this map</RimExodus_DeleteTileMap>
   <RimExodus_DeleteTileMapDesc>Remove this map from memory entirely. Revisiting this world tile will regenerate it from scratch - everything built or left here will be lost.</RimExodus_DeleteTileMapDesc>
   <RimExodus_DeleteTileMapConfirm>Delete the map at "{0}"?\n\nEverything on it will be lost. Revisiting the tile will regenerate it from scratch.</RimExodus_DeleteTileMapConfirm>
+  <!-- Native-family POI map delete (2026-09): vanilla-location semantics + blocker disable reason. -->
+  <RimExodus_DeletePoiMapDesc>Remove this map from memory. The location itself follows vanilla rules: settlements stay on the world map and their garrison regenerates when revisited; other locations (ambushes, battlefields, destroyed settlements) are removed together with their world icon. Pawns or transporters on the map can block deletion.</RimExodus_DeletePoiMapDesc>
+  <RimExodus_DeletePoiMapConfirm>Delete the map at "{0}"?\n\nThe map is removed from memory. The location itself follows vanilla rules: settlements stay on the world map and regenerate when revisited; other locations (ambushes, battlefields) are removed together with their world icon.</RimExodus_DeletePoiMapConfirm>
+  <RimExodus_DeletePoiMapBlocked>Cannot delete: pawns or transporters on this map block its removal (vanilla rules).</RimExodus_DeletePoiMapBlocked>
   <!-- Save during incremental map generation (2026-08): rejected until generation completes. -->
   <RimExodus.SaveBlockedDuringGenerationLabel>Save rejected</RimExodus.SaveBlockedDuringGenerationLabel>
   <RimExodus.SaveBlockedDuringGeneration>Save rejected: a neighboring map is still being generated.\n\nPlease do not save during map generation to test this mod's reliability. Its author has already gained a profound understanding of how unreliable it is.\n\nSaving will work normally again in a few seconds, once generation finishes.</RimExodus.SaveBlockedDuringGeneration>
