@@ -152,6 +152,15 @@ namespace RimExodus
             var grant = Create(pawn, GrantKind.Evacuation);
             grant.Locomotion = evacJob.locomotionUrgency;
             grant.VisitedTiles = new HashSet<int> { SeamlessTileRegistry.GetMapWorldTile(pawn.Map) };
+
+            // 2026-09 插桩（"caravans stuck on the border"排查）：记录离场者身份（lord 类型 + duty）——
+            // 撤离链对袭击者撤退与访客/商队离场一视同仁（一切 exitMapOnArrival 且非 playerForced 的 job），
+            // 本行用于区分"谁在离场"：LordJob_TradeWithColony / LordJob_VisitColony / 无 lord（游荡）等。
+            // 日志统一走 [caravan-exit] 标签（2026-09 规范化：玩家日志里一眼可辨是商队/访客离场链行为）。
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] [caravan-exit] Evacuation grant: {pawn.LabelShort} ({pawn.Faction?.Name ?? "no-faction"}) on map {pawn.Map.uniqueID} "
+                    + $"lord={pawn.GetLord()?.LordJob?.GetType().Name ?? "none"} duty={pawn.mindState?.duty?.def.defName ?? "none"} "
+                    + $"locomotion={evacJob.locomotionUrgency}.");
         }
 
         /// <summary>
@@ -357,6 +366,12 @@ namespace RimExodus
             {
                 // 极端兜底：本图无任何可达出口（孤立地形）。不登记，交还原版 think tree；
                 // Grant 已消费，后续 job 启动不会误触发。
+                // 2026-09 插桩：think tree 的 JobGiver_ExitMap 在同口径下也找不到出口时返回 null
+                // → pawn 永久站桩在落地邻图的接缝带（"stuck on the border"候选之一），此行是唯一痕迹。
+                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    Log.Message($"[RimExodus] [caravan-exit] Evacuation chain stuck: {pawn.LabelShort} landed on map {arrivalMap.uniqueID} "
+                        + "but NO reachable exit spot found — pawn left to vanilla think tree (likely idle at seam). "
+                        + $"leftLord={grant.PrevLordJob?.GetType().Name ?? "none"}");
                 return;
             }
 
@@ -368,7 +383,7 @@ namespace RimExodus
             next.ForceExit = forceExit;
 
             if (RimExodusMod.Settings?.verboseLogging ?? false)
-                Log.Message($"[RimExodus] Evacuation chain: {pawn.LabelShort} continues on map {arrivalMap.uniqueID} "
+                Log.Message($"[RimExodus] [caravan-exit] Evacuation chain: {pawn.LabelShort} continues on map {arrivalMap.uniqueID} "
                     + $"toward exit {destSpot} (forceExit={forceExit}, visited={visited.Count}).");
 
             IssueTransitGoto(pawn, destSpot, grant.Locomotion);
@@ -409,6 +424,22 @@ namespace RimExodus
                     forceExit = tier == 2;
                     return true;
                 }
+            }
+
+            // 2026-09 插桩（"caravans stuck on the border"排查）：三级候选全灭时统计口径——
+            // 区分"spot 全部从 pawn 位置不可达"（地形封闭/被围）与"仅因 visited/对端已加载被排除"。
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            {
+                var unreachable = 0;
+                var standable = 0;
+                foreach (var (cell, _, _) in candidates)
+                {
+                    if (!cell.Standable(map)) continue;
+                    standable++;
+                    if (!map.reachability.CanReach(pawn.Position, cell, PathEndMode.OnCell, traverseParms)) unreachable++;
+                }
+                Log.Message($"[RimExodus] [caravan-exit] Evacuation exit search failed: no exit for {pawn.LabelShort} on map {map.uniqueID} "
+                    + $"(spots total={candidates.Count} standable={standable} standableButUnreachable={unreachable} visitedTiles={visited.Count}).");
             }
             return false;
         }

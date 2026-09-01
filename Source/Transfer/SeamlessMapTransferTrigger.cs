@@ -145,7 +145,14 @@ namespace RimExodus
         {
             if (!comp.hasArrival || !SeamlessTileGraph.TryGetMapByWorldTile(comp.targetWorldTile, out var arrivalMap))
             {
-                // 对端已卸载（许可登记后邻居被移除）：跟丢，许可作废。
+                // 对端已卸载（许可登记后邻居被移除/休眠）：跟丢，许可作废。
+                // 2026-09 插桩：作废后 TransitGoto 走到终点即站住，靠 think tree 自谋出路——
+                // NPC 战斗体外的 pawn（商队驮兽/盟友随从）不进 StrayNpcs 宽限，是"卡在边界"候选之一。
+                // 日志统一走 [caravan-exit] 标签（2026-09 用户报告 "caravans stuck on the border"
+                // 排查：玩家日志里一眼可辨是商队/访客离场链行为；成因证据不足，仅插桩不改行为）。
+                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    Log.Message($"[RimExodus] [caravan-exit] {grant.Kind} grant dropped: pawn {pawn.LabelShort} at {thing.Position} "
+                        + $"on map {map.uniqueID} — opposite map unloaded/dormant; pawn will idle at seam until think tree re-decides.");
                 SeamlessTransferGrants.Remove(pawn);
                 return;
             }
@@ -179,7 +186,7 @@ namespace RimExodus
             if (comp.hasArrival && !grant.ForceExit && SeamlessTileGraph.TryGetMapByWorldTile(comp.targetWorldTile, out var arrivalMap))
             {
                 if (RimExodusMod.Settings?.verboseLogging ?? false)
-                    Log.Message($"[RimExodus] Seamless trigger (Evacuation): pawn {pawn.LabelShort} at {thing.Position} "
+                    Log.Message($"[RimExodus] [caravan-exit] Evacuation transfer: pawn {pawn.LabelShort} at {thing.Position} "
                         + $"on map {map.uniqueID} continues evacuation toward map {arrivalMap.uniqueID}");
 
                 if (SeamlessMapTransfer.TryTransferPawn(pawn, thing, arrivalMap, comp.cachedArrivalCell, grant, out _))
@@ -187,12 +194,27 @@ namespace RimExodus
                     SeamlessTransferGrants.Remove(pawn);
                     AfterTransfer(pawn, map, thing, arrivalMap, grant);
                 }
+                else
+                {
+                    // 2026-09 插桩（"caravans stuck on the border"排查）：传送被拒（拒绝原因见上方 Warning），
+                    // grant 保留。后续行为按驱动方式分叉：原版 flag job 驱动（SelfDriven=false）有
+                    // JobDriver pre-tick IsExitCell 兜底（站上格即原生离场）；SelfDriven 续程 job
+                    // 不带 flag → 到站站住 → think tree 重发 flag job → 走向同一 spot → 再拒 →
+                    // 循环（站桩/踱步）——本日志区分两者。
+                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                        Log.Message($"[RimExodus] [caravan-exit] Evacuation transfer rejected: pawn {pawn.LabelShort} at {thing.Position} "
+                        + $"on map {map.uniqueID}; selfDriven={grant.SelfDriven} "
+                        + (grant.SelfDriven ? "(no exit fallback on arrival — watch for idle loop at seam)" : "(flag job pre-tick will exit vanilla)"));
+                }
                 return;
             }
 
             if (grant.SelfDriven || grant.ForceExit)
             {
                 // 续程 Goto 不带 exitMapOnArrival（防落地瞬间原生离场），离场动作由这里补上。
+                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    Log.Message($"[RimExodus] [caravan-exit] Evacuation force-exit: pawn {pawn.LabelShort} at {thing.Position} on map {map.uniqueID} "
+                        + $"exits map now (selfDriven={grant.SelfDriven}, forceExit={grant.ForceExit}).");
                 pawn.ExitMap(allowedToJoinOrCreateCaravan: true, CellRect.WholeMap(map).GetClosestEdge(pawn.Position));
                 SeamlessTransferGrants.Remove(pawn);
                 return;
@@ -200,6 +222,9 @@ namespace RimExodus
 
             // 原版 flag job 驱动 + 对端未生成：交还原生——JobDriver pre-tick 在此出口格原生撤离
             //（行为表"踩传送点(未生成) = 原生撤离（视为跑出视野）"）。许可保留至 job 结束被 StartJob 清理。
+            if (RimExodusMod.Settings?.verboseLogging ?? false)
+                Log.Message($"[RimExodus] [caravan-exit] Evacuation vanilla handoff: pawn {pawn.LabelShort} at {thing.Position} on map {map.uniqueID} "
+                    + "— opposite not loaded, JobDriver pre-tick will despawn (exits as world pawn).");
         }
 
         /// <summary>传送成功后的公共收尾：相机聚焦、选中恢复、传送完成事件（续程 + 追击/跟随扫描）。</summary>
