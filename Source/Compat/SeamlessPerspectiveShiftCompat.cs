@@ -28,9 +28,18 @@ namespace RimExodus
     /// governor sweep/追击者扫描全复用；相机由 PS 锁 avatar 跟随 pawn 对象自然切换）。
     /// 对端未生成不即席生成（与战斗踩点资格同口径：预加载兜底，玩家走近的过程即生成过程）。
     ///
-    /// 防镜像回传：传送落点（cachedArrivalCell）本身就是对端传送圈上的 spot 格，落地帧的"换格"
-    /// 若不豁免会立刻在对端登记新 Grant 传回去。豁免口径 = 换格同时换图（跨图传送的 DeSpawn/Spawn
-    /// 必然伴随 Map 变化）→ 只重置基线不处理。连续穿多张图（每图踩下一 spot）不受影响。
+    /// 防镜像回传（两层）：传送落点（cachedArrivalCell）本身就是对端接缝带上的 spot 格，仅靠
+    /// "落地帧豁免"（第一层：换图帧只重置基线不处理）不够——落地带内的后续踩点仍会被当成新的
+    /// 跨缝意图，把 pawn 弹到同一世界位置的镜像格，恒定按住方向下形成沿缝振荡（2026-09 实测：
+    /// 家园图↔邻图连环弹射、Throttle 刷屏、影子 scrub 副产物）。第二层 = **方向意图门**（用户
+    /// 方案 2026-09，rev3 符号修正）：只在命令方向与邻居链 offsetDir（本图中心→对侧中心，实测
+    /// 传送对数值定案的方向契约）同向的点积 ≥ MinCrossSeamDot 时才触发传送。非 PS 流不需要此门
+    /// ——其传送许可由跨图移动命令开启、传送完成即消耗（一次性意图语义）；PS 流移动连续、"踩点"
+    /// 会反复成立，用命令方向重建同等的一次性语义。恒定按住方向时，传送后该方向相对新图恒为
+    /// 向内 → 带内后续踩点全不触发，pawn 自然走进图内；玩家真掉头立即放行（无重新武装代价）；
+    /// 沿缝平行移动（分量≈0）不触发——平行于缝的移动本就不是跨缝意图。数据全现成、零多边形
+    /// 计算：命令方向 = PS 的 moveInput（其 ProcessMovement 直接把它加到 physicsPosition 上 =
+    /// 实际位移方向）；接缝法线 = 邻居表 offset（中心连线 ⟂ 共享边，见 TryGetCrossSeamDot）。
     ///
     /// 绑定纪律（AGENTS：手动绑定必须 try/catch，兼容绝不杀死 mod；离线验证器不覆盖手动绑定）：
     /// 软反射检测 mod 已加载（未装 = available=false 短路零开销零红字，SeamlessLandformsCompat 同款）；
@@ -43,6 +52,7 @@ namespace RimExodus
         private static bool _initialized;
         private static FieldInfo _pawnField;
         private static FieldInfo _physicsPositionField;
+        private static FieldInfo _moveInputField;
         private static PropertyInfo _stateAvatarProp;
 
         /// <summary>每 pawn 上次处理的格 + 所在图（只对换格帧做正事；跨图换格只重置基线）。</summary>
@@ -83,6 +93,9 @@ namespace RimExodus
                 var processMovement = AccessTools.Method(avatarType, "ProcessMovement");
                 _pawnField = AccessTools.Field(avatarType, "pawn");
                 _physicsPositionField = AccessTools.Field(avatarType, "physicsPosition");
+                // moveInput（方向意图门用）：拿不到不算绑定失败——门 fail-open 放行（维持旧行为），
+                // 只是丧失防镜像第二层（ReadAvatarMoveInput 返回 zero → TryGetCrossSeamDot 放行）。
+                _moveInputField = AccessTools.Field(avatarType, "moveInput");
                 // State.Avatar 静态属性（FocusIfAvatarAboard 取 avatar pawn 用；拿不到 = 该功能降级，其余不受影响）。
                 _stateAvatarProp = AccessTools.Property(AccessTools.TypeByName("PerspectiveShift.State"), "Avatar");
                 var postfix = AccessTools.Method(typeof(SeamlessPerspectiveShiftCompat), nameof(ProcessMovementPostfix));
@@ -94,7 +107,9 @@ namespace RimExodus
 
                 harmony.Patch(processMovement, postfix: new HarmonyMethod(postfix));
                 _initialized = true;
-                Log.Message("[RimExodus] PS compat: bound Avatar.ProcessMovement postfix (PerspectiveShift WASD movement joins seamless world).");
+                // 修订标记（rev N: 机制名）= 加载验证标志（2026-09 教训：三轮实测全跑在旧二进制上——
+                // 测试前必须先在启动日志确认本行含当前 rev 标记，否则观察结果无效）。
+                Log.Message("[RimExodus] PS compat: bound Avatar.ProcessMovement postfix (PerspectiveShift WASD movement joins seamless world) (rev 4: direction intent gate).");
 
                 // PS×VF 驾驶（2026-08）：avatar 进舱当驾驶员后 UpdatePhysics 走车内分支先 return——
                 // ProcessMovement 不再跑（步行 Postfix 静默），WASD 由 PS 的 ModCompatibility.
@@ -160,7 +175,7 @@ namespace RimExodus
                 TryPreloadAt(vehicle, map, cell);
 
                 // ② 踩传送点即席 Bridge 传送（对端活跃才触发；不即席生成，预加载兜底）。
-                TryVehicleCrossSeamAt(vehicle, map, cell);
+                TryVehicleCrossSeamAt(vehicle, map, cell, inputDir);
             }
             catch (Exception ex)
             {
@@ -168,8 +183,8 @@ namespace RimExodus
             }
         }
 
-        /// <summary>PS 驾驶的载具踩传送点且对端活跃 → 即席 Bridge Grant + 既有分派链传送。</summary>
-        private static void TryVehicleCrossSeamAt(Pawn vehicle, Map map, IntVec3 cell)
+        /// <summary>PS 驾驶的载具踩传送点且对端活跃 → 即席 Bridge Grant + 既有分派链传送（inputDir = WASD 命令方向，方向意图门用）。</summary>
+        private static void TryVehicleCrossSeamAt(Pawn vehicle, Map map, IntVec3 cell, Vector3 inputDir)
         {
             if (!SeamlessBoundaryRules.IsCrossMapOrderable(vehicle)) return;
 
@@ -186,6 +201,16 @@ namespace RimExodus
 
                 // 对端未生成/未加载：不即席生成（与 avatar 步行/战斗踩点资格同口径）。
                 if (!comp.hasArrival || !SeamlessTileGraph.TryGetMapByWorldTile(comp.targetWorldTile, out _)) return;
+
+                // 方向意图门（与 avatar 步行同款，rev4 定稿；方向用 postfix 现成的 inputDir 参数，零反射）。
+                if (TryGetCrossSeamDot(map, comp.targetWorldTile, inputDir, out var vCrossDot)
+                    && vCrossDot < MinCrossSeamDot)
+                {
+                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                        Log.Message($"[RimExodus] PS compat: PS-driven vehicle {vehicle.LabelShort} stepped on spot {thing.Position} on map {map.uniqueID} "
+                            + $"but movement is not crossing outward (dot={vCrossDot:F2} < {MinCrossSeamDot:F2}) — not transferring.");
+                    return;
+                }
 
                 // 驾驶意图由"玩家操纵载具驶上传送点"本身保证。Grant 不带 NextJob/FinalDest：
                 // 传送后 ContinueBridgeMove no-op，玩家继续 WASD 驾驶（对载具下发续程 Goto 会脱离
@@ -263,6 +288,56 @@ namespace RimExodus
             SeamlessTilePreloader.QueuePreload(map, worldTile, cell);
         }
 
+        /// <summary>
+        /// 方向意图门阈值 = **噪声地板**（用户定夺 2026-09 rev4：曾有 0.5 的"意图角"版本实测把
+        /// dot=+0.24 的真实斜向跨越拦在缝上三十多格——阈值并非防振荡所需，防振荡由镜像对称
+        /// 保证：对侧 offsetDir 恒为本侧反向量，同一恒定方向的点积两侧互为相反数，恒定方向
+        /// 数学上不可能双侧过门，任意正值阈值皆然）。现值只排除数值噪声与严格平行（dot≈0），
+        /// 只要命令方向带正向跨缝分量就触发；真掉头立即放行同样成立。
+        /// </summary>
+        private const float MinCrossSeamDot = 0.05f;
+
+        /// <summary>
+        /// avatar 当前 WASD 命令向量（世界轴）。moveInput 正是 PS 在 ProcessMovement 里直接加到
+        /// physicsPosition 上的向量——按定义就是实际位移方向，无需另行推导。反射漂移/类型变更 →
+        /// zero（TryGetCrossSeamDot 对零向量 fail-open 放行，绝不因反射失败卡死过缝）。
+        /// </summary>
+        private static Vector3 ReadAvatarMoveInput(object avatarInstance)
+        {
+            try
+            {
+                return _moveInputField != null && avatarInstance != null
+                    ? (Vector3)_moveInputField.GetValue(avatarInstance)
+                    : Vector3.zero;
+            }
+            catch
+            {
+                return Vector3.zero;
+            }
+        }
+
+        /// <summary>
+        /// 方向意图门核心：算命令方向相对邻居链 offsetDir 的点积。NeighborLink 契约 offset = 本图
+        /// 中心→对侧中心的连线方向（neighborLocal + offset = myLocal；2026-09 用实测传送对数值
+        /// 定案：map0(34,180)↔map1(216,69) 的 offset=(−182,+111) 恰为 C1−C0；rev2 曾按"对侧→本图"
+        /// 的误记写成 dot ≤ −阈值——"向上走被拦/向下走反而传"的 diag 数据实锤符号反了，rev3 翻正为
+        /// dot ≥ +阈值）。正六边形下中心连线严格垂直于共享边 → offsetDir ≈ 接缝"朝对侧"方向。
+        /// 返回 false = 数据不可用（无输入/邻居链缺失/offset 退化）→ 调用方放行（fail-open：最坏 =
+        /// 旧行为振荡，不引入"卡死过不了缝"的新失败面）。开销：踩上 spot 的那一格一次邻居链字典
+        /// 查询 + 一次点积，仅主控 avatar/驾驶载具触达。
+        /// </summary>
+        private static bool TryGetCrossSeamDot(Map map, int targetWorldTile, Vector3 moveInput, out float dot)
+        {
+            dot = 0f;
+            var moveDir = new Vector2(moveInput.x, moveInput.z);
+            if (moveDir.sqrMagnitude < 0.0001f) return false;
+            if (!SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, targetWorldTile, out var info)) return false;
+            var offsetDir = new Vector2(info.offset.x, info.offset.z);
+            if (offsetDir.sqrMagnitude < 0.0001f) return false;
+            dot = Vector2.Dot(moveDir.normalized, offsetDir.normalized);
+            return true;
+        }
+
         /// <summary>avatar 踩传送点且对端活跃 → 即席 Bridge Grant + 既有分派链传送（对端未生成不触发）。</summary>
         private static void TryCrossSeamAt(Pawn pawn, Map map, IntVec3 cell, object avatarInstance)
         {
@@ -281,6 +356,20 @@ namespace RimExodus
 
                 // 对端未生成/未加载：不即席生成（与 TryRegisterCombatStepTransfer 同口径）。
                 if (!comp.hasArrival || !SeamlessTileGraph.TryGetMapByWorldTile(comp.targetWorldTile, out _)) return;
+
+                // 方向意图门（防镜像第二层，2026-09 rev4 定稿）：命令方向与 offsetDir（本图中心
+                // →对侧中心）同向的点积 ≥ MinCrossSeamDot（噪声地板）才传送。镜像对称下对侧
+                // offsetDir 为本侧相反向量 → 同一恒定方向的点积两侧互为相反数，一侧过门另一侧
+                // 必被拦——恒定方向连环弹射在数学上不可能；真掉头立即放行；沿缝平行（dot≈0）
+                // 不触发。数据不可用 → 放行（fail-open，见 TryGetCrossSeamDot）。
+                if (TryGetCrossSeamDot(map, comp.targetWorldTile, ReadAvatarMoveInput(avatarInstance), out var crossDot)
+                    && crossDot < MinCrossSeamDot)
+                {
+                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                        Log.Message($"[RimExodus] PS compat: avatar {pawn.LabelShort} stepped on spot {thing.Position} on map {map.uniqueID} "
+                            + $"but movement is not crossing outward (dot={crossDot:F2} < {MinCrossSeamDot:F2}) — not transferring.");
+                    return;
+                }
 
                 // 玩家意图由"控制 avatar 走到缝边传送点上"本身保证（与撤离链"事件即意图"同哲学）。
                 // Grant 不带 NextJob/FinalDest：ContinueBridgeMove 对空目的地天然 no-op——avatar 由
