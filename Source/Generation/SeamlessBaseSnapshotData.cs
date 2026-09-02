@@ -27,16 +27,18 @@ namespace RimExodus
     public class SeamlessBaseSnapshotData : IExposable
     {
         // ===== terrain 层（全格稠密） =====
-        private List<string> terrainDefs = new List<string>();
+        // Index 0 is reserved for null. Resolve also accepts the old zero-based
+        // format when its index-0 entry is a real Def name.
+        private List<string> terrainDefs = new List<string> { string.Empty };
         private List<ushort> terrainIdx = new List<ushort>();
 
         // ===== building 层（稀疏：仅快照有岩石 def 的格） =====
-        private List<string> buildingDefs = new List<string>();
+        private List<string> buildingDefs = new List<string> { string.Empty };
         private List<int> buildingCells = new List<int>();
         private List<ushort> buildingIdx = new List<ushort>();
 
         // ===== roof 层（稀疏：仅快照有顶的格） =====
-        private List<string> roofDefs = new List<string>();
+        private List<string> roofDefs = new List<string> { string.Empty };
         private List<int> roofCells = new List<int>();
         private List<ushort> roofIdx = new List<ushort>();
 
@@ -97,8 +99,10 @@ namespace RimExodus
 
         private static T Resolve<T>(List<string> names, int idx) where T : Def, new()
         {
-            if (idx <= 0 || idx >= names.Count) return null;
-            return DefDatabase<T>.GetNamedSilentFail(names[idx]);
+            if (names == null || idx < 0 || idx >= names.Count) return null;
+            var defName = names[idx];
+            if (string.IsNullOrEmpty(defName)) return null;
+            return DefDatabase<T>.GetNamedSilentFail(defName);
         }
 
         /// <summary>

@@ -218,7 +218,15 @@ namespace RimExodus
                         enumerable = enumerable.Concat(extraGenStepDefs);
                     if (landformExtraSteps != null)
                         enumerable = enumerable.Concat(landformExtraSteps);
-                    var orderedSteps = enumerable.Distinct()
+
+                    // MapGenerator.GenerateContentsIntoMap 会在排序后移除被其他 GenStepDef
+                    // preventsGenSteps 声明排除的步骤。增量路径必须保持同一规则，否则
+                    // Odyssey 等地图定义中的互斥步骤会同时执行。
+                    var allSteps = enumerable.Distinct().ToList();
+                    allSteps.RemoveAll(step => allSteps.Any(other =>
+                        other.def.preventsGenSteps != null &&
+                        other.def.preventsGenSteps.Contains(step.def)));
+                    var orderedSteps = allSteps
                         .OrderBy(x => x.def.order).ThenBy(x => x.def.index).ToList();
 
                     // RockNoises.Init + 填充 MapGenerator.tmpGenSteps（供 GetSeedPart 反射用）。
@@ -548,6 +556,8 @@ namespace RimExodus
             catch (Exception ex)
             {
                 Log.Error($"[RimExodus] IncrementalMapGenerator FinishGeneration failed: {ex}");
+                SeamlessTileManager.ClearIncrementalGenerationState(generatingMap);
+                CleanupFailedGeneration(generatingMap);
             }
             finally
             {
@@ -609,11 +619,13 @@ namespace RimExodus
 
         private static void CleanupFailedGeneration(Map map)
         {
+            var parent = map?.info?.parent;
             // 统一清 static current（2026-08 修复缺口）：凡走失败清理即本轮生成终结，无条件清。
             // 此前只有 TickGeneration catch 额外清 current，Start 内层 catch
             // （AddStartingAreas/StartInitialWeather 失败，此时 current 已在 :243 赋值）不清 →
             // IsAnyGenerating 永真、后续生成全拒 + 进度 UI 常驻。全局单生成器，无"他图占用"问题。
             try { current = null; } catch { }
+            SeamlessTileManager.ClearIncrementalGenerationState(map);
             // GL 兼容：失败清理同样收掉 GL 静态上下文（与 FinishGeneration 正常路径语义一致）。
             SeamlessLandformsCompat.Cleanup();
             try
@@ -624,6 +636,16 @@ namespace RimExodus
             try { MapGenerator.mapBeingGenerated = null; } catch { }
             try { gravshipField.SetValue(null, null); } catch { }
             try { RockNoises.Reset(); } catch { }
+            try
+            {
+                // onComplete 可能已经登记了部分双向邻居，先清理半成品 parent 的反链。
+                if (parent != null)
+                    SeamlessNeighborRegistry.CleanupNeighborLinks(parent);
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[RimExodus] CleanupFailedGeneration neighbor cleanup error: {ex}");
+            }
             try
             {
                 if (map != null && Find.Maps.Contains(map))
@@ -638,6 +660,17 @@ namespace RimExodus
                 Log.Error($"[RimExodus] CleanupFailedGeneration DeinitAndRemoveMap error (map may leak): {ex}");
                 // 兜底：至少从 Find.Maps 移除，避免主线程继续 tick 半成品 map。
                 try { if (map != null) Find.Maps.Remove(map); } catch { }
+            }
+
+            try
+            {
+                // DeinitAndRemoveMap 的第二参数为 false，失败生成的临时 parent 需显式销毁。
+                if (parent != null && !parent.Destroyed)
+                    parent.Destroy();
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[RimExodus] CleanupFailedGeneration parent cleanup error: {ex}");
             }
         }
     }

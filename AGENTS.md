@@ -30,6 +30,8 @@ RimWorld Mod：实现"无缝世界地块探索"系统，使相邻世界地块的
 
 ## 需要记住的事项
 
+- 原版生成与存档修复的长期约束：增量生成必须执行 GenStepDef.preventsGenSteps 互斥过滤；快照 Def 表索引 0 保留为空并兼容旧零基数据；分帧生成失败必须清理生成锁、方向状态、半成品 Map 和 parent。
+- 原版生命周期与覆盖修复的长期约束：殖民者栏过滤后必须同步重建位置缓存和拖动分组缓存；Settlement parent 换成 DestroyedSettlement 时要修复废墟图自身邻居表。
 - **文档同步范围（勿只更新 AGENTS.md/TODO.md，2026-08 教训：GL 兼容第二轮漏主文档被用户指出返工）**：功能改动落地后，除 `AGENTS.md` 与 `doc/TODO.md` 外，还必须同步 `doc/` 下的相关文档——主计划文档 `doc/无缝世界地块探索.md`（「预期限制」对应条目处续注实际结果 + 「当前阶段结果」补汇总条目），以及该改动的**专题权威文档**（按"项目概述"文档索引归属：genStep 顺序/注入点变化 → `doc/地图生成步骤.md`；生命周期/休眠 → `doc/地图滚动休眠.md`；接缝带几何 → `doc/接缝带定义.md`；阶段叙事 → 对应第 X 阶段文档，等等）。**对外可见的结论变化（Mod 兼容性增删/已知限制变化/设置项增删）还须同步 `README.md`** 的对应小节——README 是这类对外事实的单一事实源。**用户可见文本（设置 UI/消息/对话）一律走 Keyed 翻译键**（`1.6/Languages/{English,ChineseSimplified}/Keyed/RimExodus.xml`，"Key".Translate()）——新增/修改键必须两个语言文件同步改（2026-08 设置窗口重构时确立：原生 TabDrawer 分 tab（地图生成/滚动休眠/跨图战斗/高级诊断）+ 滚动兜底 + 全条目 tooltip，中文翻译随附）。
 - **查询优先用自带工具，别用命令行**：正常情况下使用 Grep/Glob/Read 等内置查询工具做检索与定位，不要用 Bash 跑 `Select-String`/`grep`/`findstr` 等命令。命令行转义（尤其 Windows + Git Bash + PowerShell 的引号/路径混用）容易出错，还会消耗用户的检视精力去判断命令是否安全。**例外**：Grep 工具在本仓库偶尔对明确存在的内容返回空结果（不报错，静默失败），此时可改用 PowerShell `Select-String -Path <绝对路径> -Pattern <正则>`（绝对路径用正斜杠）作为后备，这是已知的可靠替代。
 - **切比雪夫/邻格遍历统一实现（用户纪律 2026-08，勿再手搓 dx/dz 循环或自建方向表）**：8 邻环（含对角不含中心）一律 `GenAdj.AdjacentCells`（原版偏移数组）、含中心 9 格窗一律 `GenAdj.AdjacentCellsAndInside`、切比雪夫距离标量用 `SeamlessGridMath.ChebyshevDistance`——消费方地图与历史教训见 `Source/Core/SeamlessGridMath.cs` 类注释（接缝带膨胀/权重深度/卷积采样/void 岩石判邻曾各自手搓致口径漂移：正交 4 邻与切比雪夫 8 邻混用过）。半径 >1 的方形窗口（道路保护 RoadGuardRadius=3）无原版数组，保留显式双层循环但注释须指回 SeamlessGridMath 口径。

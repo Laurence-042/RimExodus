@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using RimWorld;
 using RimWorld.Planet;
@@ -409,6 +410,27 @@ namespace RimExodus
         }
 
         /// <summary>
+        /// 清理分帧生成失败或收尾异常留下的全局生成状态。
+        /// </summary>
+        internal static void ClearIncrementalGenerationState(Map map, int worldTile = -1)
+        {
+            try
+            {
+                if (worldTile >= 0)
+                    ClearGeneratingTile(worldTile);
+                else if (map?.Parent != null)
+                    ClearGeneratingTile(map.Parent.Tile.tileId);
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[RimExodus] Failed to clear incremental generation lock: {ex}");
+            }
+
+            NeighborGenerationSourceTile = -1;
+            ClearGenerationTrigger();
+        }
+
+        /// <summary>
         /// 生成无缝地块口袋地图（分帧增量生成，主线程每帧跑 1 genStep，不暂停 tick）。
         /// 准备阶段（ConstructComponents→AddMap→组装 genSteps）同步完成，genStep 链分帧执行，
         /// FinalizeInit + 后续配置（邻居登记/传送点铺设/void 刷新）在最后帧的 onComplete 回调执行。
@@ -612,6 +634,8 @@ namespace RimExodus
                 null,
                 interiorMap =>
                 {
+                    try
+                    {
                     // ===== 生成后配置（FinalizeInit 之后，主线程）=====
                     // 阶段4前置：基础地图，不加入 pocketMaps（那是口袋地图列表）。
                     // 基础地图由 Current.Game.AddMap（IncrementalMapGenerator 内部）加入 Find.Maps，
@@ -654,10 +678,12 @@ namespace RimExodus
                                     $"placeOriginSpots={tPlaceOrigin}ms refreshOriginArrivals={tRefreshOrigin}ms refreshNewArrivals={tRefreshNew}ms " +
                                     $"autoConnect={tAutoConnect}ms.");
 
-                    // 清理防重入锁（分帧生成完成）。
-                    ClearGeneratingTile(newWorldTile);
-                    NeighborGenerationSourceTile = -1;
-                    ClearGenerationTrigger();
+                    }
+                    finally
+                    {
+                        // 生成后接线任一步骤失败时也必须解除防重入锁和生成方向状态。
+                        ClearIncrementalGenerationState(interiorMap, newWorldTile);
+                    }
                 });
 
             if (!started)
