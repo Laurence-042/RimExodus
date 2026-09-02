@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using HarmonyLib;
 using RimWorld;
 using RimWorld.Planet;
+using UnityEngine;
 using Verse;
 
 namespace RimExodus
@@ -159,6 +160,32 @@ namespace RimExodus
                         newGroup++;
                     }
                     entries[i] = new ColonistBar.Entry(e.pawn, e.map, newGroup);
+                }
+
+                // CheckRecacheEntries 已经基于过滤前的 entries 计算过这两个缓存。
+                // 原版绘制按同一索引访问 cachedEntries/cachedDrawLocs/
+                // cachedReorderableGroups，因此过滤后必须按新 group 数重新计算。
+                var groupsField = AccessTools.Field(typeof(ColonistBar), "cachedReorderableGroups");
+                if (groupsField?.GetValue(__instance) is List<int> groups)
+                {
+                    groups.Clear();
+                    for (var i = 0; i < entries.Count; i++)
+                        groups.Add(-1);
+                }
+
+                var groupCount = 0;
+                for (var i = 0; i < entries.Count; i++)
+                    groupCount = System.Math.Max(groupCount, entries[i].group + 1);
+
+                var drawLocsField = AccessTools.Field(typeof(ColonistBar), "cachedDrawLocs");
+                var finderField = AccessTools.Field(typeof(ColonistBar), "drawLocsFinder");
+                var scaleField = AccessTools.Field(typeof(ColonistBar), "cachedScale");
+                if (drawLocsField?.GetValue(__instance) is List<Vector2> drawLocs
+                    && finderField?.GetValue(__instance) is ColonistBarDrawLocsFinder finder
+                    && scaleField != null)
+                {
+                    finder.CalculateDrawLocs(drawLocs, out var scale, groupCount);
+                    scaleField.SetValue(__instance, scale);
                 }
             }
         }

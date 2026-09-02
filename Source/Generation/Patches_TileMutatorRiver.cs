@@ -413,4 +413,17 @@ namespace RimExodus
             return x * x * x * (x * (6f * x - 15f) + 10f);
         }
     }
+
+    /// <summary>
+    /// RiverIsland 自己 override 了 GetDisplacedPoint，基类 patch 不会覆盖该虚方法实现。
+    /// 复用同一接缝弯曲修正，保持岛屿河流与普通河流一致。
+    /// </summary>
+    [HarmonyPatch(typeof(TileMutatorWorker_RiverIsland), "GetDisplacedPoint")]
+    static class Patch_TileMutatorWorker_RiverIsland_GetDisplacedPoint
+    {
+        internal static void Postfix(RiverNode riverNode, float t, ref Vector2 __result)
+        {
+            Patch_TileMutatorWorker_River_GetDisplacedPoint.Postfix(riverNode, t, ref __result);
+        }
+    }
 }

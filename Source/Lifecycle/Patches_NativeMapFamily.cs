@@ -97,7 +97,20 @@ namespace RimExodus
                 }
                 if (touched) SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(otherMap);
             }
-            // 废墟图自己的出向链表存图组件（parent 偷换不影响），刷新其对端缓存收尾。
+            // 原版 parent 替换后，废墟图的邻居表仍由其 SeamlessTileManager 持有，
+            // 但其中的出向 link 可能仍指向已销毁的旧 Settlement。
+            var ownLinks = SeamlessMapData.Neighbors(ruinsMap);
+            if (ownLinks != null)
+            {
+                foreach (var link in ownLinks)
+                {
+                    if (link != null && link.neighbor == factionBase)
+                    {
+                        link.neighbor = ruinsParent;
+                    }
+                }
+            }
+            // 刷新废墟图及其对端缓存收尾。
             SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(ruinsMap);
             Log.Message($"[RimExodus] Settlement defeated at tile {factionBase.Tile.tileId}: seamless neighbor links " +
                         $"rerouted to the DestroyedSettlement parent (map {ruinsMap.uniqueID}).");
