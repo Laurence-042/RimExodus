@@ -96,7 +96,7 @@ namespace RimExodus
             // 不可跨图下令的主体：吞掉（对齐原版"不可对其下令移动"，不给错误的本图同坐标 job）。
             if (!SeamlessBoundaryRules.IsCrossMapOrderable(pawn)) return false;
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] Cross-map drafted goto: {pawn.LabelShort} -> {gotoLoc} on map {ct.map.uniqueID} (formation dest).");
 
             if (SeamlessCrossMapOrders.TryBridgeJob(pawn, ct.map, gotoLoc))
@@ -346,7 +346,7 @@ namespace RimExodus
             // TransitTag 的桥接 job 自身目标是本图 spot——不会进到这里（同图）。
             if (SeamlessCrossMapOrders.TryBridgeJob(pawn, targetMap, finalCell, job))
             {
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Cross-map job wrap: {pawn.LabelShort} {job.def.defName} -> map {targetMap.uniqueID}; resume after transfer.");
                 return false;
             }

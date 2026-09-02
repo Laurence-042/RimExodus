@@ -206,7 +206,7 @@ namespace RimExodus
                 if (TryGetCrossSeamDot(map, comp.targetWorldTile, inputDir, out var vCrossDot)
                     && vCrossDot < MinCrossSeamDot)
                 {
-                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
                         Log.Message($"[RimExodus] PS compat: PS-driven vehicle {vehicle.LabelShort} stepped on spot {thing.Position} on map {map.uniqueID} "
                             + $"but movement is not crossing outward (dot={vCrossDot:F2} < {MinCrossSeamDot:F2}) — not transferring.");
                     return;
@@ -218,7 +218,7 @@ namespace RimExodus
                 var grant = SeamlessTransferGrants.Create(vehicle, SeamlessTransferGrants.GrantKind.Bridge);
                 grant.BoundSpot = thing.Position;
 
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
                     Log.Message($"[RimExodus] PS compat: PS-driven vehicle {vehicle.LabelShort} stepped on enter spot {thing.Position} "
                         + $"on map {map.uniqueID}, dispatching cross-seam transfer.");
 
@@ -278,12 +278,12 @@ namespace RimExodus
 
             if (SeamlessDormancyManager.TryWakeByWorldTile(worldTile, $"PS avatar border band ({pawn.LabelShort} at {cell})"))
             {
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
                     Log.Message($"[RimExodus] PS compat: woke dormant neighbor worldTile {worldTile} (avatar approaching).");
                 return;
             }
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
                 Log.Message($"[RimExodus] PS compat: avatar {pawn.LabelShort} entered border band at {cell}, queuing preload for worldTile {worldTile}.");
             SeamlessTilePreloader.QueuePreload(map, worldTile, cell);
         }
@@ -365,7 +365,7 @@ namespace RimExodus
                 if (TryGetCrossSeamDot(map, comp.targetWorldTile, ReadAvatarMoveInput(avatarInstance), out var crossDot)
                     && crossDot < MinCrossSeamDot)
                 {
-                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
                         Log.Message($"[RimExodus] PS compat: avatar {pawn.LabelShort} stepped on spot {thing.Position} on map {map.uniqueID} "
                             + $"but movement is not crossing outward (dot={crossDot:F2} < {MinCrossSeamDot:F2}) — not transferring.");
                     return;
@@ -377,7 +377,7 @@ namespace RimExodus
                 var grant = SeamlessTransferGrants.Create(pawn, SeamlessTransferGrants.GrantKind.Bridge);
                 grant.BoundSpot = thing.Position;
 
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
                     Log.Message($"[RimExodus] PS compat: avatar {pawn.LabelShort} stepped on enter spot {thing.Position} "
                         + $"on map {map.uniqueID}, dispatching cross-seam transfer.");
 

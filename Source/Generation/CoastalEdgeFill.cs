@@ -88,7 +88,7 @@ namespace RimExodus
 
             var terrainGrid = map.terrainGrid;
             var size = map.Size;
-            var verbose = settings?.verboseLogging ?? false;
+            var verbose = RimExodusLog.Enabled(RimExodusLogModule.Generation);
             var deepCount = 0;
             var shallowCount = 0;
             var sandCount = 0;

@@ -106,7 +106,7 @@ namespace RimExodus
             var drawer = _drawerIntRef(__instance);
             if (drawer != null) drawer.SetDirty();
 
-            if (marked > 0 && (RimExodusMod.Settings?.verboseLogging ?? false))
+            if (marked > 0 && (RimExodusLog.Enabled(RimExodusLogModule.Transfer)))
                 Log.Message($"[RimExodus] ExitMapGrid.Rebuild prefix: marked {marked} band+spot cells as exit cells on map {___map.uniqueID} (square band suppressed).");
 
             return false; // 跳过原版 Rebuild

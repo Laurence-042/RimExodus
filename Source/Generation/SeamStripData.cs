@@ -173,7 +173,7 @@ namespace RimExodus
 
             SeamlessMapData.SetSeamStrip(map, data);
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
                 Log.Message($"[RimExodus] SeamStripData captured: map={map.uniqueID}(wt={worldTile}) cells={cells.Count}");
         }
 

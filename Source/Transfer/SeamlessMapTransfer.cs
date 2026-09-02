@@ -134,7 +134,7 @@ namespace RimExodus
                 pawn.drafter.FireAtWill = wasFireAtWill;
             }
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] Seamless transfer: {pawn.LabelShort} "
                     + $"map {departureMap.uniqueID} {departureCell} -> map {arrivalMap.uniqueID} {arrivalCell}");
             return true;

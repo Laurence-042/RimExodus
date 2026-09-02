@@ -182,7 +182,7 @@ namespace RimExodus
                     SeamlessTerrainFill.BackupRoofSnapshot(tempMap));
                 SeamStripData.CaptureAndStore(sourceMap, worldTile);
 
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
                 {
                     Log.Message($"[RimExodus] Snapshot regenerated for map={sourceMap.uniqueID}(wt={worldTile}): " +
                                 $"genSteps={orderedSteps.Count} elapsed={(UnityEngine.Time.realtimeSinceStartup - startRealtime) * 1000f:F0}ms.");

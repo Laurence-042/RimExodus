@@ -109,7 +109,7 @@ namespace RimExodus
             // 河链可弯折，全邻居池最近角匹配会锚到错误边（与道路同款纪律）。
             var downEdge = SeamlessPolygonGeometry.FindSeamEdge(worldTile, angle, SeamlessPolygonGeometry.SeamLink.River);
             var upEdge = SeamlessPolygonGeometry.FindSeamEdge(worldTile, angle + 180f, SeamlessPolygonGeometry.SeamLink.River);
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
             {
                 var cand = new List<string>();
                 var nb = new List<PlanetTile>();
@@ -125,14 +125,14 @@ namespace RimExodus
             }
             if (downEdge < 0 || upEdge < 0 || downEdge >= verts.Count || upEdge >= verts.Count)
             {
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
                     Log.Message($"[RimExodus] River GetMapEdgeNodes: FALLBACK vanilla (edge match failed: " +
                                 $"downEdge={downEdge} upEdge={upEdge} angle={angle:F1}°).");
                 return true;
             }
             if (downEdge == upEdge)
             {
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
                     Log.Message($"[RimExodus] River GetMapEdgeNodes: FALLBACK vanilla (degenerate downEdge==upEdge={downEdge}).");
                 return true;
             }
@@ -146,7 +146,7 @@ namespace RimExodus
             var upCrossing = ResolveCrossing(map, worldTile, mapSize, verts, upEdge, neighbors[upEdge].tileId, out var upSource);
             if (downCrossing == null || upCrossing == null)
             {
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
                     Log.Message($"[RimExodus] River GetMapEdgeNodes: FALLBACK vanilla (crossing unresolved: down={downCrossing} up={upCrossing}).");
                 return true;
             }
@@ -155,7 +155,7 @@ namespace RimExodus
             var dir = upCrossing.Value - downCrossing.Value;
             if (dir.sqrMagnitude < 1e-6f)
             {
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
                     Log.Message("[RimExodus] River GetMapEdgeNodes: FALLBACK vanilla (degenerate line).");
                 return true;
             }
@@ -179,7 +179,7 @@ namespace RimExodus
             riverChords.Add((downEnd, upEnd, CrossT(downCrossing.Value), CrossT(upCrossing.Value)));
 
             __result = (new Vector3(upEnd.x, 0f, upEnd.y), new Vector3(downEnd.x, 0f, downEnd.y));
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
                 Log.Message($"[RimExodus] River GetMapEdgeNodes: SEAM-ANCHORED tile={worldTile} " +
                             $"downEdge={downEdge} crossing=({downCrossing.Value.x:F1},{downCrossing.Value.y:F1}) src={downSource} " +
                             $"upEdge={upEdge} crossing=({upCrossing.Value.x:F1},{upCrossing.Value.y:F1}) src={upSource} " +
@@ -400,7 +400,7 @@ namespace RimExodus
             var w = SmootherStep(distCells / BendFreeCells);
             __result = chordPoint + bend * w;
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false && loggedNodes.Add(riverNode))
+            if (RimExodusLog.Enabled(RimExodusLogModule.Generation) && loggedNodes.Add(riverNode))
                 Log.Message($"[RimExodus] River bend-free window: node width={riverNode.width:F0} " +
                             $"tA={tA:F3} tB={tB:F3} len={len:F0} first-t={t:F3} w={w:F2} bendMag={bend.magnitude:F1}");
         }

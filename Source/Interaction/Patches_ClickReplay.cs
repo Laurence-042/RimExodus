@@ -42,7 +42,7 @@ namespace RimExodus
             if (!SeamlessCombatCoords.TryGetCombatLink(map, targetMap, out var link))
                 return; // 非活跃邻居（休眠/未连接）：原生（本图坐标评估，选项自会诚实禁用）
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] Click replay: {IntVec3.FromVector3(clickPosition)} on map {map.uniqueID} "
                     + $"-> {targetCell} on map {targetMap.uniqueID} (offset {link.offset}).");
 
@@ -66,7 +66,7 @@ namespace RimExodus
                 // PawnGotoAction/StartPath 包装把本图命令误判为跨图）。
                 foreach (var pawn in selectedPawns)
                 {
-                    if (SeamlessCommandTargets.TryGet(pawn, out var stale) && RimExodusMod.Settings?.verboseLogging == true)
+                    if (SeamlessCommandTargets.TryGet(pawn, out var stale) && RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                         Log.Message($"[RimExodus] Local menu cleared cross-map registration for {pawn.LabelShort} "
                             + $"(was map {stale.map?.uniqueID ?? -1} cell {stale.cell}).");
                     SeamlessCommandTargets.Remove(pawn);

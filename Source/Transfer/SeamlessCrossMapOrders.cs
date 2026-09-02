@@ -24,7 +24,7 @@ namespace RimExodus
         {
             if (!TryFindBestBridgeSpot(pawn, targetMap, targetLocalCell, out var exitSpot, out var gotoCell, out var costDebug))
             {
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Cross-map move rejected: no reachable seamless enter spot bridges map {pawn.Map.uniqueID} to map {targetMap.uniqueID}.");
                 return false;
             }
@@ -40,7 +40,7 @@ namespace RimExodus
             // 下一个 job 清掉（日志表现 = Bridge issued 后紧跟 Grant cleared）。直接以当前格触发传送。
             if (pawn.Position == gotoCell)
             {
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Bridge immediate: {pawn.LabelShort} already on spot {exitSpot.Position}, transferring now.");
                 SeamlessMapTransferTrigger.TryTriggerTransfer(pawn, exitSpot.Position, pawn.Map);
                 return true;
@@ -50,7 +50,7 @@ namespace RimExodus
             job.dutyTag = SeamlessTransferGrants.TransitTag;
             pawn.jobs.StartJob(job, JobCondition.InterruptForced);
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] Bridge issued: {pawn.LabelShort} on map {pawn.Map.uniqueID} "
                     + $"-> spot {exitSpot.Position} (goto {gotoCell}, {costDebug}), final dest map {targetMap.uniqueID} cell {targetLocalCell}.");
             return true;
@@ -263,7 +263,7 @@ namespace RimExodus
                 return true;
             }
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] Cross-map move: no VF-reachable bridge spot for {pawn.LabelShort} on map {fromMap.uniqueID} "
                     + $"({ordered.Count + fallback.Count} candidates) — seam not traversable for this vehicle.");
             return false;
@@ -350,7 +350,7 @@ namespace RimExodus
                     return true;
                 }
             }
-            if (isVehicle && candidates.Count > 0 && RimExodusMod.Settings?.verboseLogging == true)
+            if (isVehicle && candidates.Count > 0 && RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] VehicleCanGoto probe: no reachable bridge spot for {pawn.LabelShort} "
                     + $"({candidates.Count} candidates to map {toMap.uniqueID}) — seam not standable for this VehicleDef within 2 cells of any spot.");
             return false;

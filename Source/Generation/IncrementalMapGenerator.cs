@@ -263,7 +263,7 @@ namespace RimExodus
                     newMap.areaManager.AddStartingAreas();
                     newMap.weatherDecider.StartInitialWeather();
 
-                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
                         Log.Message($"[RimExodus] IncrementalMapGenerator started: map={newMap.uniqueID}, genSteps={orderedSteps.Count}, seed={seed}, " +
                                     $"prep={(UnityEngine.Time.realtimeSinceStartup - prepStartRealtime) * 1000f:F0}ms.");
 
@@ -317,7 +317,7 @@ namespace RimExodus
                         if (!done) return; // 本帧预算耗尽，下一帧继续。
                         // Plants 全部完成：分帧步不经过 RunOneGenStep（无 per-step 计时），
                         // 此处补齐——CPU 累计进总摘要并出一条与其他 genStep 同格式的日志。
-                        if (RimExodusMod.Settings?.verboseLogging ?? false)
+                        if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
                         {
                             totalGenStepMs += subStepState.cpuMs;
                             Log.Message($"[RimExodus] GenStep [{currentStepIndex}/{genSteps.Count}] " +
@@ -367,7 +367,7 @@ namespace RimExodus
                 randSeed = Gen.HashCombineInt(baseSeed, GetSeedPartFor(stepIndex)),
                 nextProgressLog = 10000,
             };
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
                 Log.Message($"[RimExodus] Plants genStep: starting split-frame execution (totalCells={subStepState.totalCells}, density={subStepState.densityFactor}).");
         }
 
@@ -392,7 +392,7 @@ namespace RimExodus
                 RimExodusMod.Settings?.generationBatchSize ?? 64, 512), 16);
             // verbose 计时：本方法每次调用执行一段（同步无等待），elapsed 累计进 state.cpuMs，
             // 完成时由 TickGeneration 计入 totalGenStepMs——分帧步的 CPU 不含帧间等待。
-            var sw = RimExodusMod.Settings?.verboseLogging ?? false
+            var sw = RimExodusLog.Enabled(RimExodusLogModule.Generation)
                 ? System.Diagnostics.Stopwatch.StartNew() : null;
 
             try
@@ -428,14 +428,14 @@ namespace RimExodus
                     // 注意括号：?? 优先级低于 &&，历史上写作 `a ?? false && c` 时解析为
                     // `a ?? (false && c)`——verbose 开启后每批都打日志（节流失效），2026-08 修正。
                     // 阈值用累进（batchSize=64 不整除 10000，取模判定会永不触发）。
-                    if ((RimExodusMod.Settings?.verboseLogging ?? false) && state.cellIndex >= state.nextProgressLog)
+                    if ((RimExodusLog.Enabled(RimExodusLogModule.Generation)) && state.cellIndex >= state.nextProgressLog)
                     {
                         Log.Message($"[RimExodus] Plants genStep: {state.cellIndex}/{state.totalCells} cells processed.");
                         state.nextProgressLog += 10000;
                     }
                 }
 
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
                     Log.Message($"[RimExodus] Plants genStep: done ({state.totalCells} cells).");
                 return true;
             }
@@ -457,7 +457,7 @@ namespace RimExodus
             SeamlessLandformsCompat.EnsureContextAlive(generatingMap);
 
             var step = genSteps[currentStepIndex];
-            var sw = RimExodusMod.Settings?.verboseLogging ?? false
+            var sw = RimExodusLog.Enabled(RimExodusLogModule.Generation)
                 ? System.Diagnostics.Stopwatch.StartNew() : null;
 
             // 临时设 ProgramState=MapInitializing（原版 GenerateMap:82 行为）：
@@ -507,7 +507,7 @@ namespace RimExodus
             // 收尾段计时（verbose，2026-08）：genStep 链跑完后的单帧长尾拆解。FinalizeInit 内部的
             // 三个全图级重活（pathGrid 重算 / region 重建 / mesh 全量重建）由 Patches_MapGenTiming
             // 单独出日志；onComplete 内的 RimExodus 邻居登记链由 SeamlessTileManager 回调内部计时。
-            var timer = SectionTimer.StartIf(RimExodusMod.Settings?.verboseLogging ?? false);
+            var timer = SectionTimer.StartIf(RimExodusLog.Enabled(RimExodusLogModule.Generation));
             long tScenario, tFinalizeInit, tMapComponents, tParentPost, tPostInit, tOnComplete;
 
             try

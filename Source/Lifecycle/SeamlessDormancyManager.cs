@@ -80,12 +80,13 @@ namespace RimExodus
             Find.TickManager.RemoveAllFromMap(map);
 
             // 结束该图的声音 sustainer（Deinit 同款，防休眠后幽灵音——图不 tick 但音频树还挂着；
-            // 天气域共享的 ambientSustainer 若有活跃成员在听，其下一 tick 的 AmbientSoundsTick 自愈重启）。
+            // 天气域"决策集中 + 执行各图"模型下这是本图自己的实例，不影响其他成员图）。
             map.weatherManager.EndAllSustainers();
             Find.SoundRoot.sustainerManager.EndAllInMap(map);
 
-            // 天气域无需处理：共享实例由各活跃成员图走自己字段推进（见 SeamlessWeatherClusterManager
-            // BindMap 注释的机理勘误），休眠不冻结、绑定不变。
+            // 休眠 = 停摆（2026-09-02 天气域注册制事件②）：若本图是域激活图 → 还活着成员接任
+            // （交接换天进度，域继续演化）；全停摆不动，首个唤醒者经 OnMapResumed 接任。
+            SeamlessWeatherClusterManager.NotifySimulationSuspended(map, "dormancy sleep");
 
             // 两端传送点坐标缓存刷新：本图休眠后，对端（及本图）指向彼此的 spot 的 hasArrival
             // 应失效（link 查询被休眠口径过滤）。显式刷新使缓存立即收敛而非等下次惰性重算。
@@ -120,7 +121,9 @@ namespace RimExodus
                 Find.TickManager.RegisterAllTickabilityFor(spawned[i]);
             }
 
-            SeamlessWeatherClusterManager.RebindAll(); // 幂等重算；正常情况下休眠唤醒不改变绑定（见勘误）。
+            // 天气状态校准（2026-09 形态 B）：休眠期本图 curWeatherAge 落后于激活图（换天广播会归零
+            // 自愈，两次换天间的漂移在此补齐——lerp 进度/过渡视觉与域一致）。
+            SeamlessWeatherClusterManager.OnMapResumed(map);
             RefreshSpotArrivalsBothSides(map);
             Find.ColonistBar?.MarkColonistsDirty();
 

@@ -206,7 +206,7 @@ namespace RimExodus
             if (__instance.TryGetComponent<TimedDetectionRaids>(out var comp) && comp.DetectionCountdownStarted)
             {
                 comp.ResetCountdown();
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Core))
                     Log.Message($"[RimExodus] TimedDetectionRaids countdown skipped for seamless-generated settlement at tile {__instance.Tile.tileId}.");
             }
         }

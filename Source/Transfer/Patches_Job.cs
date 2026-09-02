@@ -24,7 +24,7 @@ namespace RimExodus
             // TransitTag 是我们下发 Goto 的自标识（许可驱动 job 重入本钩子，不清除）。
             if (newJob.dutyTag != SeamlessTransferGrants.TransitTag)
             {
-                if ((RimExodusMod.Settings?.verboseLogging ?? false)
+                if ((RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     && SeamlessTransferGrants.TryGet(___pawn, out var cleared))
                 {
                     Log.Message($"[RimExodus] Grant cleared: {___pawn?.LabelShort} ({cleared.Kind}) "
@@ -49,7 +49,7 @@ namespace RimExodus
             if (newJob.exitMapOnArrival && newJob.playerForced && !SeamExitBandGating.Enabled)
             {
                 newJob.exitMapOnArrival = false;
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Immersive mode: cleared exitMapOnArrival on player-forced job {newJob.def?.defName} for {___pawn?.LabelShort}.");
             }
 
@@ -57,7 +57,7 @@ namespace RimExodus
             // 不拦截 Job（无论是否预加载都让原 Job 正常执行），仅触发副作用。
             if (newJob.def == JobDefOf.Goto && newJob.targetA.IsValid && newJob.playerForced)
             {
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] StartJob Goto playerForced by {___pawn?.LabelShort} -> {newJob.targetA.Cell}");
                 SeamlessBorderPreloader.CheckPawnGoto(___pawn, newJob.targetA.Cell);
             }

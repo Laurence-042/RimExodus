@@ -52,7 +52,7 @@ namespace RimExodus
     {
         private static bool ShouldLog()
         {
-            return (RimExodusMod.Settings?.verboseLogging ?? false) && IncrementalMapGenerator.IsAnyGenerating;
+            return (RimExodusLog.Enabled(RimExodusLogModule.Generation)) && IncrementalMapGenerator.IsAnyGenerating;
         }
 
         [HarmonyPatch(typeof(Pathing), nameof(Pathing.RecalculateAllPerceivedPathCosts))]

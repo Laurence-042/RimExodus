@@ -157,7 +157,7 @@ namespace RimExodus
             // 撤离链对袭击者撤退与访客/商队离场一视同仁（一切 exitMapOnArrival 且非 playerForced 的 job），
             // 本行用于区分"谁在离场"：LordJob_TradeWithColony / LordJob_VisitColony / 无 lord（游荡）等。
             // 日志统一走 [caravan-exit] 标签（2026-09 规范化：玩家日志里一眼可辨是商队/访客离场链行为）。
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
                 Log.Message($"[RimExodus] [caravan-exit] Evacuation grant: {pawn.LabelShort} ({pawn.Faction?.Name ?? "no-faction"}) on map {pawn.Map.uniqueID} "
                     + $"lord={pawn.GetLord()?.LordJob?.GetType().Name ?? "none"} duty={pawn.mindState?.duty?.def.defName ?? "none"} "
                     + $"locomotion={evacJob.locomotionUrgency}.");
@@ -255,7 +255,7 @@ namespace RimExodus
                 arrivalMap, new[] { pawn });
             RecentAssaultLords[arrivalMap.uniqueID] = (faction, lord, GenTicks.TicksGame);
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] Pursuit lord: {pawn.LabelShort} lands on map {arrivalMap.uniqueID} "
                     + "and joins a new AssaultColony lord (cross-map chase continues).");
             return true;
@@ -286,7 +286,7 @@ namespace RimExodus
                 if (lord.LordJob is LordJob_SlaveRebellion && lord.ownedPawns.Count > 0 && lord.CanAddPawn(pawn))
                 {
                     lord.AddPawn(pawn);
-                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                         Log.Message($"[RimExodus] Lord continuation (SlaveRebellion): {pawn.LabelShort} joins the ongoing "
                             + $"rebellion lord on map {arrivalMap.uniqueID}.");
                     return true;
@@ -300,7 +300,7 @@ namespace RimExodus
             LordMaker.MakeNewLord(pawn.Faction,
                 new LordJob_SlaveRebellion(pawn.Position, pawn.Position, -1, !rebellion.IsAggressiveRebellion),
                 arrivalMap, new[] { pawn });
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] Lord continuation (SlaveRebellion): {pawn.LabelShort} starts a rebellion lord "
                     + $"on map {arrivalMap.uniqueID} (passive={!rebellion.IsAggressiveRebellion}).");
             return true;
@@ -315,7 +315,7 @@ namespace RimExodus
         {
             if (grant.NextJob != null)
             {
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Bridge continuation: resuming wrapped job {grant.NextJob.def.defName} "
                         + $"for {pawn.LabelShort} on map {arrivalMap.uniqueID}.");
                 pawn.jobs.StartJob(grant.NextJob, JobCondition.InterruptForced);
@@ -331,7 +331,7 @@ namespace RimExodus
                 if (!finalCell.InBounds(arrivalMap)
                     || !SeamlessVehiclesCompat.TryFindVehicleStandableNear(pawn, finalCell, out finalCell))
                 {
-                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                         Log.Message($"[RimExodus] Bridge continuation skipped: no vehicle-standable cell near final dest "
                             + $"{grant.FinalDestCell} on map {arrivalMap.uniqueID} for {pawn.LabelShort}.");
                     return;
@@ -339,7 +339,7 @@ namespace RimExodus
             }
             else if (!finalCell.InBounds(arrivalMap) || !finalCell.Walkable(arrivalMap))
             {
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Bridge continuation skipped: final cell {finalCell} on map {arrivalMap.uniqueID} is not walkable.");
                 return;
             }
@@ -368,7 +368,7 @@ namespace RimExodus
                 // Grant 已消费，后续 job 启动不会误触发。
                 // 2026-09 插桩：think tree 的 JobGiver_ExitMap 在同口径下也找不到出口时返回 null
                 // → pawn 永久站桩在落地邻图的接缝带（"stuck on the border"候选之一），此行是唯一痕迹。
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
                     Log.Message($"[RimExodus] [caravan-exit] Evacuation chain stuck: {pawn.LabelShort} landed on map {arrivalMap.uniqueID} "
                         + "but NO reachable exit spot found — pawn left to vanilla think tree (likely idle at seam). "
                         + $"leftLord={grant.PrevLordJob?.GetType().Name ?? "none"}");
@@ -382,7 +382,7 @@ namespace RimExodus
             next.BoundSpot = destSpot;
             next.ForceExit = forceExit;
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
                 Log.Message($"[RimExodus] [caravan-exit] Evacuation chain: {pawn.LabelShort} continues on map {arrivalMap.uniqueID} "
                     + $"toward exit {destSpot} (forceExit={forceExit}, visited={visited.Count}).");
 
@@ -428,7 +428,7 @@ namespace RimExodus
 
             // 2026-09 插桩（"caravans stuck on the border"排查）：三级候选全灭时统计口径——
             // 区分"spot 全部从 pawn 位置不可达"（地形封闭/被围）与"仅因 visited/对端已加载被排除"。
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
             {
                 var unreachable = 0;
                 var standable = 0;
@@ -488,7 +488,7 @@ namespace RimExodus
                 var grant = Create(other, GrantKind.Pursue);
                 grant.BoundSpot = spot.Position;
 
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Pursuit grant: {other.LabelShort} chases {target.LabelShort} across map {departureMap.uniqueID}.");
             }
         }
@@ -511,7 +511,7 @@ namespace RimExodus
                 var grant = Create(other, GrantKind.Follow);
                 grant.BoundSpot = spot.Position;
 
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Follow grant: {other.LabelShort} follows {leader.LabelShort} across map {departureMap.uniqueID}.");
             }
         }
@@ -605,7 +605,7 @@ namespace RimExodus
             grant.BoundSpot = destSpot;
             grant.ForceExit = forceExit;
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] Stray NPC {pawn.LabelShort} converts to evacuation on map {map.uniqueID}.");
 
             IssueTransitGoto(pawn, destSpot, LocomotionUrgency.Jog);

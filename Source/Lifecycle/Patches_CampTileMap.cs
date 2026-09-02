@@ -61,7 +61,7 @@ namespace RimExodus
             SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(map);
             SeamlessTileManager.AutoConnectWorldNeighbors(map, tile.tileId); // 紧邻已加载图时自动接线
 
-            Log.Message($"[RimExodus] Camp at tile {tile.tileId} generated as seamless tile map {map.uniqueID} " +
+            if (RimExodusLog.Enabled(RimExodusLogModule.Generation)) Log.Message($"[RimExodus] Camp at tile {tile.tileId} generated as seamless tile map {map.uniqueID} " +
                         "(vanilla Camp auto-dissolution bypassed; lifecycle now governed by dormancy governor).");
             __result = map;
             return false;

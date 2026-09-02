@@ -143,17 +143,17 @@ namespace RimExodus
                         //（Dev 秒杀 "(Dev: instantly)"、禁用原因内联），精确匹配漏网。
                         if (command.defaultLabel.StartsWith("CommandAttackSettlement".Translate()))
                         {
-                            Log.Message("[RimExodus] TraderDialog: caravan gizmo filtered (attack).");
+                            if (RimExodusLog.Enabled(RimExodusLogModule.Settlement)) Log.Message("[RimExodus] TraderDialog: caravan gizmo filtered (attack).");
                             continue;
                         }
                         caravanCommands.Add(command);
-                        Log.Message($"[RimExodus] TraderDialog: caravan gizmo '{command.LabelCap}' ({gizmo.GetType().Name})" +
+                        if (RimExodusLog.Enabled(RimExodusLogModule.Settlement)) Log.Message($"[RimExodus] TraderDialog: caravan gizmo '{command.LabelCap}' ({gizmo.GetType().Name})" +
                                     (command.Disabled ? $" DISABLED: {command.disabledReason}" : " enabled") +
                                     $" | SettlementVisitedNow={CaravanVisitUtility.SettlementVisitedNow(shadow) == settlement}.");
                     }
                     else
                     {
-                        Log.Message($"[RimExodus] TraderDialog: caravan gizmo skipped (not a Command): {gizmo?.GetType().Name ?? "null"}.");
+                        if (RimExodusLog.Enabled(RimExodusLogModule.Settlement)) Log.Message($"[RimExodus] TraderDialog: caravan gizmo skipped (not a Command): {gizmo?.GetType().Name ?? "null"}.");
                     }
                 }
                 // 金鸢尾兰等 mod 的挂载点在 GetFloatMenuOptions（Harmony Postfix 追加 CaravanArrivalAction
@@ -164,7 +164,7 @@ namespace RimExodus
                     caravanFloatOptions.Add(fmo);
                 }
             }
-            Log.Message($"[RimExodus] TraderDialog: harvested {caravanCommands.Count} caravan commands, {caravanFloatOptions.Count} caravan float menu options" +
+            if (RimExodusLog.Enabled(RimExodusLogModule.Settlement)) Log.Message($"[RimExodus] TraderDialog: harvested {caravanCommands.Count} caravan commands, {caravanFloatOptions.Count} caravan float menu options" +
                         (shadow == null ? " (shadow unavailable — see ShadowCaravan log above)" : "") +
                         $"; settlement def={settlement.def.defName}, Attackable={settlement.Attackable}.");
 
@@ -225,19 +225,19 @@ namespace RimExodus
                 // 二次入场/触发进入信件（2026-08-26 用户定夺：友方据点的"访问"一律不进面板）。
                 if (fmo.Label.StartsWith(attackLabel) || fmo.Label.StartsWith(enterLabel) || fmo.Label.StartsWith(visitLabel))
                 {
-                    Log.Message($"[RimExodus] TraderDialog: caravan float option filtered (attack/enter): '{fmo.Label}'.");
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Settlement)) Log.Message($"[RimExodus] TraderDialog: caravan float option filtered (attack/enter): '{fmo.Label}'.");
                     continue;
                 }
                 if (!existingLabels.Add(fmo.Label))
                 {
-                    Log.Message($"[RimExodus] TraderDialog: caravan float option filtered (duplicate label): '{fmo.Label}'.");
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Settlement)) Log.Message($"[RimExodus] TraderDialog: caravan float option filtered (duplicate label): '{fmo.Label}'.");
                     continue;
                 }
                 var option = new DiaOption(fmo.Label);
                 if (fmo.Disabled) // FloatMenuOption 的禁用原因内联在 Label 里（"标签（原因）"），无独立字段。
                 {
                     option.Disable("DisabledCommand".Translate());
-                    Log.Message($"[RimExodus] TraderDialog: caravan float option '{fmo.Label}' DISABLED.");
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Settlement)) Log.Message($"[RimExodus] TraderDialog: caravan float option '{fmo.Label}' DISABLED.");
                 }
                 else
                 {
@@ -250,7 +250,7 @@ namespace RimExodus
                             LogDiplomatDiagnostics(s, $"after float option '{captured.Label}'");
                         }
                     };
-                    Log.Message($"[RimExodus] TraderDialog: caravan float option '{fmo.Label}' enabled.");
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Settlement)) Log.Message($"[RimExodus] TraderDialog: caravan float option '{fmo.Label}' enabled.");
                 }
                 option.resolveTree = true;
                 node.options.Add(option);
@@ -261,25 +261,25 @@ namespace RimExodus
             {
                 if (gizmo is not Command command)
                 {
-                    Log.Message($"[RimExodus] TraderDialog: settlement gizmo skipped (not a Command): {gizmo?.GetType().Name ?? "null"}.");
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Settlement)) Log.Message($"[RimExodus] TraderDialog: settlement gizmo skipped (not a Command): {gizmo?.GetType().Name ?? "null"}.");
                     continue;
                 }
                 if (command.icon == Settlement.FormCaravanCommand) // 教学项，语境不适用。
                 {
-                    Log.Message("[RimExodus] TraderDialog: settlement gizmo filtered (form caravan tutorial).");
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Settlement)) Log.Message("[RimExodus] TraderDialog: settlement gizmo filtered (form caravan tutorial).");
                     continue;
                 }
                 if (command.defaultLabel == "CommandShowMap".Translate()) // 查看地图（站在图上，无意义）。
                 {
-                    Log.Message("[RimExodus] TraderDialog: settlement gizmo filtered (show map).");
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Settlement)) Log.Message("[RimExodus] TraderDialog: settlement gizmo filtered (show map).");
                     continue;
                 }
                 if (command is Command_ManualDormancy) // 手动休眠/删除是地图生命周期操作，不进"远行者"面板（按标记类型过滤，不靠 label 匹配）。
                 {
-                    Log.Message("[RimExodus] TraderDialog: settlement gizmo filtered (manual dormancy).");
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Settlement)) Log.Message("[RimExodus] TraderDialog: settlement gizmo filtered (manual dormancy).");
                     continue;
                 }
-                Log.Message($"[RimExodus] TraderDialog: settlement gizmo '{command.LabelCap}' ({command.GetType().Name})" +
+                if (RimExodusLog.Enabled(RimExodusLogModule.Settlement)) Log.Message($"[RimExodus] TraderDialog: settlement gizmo '{command.LabelCap}' ({command.GetType().Name})" +
                             (command.Disabled ? $" DISABLED: {command.disabledReason}" : " enabled") + ".");
                 node.options.Add(CommandToOption(command, delegate { command.ProcessInput(Event.current); }));
             }
@@ -331,7 +331,7 @@ namespace RimExodus
                 else if (StatDefOf.NegotiationAbility.Worker.IsDisabledFor(p)) why = "negotiation disabled";
                 if (why != null) sb.Append($" [{p.LabelShort}: {why}]");
             }
-            Log.Message(sb.ToString());
+            if (RimExodusLog.Enabled(RimExodusLogModule.Settlement)) Log.Message(sb.ToString());
         }
 
         /// <summary>交易可用性（门槛对齐原版 CaravanArrivalAction_Trade.CanTradeWith + 贸易浮窗的谈判者检查）。</summary>

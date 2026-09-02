@@ -52,7 +52,7 @@ namespace RimExodus
             // 离线验证器的 9 个伪迹失败 patch（GetClearRects/SelectInternal/SetTerrain/MapPreTick·MapUpdate/
             // RecalculateAllPerceivedPathCosts/SkyManagerUpdate）若不在此列 = 游戏内也没绑上 = 真死代码。
             var patchedCount = 0;
-            var verbose = Settings?.verboseLogging ?? false;
+            var verbose = RimExodusLog.Enabled(RimExodusLogModule.Core);
             foreach (var method in harmony.GetPatchedMethods())
             {
                 patchedCount++;
@@ -60,7 +60,7 @@ namespace RimExodus
                     Log.Message("[RimExodus]   patched: " + method.DeclaringType?.FullName + "::" + method.Name);
             }
             Log.Message($"[RimExodus] Harmony patches applied to {patchedCount} methods"
-                + (verbose ? " (list above)" : " (enable verbose logging for the list)."));
+                + (verbose ? " (list above)" : " (enable the Core log module in settings for the list)."));
 
             // 显式 patch CellFinder.TryFindRandomEdgeCellWith 的 4 参数重载（out 参数需 MakeByRefType()，
             // [HarmonyPatch] 特性无法声明，故在 PatchAll 之外手动绑定）。
@@ -253,8 +253,39 @@ namespace RimExodus
                     // ===== tab：高级 / 诊断 =====
                     SliderRow(listing, "RimExodus_SettingsNoiseLabel", "RimExodus_SettingsNoiseTip",
                         s.seamOverrideNoiseAmplitude, 0f, 0.5f, v => s.seamOverrideNoiseAmplitude = v, "{0:F2}");
-                    CheckRow(listing, "RimExodus_SettingsVerboseLabel", "RimExodus_SettingsVerboseTip",
-                        v => s.verboseLogging = v, s.verboseLogging);
+                    // 分模块诊断日志（2026-09，取代单一 verbose 总开关）：总控 + 9 模块逐项。
+                    // 默认全关；开启后对应模块输出详细日志（Warn/Error 与常开心跳不受控）。
+                    listing.Gap(6f);
+                    listing.Label("RimExodus_SettingsLogModulesLabel".Translate(),
+                        -1f, new TipSignal("RimExodus_SettingsLogModulesTip".Translate()));
+                    var allLogsOn = s.logGeneration && s.logTransfer && s.logCaravanExit && s.logWeather &&
+                                    s.logDormancy && s.logCombat && s.logCompat && s.logSettlement && s.logCore;
+                    var tmpAll = allLogsOn;
+                    listing.CheckboxLabeled("RimExodus_SettingsLogAllLabel".Translate(), ref tmpAll,
+                        "RimExodus_SettingsLogAllTip".Translate());
+                    if (tmpAll != allLogsOn)
+                    {
+                        s.logGeneration = s.logTransfer = s.logCaravanExit = s.logWeather = s.logDormancy =
+                            s.logCombat = s.logCompat = s.logSettlement = s.logCore = tmpAll;
+                    }
+                    CheckRow(listing, "RimExodus_SettingsLogGenerationLabel", "RimExodus_SettingsLogGenerationTip",
+                        v => s.logGeneration = v, s.logGeneration);
+                    CheckRow(listing, "RimExodus_SettingsLogTransferLabel", "RimExodus_SettingsLogTransferTip",
+                        v => s.logTransfer = v, s.logTransfer);
+                    CheckRow(listing, "RimExodus_SettingsLogCaravanExitLabel", "RimExodus_SettingsLogCaravanExitTip",
+                        v => s.logCaravanExit = v, s.logCaravanExit);
+                    CheckRow(listing, "RimExodus_SettingsLogWeatherLabel", "RimExodus_SettingsLogWeatherTip",
+                        v => s.logWeather = v, s.logWeather);
+                    CheckRow(listing, "RimExodus_SettingsLogDormancyLabel", "RimExodus_SettingsLogDormancyTip",
+                        v => s.logDormancy = v, s.logDormancy);
+                    CheckRow(listing, "RimExodus_SettingsLogCombatLabel", "RimExodus_SettingsLogCombatTip",
+                        v => s.logCombat = v, s.logCombat);
+                    CheckRow(listing, "RimExodus_SettingsLogCompatLabel", "RimExodus_SettingsLogCompatTip",
+                        v => s.logCompat = v, s.logCompat);
+                    CheckRow(listing, "RimExodus_SettingsLogSettlementLabel", "RimExodus_SettingsLogSettlementTip",
+                        v => s.logSettlement = v, s.logSettlement);
+                    CheckRow(listing, "RimExodus_SettingsLogCoreLabel", "RimExodus_SettingsLogCoreTip",
+                        v => s.logCore = v, s.logCore);
                     CheckRow(listing, "RimExodus_SettingsTickProfileLabel", "RimExodus_SettingsTickProfileTip",
                         v => s.tickProfilingEnabled = v, s.tickProfilingEnabled);
                     // 汇报间隔以游戏秒展示（存储为 ticks，60-3000）；每轮现读，拖动即时生效。

@@ -303,7 +303,8 @@ namespace RimExodus
         /// <summary>
         /// 原生 parent 图统一接线（延迟 1 tick，MapGenerated 触发；家园与原生家族一视同仁——
         /// "一切地图对等"铁律）。步骤：
-        /// ① 天气域绑定（<see cref="SeamlessWeatherClusterManager.BindMap"/>，幂等）；
+        /// ① 天气域接入（<see cref="SeamlessWeatherClusterManager.BindMap"/>，幂等——重算域缓存 +
+        ///    被动成员从激活图同步天气状态，形态 B"决策集中 + 执行各图"模型）；
         /// ② 沿全部世界邻居边预铺传送点（1490 已铺时幂等防御）；
         /// ③ AutoConnectWorldNeighbors——与已加载邻图补登记（2026-08 补的关键缺口：原生路径
         ///    （远行队进入据点/埋伏图）生成的图此前无人接线，图虽被 389/392/1490 裁切
@@ -394,7 +395,7 @@ namespace RimExodus
             }
             // generatingTiles 防重入锁在分帧生成期间保持 true，由 GenerateTileMap 的 onComplete
             // 回调（FinishGeneration 完成后）调 ClearGeneratingTile 清理。
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Core))
                 Log.Message($"[RimExodus] Started incremental generation for world tile {targetWorldTile} (source={sourceWorldTile}).");
             return true;
         }
@@ -439,7 +440,7 @@ namespace RimExodus
             // 防递归：该 worldTile 已有任意地图（含非直接邻居）则跳过，补登记邻居。
             if (SeamlessTileGraph.TryGetMapByWorldTile(newWorldTile, out var existingMap))
             {
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Core))
                     Log.Message($"[RimExodus] World tile {newWorldTile} already has a map {existingMap.uniqueID}, skip generation.");
                 EnsureNeighborRegistered(map, sourceWorldTile, existingMap, newWorldTile);
                 return null;
@@ -460,7 +461,7 @@ namespace RimExodus
                 var liveMap = existingParent.Map;
                 if (liveMap != null && !liveMap.Disposed)
                 {
-                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Core))
                         Log.Message($"[RimExodus] World tile {newWorldTile} already has a live map {liveMap.uniqueID} "
                             + $"(parent {existingParent.def.defName}), waking/skipping instead of generating.");
                     SeamlessDormancyManager.Wake(liveMap, "generation guard (parent exists, prevent duplicate WorldObject)");
@@ -628,7 +629,7 @@ namespace RimExodus
                     // 且 WorldObject 由 worldObjects.Add 注册到世界视图。
                     // 逐子步计时（verbose，2026-08）：本回调在 FinishGeneration 单帧内执行，
                     // 耗时计入 FinishGeneration timings 的 onComplete 段；此处拆出各子步。
-                    var timer = SectionTimer.StartIf(RimExodusMod.Settings?.verboseLogging ?? false);
+                    var timer = SectionTimer.StartIf(RimExodusLog.Enabled(RimExodusLogModule.Core));
                     long tWorldAdd, tWeatherBind, tRegister, tPlaceOrigin, tRefreshOrigin, tRefreshNew, tAutoConnect;
 
                     if (!Find.World.worldObjects.Contains(interiorMap.Parent))
@@ -636,8 +637,8 @@ namespace RimExodus
                         Find.World.worldObjects.Add(interiorMap.Parent);
                     }
                     tWorldAdd = timer?.Section() ?? 0;
-                    // 天气共享：按群系连通域绑定（全局天气状态注册机制——同群系邻接连通的图共享
-                    // 一个天气源，宿主=域内最小 tileId 图；家园图不特殊，任何图都可作为域宿主）。
+                    // 天气共享：接入群系连通域（形态 B"决策集中 + 执行各图"——同群系邻接连通的图
+                    // 一域，换天决策集中在激活图、广播全域执行；家园图不特殊，任何图都可作激活图）。
                     SeamlessWeatherClusterManager.BindMap(interiorMap);
                     tWeatherBind = timer?.Section() ?? 0;
                     SeamlessNeighborRegistry.RegisterNeighborBidirectional(originMapCapture, mapParent, sourceWorldTileCapture, newWorldTile, hostOffset);
@@ -721,7 +722,7 @@ namespace RimExodus
                 return;
             }
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Core))
                 Log.Message($"[RimExodus] EnsureNeighborRegistered: linking origin map {originMap.uniqueID}(wt={sourceWorldTile}) " +
                     $"with existing map {existingMap.uniqueID}(wt={existingWorldTile}) as direct neighbors.");
 
@@ -775,7 +776,7 @@ namespace RimExodus
             {
                 parent.Destroy();
             }
-            // 天气域重算：被卸载的图可能是某域宿主，成员改绑新宿主。
+            // 天气域重算：被卸载的图可能是域激活图，重算后激活权转移（确定性回落最小 tileId）。
             SeamlessWeatherClusterManager.RebindAll();
         }
 
@@ -823,7 +824,7 @@ namespace RimExodus
             // 原版延迟判定（未被 patch 的虚方法，无递归；须于删图前调用——其内部读 base.Map）。
             if (!parent.ShouldRemoveMapNow(out var alsoRemoveWorldObject))
             {
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Core))
                     Log.Message($"[RimExodus] Native family map wt={parent.Tile.tileId} ({parent.def.defName}) not removable by vanilla rules this sweep (blockers present), keeping.");
                 return;
             }
@@ -840,7 +841,7 @@ namespace RimExodus
             {
                 parent.Destroy();
             }
-            // 天气域重算：被卸载的图可能是某域宿主，成员改绑新宿主。
+            // 天气域重算：被卸载的图可能是域激活图，重算后激活权转移（确定性回落最小 tileId）。
             SeamlessWeatherClusterManager.RebindAll();
 
             Log.Message($"[RimExodus] Dormancy DELETE (native family): map {mapId} wt={tile} parent={parent.def.defName} (alsoRemoveWorldObject={alsoRemoveWorldObject}) — governor rolling delete");

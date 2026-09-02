@@ -107,8 +107,8 @@
       - 设计如此：无缝地图就得显示邻接地图，这个不能完全省掉，我只能在渲染邻接地图时做可视区域裁剪和精简后处理效果来减少性能损耗
     - 接缝中心线勾勒与浅绿撤离带绘制：每帧少量绘制提交，接缝几何按地块缓存，沉浸模式开关可整体隐藏。
       - 设计如此：渲染就是这么搞的
-    - 天气域幂等守卫：每图每帧/每 tick 一次弱表查询加帧号比较，量级极小；副作用是共享天气实例同帧只推进一次，实际上是净省。
-      - 设计如此：这个最初是我觉得隔一个地块一个天气不合适，所以做了天气共享。因此只要没跨群系，那么多个地图就只需要处理一次天气，实际上是优化性能
+    - 天气域调度：每图每 tick 一次 O(1) 字典查询（被动图的天气决策 tick 被短路）、换天/禁雨时一次域内广播，量级极小；决策只在域内一张图上跑一次。
+      - 设计如此：这个最初是我觉得隔一个地块一个天气不合适，所以做了天气共享。只要没跨群系，多个地图的天气决策只处理一次，实际上是优化性能；天气执行（下雨/闪电/环境音）仍每图各自原生进行
     - 鼠标拾取：点击命中本图范围即放行原版零开销；悬停/点击到邻图渲染区域时才有一次归属解析和少量对象分配。
       - 实现限制：不然没法很好处理跨图命令，这个也没啥消耗
   - 每 tick / pawn 步进
@@ -153,7 +153,7 @@
 | Cross-map targeting & shooting | 开 | 跨缝索敌与射击总开关（关 = 战斗语义回原版，便于 A/B） |
 | Seam band & evacuation toggle | 开 | **不在设置窗口，在地图右下角全局控制条（PlaySettings）**。沉浸模式开关：关闭后隐藏浅绿撤离带与接缝划线，并禁用一切经接缝带的原生离场成队（含组队界面出口）——跨缝步行/跨图下令不受影响。为录视频/截图的沉浸需求设计，非正常游玩用途（关闭期间无法主动经接缝带组队离场） |
 | Hide empty colonist bar groups | 关 | **同上，在全局控制条（PlaySettings）**。开启后殖民者栏隐藏"无玩家 pawn 的非玩家家地图"的空分组框（无缝世界常驻多图时原版为每图画一个可点空框，挤占栏位）；玩家家园（含暂时无人的家）始终保留。默认关 = 殖民者栏原生行为 |
-| Verbose logging | 关 | 详细诊断日志 |
+| Diagnostic logs by module（分模块诊断日志） | 全关 | 按模块开关详细日志（9 个模块 + 一个总控）：生成与地形 / 传送与边界 / **远行队离场诊断（[caravan-exit]）** / **天气域** / 休眠与性能 / 跨图战斗 / 兼容层 / 据点与贸易 / 核心与图管理。排查问题或向作者报告时**只开相关模块**，避免全量日志刷屏。警告/错误与低频生命周期心跳（休眠入睡/唤醒/删除、降频开/关）不受开关控制、始终记录。取代旧的单一"详细日志"总开关 |
 | Tick profiling | 关 | 周期输出逐图分桶耗时日志（事物 tick / pre / post / 每帧 update + 每 tick 墙钟），验证降频收益与定位剩余开销（update 桶大而事物桶近零 = 成本在帧侧）。诊断用，开启有轻微插桩开销 |
 | Tick profiling interval | 10 游戏秒 | 汇报间隔（游戏秒 1-50 = 60-3000 ticks；三档速度每现实秒约 360 ticks，间隔太小汇报刷屏且样本小） |
 | Seam override noise amplitude | 0.15 | 接缝混合过渡带的噪声打散幅度（0 = 关闭） |
@@ -181,7 +181,7 @@
 |---|---|---|
 | `Core/` | mod 入口、设置与跨域基础数据 | `RimExodusMod`（启动/PatchAll/绑定报告）、`RimExodusSettings`（设置窗口与 ModSettings）、`MapParent_SeamlessTile`（地块 WorldObject）、`SeamlessTileManager`（生成链入口 `GenerateTileMap`）、`SeamlessMapData`（邻居表/条带快照的载体分支唯一出处）、`SeamlessTileGraph`/`SeamlessTileRegistry`（邻接查询）、`SeamlessGridMath`（切比雪夫/邻格遍历统一口径）、`WorldTileGeometry`、`SeamlessMapUtility`（多边形归属解析）、`SeamlessEdgeCells`、`SeamlessBorderLookup`（边界带速查表）、`DebugActions_SeamlessTile`（Dev 菜单） |
 | `Generation/` | 地图生成管线：六边形裁切、void、接缝混合、分帧增量生成 | 四个注入 genStep（`GenStep_SeamlessTile` 391 备份+铺 void / `GenStep_SeamOverride` 392 接缝混合 / `GenStep_EnterSpots` 1490 铺传送点 / `GenStep_CoastalEdgeFill` 230）、`SeamlessPolygonGeometry`（接缝带几何唯一实现）、`SeamlessTerrainFill`、`SeamlessSeamOverride`（卷积混合规则）、`SeamStripData`（三层条带快照）、`SeamlessBaseSnapshotData`（三层快照的序列化载体）、`SeamlessSnapshotRegenerator`（读档后缺失快照的精简重生成）、`IncrementalMapGenerator`（分帧增量生成）、`MapGenerationProgressUI`、`SeamlessEnterSpotPlacer` + `CompSeamlessTileEnterSpot`（传送点铺设与标记）、配套 patch：河流/道路对齐（`Patches_TileMutatorRiver`/`Patches_GenStepRoads`）、建筑选址（`Patches_BuildingPlacement`）、揭雾分径（`Patches_GenStepFog`）、地形守卫（`Patches_TerrainGrid`）、生成计时与互斥（`Patches_MapGenTiming`/`Patches_IncrementalMapGen`）、`Patches_GenConstruct`、远行队进图出生点（`Patches_CaravanEnterMap`） |
-| `Lifecycle/` | 地图滚动生命周期：软休眠、距离删除、天气域、原生家族/Settlement 接管 | `SeamlessDormancyGovernor`（距离策略 + 全局静态清扫）+ `Patches_Dormancy`、`SeamlessTickThrottle` + `Patches_TickThrottle`（分级休眠中间档：无玩家空图降频 tick + 接缝快速区）、`SeamlessMapGovernance`（管辖/家园特权判定唯一出处）、`SeamlessWeatherClusterManager` + `Patches_WeatherCluster`（群系连通域共享天气）、`Patches_CampTileMap`（营地接入生成链）、`Patches_NativeMapFamily`（"人走即删"族接管 + 败亡守卫）、`SeamlessManualDormancyGizmos`（手动休眠/删除 gizmo 唯一构造处：地块图覆写 + 原生家族 MapParent.GetGizmos Postfix）、`SeamlessSettlementTrader`/`SeamlessSettlementTalk`/`Patches_SettlementTrade`（派系基地贸易商与对话/交易） |
+| `Lifecycle/` | 地图滚动生命周期：软休眠、距离删除、天气域、原生家族/Settlement 接管 | `SeamlessDormancyGovernor`（距离策略 + 全局静态清扫）+ `Patches_Dormancy`、`SeamlessTickThrottle` + `Patches_TickThrottle`（分级休眠中间档：无玩家空图降频 tick + 接缝快速区）、`SeamlessMapGovernance`（管辖/家园特权判定唯一出处）、`SeamlessWeatherClusterManager` + `Patches_WeatherDomain`（群系连通域共享天气：决策集中在激活图、执行各图原生进行）、`Patches_CampTileMap`（营地接入生成链）、`Patches_NativeMapFamily`（"人走即删"族接管 + 败亡守卫）、`SeamlessManualDormancyGizmos`（手动休眠/删除 gizmo 唯一构造处：地块图覆写 + 原生家族 MapParent.GetGizmos Postfix）、`SeamlessSettlementTrader`/`SeamlessSettlementTalk`/`Patches_SettlementTrade`（派系基地贸易商与对话/交易） |
 | `Transfer/` | 跨缝传送机制：许可登记、触发、桥接下令 | `SeamlessMapTransferTrigger`（踩点热路径）、`SeamlessTransferGrants`（许可登记表）、`SeamlessMapTransfer`（传送执行）、`SeamlessCrossMapOrders`（桥接下令 + 双侧代价场选点）、`SeamlessPathCostField`（Dijkstra 代价场）、`SeamlessBoundaryRules`（主体资格判定）、`Patches_Job`（StartJob 钩子：撤离登记/许可清理）、`Patches_PawnPathFollower`（nextCell 踩点触发） |
 | `Interaction/` | 跨图交互 UI 层：点击重放、选中保持、相机、虚拟传送 | `Patches_ClickReplay` + `SeamlessReplayContext`（邻图点击重放链）、`SeamlessGenUI`、`SeamlessSelectionTracker`（跨切图选中保持）、`SeamlessCameraFocus`（自动聚焦 + 无感相机）、`SeamlessVirtualTeleporter`（评估窗口零写入的坐标系虚拟传送）、`Patches_CrossMapCommon`/`Patches_ReachabilityCrossMap`（CanReach 真实化等公共函数层）、`Patches_Selector`（殖民者栏休眠过滤）、`Patches_CaravanExitDiagnostics` |
 | `Combat/` | 跨图索敌与射击 | `SeamlessCrossMapSight`（分段 LOS）、`SeamlessCombatCoords`（统一坐标与归属路由）、`Patches_CombatTargetSearch`（索敌两层模型跨图化）、`Patches_CombatTargeting`（TryCastShot 门/ShotReport）、`Patches_Projectile`（弹丸缝交接）、`Patches_CombatVisuals`（朝向/瞄准角/连线等视觉修正） |

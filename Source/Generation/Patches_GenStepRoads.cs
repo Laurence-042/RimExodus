@@ -46,7 +46,7 @@ namespace RimExodus
                 comp.paths.Add(copy);
             }
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
                 Log.Message($"[RimExodus] Patch_GenStep_Roads_SnapshotPaths: map={map.uniqueID} snapshotted {comp.paths.Count} road paths.");
         }
     }
@@ -223,7 +223,7 @@ namespace RimExodus
                 }
             }
 
-            if (filled > 0 && (RimExodusMod.Settings?.verboseLogging ?? false))
+            if (filled > 0 && (RimExodusLog.Enabled(RimExodusLogModule.Generation)))
                 Log.Message($"[RimExodus] Patch_GenStep_Roads_ApplyDistanceField: map={map.uniqueID} road={roadDef.defName} filled {filled} seam cells.");
         }
     }
@@ -273,7 +273,7 @@ namespace RimExodus
             if (StraightenEnd(__result, map, worldTile, mapSize, band, anchors, fromStart: true)) straightened++;
             if (StraightenEnd(__result, map, worldTile, mapSize, band, anchors, fromStart: false)) straightened++;
 
-            if (straightened > 0 && (RimExodusMod.Settings?.verboseLogging ?? false))
+            if (straightened > 0 && (RimExodusLog.Enabled(RimExodusLogModule.Generation)))
                 Log.Message($"[RimExodus] Patch_GenStep_Roads_RefinePath: map={map.uniqueID} straightened {straightened} seam end(s).");
         }
 

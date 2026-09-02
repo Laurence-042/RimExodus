@@ -22,7 +22,7 @@ namespace RimExodus
 
         internal static void Report(Map map, int worldTile, string phase)
         {
-            if (!(RimExodusMod.Settings?.verboseLogging ?? false)) return;
+            if (!(RimExodusLog.Enabled(RimExodusLogModule.Generation))) return;
 
             var mapSize = map.Size.x;
             var edgeCount = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize).Count;

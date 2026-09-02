@@ -130,7 +130,7 @@ namespace RimExodus
                 }
             }
 
-            if (placed > 0 && (RimExodusMod.Settings?.verboseLogging ?? false))
+            if (placed > 0 && (RimExodusLog.Enabled(RimExodusLogModule.Generation)))
                 Log.Message($"[RimExodus] VoidRockLink: placed {placed} invisible rock linkers on map {map.uniqueID} (wt={worldTile}).");
         }
 

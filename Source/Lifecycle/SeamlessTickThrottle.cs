@@ -77,6 +77,12 @@ namespace RimExodus
             return map != null && !map.Disposed && throttledMaps.Contains(map);
         }
 
+        /// <summary>是否处于 0% 凝固（throttled 且永不放行）——"等价休眠"判定（天气域激活接任等消费）。</summary>
+        internal static bool IsFrozen(Map map)
+        {
+            return map != null && throttledMaps.Contains(map) && IntervalTicks == NeverTick;
+        }
+
         /// <summary>该降频图快速区格数（0 = 无快速区/未降频；剖析报告用——0% 档下 calls 即来自这些格）。</summary>
         public static int FastRegionCellCount(Map map)
         {
@@ -169,8 +175,10 @@ namespace RimExodus
 
             if (IntervalTicks == NeverTick)
             {
-                map.weatherManager.EndAllSustainers();
+                map.weatherManager.EndAllSustainers(); // 本图自己的实例（形态 B），无跨图影响。
                 Find.SoundRoot.sustainerManager.EndAllInMap(map);
+                // 0% 凝固 = 等价休眠（2026-09-02 天气域注册制事件②）：若本图是域激活图 → 接任。
+                SeamlessWeatherClusterManager.NotifySimulationSuspended(map, "tick rate 0 (frozen)");
             }
 
             Log.Message($"[RimExodus] Throttle ON: map {map.uniqueID} (wt={SeamlessTileRegistry.GetMapWorldTile(map)}) " +
@@ -182,6 +190,9 @@ namespace RimExodus
         {
             if (map == null || !throttledMaps.Remove(map)) return;
             fastRegions.Remove(map);
+            // 天气状态校准（2026-09 形态 B）：降频期本图 curWeatherAge 以 1/N 速度落后于激活图，
+            // 恢复全速前补齐（被动成员从激活图同步 cur/last/age）。
+            SeamlessWeatherClusterManager.OnMapResumed(map);
             Log.Message($"[RimExodus] Throttle OFF: map {map.uniqueID} — {reason}");
         }
 

@@ -72,6 +72,14 @@ Fixed an intermittent NullReferenceException crash occurring every frame in OnGU
   Progress indicator expanded: the top-left generation progress now also covers synchronous loading phases (snapshot rebuild for older saves, vanilla-pipeline map generation) - the label appears one frame before the heavy operation starts, so the frozen frame shows what is happening.
 
 0.1.7
+- 优化多地图下的天气表现：同一片连续群系内的相邻地图现在共享同一场天气（同时下雨、同时放晴），且降雨打湿地面、积雪、闪电与天气音效在每张地图上都会正常生效——此前这些天气效果只会出现在其中一张地图上
+  Improved weather across maps: adjacent maps within the same continuous biome now share the same weather (it rains and clears on all of them at once), and rain wetting, snow buildup, lightning and weather ambience now take effect properly on every map — previously these effects only occurred on one of the maps.
+- 修复开辟新的相邻地图时，已有地图的天气可能被意外改变的问题（例如刚设为暴雨的地图突然放晴）
+  Fixed an issue where opening a new adjacent map could unexpectedly change the weather of existing maps (e.g. a map you just set to a rainstorm suddenly clearing up).
+- 修复仪式、灾害等强制天气在多地图环境下生效与结束时行为不一致的问题
+  Fixed inconsistent behavior of forced weather (rituals, disasters, etc.) starting and ending in multi-map environments.
+- 设置中新增按模块开关的诊断日志（生成、传送、远行队离场、天气等 9 个模块）：向作者报告问题时只需打开相关模块，日志干净易读；同时清理了部分此前始终输出的调试信息
+  Added per-module diagnostic logging toggles in the settings (generation, transfer, caravan exit, weather, etc. — 9 modules): when reporting a problem you only need to enable the relevant module, keeping logs clean and readable; some debug messages that were always printed are now cleaned up.
 - 世界地图上选中已生成地图的派系基地等地点对象时，现在也可以手动休眠/删除（此前仅无缝地块图支持）。删除按原版规则处理：派系基地删图后世界对象保留、再次靠近时重新生成驻军，其余地点（伏击、战场等）连对象一并移除；图上有殖民者/运输舱等阻碍移除的单位时删除不可用（按钮灰显并提示原因）
   Faction bases and other location objects with generated maps on the world map can now be manually suspended/deleted (previously only seamless tile maps had this). Deletion follows vanilla rules: faction bases keep their world object and regenerate their garrison when revisited, while other locations (ambushes, battlefields, etc.) are removed entirely; deletion is unavailable (button greyed out with a reason) while pawns or transporters block map removal.
 - 玩家可见中文文案统一为官方译名（Settlement=派系基地）

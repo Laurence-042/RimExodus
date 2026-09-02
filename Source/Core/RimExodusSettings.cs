@@ -13,8 +13,42 @@ namespace RimExodus
         /// </summary>
         public int borderPreloadDistance = 15;
 
-        /// <summary>详细诊断日志开关。</summary>
+        /// <summary>
+        /// 详细诊断日志总开关。**已退役（2026-09 分模块日志开关取代）**：字段与 Scribe 仅为旧档
+        /// 兼容保留，读入后忽略——无 UI、无消费点。新代码勿再读此字段，按模块用
+        /// <see cref="RimExodusLog.Enabled(RimExodusLogModule)"/>。
+        /// </summary>
         public bool verboseLogging = false;
+
+        // ===== 分模块诊断日志开关（2026-09，取代 verboseLogging；默认全关，设置"高级"tab 逐项开启） =====
+        // 归属划分与纪律见 RimExodusLogModule 类注释。
+
+        /// <summary>生成与地形（分帧 genStep/河路/接缝混合/快照/中心走廊/海岸补铺）。</summary>
+        public bool logGeneration = false;
+
+        /// <summary>传送与边界（跨缝传送/桥接/许可/边界预加载/点击重放/相机聚焦/跨图下令/出口格）。</summary>
+        public bool logTransfer = false;
+
+        /// <summary>离场链诊断（[caravan-exit]/[diag]——远行队撤离/组队出口问题排查）。</summary>
+        public bool logCaravanExit = false;
+
+        /// <summary>天气域（域重算/图接入/换天广播/决策门控/强制激活/唤醒校准）。</summary>
+        public bool logWeather = false;
+
+        /// <summary>休眠与性能（governor 决策/降频细节；SLEEP/WAKE/DELETE 心跳常开不受控）。</summary>
+        public bool logDormancy = false;
+
+        /// <summary>跨图战斗（索敌/射击/弹道交接）。</summary>
+        public bool logCombat = false;
+
+        /// <summary>兼容层（VF/PS/GL 详细日志；绑定确认/自检行常开不受控）。</summary>
+        public bool logCompat = false;
+
+        /// <summary>据点与贸易（贸易商指定/影子远行队/贸易对话）。</summary>
+        public bool logSettlement = false;
+
+        /// <summary>核心与图管理（TileManager/BorderLookup/卸载恢复/Dev 调试动作）。</summary>
+        public bool logCore = false;
 
         /// <summary>
         /// tick 花费剖析器（2026-08-27 诊断分级休眠收益）：每 600 ticks 输出一次每图分桶耗时
@@ -165,7 +199,16 @@ namespace RimExodus
             Scribe_Values.Look(ref serializeBaseSnapshots, "serializeBaseSnapshots", true);
             Scribe_Values.Look(ref regenerateMissingSnapshots, "regenerateMissingSnapshots", true);
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
-            Scribe_Values.Look(ref verboseLogging, "verboseLogging", false);
+            Scribe_Values.Look(ref verboseLogging, "verboseLogging", false); // 退役字段：仅旧档兼容
+            Scribe_Values.Look(ref logGeneration, "logGeneration", false);
+            Scribe_Values.Look(ref logTransfer, "logTransfer", false);
+            Scribe_Values.Look(ref logCaravanExit, "logCaravanExit", false);
+            Scribe_Values.Look(ref logWeather, "logWeather", false);
+            Scribe_Values.Look(ref logDormancy, "logDormancy", false);
+            Scribe_Values.Look(ref logCombat, "logCombat", false);
+            Scribe_Values.Look(ref logCompat, "logCompat", false);
+            Scribe_Values.Look(ref logSettlement, "logSettlement", false);
+            Scribe_Values.Look(ref logCore, "logCore", false);
             Scribe_Values.Look(ref tickProfilingEnabled, "tickProfilingEnabled", false);
             Scribe_Values.Look(ref tickProfileIntervalTicks, "tickProfileIntervalTicks", 600);
             Scribe_Values.Look(ref borderNoBuildDistance, "borderNoBuildDistance", 3);

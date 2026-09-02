@@ -267,7 +267,7 @@ namespace RimExodus
                     // PatherArrived 全链无 Spawned 检查。代价：SettlementVisitedNow 恒 null → 原版
                     // TradeCommand 不产生（由 TraderDialog 的"无交易命令则回退自建交易项"覆盖）。
                     shadows[kv.Key] = shadow;
-                    Log.Message($"[RimExodus] ShadowCaravan: created at tile {kv.Key} for '{kv.Value.Parent.Label}' (unspawned).");
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Settlement)) Log.Message($"[RimExodus] ShadowCaravan: created at tile {kv.Key} for '{kv.Value.Parent.Label}' (unspawned).");
                 }
                 shadowMaps[shadow] = kv.Value; // 期望集本轮确认的据点图（防旧图删除后残留）
                 SyncMembership(shadow, kv.Value);
@@ -332,7 +332,7 @@ namespace RimExodus
                     }
                     innerList.Clear();
                 }
-                Log.Message($"[RimExodus] ShadowCaravan: dismantled at tile {tile} ({reason}).");
+                if (RimExodusLog.Enabled(RimExodusLogModule.Settlement)) Log.Message($"[RimExodus] ShadowCaravan: dismantled at tile {tile} ({reason}).");
             }
             catch (System.Exception e)
             {

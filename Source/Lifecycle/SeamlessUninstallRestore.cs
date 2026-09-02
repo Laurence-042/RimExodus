@@ -93,7 +93,7 @@ namespace RimExodus
                 if (fallbackMap != null) Current.Game.CurrentMap = fallbackMap;
             }
 
-            var verbose = RimExodusMod.Settings?.verboseLogging ?? false;
+            var verbose = RimExodusLog.Enabled(RimExodusLogModule.Core);
             var restoredMaps = 0;
             var fallbackMaps = 0;
 
@@ -246,7 +246,7 @@ namespace RimExodus
                     map.pathing.RecalculateAllPerceivedPathCosts();
                     map.regionAndRoomUpdater.RebuildAllRegionsAndRooms();
                 }
-                if ((RimExodusMod.Settings?.verboseLogging ?? false) && (changed || rocksSpawned > 0))
+                if ((RimExodusLog.Enabled(RimExodusLogModule.Core)) && (changed || rocksSpawned > 0))
                     Log.Message($"[RimExodus] Uninstall restore map {map.uniqueID}: rocks respawned={rocksSpawned}, things removed={toRemove.Count}.");
                 return !hasSnapshot;
             }

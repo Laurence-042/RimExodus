@@ -119,11 +119,11 @@ namespace RimExodus
             if (best != null)
             {
                 __result = best;
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Combat))
                     Log.Message($"[RimExodus] Cross-map target acquired: {searcherThing.LabelShort} -> {best.Thing.LabelShort} "
                         + $"(unified dist {Mathf.Sqrt(bestDistSq):F0}).");
             }
-            else if ((RimExodusMod.Settings?.verboseLogging ?? false) && poolTotal > 0)
+            else if ((RimExodusLog.Enabled(RimExodusLogModule.Combat)) && poolTotal > 0)
             {
                 var nearest = nearestRejectedDistSq < float.MaxValue ? $" nearestRejectedDist={Mathf.Sqrt(nearestRejectedDistSq):F0}" : "";
                 Log.Message($"[RimExodus] Cross-map scan: {searcherThing.LabelShort} saw {poolTotal} neighbor candidates, "
@@ -175,7 +175,7 @@ namespace RimExodus
             __result = JobMaker.MakeJob(JobDefOf.Wait_Combat,
                 JobGiver_AIFightEnemy.ExpiryInterval_ShooterSucceeded.RandomInRange, checkOverrideOnExpiry: true);
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Combat))
                 Log.Message($"[RimExodus] Cross-map combat job: {pawn.LabelShort} Wait_Combat -> {enemyTarget.LabelShort} on map {enemyTarget.Map.uniqueID}.");
         }
     }
@@ -276,7 +276,7 @@ namespace RimExodus
             job.collideWithPawns = true;
             __result = job;
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Combat))
                 Log.Message($"[RimExodus] Cross-map approach: {pawn.LabelShort} -> {best.LabelShort} on map {best.Map.uniqueID} "
                     + $"(unified dist {Mathf.Sqrt(bestDistSq):F0}).");
         }

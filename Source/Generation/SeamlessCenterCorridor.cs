@@ -77,7 +77,7 @@ namespace RimExodus
 
         public static void Apply(Map map, int worldTile)
         {
-            var verbose = RimExodusMod.Settings?.verboseLogging ?? false;
+            var verbose = RimExodusLog.Enabled(RimExodusLogModule.Generation);
             var sw = verbose ? Stopwatch.StartNew() : null;
 
             // 枚举 B 的已生成邻居（含休眠——region 随档序列化、软休眠不卸载，分组查询安全）。

@@ -118,7 +118,7 @@ namespace RimExodus
                 var grant = SeamlessTransferGrants.Create(pawn, SeamlessTransferGrants.GrantKind.Pursue);
                 grant.BoundSpot = thing.Position;
 
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Combat step transfer: {pawn.LabelShort} (job {job.def.defName}) "
                         + $"pursues across map {map.uniqueID} -> {arrivalMap.uniqueID}.");
                 return true;
@@ -150,14 +150,14 @@ namespace RimExodus
                 // NPC 战斗体外的 pawn（商队驮兽/盟友随从）不进 StrayNpcs 宽限，是"卡在边界"候选之一。
                 // 日志统一走 [caravan-exit] 标签（2026-09 用户报告 "caravans stuck on the border"
                 // 排查：玩家日志里一眼可辨是商队/访客离场链行为；成因证据不足，仅插桩不改行为）。
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
                     Log.Message($"[RimExodus] [caravan-exit] {grant.Kind} grant dropped: pawn {pawn.LabelShort} at {thing.Position} "
                         + $"on map {map.uniqueID} — opposite map unloaded/dormant; pawn will idle at seam until think tree re-decides.");
                 SeamlessTransferGrants.Remove(pawn);
                 return;
             }
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] Seamless trigger ({grant.Kind}): pawn {pawn.LabelShort} at {thing.Position} "
                     + $"on map {map.uniqueID} targeting {comp.cachedArrivalCell} on map {arrivalMap.uniqueID}");
 
@@ -172,7 +172,7 @@ namespace RimExodus
             // 撤销许可止住"站在 spot 上每步重试"的循环（2026-08 实测：许可残留 → Bridge
             // immediate + 拒绝日志往复刷屏）。拒绝是确定性判据，玩家换边/换点重下令即可。
             SeamlessTransferGrants.Remove(pawn);
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] Bridge grant revoked for {pawn.LabelShort}: transfer rejected at seam (see warning above), re-order to retry.");
         }
 
@@ -185,7 +185,7 @@ namespace RimExodus
         {
             if (comp.hasArrival && !grant.ForceExit && SeamlessTileGraph.TryGetMapByWorldTile(comp.targetWorldTile, out var arrivalMap))
             {
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
                     Log.Message($"[RimExodus] [caravan-exit] Evacuation transfer: pawn {pawn.LabelShort} at {thing.Position} "
                         + $"on map {map.uniqueID} continues evacuation toward map {arrivalMap.uniqueID}");
 
@@ -201,7 +201,7 @@ namespace RimExodus
                     // JobDriver pre-tick IsExitCell 兜底（站上格即原生离场）；SelfDriven 续程 job
                     // 不带 flag → 到站站住 → think tree 重发 flag job → 走向同一 spot → 再拒 →
                     // 循环（站桩/踱步）——本日志区分两者。
-                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
                         Log.Message($"[RimExodus] [caravan-exit] Evacuation transfer rejected: pawn {pawn.LabelShort} at {thing.Position} "
                         + $"on map {map.uniqueID}; selfDriven={grant.SelfDriven} "
                         + (grant.SelfDriven ? "(no exit fallback on arrival — watch for idle loop at seam)" : "(flag job pre-tick will exit vanilla)"));
@@ -212,7 +212,7 @@ namespace RimExodus
             if (grant.SelfDriven || grant.ForceExit)
             {
                 // 续程 Goto 不带 exitMapOnArrival（防落地瞬间原生离场），离场动作由这里补上。
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
                     Log.Message($"[RimExodus] [caravan-exit] Evacuation force-exit: pawn {pawn.LabelShort} at {thing.Position} on map {map.uniqueID} "
                         + $"exits map now (selfDriven={grant.SelfDriven}, forceExit={grant.ForceExit}).");
                 pawn.ExitMap(allowedToJoinOrCreateCaravan: true, CellRect.WholeMap(map).GetClosestEdge(pawn.Position));
@@ -222,7 +222,7 @@ namespace RimExodus
 
             // 原版 flag job 驱动 + 对端未生成：交还原生——JobDriver pre-tick 在此出口格原生撤离
             //（行为表"踩传送点(未生成) = 原生撤离（视为跑出视野）"）。许可保留至 job 结束被 StartJob 清理。
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
                 Log.Message($"[RimExodus] [caravan-exit] Evacuation vanilla handoff: pawn {pawn.LabelShort} at {thing.Position} on map {map.uniqueID} "
                     + "— opposite not loaded, JobDriver pre-tick will despawn (exits as world pawn).");
         }

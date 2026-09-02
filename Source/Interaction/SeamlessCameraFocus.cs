@@ -42,7 +42,7 @@ namespace RimExodus
             var offset = FindNeighborOffset(currentMap, arrivalMap);
             if (!offset.HasValue)
             {
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Auto-focus skipped: arrival map {arrivalMap.uniqueID} is not a direct neighbor of current map {currentMap.uniqueID}.");
                 return;
             }
@@ -65,7 +65,7 @@ namespace RimExodus
             Find.CameraDriver.SetRootPosAndSize(new Vector3(targetPos.x, 0f, targetPos.z), camSize);
 
             parent.autoFocused = true;
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] Auto-focused to map {arrivalMap.uniqueID}, camera offset by {-offset.Value}.");
         }
 

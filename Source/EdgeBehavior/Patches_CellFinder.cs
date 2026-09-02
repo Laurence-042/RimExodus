@@ -78,7 +78,7 @@ namespace RimExodus
             __result = false;
             // 诊断插桩（2026-08 远行队"无法离开此区域"排查，verbose）：接缝候选池全灭时记录
             // fogged/unwalkable 分布——validator 是调用方任意谓词，这两项只是提示不是精确归因。
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
             {
                 var fogged = 0;
                 var unwalkable = 0;
@@ -174,7 +174,7 @@ namespace RimExodus
             __result = false;
             // 诊断插桩（verbose）：该方向半平面候选全灭时记录 fogged/unwalkable 分布——
             // validator 是调用方任意谓词，这两项只是提示不是精确归因。
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
             {
                 var fogged = 0;
                 var unwalkable = 0;

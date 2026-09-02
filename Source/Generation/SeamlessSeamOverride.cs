@@ -166,7 +166,7 @@ namespace RimExodus
             var cellIndices = map.cellIndices;
             var topGrid = map.terrainGrid.topGrid;
             var mapDrawer = map.mapDrawer;
-            var verbose = RimExodusMod.Settings?.verboseLogging ?? false;
+            var verbose = RimExodusLog.Enabled(RimExodusLogModule.Generation);
             var written = 0;
 
             // C 的道路保护集：GenStep_Roads 路径快照 ±3 格缓冲（覆盖 Bezier 平滑相对 A* 折线的偏离）。

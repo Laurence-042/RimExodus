@@ -107,7 +107,7 @@ namespace RimExodus
 
             // verbose 计时（2026-08 收尾段用时统计）：本方法在生成完成后的下一 tick 执行，
             // 两次全图带扫描（ComputeVoidBand）是 FinishGeneration 之后的残余长尾。
-            var sw = (RimExodusMod.Settings?.verboseLogging ?? false)
+            var sw = (RimExodusLog.Enabled(RimExodusLogModule.Core))
                 ? System.Diagnostics.Stopwatch.StartNew() : null;
 
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
@@ -159,7 +159,7 @@ namespace RimExodus
 
             built = true;
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Core))
                 Log.Message($"[RimExodus] SeamlessBorderLookup built for map {map.uniqueID} (worldTile={worldTile}, " +
                     $"preloadBand={preloadBandWidth} cells={borderCells.Count}, " +
                     $"noBuildBand={noBuildBandWidth} cells={noBuildBandCells.Count}, " +

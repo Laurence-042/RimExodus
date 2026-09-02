@@ -36,7 +36,7 @@ namespace RimExodus
             if (!lookup.TryGetPreloadTarget(targetCell, out int worldTile))
             {
                 // 诊断：目标格不在边界带内。
-                Log.Message($"[RimExodus] CheckPawnGoto: pawn {pawn.LabelShort} target {targetCell} not in border band, skip.");
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer)) Log.Message($"[RimExodus] CheckPawnGoto: pawn {pawn.LabelShort} target {targetCell} not in border band, skip.");
                 return;
             }
             if (worldTile < 0) return;
@@ -48,7 +48,7 @@ namespace RimExodus
             if (SeamlessPolygonGeometry.BuildSeamBand(worldTile, map.Size.x)?.Band.Contains(targetCell) == true
                 || SeamlessEdgeCells.IsSeamEdgeCell(map, targetCell))
             {
-                Log.Message($"[RimExodus] CheckPawnGoto: pawn {pawn.LabelShort} target {targetCell} is in the seam band (exit intent), skip preload.");
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer)) Log.Message($"[RimExodus] CheckPawnGoto: pawn {pawn.LabelShort} target {targetCell} is in the seam band (exit intent), skip preload.");
                 return;
             }
 
@@ -61,7 +61,7 @@ namespace RimExodus
                 {
                     SeamlessVehiclesCompat.RequestGridsOnMapFor(pawn, loadedNeighbor);
                 }
-                Log.Message($"[RimExodus] CheckPawnGoto: neighbor worldTile {worldTile} already loaded, skip.");
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer)) Log.Message($"[RimExodus] CheckPawnGoto: neighbor worldTile {worldTile} already loaded, skip.");
                 return;
             }
 
@@ -75,11 +75,11 @@ namespace RimExodus
                 {
                     SeamlessVehiclesCompat.RequestGridsOnMapFor(pawn, wokenNeighbor);
                 }
-                Log.Message($"[RimExodus] CheckPawnGoto: neighbor worldTile {worldTile} was dormant, woke it up.");
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer)) Log.Message($"[RimExodus] CheckPawnGoto: neighbor worldTile {worldTile} was dormant, woke it up.");
                 return;
             }
 
-            Log.Message($"[RimExodus] CheckPawnGoto: pawn {pawn.LabelShort} target {targetCell} in border band, " +
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer)) Log.Message($"[RimExodus] CheckPawnGoto: pawn {pawn.LabelShort} target {targetCell} in border band, " +
                 $"queuing preload for neighbor worldTile {worldTile}.");
             // 不在 StartJob 调用栈内同步生成（会阻塞当前 tick 数百毫秒），登记到延迟队列，
             // 由 SeamlessTileManager.MapComponentTick 在下一 tick 消费。

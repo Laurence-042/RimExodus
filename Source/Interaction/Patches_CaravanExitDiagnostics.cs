@@ -39,7 +39,7 @@ namespace RimExodus
         {
             static void Postfix(Map map, List<PlanetTile> __result)
             {
-                if (!RimExodusMod.Settings?.verboseLogging ?? false) return;
+                if (!RimExodusLog.Enabled(RimExodusLogModule.CaravanExit)) return;
                 Log.Message($"[RimExodus] [diag] AvailableExitTilesAt(map {map?.uniqueID}, wt={SeamlessTileRegistry.GetMapWorldTile(map)}) -> {__result?.Count ?? 0} tiles.");
             }
         }
@@ -57,7 +57,7 @@ namespace RimExodus
             static void Postfix(Lord lord, List<Pawn> pawns, IntVec3 meetingPoint, string memo,
                 System.Predicate<Pawn> shouldCheckIfArrived)
             {
-                if (!RimExodusMod.Settings?.verboseLogging ?? false) return;
+                if (!RimExodusLog.Enabled(RimExodusLogModule.CaravanExit)) return;
                 if (lord == null || pawns == null) return;
 
                 List<string> pending = null;
@@ -97,7 +97,7 @@ namespace RimExodus
         {
             static void Prefix(Pawn __instance, bool allowedToJoinOrCreateCaravan)
             {
-                if (!RimExodusMod.Settings?.verboseLogging ?? false) return;
+                if (!RimExodusLog.Enabled(RimExodusLogModule.CaravanExit)) return;
                 if (__instance == null) return;
                 Log.Message($"[RimExodus] [caravan-exit] Pawn.ExitMap: {__instance.LabelShort} "
                     + $"(faction={__instance.Faction?.Name ?? "none"}, lord={__instance.GetLord()?.LordJob?.GetType().Name ?? "none"}, "

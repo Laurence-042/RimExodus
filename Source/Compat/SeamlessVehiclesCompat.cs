@@ -315,7 +315,7 @@ namespace RimExodus
 
                 if (SeamlessCrossMapOrders.TryBridgeJob(vehicle, targetMap, finalCell, job))
                 {
-                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
                         Log.Message($"[RimExodus] VF compat: cross-map job wrap: {vehicle.LabelShort} {job.def.defName} -> map {targetMap.uniqueID}; resume after transfer.");
                     return false;
                 }
@@ -339,7 +339,7 @@ namespace RimExodus
             {
                 var pawn = vehicle as Pawn;
                 if (pawn?.Map == null) return true;
-                var verbose = RimExodusMod.Settings?.verboseLogging ?? false;
+                var verbose = RimExodusLog.Enabled(RimExodusLogModule.Compat);
 
                 Map targetMap = null;
                 IntVec3 targetCell = IntVec3.Invalid;
@@ -554,7 +554,7 @@ namespace RimExodus
                 }
                 var urgencyType = _requestGridsForMethod.GetParameters()[1].ParameterType;
                 var urgent = Enum.Parse(urgencyType, "Urgent");
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
                     Log.Message($"[RimExodus] VF compat: synchronously generating VF grids for {vehicle.LabelShort} on map {map.uniqueID} (Urgent).");
                 _requestGridsForMethod.Invoke(system, new[] { def, urgent });
                 if (!IsGridsReady(vehicle, map))
@@ -622,7 +622,7 @@ namespace RimExodus
                     if (SeamlessGridMath.ChebyshevDistance(candidate, cell) > cap) break;
                     var rot = ResolveStandableRotation(vehicle, map, candidate, rotation);
                     if (!rot.IsValid) continue;
-                    if (RimExodusMod.Settings?.verboseLogging ?? false)
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
                         Log.Message($"[RimExodus] VF compat: arrival cell {cell} unusable for {vehicle.LabelShort}, "
                             + $"resolved to {candidate} (rot {rot.AsInt}) on map {map.uniqueID}.");
                     cell = candidate;
@@ -632,7 +632,7 @@ namespace RimExodus
 
                 Log.Warning($"[RimExodus] VF compat: no standable arrival cell within radius {cap} of {cell} on map {map.uniqueID} "
                     + $"for {vehicle.LabelShort} (any rotation) — transfer rejected (seam terrain impassable for this vehicle).");
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
                     LogArrivalDiagnostics(vehicle, map, cell, cap);
                 return false;
             }

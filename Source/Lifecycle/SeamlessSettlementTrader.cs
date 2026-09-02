@@ -97,7 +97,7 @@ namespace RimExodus
             }
             if (candidates.Count == 0)
             {
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Settlement))
                     Log.Message($"[RimExodus] Settlement at tile {settlement.Tile.tileId}: no pawn meets the trader requirements, none assigned.");
                 return;
             }
@@ -113,7 +113,7 @@ namespace RimExodus
                             $"{pawn.LabelShortCap} (market value {pawn.MarketValue:F0}, kind {settlement.TraderKind.defName}).");
                 return;
             }
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Settlement))
                 Log.Message($"[RimExodus] Settlement at tile {settlement.Tile.tileId}: all {candidates.Count} trader candidates unreachable from seam, none assigned.");
         }
 

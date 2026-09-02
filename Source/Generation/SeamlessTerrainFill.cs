@@ -116,7 +116,7 @@ namespace RimExodus
                 }
             }
 
-            var verbose = RimExodusMod.Settings?.verboseLogging ?? false;
+            var verbose = RimExodusLog.Enabled(RimExodusLogModule.Generation);
             if (verbose)
                 Log.Message($"[RimExodus] ApplyPolygonTerrain worldTile={worldTile} map={map.uniqueID} size={size.x} voidCells={voidCells.Count} nonVoid={size.x*size.z - voidCells.Count}");
             var sw = verbose ? System.Diagnostics.Stopwatch.StartNew() : null;
@@ -219,7 +219,7 @@ namespace RimExodus
             if (cells.Count == 0) return;
 
             var cellSet = new HashSet<IntVec3>(cells);
-            var verbose = RimExodusMod.Settings?.verboseLogging ?? false;
+            var verbose = RimExodusLog.Enabled(RimExodusLogModule.Generation);
             var sw = verbose ? System.Diagnostics.Stopwatch.StartNew() : null;
 
             var toDestroy = new List<Thing>();

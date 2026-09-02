@@ -58,8 +58,30 @@
 
   <RimExodus_SettingsNoiseLabel>接缝覆写噪声幅度：{0}</RimExodus_SettingsNoiseLabel>
   <RimExodus_SettingsNoiseTip>两张地图接缝处的地形混合被随机化的强度（0 = 完全平直的过渡，数值越高 = 更自然的不规则边界）。默认值：0.15。</RimExodus_SettingsNoiseTip>
-  <RimExodus_SettingsVerboseLabel>详细日志（诊断）</RimExodus_SettingsVerboseLabel>
-  <RimExodus_SettingsVerboseTip>写入详细诊断日志。仅在报告问题时有用。</RimExodus_SettingsVerboseTip>
+  <RimExodus_SettingsLogModulesLabel>分模块诊断日志</RimExodus_SettingsLogModulesLabel>
+  <RimExodus_SettingsLogModulesTip>按模块开启详细日志（默认全部关闭）。
+
+只开与你要排查的问题（或 mod 作者请你开的）相关的模块——保持日志可读、不刷屏。警告/错误与低频的生命周期心跳（休眠入睡/唤醒/删除、降频开/关）不受这些开关控制、始终记录。</RimExodus_SettingsLogModulesTip>
+  <RimExodus_SettingsLogAllLabel>开启全部日志模块</RimExodus_SettingsLogAllLabel>
+  <RimExodus_SettingsLogAllTip>下方全部模块日志开关的总控。等价于旧的"详细日志"总开关。</RimExodus_SettingsLogAllTip>
+  <RimExodus_SettingsLogGenerationLabel>生成与地形日志</RimExodus_SettingsLogGenerationLabel>
+  <RimExodus_SettingsLogGenerationTip>地图生成的详细日志：分帧 genStep、河流、道路、接缝混合、快照重生成、中心走廊。默认：关。</RimExodus_SettingsLogGenerationTip>
+  <RimExodus_SettingsLogTransferLabel>传送与边界日志</RimExodus_SettingsLogTransferLabel>
+  <RimExodus_SettingsLogTransferTip>无缝行走的详细日志：传送许可、桥接 job、边界预加载、点击重放、跨图下令、出口格。默认：关。</RimExodus_SettingsLogTransferTip>
+  <RimExodus_SettingsLogCaravanExitLabel>远行队离场诊断日志</RimExodus_SettingsLogCaravanExitLabel>
+  <RimExodus_SettingsLogCaravanExitTip>[caravan-exit] 诊断链：地图上的 pawn 如何离场组成远行队、撤离传送、出口点搜索。报告"pawn/远行队卡在边界"时开启。默认：关。</RimExodus_SettingsLogCaravanExitTip>
+  <RimExodus_SettingsLogWeatherLabel>天气域日志</RimExodus_SettingsLogWeatherLabel>
+  <RimExodus_SettingsLogWeatherTip>天气域诊断：域重算（成员/激活图）、新图接入、换天广播、决策门控、强制天气激活、唤醒校准。报告"相邻地图天气不一致"时开启。默认：关。</RimExodus_SettingsLogWeatherTip>
+  <RimExodus_SettingsLogDormancyLabel>休眠与性能日志</RimExodus_SettingsLogDormancyLabel>
+  <RimExodus_SettingsLogDormancyTip>governor 决策的详细日志（入睡/唤醒/删除心跳行本就常开，不在此列）。默认：关。</RimExodus_SettingsLogDormancyTip>
+  <RimExodus_SettingsLogCombatLabel>跨图战斗日志</RimExodus_SettingsLogCombatLabel>
+  <RimExodus_SettingsLogCombatTip>跨图索敌、视线与弹道交接的详细日志。默认：关。</RimExodus_SettingsLogCombatTip>
+  <RimExodus_SettingsLogCompatLabel>兼容层日志</RimExodus_SettingsLogCompatLabel>
+  <RimExodus_SettingsLogCompatTip>Vehicles Framework / Perspective Shift / Geological Landforms 兼容层的详细日志。默认：关。</RimExodus_SettingsLogCompatTip>
+  <RimExodus_SettingsLogSettlementLabel>据点与贸易日志</RimExodus_SettingsLogSettlementLabel>
+  <RimExodus_SettingsLogSettlementTip>据点贸易商指定、影子远行队维护、贸易对话选项采集。默认：关。</RimExodus_SettingsLogSettlementTip>
+  <RimExodus_SettingsLogCoreLabel>核心与图管理日志</RimExodus_SettingsLogCoreLabel>
+  <RimExodus_SettingsLogCoreTip>核心模块日志：地块管理接线、启动时的 patch 绑定清单、卸载恢复细节。默认：关。</RimExodus_SettingsLogCoreTip>
   <RimExodus_SettingsTickProfileLabel>tick 花费剖析（诊断）</RimExodus_SettingsTickProfileLabel>
   <RimExodus_SettingsTickProfileTip>每 600 ticks（10 游戏秒）输出一次日志，逐图拆解模拟耗时去向：事物 tick、地图 pre/post tick、每帧的地图 update，并报告游戏 tick 的总 CPU 耗时。\n\n用于验证"降频地图 tick 比例"实际省了多少、剩余开销在哪（例如"update"桶很大而"事物"桶近零 = 成本在帧侧——地图每帧更新与邻图背景渲染——而非 tick 侧）。开启时有轻微插桩开销，诊断完请关闭。</RimExodus_SettingsTickProfileTip>
   <RimExodus_SettingsTickProfileIntervalLabel>tick 剖析汇报间隔：每 {0} 游戏秒</RimExodus_SettingsTickProfileIntervalLabel>

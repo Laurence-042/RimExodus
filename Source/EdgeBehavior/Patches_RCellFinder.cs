@@ -32,13 +32,13 @@ namespace RimExodus
             {
                 spot = enterSpot;
                 __result = true;
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] TryFindBestExitSpot patched: pawn {pawn.LabelShort} exit target -> enter spot {enterSpot} (was edge, redirected).");
                 return false;
             }
             // 诊断插桩（2026-08 远行队"无法离开此区域"排查）：有传送点但找不到可用/可达的——
             // 记录 spot 统计定位是"全部不可站立"还是"全部不可达"。
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] TryFindBestExitSpot: pawn {pawn?.LabelShort} found no usable enter spot on map {pawn?.Map?.uniqueID} ({SeamlessExitSpotFinder.DescribeEnterSpots(pawn.Map)}) — passthrough vanilla.");
             return true;
         }
@@ -55,11 +55,11 @@ namespace RimExodus
             {
                 spot = enterSpot;
                 __result = true;
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] TryFindRandomExitSpot patched: pawn {pawn.LabelShort} exit target -> enter spot {enterSpot}.");
                 return false;
             }
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] TryFindRandomExitSpot: pawn {pawn?.LabelShort} found no usable enter spot on map {pawn?.Map?.uniqueID} ({SeamlessExitSpotFinder.DescribeEnterSpots(pawn.Map)}) — passthrough vanilla.");
             return true;
         }
@@ -90,7 +90,7 @@ namespace RimExodus
             {
                 result = enterSpot;
                 __result = true;
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] TryFindClosestEdgeCellTo patched: exit spot {enterSpot} (root={root}).");
                 return false;
             }

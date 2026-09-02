@@ -48,7 +48,7 @@ namespace RimExodus
             if (!enterCell.IsValid)
             {
                 // 找不到传送点：放行原方法（回退随机边缘）。
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
                     Log.Warning($"[RimExodus] CaravanEnterMap: no enter spot found on map {map.uniqueID}, fallback to vanilla.");
                 return true;
             }

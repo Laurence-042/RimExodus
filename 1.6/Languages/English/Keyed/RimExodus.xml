@@ -58,8 +58,30 @@ The map you are currently on and your home map are never deleted. Default: 3.</R
 
   <RimExodus_SettingsNoiseLabel>Seam override noise amplitude: {0}</RimExodus_SettingsNoiseLabel>
   <RimExodus_SettingsNoiseTip>How strongly terrain blending at the seam between two maps is randomized (0 = perfectly straight blending, higher = more natural-looking irregular borders). Default: 0.15.</RimExodus_SettingsNoiseTip>
-  <RimExodus_SettingsVerboseLabel>Verbose logging (diagnostics)</RimExodus_SettingsVerboseLabel>
-  <RimExodus_SettingsVerboseTip>Write detailed diagnostic logs. Only useful when reporting a problem.</RimExodus_SettingsVerboseTip>
+  <RimExodus_SettingsLogModulesLabel>Diagnostic logs by module</RimExodus_SettingsLogModulesLabel>
+  <RimExodus_SettingsLogModulesTip>Enable detailed logs per module (all off by default).
+
+Turn on only the module relevant to the problem you are investigating (or that a mod author asked you to enable) - this keeps the log readable and spam-free. Warnings/errors and the low-frequency lifecycle heartbeat (dormancy sleep/wake/delete, throttle on/off) are always logged regardless of these switches.</RimExodus_SettingsLogModulesTip>
+  <RimExodus_SettingsLogAllLabel>Enable all log modules</RimExodus_SettingsLogAllLabel>
+  <RimExodus_SettingsLogAllTip>Master toggle for all module log switches below. Equivalent to the old "verbose logging" switch.</RimExodus_SettingsLogAllTip>
+  <RimExodus_SettingsLogGenerationLabel>Generation and terrain log</RimExodus_SettingsLogGenerationLabel>
+  <RimExodus_SettingsLogGenerationTip>Detailed logs for map generation: incremental genSteps, rivers, roads, seam blending, snapshot regeneration, center corridors. Default: off.</RimExodus_SettingsLogGenerationTip>
+  <RimExodus_SettingsLogTransferLabel>Transfer and border log</RimExodus_SettingsLogTransferLabel>
+  <RimExodus_SettingsLogTransferTip>Detailed logs for seamless walking: transfer grants, bridge jobs, border preloading, click replay, cross-map orders, exit cells. Default: off.</RimExodus_SettingsLogTransferTip>
+  <RimExodus_SettingsLogCaravanExitLabel>Caravan exit diagnostics log</RimExodus_SettingsLogCaravanExitLabel>
+  <RimExodus_SettingsLogCaravanExitTip>The [caravan-exit] diagnostic chain: how pawns leaving a map become caravans, evacuation transfers, exit spot search. Enable this when reporting "pawns/caravans stuck at the border". Default: off.</RimExodus_SettingsLogCaravanExitTip>
+  <RimExodus_SettingsLogWeatherLabel>Weather domain log</RimExodus_SettingsLogWeatherLabel>
+  <RimExodus_SettingsLogWeatherTip>Weather domain diagnostics: domain rebuild (members/active map), map joins, weather-change broadcasts, decision gating, forced-weather activation, wake calibration. Enable this when reporting weather behaving differently across neighboring maps. Default: off.</RimExodus_SettingsLogWeatherTip>
+  <RimExodus_SettingsLogDormancyLabel>Dormancy and performance log</RimExodus_SettingsLogDormancyLabel>
+  <RimExodus_SettingsLogDormancyTip>Detailed governor decisions beyond the always-on sleep/wake/delete heartbeat lines. Default: off.</RimExodus_SettingsLogDormancyTip>
+  <RimExodus_SettingsLogCombatLabel>Cross-map combat log</RimExodus_SettingsLogCombatLabel>
+  <RimExodus_SettingsLogCombatTip>Detailed logs for cross-map target search, line of sight and projectile handover. Default: off.</RimExodus_SettingsLogCombatTip>
+  <RimExodus_SettingsLogCompatLabel>Compatibility layer log</RimExodus_SettingsLogCompatLabel>
+  <RimExodus_SettingsLogCompatTip>Detailed logs for the Vehicles Framework / Perspective Shift / Geological Landforms compatibility layers. Default: off.</RimExodus_SettingsLogCompatTip>
+  <RimExodus_SettingsLogSettlementLabel>Settlement and trade log</RimExodus_SettingsLogSettlementLabel>
+  <RimExodus_SettingsLogSettlementTip>Settlement trader assignment, shadow caravan maintenance, trade dialog option harvesting. Default: off.</RimExodus_SettingsLogSettlementTip>
+  <RimExodus_SettingsLogCoreLabel>Core and map management log</RimExodus_SettingsLogCoreLabel>
+  <RimExodus_SettingsLogCoreTip>Core module logs: tile manager wiring, patch binding list at startup, uninstall restore details. Default: off.</RimExodus_SettingsLogCoreTip>
   <RimExodus_SettingsTickProfileLabel>Tick profiling (diagnostics)</RimExodus_SettingsTickProfileLabel>
   <RimExodus_SettingsTickProfileTip>Every 600 ticks (10 in-game seconds), write one log line per map breaking down where its simulation time goes: things ticking, map pre/post tick, and per-frame map update. Also reports the total game-tick CPU time.\n\nUse it to see whether the throttled-map tick rate is actually saving anything and where the remaining cost sits (e.g. a large "update" bucket with a near-zero "things" bucket means the cost is on the frame side - map updates and neighbor rendering - not on ticking). Has a small instrumentation cost while enabled; keep it off when not diagnosing.</RimExodus_SettingsTickProfileTip>
   <RimExodus_SettingsTickProfileIntervalLabel>Tick profiling report interval: every {0} game second(s)</RimExodus_SettingsTickProfileIntervalLabel>

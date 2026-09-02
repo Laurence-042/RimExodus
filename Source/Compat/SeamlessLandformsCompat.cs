@@ -182,7 +182,7 @@ namespace RimExodus
                 prepareMethod.Invoke(null, new object[] { map });
                 prepared = true;
                 preparedContext = generatingTileProp.GetValue(null);
-                if (RimExodusMod.Settings?.verboseLogging ?? false)
+                if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
                 {
                     var landforms = generatingLandformsProp.GetValue(null) as IEnumerable;
                     var n = 0;

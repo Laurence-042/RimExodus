@@ -125,7 +125,7 @@ namespace RimExodus
                 map.fogGrid.Unfog(vanillaRoots[i]);
             }
 
-            if (RimExodusMod.Settings?.verboseLogging ?? false)
+            if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
                 Log.Message($"[RimExodus] GenStep_Fog (seam-origin, map={map.uniqueID} wt={worldTile}): voidCells={unfoggedVoid} " +
                             $"outdoorFloodRoots={rootCount} source={SeamlessTileManager.NeighborGenerationSourceTile} " +
                             $"(initial maps keep vanilla center unfog; neighbor-generated maps unfog from the seam only; " +
