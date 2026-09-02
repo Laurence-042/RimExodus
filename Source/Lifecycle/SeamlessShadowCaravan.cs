@@ -301,6 +301,8 @@ namespace RimExodus
                     // 未 spawn（死亡抬尸/被装容器）才还快照，快照缺失置 null 由其新持有者接管。
                     p.holdingOwner = p.Spawned ? p.Map.spawnedThings : (TakeOriginalOwner(p) ?? null);
                 }
+                if (RimExodusLog.Enabled(RimExodusLogModule.Settlement))
+                    Log.Message($"[RimExodus] ShadowCaravan: removed {p?.LabelShort ?? "null"} from shadow (tile={shadow.Tile}).");
                 innerList.RemoveAt(i);
             }
             // 再补新成员（持有 holdingOwner 转移，见类注释①）。
@@ -311,6 +313,8 @@ namespace RimExodus
                 originalOwners[p] = p.holdingOwner;
                 p.holdingOwner = shadow.pawns;
                 innerList.Add(p);
+                if (RimExodusLog.Enabled(RimExodusLogModule.Settlement))
+                    Log.Message($"[RimExodus] ShadowCaravan: injected {p.LabelShort} into shadow (tile={shadow.Tile}).");
             }
             tmpDesired.Clear();
         }
@@ -372,6 +376,30 @@ namespace RimExodus
             return false;
         }
 
+        /// <summary>
+        /// 释放悬指【非现役】影子容器的持有（2026-09-02 "交易后再登穿梭机复现"案的止血+探测器）。
+        /// <see cref="ReleaseIfShadowMember"/> 匹配失败但 holdingOwner 仍指一个 Caravan 容器 =
+        /// 旧影子实例泄漏（该 Caravan 已不在 shadows 注册表）——此时 DeSpawn 的
+        /// map.spawnedThings.Remove 静默失败、后续容器 TryAdd 被拒，登机照旧"消失"。本方法把
+        /// holdingOwner 归还本图容器使 DeSpawn/容器转移恢复原版，并打 Warning 坐实泄漏
+        /// （报告玩家看到该行即证明存在未知的旧实例泄漏源，配合 SyncMembership 的注入/移除日志定位）。
+        /// 真远行队（Find.WorldObjects.Caravans 在册）不碰——组队链的 DeSpawn 发生在
+        /// holdingOwner = 地图容器时，DeSpawn 时持有【真】Caravan 容器的 pawn 只可能是
+        /// 不 Spawned 的原版错误路径（原版自会报 "Tried to despawn ... not spawned"）。
+        /// </summary>
+        internal static bool ReleaseIfOrphanShadowHolder(Pawn p)
+        {
+            if (p == null || p.holdingOwner == null) return false;
+            if (p.holdingOwner.Owner is not Caravan orphan) return false;
+            if (Find.WorldObjects == null || Find.WorldObjects.Caravans.Contains(orphan)) return false;
+            PawnInnerList(orphan.pawns)?.Remove(p);
+            Log.Warning($"[RimExodus] ShadowCaravan: {p.LabelShort} was held by an ORPHANED caravan container " +
+                        $"(tile={orphan.Tile}, id={orphan.ID}, not in world list, not an active shadow) — released on DeSpawn. " +
+                        $"This indicates a stale shadow instance leak; please report this log line.");
+            p.holdingOwner = p.Spawned ? p.Map.spawnedThings : null;
+            return true;
+        }
+
         /// <summary>取回成员注入前的原容器并移除记录；无记录返回 null。</summary>
         private static ThingOwner TakeOriginalOwner(Pawn p)
         {
@@ -387,7 +415,7 @@ namespace RimExodus
     /// <summary>
     /// 影子远行队的行为面 patch（2026-08-26 方案 B 收敛：影子不进 Find.WorldObjects——不 tick、
     /// 不序列化、殖民者栏/框选/告警/合并/世界图绘制与选中全部天然不可见，原 TickInterval 抑制与
-    /// 三个世界图隐藏 patch 随之删除）。保留两件：
+    /// 三个世界图隐藏 patch 随之删除）。五件：
     /// ①<see cref="Pawn.GetCaravan"/> 对影子返回 null——还原原版 ~40 处消费面的地图语义
     ///   （holdingOwner 指影子不应改变地图行为；Caravan.IsOwner 走 pawns.Contains 不受影响）；
     /// ②<see cref="Caravan.GetGizmos"/> 清空——防御性兜底（影子不可选中后本不应被调到）。
@@ -395,6 +423,9 @@ namespace RimExodus
     /// holdingOwner 指影子后持有链（inventory→pawn→Caravan→世界）不含 Map → null，CompRottable 的
     /// AmbientTemperature 每 TickRare 刷 "Got temperature for null map"（2026-08 奴役场景实测暴露，
     /// 实为一切影子成员带腐烂食物即触发）；遇影子时返回其据点图，掉落/腐烂/心情等全消费面一并还原。
+    /// ④<see cref="Caravan.AddPawn"/> Prefix 释放影子成员（2026-08 组队冲突）——见 patch 处注释。
+    /// ⑤<see cref="Pawn.DeSpawn"/> Prefix 释放影子成员（2026-09 穿梭机登机消失案）——一切
+    ///   "离图进容器"路径的统一闸门，④与之幂等互备；见 patch 处注释。
     /// </summary>
     internal static class Patches_ShadowCaravan
     {
@@ -429,6 +460,36 @@ namespace RimExodus
             static void Prefix(Pawn __0)
             {
                 SeamlessShadowCaravan.ReleaseIfShadowMember(__0);
+            }
+        }
+
+        // DeSpawn 统一释放闸（2026-09 穿梭机登机消失案，AddPawn patch 的同族推广）：原版不变量 =
+        // pawn DeSpawn 前 holdingOwner 必须是本图 spawnedThings 或 null（原版 Thing.SplitOff /
+        // Pawn.Kill 的"DeSpawn 后 holdingOwner?.Remove(this)"先例）；影子注入期 holdingOwner 指影子
+        // 容器 → DeSpawn 的 map.spawnedThings.Remove 因 Contains 指针判定静默失败、holdingOwner
+        // 悬指影子 → 后续任何容器 TryAdd 全被 "already in another container" 拒绝：
+        // JobDriver_EnterTransporter（穿梭机登机，TryAdd 返回值被原版忽略 = pawn 离图又进不了舱，
+        // 实测"登机即消失"，且一旦存读档即永久丢失）、JobDriver_EnterCryptosleepCasket（TryAcceptThing
+        // 同款）、JobDriver_EnterPortal（DeSpawn→Spawn 新图，Spawn 侧 TryAdd 同要求持有者为空）。
+        // Prefix 时 pawn 仍 Spawned → 释放归还本图容器，DeSpawn 本体 Remove 正常成功并清空
+        // holdingOwner，后续一切容器转移恢复原版；跨缝走出/SplitOff 抱起/死亡路径的注入期 DeSpawn
+        // 陈旧条目由此事前不发生（第六件三下游），60t 清扫降级纯兜底。与 AddPawn patch 幂等互备
+        // （组队链 AddPawn 内部的 DeSpawnOrDeselect 亦经此闸）。纯容器簿记，thing tick 中途安全。
+        // 2026-09-02 复现案加固：ReleaseIfShadowMember 按现役影子匹配失败时，再试孤儿容器释放
+        //（"交易后再登穿梭机复现"案最终定案 = 测试误用 release 旧二进制、非真泄漏——兜底保留为
+        // 防御：若未来真出现旧影子实例泄漏，登机/传送仍被救回并打 Warning 坐实）。
+        [HarmonyPatch(typeof(Pawn), nameof(Pawn.DeSpawn))]
+        static class Patch_ShadowCaravan_ReleaseOnDespawn
+        {
+            static void Prefix(Pawn __instance)
+            {
+                if (SeamlessShadowCaravan.ReleaseIfShadowMember(__instance))
+                {
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Settlement))
+                        Log.Message($"[RimExodus] ShadowCaravan: released {__instance.LabelShort} from active shadow on DeSpawn.");
+                    return;
+                }
+                SeamlessShadowCaravan.ReleaseIfOrphanShadowHolder(__instance);
             }
         }
 

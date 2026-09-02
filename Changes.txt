@@ -88,6 +88,8 @@ Fixed an intermittent NullReferenceException crash occurring every frame in OnGU
 0.1.8
 - 修复内存泄漏：长时间游玩不断探索新地块时，已删除地图的内部数据会一直残留在内存中（每张图约几 MB，探索越多积得越多），现在这些数据会随地图删除一起释放；从主菜单读取其他存档或开新档时也会彻底清理一遍
   Fixed a memory leak: during long playthroughs with continuous exploration, internal data of deleted maps (a few MB each) kept lingering in memory and piled up as you explored. This data is now released together with its map, and fully cleared when loading another savegame or starting a new one from the main menu.
+- 修复殖民者在派系基地等有玩家殖民者驻留的地图上登上穿梭机或其他运输舱时直接消失的问题
+  Fixed colonists vanishing instantly when boarding shuttles or other transporters on maps where player colonists are present, such as faction bases.
 
 TODO（优先级从高到低）
 TODO (Priority Order)
