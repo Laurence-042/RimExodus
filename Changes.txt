@@ -82,8 +82,12 @@ Fixed an intermittent NullReferenceException crash occurring every frame in OnGU
   Faction bases and other location objects with generated maps on the world map can now be manually suspended/deleted (previously only seamless tile maps had this). Deletion follows vanilla rules: faction bases keep their world object and regenerate their garrison when revisited, while other locations (ambushes, battlefields, etc.) are removed entirely; deletion is unavailable (button greyed out with a reason) while pawns or transporters block map removal. (@Hezmana and @Eziojosh02 reported this issue)
 - 修复 Perspective Shift 第一人称模式下持续按住方向跨缝时，在两张地图间来回弹射的问题（@Hezmana 报告的问题）
   Fixed pawns bouncing back and forth between two maps when holding a movement direction across a seam in Perspective Shift first-person mode. (@Hezmana's reported issue)
-- 修复生成进度标签偶尔完全来不及显示、卡顿期间画面上没有任何提示的问题
+- 修复当使用原版地图生产流程时，生成进度标签来不及显示、卡顿期间画面上没有任何提示的问题
   Fixed the progress label failing to appear in time during vanilla map generation, leaving no feedback while the game was freezing.
+
+0.1.8
+- 修复内存泄漏：长时间游玩不断探索新地块时，已删除地图的内部数据会一直残留在内存中（每张图约几 MB，探索越多积得越多），现在这些数据会随地图删除一起释放；从主菜单读取其他存档或开新档时也会彻底清理一遍
+  Fixed a memory leak: during long playthroughs with continuous exploration, internal data of deleted maps (a few MB each) kept lingering in memory and piled up as you explored. This data is now released together with its map, and fully cleared when loading another savegame or starting a new one from the main menu.
 
 TODO（优先级从高到低）
 TODO (Priority Order)

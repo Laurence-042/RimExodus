@@ -26,7 +26,7 @@ Key features:
 · Settlement traders — friendly settlements designate a trader; right-click to talk and trade, full vanilla caravan trading semantics minus the caravan.
 
 ⚠ This mod is still in development and makes deep changes to the map system — be mentally prepared for bugs. Before removing it, use the "Restore vanilla compatibility" button in the mod settings to convert your maps; save after converting, then uninstall. Loading that save without the mod shows one-time red errors — harmless, and gone after one more save/load cycle. Some map-generation-related limitations remain; see the "About uninstalling" post in the discussions.</description>
-  <modVersion>0.1.7</modVersion>
+  <modVersion>0.1.8</modVersion>
   <supportedVersions>
     <li>1.6</li>
   </supportedVersions>

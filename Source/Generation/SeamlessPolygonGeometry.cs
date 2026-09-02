@@ -31,13 +31,17 @@ namespace RimExodus
 
         /// <summary>
         /// 多边形顶点进程级缓存。worldTile 的世界网格几何（顶点/邻居/中心）在单局游戏内不变，
-        /// 开新档是新进程，故缓存无需主动失效。键 = (worldTile, mapSize)。
+        /// 键 = (worldTile, mapSize)。
         /// 消除 TryGetOwnerNeighbor/GenStep/ComputeNeighborOffset 等重复的世界网格查询 + 切平面基计算。
+        /// 生命周期（2026-09 收口，勿回退为"永不失效"）：图删除时经 <see cref="ReleaseTileCaches"/> 释放、
+        /// 同进程换档时 <see cref="ClearAllCaches"/> 全清——旧假设"开新档是新进程"不成立（主菜单开新档同进程）。
         /// </summary>
         private static readonly Dictionary<(int worldTile, int mapSize), List<Vector2>> polygonCache = new();
 
         /// <summary>
-        /// 接缝带几何信息进程级缓存（键 = (worldTile, mapSize)，同 polygonCache 生命周期）。
+        /// 接缝带几何信息进程级缓存（键 = (worldTile, mapSize)，生命周期同 polygonCache：
+        /// 图删除释放 + 换档全清）。每条 <see cref="SeamBandInfo"/> 把全图格装进 7 个集合
+        /// （250 图推算 ≈4 MB/tile，2026-09 内存盘点），不随图删释放会长会话无界累积。
         /// </summary>
         private static readonly Dictionary<(int worldTile, int mapSize), SeamBandInfo> seamBandCache = new();
 
@@ -178,6 +182,39 @@ namespace RimExodus
 
             seamBandCache[key] = info;
             return info;
+        }
+
+        /// <summary>
+        /// 释放 tile 的接缝带几何与多边形顶点缓存（图删除时调用，2026-09 泄漏收口）。
+        /// 纯几何、随时可由 <see cref="BuildSeamBand"/>/BuildPolygonVertices 重算：删除后无消费者
+        /// （几何查询全在活图上）、同 tile 再生成时自然重建，释放零语义风险。键按 worldTile 匹配
+        /// （同一 tile 只有一种 mapSize，按 tile 匹配可覆盖假设外的尺寸残留）。
+        /// </summary>
+        public static void ReleaseTileCaches(int worldTile)
+        {
+            if (worldTile < 0) return;
+            RemoveTileKeys(polygonCache, worldTile);
+            RemoveTileKeys(seamBandCache, worldTile);
+        }
+
+        /// <summary>清空全部几何进程缓存（同进程换档时调用——旧档图不经 DeinitAndRemoveMap 整体丢弃，MapRemoved 不触发）。</summary>
+        public static void ClearAllCaches()
+        {
+            polygonCache.Clear();
+            seamBandCache.Clear();
+        }
+
+        private static void RemoveTileKeys<TKey>(Dictionary<(int worldTile, int mapSize), TKey> cache, int worldTile)
+        {
+            List<(int, int)> stale = null;
+            foreach (var key in cache.Keys)
+            {
+                if (key.worldTile != worldTile) continue;
+                stale ??= new List<(int, int)>();
+                stale.Add(key);
+            }
+            if (stale == null) return;
+            foreach (var key in stale) cache.Remove(key);
         }
 
         /// <summary>

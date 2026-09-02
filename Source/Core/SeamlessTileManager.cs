@@ -784,6 +784,11 @@ namespace RimExodus
         public override void MapRemoved()
         {
             base.MapRemoved();
+            // 几何进程缓存随图释放（2026-09 泄漏收口）：MapRemoved 是一切删图路径的公共收口
+            // （滚动删除/主动 WorldObject.Destroy 连带删图/迁都/Dev，Game.DeinitAndRemoveMap 在
+            // map.info.parent 仍可读时回调，Game.cs:766-770）；口袋/空间图返回 -1 自然早退。
+            // 天气域重算保持既有职责。
+            SeamlessPolygonGeometry.ReleaseTileCaches(SeamlessTileRegistry.GetMapWorldTile(map));
             SeamlessWeatherClusterManager.RebindAll();
         }
 

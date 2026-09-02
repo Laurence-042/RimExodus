@@ -92,6 +92,10 @@ namespace RimExodus
         /// </summary>
         public override void LoadedGame()
         {
+            // 几何进程缓存随档重置（2026-09 泄漏收口）：旧档图不经 DeinitAndRemoveMap 整体丢弃、
+            // MapRemoved 不触发——同进程换档必须显式清空，否则旧档条目跨档累积（纯几何、随用随建，
+            // 清空后首批消费各重建一次，无感）。开新档同理（StartedNewGame）。
+            SeamlessPolygonGeometry.ClearAllCaches();
             if (manualDormantTiles.Count == 0) return;
             foreach (var m in new List<Map>(Find.Maps))
             {
@@ -102,6 +106,12 @@ namespace RimExodus
                     || SeamlessMapGovernance.IsProtectedHome(m)) continue;
                 SeamlessDormancyManager.Sleep(m, "governor: manual dormancy restored from save", true);
             }
+        }
+
+        public override void StartedNewGame()
+        {
+            // 同 LoadedGame 的缓存重置（新档开局同样可能带着主菜单前旧档的进程级几何残留）。
+            SeamlessPolygonGeometry.ClearAllCaches();
         }
 
         public override void GameComponentTick()
