@@ -47,6 +47,14 @@ namespace RimExodus
             // 软检测未装短路；手动绑定全程 try/catch（签名变更降级 Warning，绝不杀死 mod）。
             SeamlessVehiclesCompat.Register(harmony);
 
+            // GL 河流接缝适配（2026-09 v9）：GL 的河流地貌替换原版河流 mutator 后，原版河四 patch
+            // 全部失效（河在接缝处各 tile 种子随机错位 + 河水污染外条带快照）。补绑三个 GL 侧
+            // patch（GetOrCreateTileLinkData 穿越点对齐 + GeneratePostTerrain void 还原/河格登记 +
+            // PathTracer.Trace Prefix/Postfix Path 树钉位与偏差诊断——河路本体层，水/岸/biome/海拔
+            // 全层自动一致）。软检测未装短路；手动绑定全程 try/catch；成功标志 =
+            // "GL river compat: bound" 三行。
+            SeamlessGLRiverCompat.Register(harmony);
+
             // 绑定核对（2026-08，配合离线验证器甄别 CLR 伪迹 vs 死代码）：GetPatchedMethods 列出
             // 本 harmony 实例实际绑定的方法（真实 Mono 运行时结果，不受离线 CLR 伪迹影响）。
             // 离线验证器的 9 个伪迹失败 patch（GetClearRects/SelectInternal/SetTerrain/MapPreTick·MapUpdate/

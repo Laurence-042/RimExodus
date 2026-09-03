@@ -1,55 +1,63 @@
+虽然我很想大言不惭地说这些我都会做，但我对自己的能力有一个相对精准的认识，并深刻理解有些机制在调研前根本无法知道其水有多深。所以我只能说尽力而为。
+
+Although I would like to boldly claim that I can implement all of these features, I have a relatively accurate understanding of my own abilities, and I deeply understand that some mechanics are impossible to fully evaluate before proper research. Therefore, all I can say is that I will do my best.
+
+如果你有什么建议，也欢迎在这里分享（虽然受限于我的能力和精力，不一定都能做）
+
+If you have any suggestions, feel free to share them here (though, due to limitations in my time and ability, I may not be able to implement all of them).
+
 0.1.0（初次发布）
 0.1.0 (Initial Release)
 - 地图无缝拼接
-Seamless map stitching
+  Seamless map stitching
 - 地图六边形/五边形裁剪
-Hexagonal/pentagonal map clipping
+  Hexagonal/pentagonal map clipping
 - 跨图寻路
-Cross-map pathfinding
+  Cross-map pathfinding
 - 分帧生成地图
-Frame-sliced map generation
+  Frame-sliced map generation
 - 连续地形
-Continuous terrain
+  Continuous terrain
 - 跨图战斗
-Cross-map combat
+  Cross-map combat
 - 地图滚动休眠/删除
-Map suspension/deletion based on distance
+  Map suspension/deletion based on distance
 - 盟友定居点内的贸易商
-Traders in allied settlements
+  Traders in allied settlements
 
 0.1.1
 - 添加了隐藏无人地图顶部条目的开关
-Added an option to hide empty map entries from the top map bar
+  Added an option to hide empty map entries from the top map bar
 - 修复了远行队的问题
-Fixed caravan-related issues
+  Fixed caravan-related issues
 - 修复了存档读档后无法跨图的问题
-Fixed the issue where cross-map functionality stopped working after loading a save
+  Fixed the issue where cross-map functionality stopped working after loading a save
 - 精简发布包大小
-Reduced release package size
+  Reduced release package size
 
 0.1.2
 - 优化性能
-Improved performance
+  Improved performance
 - 优化邻接地图加载机制，允许短时间触发多个邻接地图的加载
-Improved the adjacent map loading mechanism, allowing multiple adjacent maps to be loaded within a short period of time
+  Improved the adjacent map loading mechanism, allowing multiple adjacent maps to be loaded within a short period of time
 - 修复邻接地图的动物被渲染在迷雾上方的 bug
-Fixed a bug where animals on adjacent maps were rendered above the fog of war
+  Fixed a bug where animals on adjacent maps were rendered above the fog of war
 
 0.1.3
 - 优化地图生成机制，应该有助于避免出现奇怪的石墙（@辰 报告的问题）
-Improved the map generation mechanism, which should help prevent strange rock wall formations (@辰's reported issue)
+  Improved the map generation mechanism, which should help prevent strange rock wall formations (@辰's reported issue)
 - 优化地形探针的输出内容，让调试更加简单
-Improved terrain probe output to make debugging easier
+  Improved terrain probe output to make debugging easier
 - 优化 pawns 归属地块状态追踪机制，应该有助于避免出现殖民者偶尔被同时计在两个地点的问题 bug（@rex20d 报告的问题）
-Improved pawn location tracking, which should help prevent the bug where colonists were occasionally counted as belonging to two locations at the same time (@rex20d's reported issue)
+  Improved pawn location tracking, which should help prevent the bug where colonists were occasionally counted as belonging to two locations at the same time (@rex20d's reported issue)
 - 添加主动将地图恢复为兼容原版的状态，以可控地卸载 mod 的功能（路线计划的一部分）
-Added the ability to actively restore maps to vanilla-compatible states, allowing controlled mod unloading (part of the roadmap)
+  Added the ability to actively restore maps to vanilla-compatible states, allowing controlled mod unloading (part of the roadmap)
 - 将休眠和删除阈值下界设为 2，并避免设置为 1 时频繁休眠删除带来的体验问题
-Increased the minimum suspension/deletion threshold to 2, avoiding the poor experience caused by frequent suspension and deletion when set to 1
+  Increased the minimum suspension/deletion threshold to 2, avoiding the poor experience caused by frequent suspension and deletion when set to 1
 
 0.1.4
 - 修复偶现的与 Dubs Mint Minimap 共同使用时 OnGUI 每帧空引用崩溃的bug
-Fixed an intermittent NullReferenceException crash occurring every frame in OnGUI when used alongside Dubs Mint Minimap.
+  Fixed an intermittent NullReferenceException crash occurring every frame in OnGUI when used alongside Dubs Mint Minimap.
 
 0.1.5
 - 修复激活mod时太空地图背景被清除为黑色的bug
@@ -64,12 +72,6 @@ Fixed an intermittent NullReferenceException crash occurring every frame in OnGU
 0.1.6
 - 修复读取旧存档（或关闭快照入存档后读档）时生成邻接地图接缝地形不连续的问题：生成邻图前若当前地图缺少地形快照，会在一张临时地图上只重跑地形/岩石/屋顶的精简生成来重建快照（每张图一次性几百毫秒），接缝混合参考由此恢复
   Fixed seam terrain discontinuity on neighboring maps generated after loading older savegames (or with snapshot serialization disabled): if the current map lacks a terrain snapshot before a neighbor map is generated, a lean regeneration (terrain/rock/roof only) runs once on a temporary map to rebuild the snapshot, restoring the seam mixing reference.
-- 调整快照入存档开关的关闭语义：关闭只影响"新快照不再写入存档"，已存数据保留、内存快照常驻，且不再弹出"是否删除已有快照"的二次提示；读档后缺失的快照由上述精简重生成自动补齐
-  Adjusted the snapshot-serialization toggle: turning it off only stops NEW snapshots from being written to the savefile. Existing data is kept, in-memory snapshots always remain, and the "also delete stored snapshots" confirmation no longer appears; snapshots missing after a load are rebuilt automatically by the lean regeneration above.
-- 新增设置项"生成邻接地图时精简重生成缺失的快照"（默认开，可关闭以维持旧行为）
-  New setting "Regenerate missing snapshots when generating neighbor maps" (default ON; can be disabled to keep the old behavior).
-- 进度提示扩展：左上角生成进度条现在也覆盖同步加载阶段（旧存档的快照重建、原版管线的地图生成）——标签在生成开始前一帧点亮，卡顿期间画面上可见"正在做什么"
-  Progress indicator expanded: the top-left generation progress now also covers synchronous loading phases (snapshot rebuild for older saves, vanilla-pipeline map generation) - the label appears one frame before the heavy operation starts, so the frozen frame shows what is happening.
 
 0.1.7
 - 优化多地图下的天气表现：同一片连续群系内的相邻地图现在共享同一场天气（同时下雨、同时放晴），且降雨打湿地面、积雪、闪电与天气音效在每张地图上都会正常生效——此前这些天气效果只会出现在其中一张地图上
@@ -91,12 +93,17 @@ Fixed an intermittent NullReferenceException crash occurring every frame in OnGU
 - 修复殖民者登上穿梭机或其他运输舱时直接消失的问题（@辰 和 @王三123 报告的问题）
   Fixed colonists vanishing instantly when boarding shuttles or other transporters. (@辰 and @王三123 reported this issue)
 
+0.1.9
+- 装有 Geological Landforms 时不再需要手动关闭它的河流地貌：河流现在会在相邻地块之间连续流动（此前若不关闭，河在地块交界处会错位断裂）。注意只对新生成的地图生效，已生成过的地图不会变化
+  Geological Landforms' river landforms no longer need to be disabled manually: rivers now flow continuously across neighboring tiles when GL is installed (previously rivers would be misaligned and broken at tile borders unless you disabled them). Note this only applies to newly generated maps; already-generated maps are unaffected.
+- 修复装有 Geological Landforms 时，已生成地图里的河水会经地块交界复制、盖掉相邻新地图地面的问题
+  Fixed river water from an already-generated map being copied across the tile border and covering the ground of a newly generated neighboring map when GL is installed.
+
+
 TODO（优先级从高到低）
 TODO (Priority Order)
 - （常驻）bug 修复
 (Ongoing) Bug fixes
-- 优化对GL的适配，GL的各种河流生成机制需要单独优化，否则会导致河流断裂
-  Optimize GL adaptation; GL's various river generation mechanisms need to be handled separately, otherwise rivers will break at seams.
 - 优化休眠逻辑，允许不超过10个做出过修改的地图（特指进行了建筑增删行为）持久地休眠而不被删除
   Optimize the hibernation logic to allow no more than 10 modified maps (specifically those with added or deleted buildings) to remain in hibernation without being deleted.
 - 优化袭击生成逻辑，让袭击生成在已加载地图外边界，而非从当前地块对侧已加载地图的边界凭空出现
