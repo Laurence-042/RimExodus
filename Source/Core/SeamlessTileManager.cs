@@ -452,9 +452,11 @@ namespace RimExodus
             // 类型通用化（勿回退为 as MapParent_SeamlessTile）：玩家家园图的原生 parent 不是
             // SeamlessTile，旧转型令守卫失明——家园休眠时预加载家园 tile 会走完整生成链造出
             // 重复家园图（2026-08 实测，"没有特殊地图"铁律）。现认任意 MapParent：
-            // 有活 Map（休眠图）→ 唤醒 + 补登记，不生成；MapParent_SeamlessTile 无 Map（历史
+            // 有活 Map（休眠图）→ 唤醒 + 补登记，不生成；MapParent_SeamlessTile 无 Map 且有封存记录
+            // （2026-09 前哨保留）→ 复用该 WO 走恢复生成（见下方 restoreParent）；无记录（历史
             // RemoveTileMap 残留孤儿）→ 销毁后继续生成（原防御）；其余原生 parent 占位（Settlement/
             // Site 等一切 POI）→ 原生单帧生成（2026-08 全 POI 泛化，见下）；非表面层占位 → 跳过。
+            MapParent_SeamlessTile restoreParent = null;
             var existingParent = Find.World.worldObjects.MapParentAt(new PlanetTile(newWorldTile));
             if (existingParent != null)
             {
@@ -468,14 +470,25 @@ namespace RimExodus
                     EnsureNeighborRegistered(map, sourceWorldTile, liveMap, newWorldTile);
                     return null;
                 }
-                if (existingParent is MapParent_SeamlessTile)
+                if (existingParent is MapParent_SeamlessTile existingTileParent)
                 {
-                    // WorldObject 在但 Map 不在（软休眠下理论不可达；历史 RemoveTileMap bug 曾残留
-                    // 隐形 WorldObject）——防御：销毁残留后继续走生成。
-                    if (!existingParent.Destroyed)
+                    if (existingTileParent.preserveRecord != null && !existingTileParent.Destroyed)
                     {
-                        Log.Warning($"[RimExodus] World tile {newWorldTile} has an orphan WorldObject without a map, destroying it before generation.");
-                        existingParent.Destroy();
+                        // 前哨保留恢复（2026-09 封存/重放）：封存 WO（无图有记录）复用自身走生成链——
+                        // 邻居表/seamStrip/tileOrigin 均在 WO 上保留；392 对当前邻居重混缝（缝一致性
+                        // 每次回归自动对齐）、GenStep_ZoneRestore(395) 置换重放记录、onComplete
+                        // 调度冲突清理并消费记录（FinishZoneRestore）。
+                        restoreParent = existingTileParent;
+                    }
+                    else
+                    {
+                        // WorldObject 在但 Map 不在（软休眠下理论不可达；历史 RemoveTileMap bug 曾残留
+                        // 隐形 WorldObject）——防御：销毁残留后继续走生成。
+                        if (!existingTileParent.Destroyed)
+                        {
+                            Log.Warning($"[RimExodus] World tile {newWorldTile} has an orphan WorldObject without a map, destroying it before generation.");
+                            existingTileParent.Destroy();
+                        }
                     }
                 }
                 else
@@ -541,29 +554,41 @@ namespace RimExodus
                 }
             }
 
-            var def = DefDatabase<WorldObjectDef>.GetNamedSilentFail("RimExodus_SeamlessTileMap");
-            if (def == null)
-            {
-                Log.Error("[RimExodus] WorldObjectDef RimExodus_SeamlessTileMap not found.");
-                return null;
-            }
-
-            var mapParent = (MapParent_SeamlessTile)WorldObjectMaker.MakeWorldObject(def);
-            mapParent.worldTile = newWorldTile;
-            // 阶段4前置：基础地图。mapParent.Tile 必须设为真实 PlanetTile，
-            // 这样 map.TileInfo 自动读 Find.WorldGrid[Tile]（含真实 biome/hillness/mutators/rivers），
-            // 原生 Coast/River/Delta 等 TileMutator 自然生效，无需 InjectRealTileInfo。
-            mapParent.Tile = new PlanetTile(newWorldTile);
             var hostOffset = SeamlessNeighborRegistry.ComputeNeighborOffset(sourceWorldTile, newWorldTile, map);
             var sourceWorldTileCapture = sourceWorldTile;
             var originMapCapture = map;
 
-            // 计算 new tile 在全局平面坐标系的原点（阶段4 接缝覆写预留）。
-            // tileOrigin = 源 tile 的 tileOrigin + hostOffset（源→新的平面偏移）。
-            // 源是原生 parent 图（家园等）→ tileOrigin = (0,0)；源是地块 tile → 读其 tileOrigin
-            // （沿邻居链累加）。载体差异经 <see cref="SeamlessMapData.TileOrigin"/> 屏蔽。
-            var sourceTileOrigin = SeamlessMapData.TileOrigin(map);
-            mapParent.tileOrigin = sourceTileOrigin + new UnityEngine.Vector2(hostOffset.x, hostOffset.z);
+            MapParent_SeamlessTile mapParent;
+            if (restoreParent != null)
+            {
+                // 前哨保留恢复：复用封存 WO。worldTile/Tile/tileOrigin/邻居表/seamStrip 均在其上
+                // 保留——tileOrigin 刻意**不重算**：恢复的触发方向可能与原生成方向不同（北进南出），
+                // 重算会漂移（当前无消费者，保持稳定性语义）。
+                mapParent = restoreParent;
+            }
+            else
+            {
+                var def = DefDatabase<WorldObjectDef>.GetNamedSilentFail("RimExodus_SeamlessTileMap");
+                if (def == null)
+                {
+                    Log.Error("[RimExodus] WorldObjectDef RimExodus_SeamlessTileMap not found.");
+                    return null;
+                }
+
+                mapParent = (MapParent_SeamlessTile)WorldObjectMaker.MakeWorldObject(def);
+                mapParent.worldTile = newWorldTile;
+                // 阶段4前置：基础地图。mapParent.Tile 必须设为真实 PlanetTile，
+                // 这样 map.TileInfo 自动读 Find.WorldGrid[Tile]（含真实 biome/hillness/mutators/rivers），
+                // 原生 Coast/River/Delta 等 TileMutator 自然生效，无需 InjectRealTileInfo。
+                mapParent.Tile = new PlanetTile(newWorldTile);
+
+                // 计算 new tile 在全局平面坐标系的原点（阶段4 接缝覆写预留）。
+                // tileOrigin = 源 tile 的 tileOrigin + hostOffset（源→新的平面偏移）。
+                // 源是原生 parent 图（家园等）→ tileOrigin = (0,0)；源是地块 tile → 读其 tileOrigin
+                // （沿邻居链累加）。载体差异经 <see cref="SeamlessMapData.TileOrigin"/> 屏蔽。
+                var sourceTileOrigin = SeamlessMapData.TileOrigin(map);
+                mapParent.tileOrigin = sourceTileOrigin + new UnityEngine.Vector2(hostOffset.x, hostOffset.z);
+            }
 
             // 同步单帧路径（2026-08 逃生通道，用户定夺勿回退）：incrementalGenerationEnabled=false 时
             // 普通 tile 地图与 POI 分支同族，**直接调用原版 MapGenerator.GenerateMap 方法本体**同步生成
@@ -575,7 +600,11 @@ namespace RimExodus
             // （道路/河流/Fog 分径等）对两种路径同等生效。Camp patch（Patches_CampTileMap）同款先例。
             if (!(RimExodusMod.Settings?.incrementalGenerationEnabled ?? true))
             {
-                Find.World.worldObjects.Add(mapParent);
+                // 恢复复用的封存 WO 已在世界对象表（封存时不移除），Contains 幂等防重复 Add。
+                if (!Find.World.worldObjects.Contains(mapParent))
+                {
+                    Find.World.worldObjects.Add(mapParent);
+                }
                 Map syncMap = null;
                 GeneratingNativeSeamlessly = true; // Fog patch 走"从生成方向接缝洪水"分径（同 POI 分支语义）
                 NeighborGenerationSourceTile = sourceWorldTile;
@@ -604,6 +633,7 @@ namespace RimExodus
                     SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(originMapCapture);
                     SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(syncMap);
                     AutoConnectWorldNeighbors(syncMap, newWorldTile);
+                    FinishZoneRestore(syncMap, mapParent, newWorldTile);
                     Log.Message($"[RimExodus] Tile {newWorldTile} generated via vanilla synchronous MapGenerator.GenerateMap " +
                                 $"(incremental generation disabled by setting; map {syncMap.uniqueID}).");
                 }
@@ -664,6 +694,9 @@ namespace RimExodus
                                     $"worldAdd={tWorldAdd}ms weatherBind={tWeatherBind}ms registerNeighbor={tRegister}ms " +
                                     $"placeOriginSpots={tPlaceOrigin}ms refreshOriginArrivals={tRefreshOrigin}ms refreshNewArrivals={tRefreshNew}ms " +
                                     $"autoConnect={tAutoConnect}ms.");
+
+                    // 前哨保留·恢复收尾（2026-09，两条生成路径共用 FinishZoneRestore）。
+                    FinishZoneRestore(interiorMap, mapParent, newWorldTile);
 
                     // 清理防重入锁（分帧生成完成）。
                     ClearGeneratingTile(newWorldTile);
@@ -748,6 +781,21 @@ namespace RimExodus
         }
 
         /// <summary>
+        /// 前哨保留·恢复收尾（2026-09 封存/重放，同步逃生路径与分帧 onComplete 共用）：
+        /// 消费封存记录（置 null——重放已完成；图再被封存时按新状态重新捕获）+ RESTORE 心跳日志
+        /// （常开，对照 DELETE/ARCHIVE）。非恢复路径（parent 无记录）零介入。
+        /// （order 1100 已覆盖 genStep 期全部常规建筑生成源，无需延迟冲突清理趟——
+        /// 首版 +120t ZoneRestoreConflictCleaner 已随 order 后置整体拆除。）
+        /// </summary>
+        private static void FinishZoneRestore(Map map, MapParent_SeamlessTile parent, int worldTile)
+        {
+            var record = parent.preserveRecord;
+            if (record == null) return;
+            parent.preserveRecord = null;
+            Log.Message($"[RimExodus] Dormancy RESTORE: tile {worldTile} map {map.uniqueID} restored from preserved outpost record.");
+        }
+
+        /// <summary>
         /// 卸载一个无缝地块地图：清理邻居表双向引用、移除地图、销毁 WorldObject。
         /// "删除 = 从未出现过"：WorldObject（含接缝条带快照）一并销毁，同 tile 再次预加载将全新生成。
         /// 与软休眠（<see cref="SeamlessDormancyManager"/>，2026-08）二分：休眠 = 一切保留只停模拟与显示；
@@ -793,14 +841,38 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 滚动删除统一入口（governor 距离 ≥ deleteHops / Dev Force Delete 调用，2026-08 归一）：
-        /// 地块图 → <see cref="RemoveTileMap"/>（销毁 Map+WorldObject，"从未出现过"，同 tile 再进入走全新生成链）；
-        /// 原生家族 → <see cref="RemoveNativeFamilyMap"/>（延迟执行原版删除偏好，见其注释）。
-        /// 家园图不进本方法（governor 保活分支先行豁免；Dev 侧由
-        /// <see cref="SeamlessMapGovernance.CanRollingDelete"/> 拦截）。
+        /// 滚动删除统一入口（governor 距离 ≥ deleteHops / gizmo / Dev / 弹窗"不保留"全部经此，
+        /// 2026-09 用户定夺"整个删除流程根本只有一个入口，其内部处理封存"——勿在任何调用方
+        /// 自行前置封存判定，霰弹实现教训：gizmo 删除曾绕过封存直接销毁达阈前哨）：
+        /// 地块图居住区达阈（<see cref="SeamlessMapModificationTracker.Evaluate"/> == Auto）→
+        /// <see cref="SeamlessDormancyGovernor.ArchiveTileMap"/> 封存（拆图保 WO）而非删除；
+        /// 否则原分派——地块图 → <see cref="RemoveTileMap"/>（销毁 Map+WorldObject，"从未出现过"）；
+        /// 原生家族 → <see cref="RemoveNativeFamilyMap"/>（延迟原版偏好）。
+        /// 弹窗"不保留"语境安全：弹窗只对 BelowThreshold 图出现，本分流对 BelowThreshold 不封存 → 删。
+        /// 捕获失败回落（ArchiveTileMap 内 record==null → 回调本方法）无环：Evaluate 重读状态，
+        /// 此时居住区已空 → None → 走删除。家园图不进本方法（governor 保活分支先行豁免；
+        /// Dev 侧由 <see cref="SeamlessMapGovernance.CanRollingDelete"/> 拦截）。
         /// </summary>
         public void RemoveRollingMap(MapParent parent)
         {
+            // 前哨保留内部分流（2026-09 单一入口收拢）：显式删除（gizmo/Dev）与距离删除同语义——
+            // 达阈即封存；要彻底放弃，玩家在封存后的世界图 WO 上选"丢弃已封存"。
+            if (parent is MapParent_SeamlessTile preserveParent && !preserveParent.Destroyed)
+            {
+                var interiorMap = preserveParent.Map;
+                if (interiorMap != null && !interiorMap.Disposed
+                    && SeamlessMapModificationTracker.Evaluate(interiorMap, out var homeCells) == PreserveDecision.Auto)
+                {
+                    var governor = Current.Game?.GetComponent<SeamlessDormancyGovernor>();
+                    if (governor != null)
+                    {
+                        var tile = SeamlessTileRegistry.GetMapWorldTile(interiorMap);
+                        governor.ArchiveTileMap(preserveParent, interiorMap, tile, homeCells,
+                            "delete routed to archive (single entry)");
+                        return;
+                    }
+                }
+            }
             if (parent is MapParent_SeamlessTile tileParent)
             {
                 RemoveTileMap(tileParent);

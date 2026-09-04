@@ -33,6 +33,31 @@ namespace RimExodus
     {
         public static IEnumerable<Gizmo> ForParent(MapParent parent)
         {
+            // 封存态（2026-09 前哨保留）：无图有记录的 WO——只提供"删除此封存"（销毁 WO 连记录
+            // = 放弃该前哨，与淘汰/卸载恢复同语义）。恢复入口 = 走近触发生成链（守卫识别复用），
+            // 不在此提供（预加载链才是唯一正确入口，见 GenerateTileMap 守卫注释）。
+            if (parent is MapParent_SeamlessTile archivedTile && archivedTile.preserveRecord != null && !archivedTile.Destroyed)
+            {
+                var deleteArchive = new Command_ManualDormancy
+                {
+                    defaultLabel = "RimExodus_DeleteArchivedMap".Translate(),
+                    defaultDesc = "RimExodus_DeleteArchivedMapDesc".Translate(),
+                    icon = TileWorldIcons.DeleteCommandIcon,
+                    alsoClickIfOtherInGroupClicked = false,
+                    action = delegate
+                    {
+                        Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                            "RimExodus_DeleteArchivedMapConfirm".Translate(parent.Label), delegate
+                            {
+                                TileWorldIcons.ReleaseTileMesh(archivedTile.Tile);
+                                archivedTile.Destroy();
+                            }, destructive: true));
+                    },
+                };
+                yield return deleteArchive;
+                yield break;
+            }
+
             var map = parent.Map;
             if (map == null || map.Disposed) yield break;
             if (!SeamlessMapGovernance.IsGoverned(map)) yield break;
@@ -44,6 +69,12 @@ namespace RimExodus
             if (SeamlessDormancyManager.IsDormant(map))
             {
                 bool tileMap = parent is MapParent_SeamlessTile;
+                // 前哨保留（2026-09 单一入口收拢）：地块图居住区达阈时，"删除此图"实际执行封存——
+                // 确认文案换封存语义（彻底放弃 = 封存后在世界图 WO 上选"丢弃已封存"）；action 不变，
+                // RemoveRollingMap 入口内部对达阈图分流到 ArchiveTileMap（勿在此自行前置封存调用——
+                // 删除流程只有一个入口）。
+                bool willArchive = tileMap
+                    && SeamlessMapModificationTracker.Evaluate(map, out _) == PreserveDecision.Auto;
                 var delete = new Command_ManualDormancy
                 {
                     defaultLabel = "RimExodus_DeleteTileMap".Translate(),
@@ -52,11 +83,14 @@ namespace RimExodus
                     alsoClickIfOtherInGroupClicked = false,
                     action = delegate
                     {
-                        // 地块图 = 销毁 Map+WorldObject（"从未出现过"，下次进入走生成链重建）；
-                        // 原生家族 = 延迟执行原版删除偏好（Settlement 删图留对象再访重生成驻军，
-                        // 废墟/战场连对象删）。确认防误触。
+                        // 地块图 = 销毁 Map+WorldObject（"从未出现过"，下次进入走生成链重建；
+                        // 达阈前哨经入口内部分流转为封存）；原生家族 = 延迟执行原版删除偏好
+                        //（Settlement 删图留对象再访重生成驻军，废墟/战场连对象删）。确认防误触。
                         Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                            (tileMap ? "RimExodus_DeleteTileMapConfirm" : "RimExodus_DeletePoiMapConfirm").Translate(parent.Label), delegate
+                            (willArchive
+                                ? "RimExodus_ArchiveTileMapConfirm"
+                                : tileMap ? "RimExodus_DeleteTileMapConfirm" : "RimExodus_DeletePoiMapConfirm"
+                            ).Translate(parent.Label), delegate
                             {
                                 map.GetComponent<SeamlessTileManager>()?.RemoveRollingMap(parent);
                             }, destructive: true));

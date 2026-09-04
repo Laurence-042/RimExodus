@@ -1,3 +1,4 @@
 - 取得报告者日志（开 `logCaravanExit` 开关，看 `[caravan-exit]`）确定caravan无法正确撤离的原因
 - ~~GL河流无缝~~（2026-09-03 已实现待游戏内回归：`Source/Compat/SeamlessGLRiverCompat.cs` 两手动绑定 patch——GetOrCreateTileLinkData 穿越点对齐 + GeneratePostTerrain void 还原/河格登记，机制与已知限制见 AGENTS"GL 1.7 河流地貌盲区→已适配"条；README 已撤"禁用河流地貌"指引）
 - 更新下对空岛兼容性的描述
+- **前哨保留（封存/重放）游戏内回归（2026-09 已实现，清单 = `doc/地图滚动休眠.md` 第五节第 14 条；2026-09-04 首轮回归通过项：删除单一入口/gizmo 封存语义；其余项——重放保真/居住区恢复/landmark 不覆盖/淘汰/round-trip——待回归）**

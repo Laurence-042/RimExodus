@@ -143,6 +143,41 @@ namespace RimExodus
         /// </summary>
         public bool incrementalGenerationEnabled = true;
 
+        // ===== 前哨保留（2026-09 封存/重放：居住区达阈的图到删除距离时不删，改为捕获记录拆图，
+        // 再访时重生成 + genStep 395 重放。判定语义唯一出处 = SeamlessMapModificationTracker） =====
+
+        /// <summary>
+        /// 居住区忽略阈值（格）。删除时居住区格数 ≥ 此值 → 自动封存；非空但 &lt; 此值 → 弹窗询问
+        /// （可用下方开关永久静默）。0 = 关闭阈值：任何非空居住区都自动封存、弹窗永不触发。
+        /// 运行时 clamp [0,500]（消费处）。默认 20（自动家居区下随手一格不会误封存）。
+        /// </summary>
+        public int dormancyPreserveHomeAreaThreshold = 20;
+
+        /// <summary>
+        /// 保留数量上限（"保留最近的多少个"，0 = 不限，默认）。超限时按权重公式淘汰权重最低的
+        /// 封存前哨（销毁 WO 连记录）。封存记录是 KB 级稀疏数据，运行时内存成本为零——上限纯粹
+        /// 是玩家的管理偏好，不是性能保护（用户定夺 2026-09：不设硬约束）。运行时 clamp [0,999]。
+        /// </summary>
+        public int dormancyPreserveCount = 0;
+
+        /// <summary>
+        /// 淘汰权重公式 X：保留权重 = X×居住区格数 + Y×封存新近度序号（1 = 最近封存，越大越旧），
+        /// 超限时淘汰**权重最低**者。X 调大 = 小居住区先出（保护大基地）；默认 X=0。范围 [-100,100]。
+        /// </summary>
+        public int dormancyPreserveWeightHome = 0;
+
+        /// <summary>
+        /// 淘汰权重公式 Y：默认 -1 → 权重 = -序号 → 淘汰最旧 = "保留最近 N 个"的直觉语义。
+        /// 调成正数 = 反向（新封存先出）。范围 [-100,100]。
+        /// </summary>
+        public int dormancyPreserveWeightAge = -1;
+
+        /// <summary>
+        /// "以后不再弹出"（弹窗第三按钮经二次确认写入；设置里给开关便于反悔）。true 时小于阈值的
+        /// 居住区图到删除距离直接删除、不封存不弹窗。
+        /// </summary>
+        public bool dormancyPreservePromptDisabled = false;
+
         /// <summary>
         /// 分帧增量生成的重步骤每帧格数批次（2026-08，默认 64 = 实测 ~5.4ms/批贴合 8ms 帧预算）。
         /// 调大 = 生成更快但每帧更卡。仅 <see cref="incrementalGenerationEnabled"/> 开启时有实义。
@@ -227,6 +262,11 @@ namespace RimExodus
             Scribe_Values.Look(ref hideEmptyColonistBarGroups, "hideEmptyColonistBarGroups", false);
             Scribe_Values.Look(ref incrementalGenerationEnabled, "incrementalGenerationEnabled", true);
             Scribe_Values.Look(ref generationBatchSize, "generationBatchSize", 64);
+            Scribe_Values.Look(ref dormancyPreserveHomeAreaThreshold, "dormancyPreserveHomeAreaThreshold", 20);
+            Scribe_Values.Look(ref dormancyPreserveCount, "dormancyPreserveCount", 0);
+            Scribe_Values.Look(ref dormancyPreserveWeightHome, "dormancyPreserveWeightHome", 0);
+            Scribe_Values.Look(ref dormancyPreserveWeightAge, "dormancyPreserveWeightAge", -1);
+            Scribe_Values.Look(ref dormancyPreservePromptDisabled, "dormancyPreservePromptDisabled", false);
             base.ExposeData();
         }
     }

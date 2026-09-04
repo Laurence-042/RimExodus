@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using RimWorld;
 using RimWorld.Planet;
+using UnityEngine;
 using Verse;
 
 namespace RimExodus
@@ -55,6 +57,23 @@ namespace RimExodus
         /// </summary>
         private HashSet<int> manualDormantTiles = new HashSet<int>();
 
+        /// <summary>
+        /// 前哨封存序号分配器（2026-09 前哨保留，持久化）：每次封存递增，写入记录的 archiveOrdinal
+        /// ——淘汰权重的"新近度序号"由它派生（1 = 最近封存，越大越旧）。
+        /// </summary>
+        private int nextArchiveOrdinal;
+
+        /// <summary>封存询问弹窗队列（会话态，不序列化——弹窗上下文是活 Map 引用）。一次弹一张。</summary>
+        private sealed class PreservePrompt
+        {
+            public Map map;
+            public MapParent_SeamlessTile parent;
+            public int tile;
+            public int homeCells;
+        }
+
+        private readonly List<PreservePrompt> preservePrompts = new List<PreservePrompt>();
+
         public SeamlessDormancyGovernor(Game game) { }
 
         public override void ExposeData()
@@ -62,6 +81,7 @@ namespace RimExodus
             Scribe_Collections.Look(ref manualDormantTiles, "manualDormantTiles", LookMode.Value);
             if (Scribe.mode == LoadSaveMode.LoadingVars && manualDormantTiles == null)
                 manualDormantTiles = new HashSet<int>();
+            Scribe_Values.Look(ref nextArchiveOrdinal, "nextArchiveOrdinal", 0);
         }
 
         /// <summary>手动休眠登记（Manager 的 Sleep(manual:true) 桥接调用）。</summary>
@@ -145,6 +165,11 @@ namespace RimExodus
                 nextSweepTick = Find.TickManager.TicksGame + interval;
                 Sweep();
             }
+
+            // 前哨保留（2026-09）：弹窗队列 drain（Sweep 之后同 tick 末；弹窗 forcePause，开着时
+            // 游戏暂停、队列静止）。（首版 +120t 延迟冲突清理已随 ZoneRestore order 后置整体拆除，
+            // 此处不再有 Cleaner.Tick。）
+            DrainPreservePrompts();
         }
 
         private void Sweep()
@@ -269,10 +294,18 @@ namespace RimExodus
                 if (d >= deleteHops)
                 {
                     // 滚动删除（可删判定归一层：受管辖且非家园——家园已在上方保活分支 return）。
-                    // 地块图销毁 Map+WorldObject；原生家族延迟执行原版删除偏好（Settlement 删图
-                    // 留对象等，见 RemoveNativeFamilyMap；原版判定 false（建筑/pawn 阻挡）则本轮跳过）。
+                    // **删除流程单一入口（2026-09 收拢，用户定夺"根本只有一个入口，内部处理封存"）**：
+                    // Auto/None 都直调 RemoveRollingMap——达阈封存分流在入口内部；这里只保留
+                    // BelowThreshold 的弹窗前置询问（"要不要删"的策略层，非删除路径的一部分）。
                     if (SeamlessMapGovernance.CanRollingDelete(m))
                     {
+                        if (m.Parent is MapParent_SeamlessTile
+                            && SeamlessMapModificationTracker.Evaluate(m, out var homeCells) == PreserveDecision.BelowThreshold
+                            && !(RimExodusMod.Settings?.dormancyPreservePromptDisabled ?? false))
+                        {
+                            QueuePreservePrompt(m, (MapParent_SeamlessTile)m.Parent, tile, homeCells);
+                            continue; // 弹窗未决，本轮不删（同 tile 去重，见队列）。
+                        }
                         Log.Message($"[RimExodus] Dormancy DELETE: map {m.uniqueID} wt={tile} (BFS dist={d} ≥ deleteHops={deleteHops}) — governor rolling delete");
                         m.GetComponent<SeamlessTileManager>()?.RemoveRollingMap(m.Parent);
                     }
@@ -309,6 +342,228 @@ namespace RimExodus
                 {
                     // 降频关闭（100% = 原生）：活跃圈内空图全速。
                     SeamlessTickThrottle.Unthrottle(m, "throttle disabled (100%)");
+                }
+            }
+
+            // 前哨保留收尾（2026-09）：权重淘汰（cap>0 时，覆盖本轮新封存与设置调小两类触发）
+            // + 全量发布 PreservedTiles（世界图点标消费）。
+            RunArchiveEviction();
+            RefreshPreservedTiles();
+        }
+
+        // ====================================================================
+        // 前哨保留（2026-09 封存/重放）。设计定案（四轮对话收敛，详见 doc/地图滚动休眠.md）：
+        // - 判定唯一出处 = SeamlessMapModificationTracker（居住区语义，不与删除策略混杂）；
+        // - 封存 = 捕获 ZoneMapRecord 挂 WO + DeinitAndRemoveMap 拆图，WO 刻意保留
+        //   （邻居链不断/seamStrip 可被邻图生成参考/世界图第四态——与 RemoveTileMap 的差异）；
+        // - 恢复 = 生成守卫识别"无图有记录"复用 WO 走生成链，GenStep_ZoneRestore(395) 置换重放；
+        // - 淘汰不设硬上限：保留数量 N（0=不限）+ 权重公式 X×居住区格数 + Y×新近度序号，
+        //   超限淘汰权重最低者（默认 X=0/Y=-1 = 淘汰最旧 = "保留最近 N 个"）。
+        // ====================================================================
+
+        /// <summary>
+        /// 封存一张地块图。调用面 = 唯一删除入口 <see cref="SeamlessTileManager.RemoveRollingMap"/> 的内部分流
+        ///（2026-09 单一入口收拢后 governor sweep 与 gizmo/Dev 显式删除同路）与本类弹窗"保留"。
+        /// 捕获失败（居住区突然变空等竞态）回落普通删除。
+        /// </summary>
+        internal void ArchiveTileMap(MapParent_SeamlessTile parent, Map map, int tile, int homeCells, string reason)
+        {
+            var record = ZoneMapRecord.Capture(map, tile, nextArchiveOrdinal++, homeCells);
+            if (record == null)
+            {
+                Log.Warning($"[RimExodus] Preserve archive: capture failed for map {map.uniqueID} wt={tile}, falling back to deletion.");
+                map.GetComponent<SeamlessTileManager>()?.RemoveRollingMap(parent);
+                return;
+            }
+            parent.preserveRecord = record;
+
+            // 拆图（与 RemoveTileMap 的三点差异，勿"顺手对齐"：①WO 保留——邻居链/seamStrip/
+            // 世界图第四态的载体；②不 CleanupNeighborLinks——链接指向活 WO，跨档有效，邻图在
+            // 封存期间生成还能经 TryGetNeighborSeamStrip 的 WO 回落读条带参考；③不
+            // ReleaseTileMesh——WO 仍在绘制（封存态）。Forget 先行 = 删前清扫 + 休眠集合摘除）。
+            SeamlessDormancyManager.Forget(map);
+            Current.Game.DeinitAndRemoveMap(map, false);
+            SeamlessWeatherClusterManager.RebindAll();
+
+            // 状态迁移心跳（常开，对照 DELETE；不逐轮刷屏——封存是一次性事件非周期状态）。
+            Log.Message($"[RimExodus] Dormancy ARCHIVE: map {map.uniqueID} wt={tile} (home={homeCells}, " +
+                        $"zone={record.zoneCells.Count} cells, buildings={record.buildings.Count}, items={record.items.Count}) — {reason}");
+
+            RunArchiveEviction();
+            RefreshPreservedTiles();
+        }
+
+        /// <summary>入队封存询问（同 tile 去重——弹窗未决期间每轮 Sweep 都会命中删除分支）。</summary>
+        private void QueuePreservePrompt(Map map, MapParent_SeamlessTile parent, int tile, int homeCells)
+        {
+            for (int i = 0; i < preservePrompts.Count; i++)
+            {
+                if (preservePrompts[i].tile == tile) return;
+            }
+            preservePrompts.Add(new PreservePrompt { map = map, parent = parent, tile = tile, homeCells = homeCells });
+        }
+
+        /// <summary>
+        /// 弹窗队列 drain（GameComponentTick 末尾）：一次一张（任意 Dialog_MessageBox 在场时避让，
+        /// 防堆叠）；队首失效（玩家走回/图没了/不再可删）静默丢弃。三按钮：
+        /// 「保留」（=封存，回车/accept 同效）「不保留」（=删除）「不保留，以后不再询问」
+        /// （→二次确认讲清收益与风险，确认后写设置 + 删除）。Esc = "稍后"——出队不动作，下轮
+        /// Sweep 重新入队重弹（Dialog forcePause，弹窗期间无 Sweep，队列静止）。
+        /// </summary>
+        private void DrainPreservePrompts()
+        {
+            if (preservePrompts.Count == 0) return;
+            if (Find.WindowStack.IsOpen<Dialog_MessageBox>()) return;
+
+            while (preservePrompts.Count > 0 && !PromptStillEligible(preservePrompts[0]))
+            {
+                preservePrompts.RemoveAt(0);
+            }
+            if (preservePrompts.Count == 0) return;
+
+            var p = preservePrompts[0];
+            var threshold = Mathf.Clamp(RimExodusMod.Settings?.dormancyPreserveHomeAreaThreshold ?? 20, 0, 500);
+
+            Action keepAction = delegate
+            {
+                preservePrompts.RemoveAt(0);
+                if (PromptStillEligible(p))
+                {
+                    ArchiveTileMap(p.parent, p.map, p.tile, p.homeCells, "player kept (sub-threshold prompt)");
+                }
+            };
+            Action discardAction = delegate
+            {
+                preservePrompts.RemoveAt(0);
+                if (PromptStillEligible(p))
+                {
+                    DeleteFromPrompt(p, "player discarded (prompt)");
+                }
+            };
+            Action escAction = delegate
+            {
+                // Esc/取消 = 稍后：出队不动作，下轮 Sweep 重弹（用户未做决定，诚实 nagging）。
+                preservePrompts.RemoveAt(0);
+            };
+
+            var dialog = new Dialog_MessageBox(
+                "RimExodus_PreservePromptText".Translate(p.parent.Label, p.homeCells, threshold),
+                "RimExodus_PreserveKeepBtn".Translate(), keepAction,
+                "RimExodus_PreserveDiscardBtn".Translate(), discardAction,
+                null, false, keepAction, escAction);
+            dialog.buttonCText = "RimExodus_PreserveNeverAskBtn".Translate();
+            dialog.buttonCAction = delegate
+            {
+                // buttonC 点击后原窗自关（buttonCClose 默认 true），转二次确认；取消二次确认 =
+                // 队列未动，下个 tick 重弹原窗（玩家说了"不再询问"又反悔 → 重新问是正确行为）。
+                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                    "RimExodus_PreserveNeverAskConfirmText".Translate(), delegate
+                    {
+                        preservePrompts.RemoveAt(0);
+                        if (RimExodusMod.Settings != null)
+                        {
+                            RimExodusMod.Settings.dormancyPreservePromptDisabled = true;
+                        }
+                        if (PromptStillEligible(p))
+                        {
+                            DeleteFromPrompt(p, "player discarded + never ask again (prompt)");
+                        }
+                    }, destructive: true));
+            };
+            Find.WindowStack.Add(dialog);
+        }
+
+        /// <summary>答复时重验资格（弹窗开着玩家可能正走回去）：图活着、仍挂同一 parent、仍受管辖可删、无玩家 pawn、非 CurrentMap。</summary>
+        private static bool PromptStillEligible(PreservePrompt p)
+        {
+            var m = p.map;
+            return m != null && !m.Disposed && !p.parent.Destroyed && m.Parent == p.parent
+                && SeamlessMapGovernance.IsGoverned(m) && SeamlessMapGovernance.CanRollingDelete(m)
+                && !SeamlessMapGovernance.HasPlayerPawn(m) && m != Find.CurrentMap;
+        }
+
+        private static void DeleteFromPrompt(PreservePrompt p, string reason)
+        {
+            Log.Message($"[RimExodus] Dormancy DELETE: map {p.map.uniqueID} wt={p.tile} — {reason}");
+            p.map.GetComponent<SeamlessTileManager>()?.RemoveRollingMap(p.parent);
+        }
+
+        /// <summary>
+        /// 权重淘汰（每轮 Sweep 末 + 每次封存后）：cap（保留数量）>0 且封存数超限时，淘汰
+        /// 保留权重 = X×homeCellsAtCapture + Y×新近度序号（1 = 最近封存，越大越旧）**最低**者
+        /// （销毁 WO 连记录；默认 X=0/Y=-1 → 淘汰最旧）。WO 无图 → Destroy 无连删副作用。
+        /// </summary>
+        private void RunArchiveEviction()
+        {
+            var cap = Mathf.Clamp(RimExodusMod.Settings?.dormancyPreserveCount ?? 0, 0, 999);
+            if (cap <= 0) return;
+
+            var archived = new List<MapParent_SeamlessTile>();
+            foreach (var wo in Find.World.worldObjects.AllWorldObjects)
+            {
+                if (wo is MapParent_SeamlessTile st && !st.Destroyed && st.preserveRecord != null)
+                {
+                    archived.Add(st);
+                }
+            }
+            if (archived.Count <= cap) return;
+
+            var wHome = RimExodusMod.Settings?.dormancyPreserveWeightHome ?? 0;
+            var wAge = RimExodusMod.Settings?.dormancyPreserveWeightAge ?? -1;
+
+            while (archived.Count > cap)
+            {
+                int maxOrdinal = int.MinValue;
+                foreach (var a in archived)
+                {
+                    if (a.preserveRecord.archiveOrdinal > maxOrdinal) maxOrdinal = a.preserveRecord.archiveOrdinal;
+                }
+                MapParent_SeamlessTile victim = null;
+                long bestWeight = long.MaxValue;
+                foreach (var a in archived)
+                {
+                    long rank = maxOrdinal - a.preserveRecord.archiveOrdinal + 1;
+                    long weight = (long)wHome * a.preserveRecord.homeCellsAtCapture + wAge * rank;
+                    if (weight < bestWeight)
+                    {
+                        bestWeight = weight;
+                        victim = a;
+                    }
+                }
+                if (victim == null) break;
+
+                archived.Remove(victim);
+                var label = victim.Label;
+                Log.Message($"[RimExodus] Dormancy ARCHIVE EVICT: wt={victim.Tile.tileId} (weight={bestWeight}, " +
+                            $"archived={archived.Count + 1} > cap={cap}) — weight formula");
+                Messages.Message("RimExodus_PreserveEvicted".Translate(label), MessageTypeDefOf.NeutralEvent, false);
+                TileWorldIcons.ReleaseTileMesh(victim.Tile);
+                victim.Destroy();
+            }
+        }
+
+        /// <summary>
+        /// 全量重写 tracker.PreservedTiles（世界图点标数据源）：达阈活图 ∪ 已封存 WO。
+        /// 状态派生无持久化（居住区是实时状态、封存 = 记录在档），每轮重算即自愈。
+        /// </summary>
+        private static void RefreshPreservedTiles()
+        {
+            var set = SeamlessMapModificationTracker.PreservedTiles;
+            set.Clear();
+            foreach (var m in Find.Maps)
+            {
+                if (m == null || m.Disposed || !(m.Parent is MapParent_SeamlessTile)) continue;
+                if (((MapParent_SeamlessTile)m.Parent).preserveRecord != null
+                    || SeamlessMapModificationTracker.Evaluate(m, out _) == PreserveDecision.Auto)
+                {
+                    set.Add(SeamlessTileRegistry.GetMapWorldTile(m));
+                }
+            }
+            foreach (var wo in Find.World.worldObjects.AllWorldObjects)
+            {
+                if (wo is MapParent_SeamlessTile st && !st.Destroyed && st.preserveRecord != null)
+                {
+                    set.Add(st.Tile.tileId);
                 }
             }
         }

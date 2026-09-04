@@ -125,9 +125,27 @@ namespace RimExodus
                 map.fogGrid.Unfog(vanillaRoots[i]);
             }
 
+            // ④ 前哨保留·封存区域揭雾（2026-09）：zone = 原 home area 字面快照 = 封存时的已探索区
+            //（玩家住过的地方）。GenStep_ZoneRestore(1100) 在本步之前恢复了建筑——接缝洪水被
+            // 恢复的墙正确阻挡（密封房间留雾 = 原版一致）；但区域整体本是已探索区，此处整区补揭
+            // 恢复原探索态。记录此时尚未被消费（onComplete 的 FinishZoneRestore 才清），直接读。
+            var zoneUnfogged = 0;
+            var preserveRecord = (map.Parent as MapParent_SeamlessTile)?.preserveRecord;
+            if (preserveRecord != null)
+            {
+                foreach (var c in preserveRecord.zoneCells)
+                {
+                    if (map.fogGrid.IsFogged(c))
+                    {
+                        map.fogGrid.Unfog(c);
+                        zoneUnfogged++;
+                    }
+                }
+            }
+
             if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
                 Log.Message($"[RimExodus] GenStep_Fog (seam-origin, map={map.uniqueID} wt={worldTile}): voidCells={unfoggedVoid} " +
-                            $"outdoorFloodRoots={rootCount} source={SeamlessTileManager.NeighborGenerationSourceTile} " +
+                            $"outdoorFloodRoots={rootCount} preserveZoneUnfogged={zoneUnfogged} source={SeamlessTileManager.NeighborGenerationSourceTile} " +
                             $"(initial maps keep vanilla center unfog; neighbor-generated maps unfog from the seam only; " +
                             $"roots = all standable enter-spots on the source edge, fallback = all active edges).");
             return false;

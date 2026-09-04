@@ -111,4 +111,18 @@
     <genStep Class="RimExodus.GenStep_EnterSpots"/>
   </GenStepDef>
 
+  <!-- 前哨保留·区域置换（2026-09 封存/重放）：本 tile 无封存记录（普通生成）时零介入。
+       order 1100（2026-09 回归定夺"生成建筑的 mutator/landmark genStep 之后、pawn 与动物生成之前"）：
+       身后覆盖全部常规建筑生成源（Settlement 400/401、MutatorCriticalStructures[landmark] 500、
+       ScatterGroupPrefabs 950、ScatterGroup 960——含 BaseGen 从锚点铺开、绕过选址根原语的产物），
+       身前避开 Animals(1200)（置换时无 pawn 在场，无需推移）。残差观察项：AncientTuneller 1650
+       与 MutatorFinal 1600 的地形覆写在其后，实测污染前哨区域再按特例处理。
+       首版 order 395 + 源头禁布三 patch + 延迟冲突清理已随 order 后置整体拆除（勿加回）。
+       不进 MapPreview 预览（预览图无 parent，记录取不到自然早退；预览只关心地形）。 -->
+  <GenStepDef>
+    <defName>RimExodus_ZoneRestore</defName>
+    <order>1100</order>
+    <genStep Class="RimExodus.GenStep_ZoneRestore"/>
+  </GenStepDef>
+
 </Defs>

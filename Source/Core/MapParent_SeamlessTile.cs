@@ -80,6 +80,16 @@ namespace RimExodus
         /// </summary>
         public SeamStripData seamStrip;
 
+        /// <summary>
+        /// 前哨封存记录（2026-09 前哨保留）。非 null = 本 WO 处于封存态（Map 已拆、记录在档）：
+        /// - 到达删除距离且居住区达阈时由 governor 捕获（<see cref="ZoneMapRecord.Capture"/>）并拆图，
+        ///   本 WO 刻意保留（邻居链不断、seamStrip 可被邻图生成参考、世界图第四态图标）；
+        /// - 再次生成时由 <see cref="SeamlessTileManager.GenerateTileMap"/> 守卫识别并复用本 WO，
+        ///   <see cref="GenStep_ZoneRestore"/>(395) 在生成链内重放，onComplete 消费置 null。
+        /// 淘汰/手动删除封存 = 销毁本 WO（记录随亡）。
+        /// </summary>
+        public ZoneMapRecord preserveRecord;
+
         public override string Label => "Seamless Tile Map";
 
         /// <summary>
@@ -97,6 +107,13 @@ namespace RimExodus
             Mesh mesh = TileWorldIcons.GetStateMesh(Tile, state);
             if (mesh == null) return;
             Graphics.DrawMesh(mesh, Vector3.zero, Quaternion.identity, TileWorldIcons.OverlayMat, WorldCameraManager.WorldLayer);
+            // 前哨保留点标（2026-09）：会被保留的 tile（达阈活图 ∪ 已封存）中心小白点，
+            // 与三/四态填充正交——玩家一眼看出哪些 tile 承载着会被保留的玩家工程。
+            // 数据源 = tracker.PreservedTiles（每轮 Sweep 末发布，每帧仅一次 HashSet 查询）。
+            if (SeamlessMapModificationTracker.PreservedTiles.Contains(Tile.tileId))
+            {
+                TileWorldIcons.DrawPreservedDot(Tile);
+            }
         }
 
         /// <summary>
@@ -141,6 +158,7 @@ namespace RimExodus
             Scribe_Values.Look(ref autoFocused, "autoFocused", false);
             Scribe_Values.Look(ref tileOrigin, "tileOrigin", Vector2.zero);
             Scribe_Deep.Look(ref seamStrip, "seamStrip");
+            Scribe_Deep.Look(ref preserveRecord, "preserveRecord");
 
             // 邻居表序列化：用 IExposable 的 NeighborLink 列表。
             if (Scribe.mode == LoadSaveMode.Saving)
@@ -214,12 +232,14 @@ namespace RimExodus
         public const int StateActive = 0;
         public const int StateUnmanned = 1;
         public const int StateDormant = 2;
+        public const int StateArchived = 3; // 前哨封存态（2026-09）：无图但有 preserveRecord
 
         private static readonly Color[] StateColors =
         {
             new Color(1f, 0.55f, 0.1f),   // 活跃有人：橙
             new Color(0.2f, 0.5f, 1f),    // 活跃无人：蓝
             new Color(0.5f, 0.5f, 0.5f),  // 休眠：灰
+            new Color(0.1f, 0.7f, 0.6f),  // 封存：青绿（与蓝橙灰三态可区分）
         };
 
         private static Material _overlayMat;
@@ -253,15 +273,76 @@ namespace RimExodus
             _overlayMat = new Material(WorldMaterials.VertexColorTransparent);
             SleepCommandIcon = ContentFinder<Texture2D>.Get("UI/Commands/RimExodus_SleepMap", reportFailure: false);
             DeleteCommandIcon = ContentFinder<Texture2D>.Get("UI/Commands/RimExodus_DeleteMap", reportFailure: false);
+            BuildPreservedDotMesh();
+        }
+
+        /// <summary>前哨保留点标 mesh（全 tile 共享：本地 XY 平面单位圆盘，颜色烘在顶点色，白 0.92）。</summary>
+        private static Mesh _preservedDotMesh;
+
+        /// <summary>
+        /// 建"已保留"点标 mesh：16 段三角扇圆盘（与 tile 填充同构，XY 平面、+Z 朝外）。
+        /// 共享单实例 + 每 tile TRS 矩阵定位（Patch_MapEdgeClipDrawer 的"unit quad + matrix"范式），
+        /// 无 per-tile mesh 生命周期负担。
+        /// </summary>
+        private static void BuildPreservedDotMesh()
+        {
+            const int segments = 16;
+            var verts = new List<Vector3>(segments + 1) { Vector3.zero };
+            for (int i = 0; i < segments; i++)
+            {
+                float a = i / (float)segments * Mathf.PI * 2f;
+                verts.Add(new Vector3(Mathf.Cos(a), Mathf.Sin(a), 0f));
+            }
+            var indices = new List<int>(segments * 3);
+            for (int j = 0; j < segments; j++)
+            {
+                // 与 BuildTileMesh 同绕序（b, a, 0）。
+                int va = 1 + j;
+                int vb = 1 + (j + 1) % segments;
+                indices.Add(vb);
+                indices.Add(va);
+                indices.Add(0);
+            }
+            var colors = new Color32[verts.Count];
+            for (int i = 0; i < colors.Length; i++)
+            {
+                colors[i] = new Color32(255, 255, 255, 235);
+            }
+            _preservedDotMesh = new Mesh { name = "RimExodus_PreservedDot" };
+            _preservedDotMesh.SetVertices(verts);
+            _preservedDotMesh.SetTriangles(indices, 0);
+            _preservedDotMesh.colors32 = colors;
+            _preservedDotMesh.RecalculateNormals();
         }
 
         /// <summary>
-        /// 按地图运行时状态取状态索引（无图/已 Dispose 返回 -1 = 不画）。
+        /// 画"已保留"中心点标（2026-09 前哨保留）：tile 中心 + 法向抬 0.03（盖过填充的 0.02），
+        /// 圆盘半径 ≈ AverageTileSize × 0.18。共享 OverlayMat（顶点色材质）。
+        /// </summary>
+        public static void DrawPreservedDot(PlanetTile tile)
+        {
+            if (!tile.Valid || _preservedDotMesh == null || _overlayMat == null) return;
+            Vector3 center = Find.WorldGrid.GetTileCenter(tile);
+            Vector3 normal = center.normalized;
+            var matrix = Matrix4x4.TRS(center + normal * 0.03f, Quaternion.LookRotation(normal),
+                Vector3.one * (Find.WorldGrid.AverageTileSize * 0.18f));
+            Graphics.DrawMesh(_preservedDotMesh, matrix, _overlayMat, WorldCameraManager.WorldLayer);
+        }
+
+        /// <summary>
+        /// 按地图运行时状态取状态索引。无图/已 Dispose：封存态（有 <see cref="MapParent_SeamlessTile.preserveRecord"/>
+        /// 且未销毁，2026-09 前哨保留）→ <see cref="StateArchived"/>；其余（历史孤儿）返回 -1 = 不画。
         /// </summary>
         public static int GetStateIndex(MapParent parent)
         {
             var map = parent?.Map;
-            if (map == null || map.Disposed) return -1;
+            if (map == null || map.Disposed)
+            {
+                return parent is MapParent_SeamlessTile tileParent
+                    && tileParent.preserveRecord != null && !tileParent.Destroyed
+                    ? StateArchived
+                    : -1;
+            }
 
             if (SeamlessDormancyManager.IsDormant(map)) return StateDormant;
             // "有人"判定唯一出处 = SeamlessMapGovernance.HasPlayerPawn（与 governor 距离源同口径，

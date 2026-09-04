@@ -53,6 +53,10 @@ namespace RimExodus
     /// Patch A（主）：Prefix <c>GenStep_Scatterer.CanScatterAt</c>——锚点在六边形外或距边
     /// &lt; <see cref="BuildingPlacementConstants.ScatterEdgeMargin"/> 格时直接拒绝。
     /// protected virtual（字符串声明，子类 base 调用命中基类方法体即命中本 patch）。
+    ///
+    /// （2026-09 前哨保留的"区域内拒绝散布"层已随 GenStep_ZoneRestore order 后置到 1100
+    ///（全部常规建筑生成源之后）整体拆除——权威置换在最后跑，源头禁布只剩省功价值，属 patch
+    /// 思路。勿再加回。）
     /// </summary>
     [HarmonyPatch(typeof(GenStep_Scatterer), "CanScatterAt")]
     static class Patch_GenStep_Scatterer_CanScatterAt

@@ -53,6 +53,20 @@
   <RimExodus_SettingsThrottleRadiusLabel>接缝快速区半径：{0} 格</RimExodus_SettingsThrottleRadiusLabel>
   <RimExodus_SettingsThrottleRadiusTip>仅在上方的"降频地图 tick 比例"低于 100% 时有实义。\n\n降频地图上，距接缝边不超过此距离的事物（炮塔、投射物、追兵——跨图战斗相关）保持全速 tick；更远的区域按降频比例 tick。0 = 不设快速区（整图按降频比例）。地图级系统（电网、天气、野生动物生成）不做分区——整图统一按降频比例。默认值：15。</RimExodus_SettingsThrottleRadiusTip>
 
+  <!-- 前哨保留（2026-09）：有居住区的地图到删除距离时封存而非删除。 -->
+  <RimExodus_SettingsPreserveHeader>前哨保留（封存而不删除）</RimExodus_SettingsPreserveHeader>
+  <RimExodus_SettingsPreserveHeaderTip>你建造过的地图（以居住区为准）在离你太远时不再被删除，而是封存：居住区内的建筑、地板、屋顶与物资会被记录在案，地图本体从内存卸载；你再回来时地图重新生成，你的前哨会在其上原样重建。\n\n居住区就是原版的家居区（建造时自动扩展，也可以自己用画笔添加）。只有居住区内的东西会被保留——想保住什么（比如挖开的隧道）就画上家居区，不在乎的就别画。</RimExodus_SettingsPreserveHeaderTip>
+  <RimExodus_SettingsPreserveThresholdLabel>自动封存所需的最小居住区：{0} 格</RimExodus_SettingsPreserveThresholdLabel>
+  <RimExodus_SettingsPreserveThresholdTip>当一张有居住区的地图到达删除距离时：居住区不小于此格数 → 自动封存、不询问；小于此格数 → 弹窗问你一次这张图保不保留（可用下方开关关掉询问）。\n\n0 = 只要有居住区就自动封存（弹窗永不出现）。默认值：20——随手建的一面墙不会悄悄换来一个永久封存。</RimExodus_SettingsPreserveThresholdTip>
+  <RimExodus_SettingsPreserveCountLabel>最多保留最近多少个封存：{0}（0 = 不限）</RimExodus_SettingsPreserveCountLabel>
+  <RimExodus_SettingsPreserveCountTip>最多同时保留多少个封存前哨（0 = 全部保留——封存是极小的记录数据而非整张地图，没有性能代价）。\n\n超过此数量时，保留权重最低的封存会被丢弃（该地块此后按普通删除地块对待）。谁先被丢弃由下方两个权重值决定。默认值：0（不限）。</RimExodus_SettingsPreserveCountTip>
+  <RimExodus_SettingsPreserveWeightHomeLabel>保留权重 X（居住区大小）：{0}</RimExodus_SettingsPreserveWeightHomeLabel>
+  <RimExodus_SettingsPreserveWeightHomeTip>保留权重 = X ×（居住区格数） + Y ×（封存新近度序号，1 = 最近封存）。超过保留数量上限时，权重最低者先被丢弃。\n\n调大 X 可以不分新旧地保护大前哨（小前哨先出）。默认值：0。范围 -100 到 100。</RimExodus_SettingsPreserveWeightHomeTip>
+  <RimExodus_SettingsPreserveWeightAgeLabel>保留权重 Y（封存新旧）：{0}</RimExodus_SettingsPreserveWeightAgeLabel>
+  <RimExodus_SettingsPreserveWeightAgeTip>保留权重 = X ×（居住区格数） + Y ×（封存新近度序号，1 = 最近封存，越大越旧）。超过保留数量上限时，权重最低者先被丢弃。\n\n默认值 -1 = 最旧的先出（即"保留最近 N 个"）。改成正值则反向（新封存的先出）。范围 -100 到 100。</RimExodus_SettingsPreserveWeightAgeTip>
+  <RimExodus_SettingsPreservePromptLabel>删除小居住区地图前弹窗询问</RimExodus_SettingsPreservePromptLabel>
+  <RimExodus_SettingsPreservePromptTip>当一张居住区小于上方阈值的地图到达删除距离时，弹窗询问保留（封存）还是不保留（删除）。\n\n关闭此项（或在弹窗里选"以后不再询问"）后，这类地图将被直接删除、不再询问——其中的建造不会被保留。默认值：开。</RimExodus_SettingsPreservePromptTip>
+
   <RimExodus_SettingsCombatLabel>跨图索敌与射击</RimExodus_SettingsCombatLabel>
   <RimExodus_SettingsCombatTip>允许 pawn 看见、瞄准并射击站在缝对侧相邻地图上的敌人。若你偏好严格的原版战斗规则（无法与另一张地图上的任何目标交互），请关闭。</RimExodus_SettingsCombatTip>
 
@@ -99,10 +113,36 @@
   <RimExodus_DeleteTileMap>删除此地图</RimExodus_DeleteTileMap>
   <RimExodus_DeleteTileMapDesc>将此地图从内存中彻底移除。重访该世界地块时会从头重新生成——在此建造或遗留的一切都会丢失。</RimExodus_DeleteTileMapDesc>
   <RimExodus_DeleteTileMapConfirm>删除"{0}"的地图？\n\n其上的一切都将丢失。重访该地块时会从头重新生成。</RimExodus_DeleteTileMapConfirm>
+  <!-- 前哨保留：gizmo 删除对达阈地图经单一入口转为封存（2026-09）。 -->
+  <RimExodus_ArchiveTileMapConfirm>保留（封存）"{0}"的地图？\n\n这张地图有居住区，因此不会被删除，而是转为封存：居住区内的建筑、地板、屋顶与物资会被记录，你再回来时原样重建。\n\n要彻底放弃它，请先封存，之后在青绿色的地块上选"丢弃已封存的前哨"。</RimExodus_ArchiveTileMapConfirm>
   <!-- 原生家族 POI 图删除（2026-09）：原版地点语义 + 阻挡灰显原因。 -->
   <RimExodus_DeletePoiMapDesc>将此地图从内存中移除。地点对象本身按原版规则处理：派系基地保留在世界地图上，再次靠近时重新生成驻军；其余地点（伏击、战场、已摧毁的基地等）会连同其世界图标一并移除。图上存在单位或运输舱时无法删除。</RimExodus_DeletePoiMapDesc>
   <RimExodus_DeletePoiMapConfirm>删除"{0}"的地图？\n\n地图将从内存中移除。地点对象本身按原版规则处理：派系基地保留在世界地图上、再次靠近时重新生成；其余地点（伏击、战场等）会连同其世界图标一并移除。</RimExodus_DeletePoiMapConfirm>
   <RimExodus_DeletePoiMapBlocked>无法删除：图上有阻碍移除的单位或运输舱（原版规则）。</RimExodus_DeletePoiMapBlocked>
+  <!-- 前哨保留（2026-09）：小于阈值询问弹窗 + 封存生命周期文案。 -->
+  <RimExodus_ArchiveProgress>正在封存前哨地图……</RimExodus_ArchiveProgress>
+  <RimExodus_PreservePromptText>地图滚动休眠即将删除 "{0}" 的地图。
+
+它有 {1} 格居住区，低于你设置的保留阈值（{2} 格），因此不会被自动封存。
+
+要保留（封存）它吗？居住区内的建筑、地板、屋顶与物资会在你回来时重建。阈值可在 mod 设置中调整。</RimExodus_PreservePromptText>
+  <RimExodus_PreserveKeepBtn>保留（封存）</RimExodus_PreserveKeepBtn>
+  <RimExodus_PreserveDiscardBtn>不保留（删除）</RimExodus_PreserveDiscardBtn>
+  <RimExodus_PreserveNeverAskBtn>不保留，以后不再询问</RimExodus_PreserveNeverAskBtn>
+  <RimExodus_PreserveNeverAskConfirmText>以后不再询问小居住区地图的保留问题？
+
+这意味着：
+- 从今往后，居住区低于保留阈值的地图在离你太远时将被直接删除，上面的建造不会被保留。
+- 这个弹窗不会再打断你。
+
+你随时可以在 mod 设置（RimExodus → 地图滚动休眠）里重新开启询问、调整阈值。
+
+确定吗？</RimExodus_PreserveNeverAskConfirmText>
+  <RimExodus_PreserveEvicted>为不超过你设置的封存上限，"{0}" 的封存前哨已被丢弃（见 mod 设置）。</RimExodus_PreserveEvicted>
+  <RimExodus_PreserveConflictMsg>某个恢复的前哨中有 {0} 个建筑未能重建（被不可拆除的结构占据）。</RimExodus_PreserveConflictMsg>
+  <RimExodus_DeleteArchivedMap>丢弃已封存的前哨</RimExodus_DeleteArchivedMap>
+  <RimExodus_DeleteArchivedMapDesc>丢弃这份封存前哨记录。该世界地块变回普通未探索地块——再访问时不会重建任何东西。</RimExodus_DeleteArchivedMapDesc>
+  <RimExodus_DeleteArchivedMapConfirm>丢弃 "{0}" 的封存前哨？\n\n记录的建筑与物资将不会重建。之后再访问该地块会生成一张全新地图。</RimExodus_DeleteArchivedMapConfirm>
   <!-- 分帧生成期间存档（2026-08）：生成完成前拒绝。 -->
   <RimExodus.SaveBlockedDuringGenerationLabel>存档已被拒绝</RimExodus.SaveBlockedDuringGenerationLabel>
   <RimExodus.SaveBlockedDuringGeneration>存档已被拒绝：相邻地图正在生成中。\n\n请勿在地图加载过程中存档来测试本mod可靠性——这个mod的作者已经深刻理解到它的不可靠了。\n\n几秒后生成完成，届时即可正常存档。</RimExodus.SaveBlockedDuringGeneration>

@@ -53,6 +53,20 @@ The map you are currently on and your home map are never deleted. Default: 3.</R
   <RimExodus_SettingsThrottleRadiusLabel>Seam fast-zone radius: {0} cell(s)</RimExodus_SettingsThrottleRadiusLabel>
   <RimExodus_SettingsThrottleRadiusTip>Only relevant while the throttled-map tick rate above is below 100%.\n\nOn a throttled map, things within this distance of a seam edge (turrets, projectiles, chasers - cross-map combat) keep ticking at FULL speed; everything beyond ticks at the throttled rate. 0 = no fast zone (the whole map ticks at the throttled rate). Map-wide systems (power grid, weather, wildlife) are not split by this - they follow the throttled rate for the whole map. Default: 15.</RimExodus_SettingsThrottleRadiusTip>
 
+  <!-- Outpost preservation (2026-09): maps with a home area are archived instead of deleted. -->
+  <RimExodus_SettingsPreserveHeader>Outpost preservation (archive instead of delete)</RimExodus_SettingsPreserveHeader>
+  <RimExodus_SettingsPreserveHeaderTip>Maps you have built on (marked by a home area) are not deleted when they get too far away. Instead they are archived: your buildings, floors, roofs and stockpiles in the home area are recorded, the map itself is unloaded, and when you return the map is regenerated and your outpost is rebuilt on it.\n\nThe home area is the vanilla home zone (added automatically as you build, and you can paint more yourself). Only the home area is preserved - paint it over anything you want kept (e.g. mined tunnels), and keep it painted off anything you do not care about.</RimExodus_SettingsPreserveHeaderTip>
+  <RimExodus_SettingsPreserveThresholdLabel>Minimum home area size to auto-preserve: {0} cell(s)</RimExodus_SettingsPreserveThresholdLabel>
+  <RimExodus_SettingsPreserveThresholdTip>When a map with a home area reaches the delete distance: home area at least this large (in cells) -> archived automatically without asking. Smaller than this -> a dialog asks you once per map whether to keep it (see the toggle below).\n\n0 = archive every map that has any home area at all (the dialog never appears). Default: 20 - one hastily placed wall will not silently earn a permanent archive.</RimExodus_SettingsPreserveThresholdTip>
+  <RimExodus_SettingsPreserveCountLabel>Keep the most recent archives: {0} (0 = unlimited)</RimExodus_SettingsPreserveCountLabel>
+  <RimExodus_SettingsPreserveCountTip>How many archived outposts to keep at most (0 = keep them all - archives are tiny records, not whole maps, so there is no performance cost).\n\nWhen there are more archives than this, the one with the lowest keep-weight is discarded (the map tile then behaves like a normal deleted tile). Which one goes first is decided by the two weight values below. Default: 0 (unlimited).</RimExodus_SettingsPreserveCountTip>
+  <RimExodus_SettingsPreserveWeightHomeLabel>Keep-weight X (home area size): {0}</RimExodus_SettingsPreserveWeightHomeLabel>
+  <RimExodus_SettingsPreserveWeightHomeTip>Keep-weight = X * (home area cells) + Y * (archive recency rank, 1 = most recent). When over the archive limit, the LOWEST weight is discarded first.\n\nRaise X to protect big outposts regardless of age (small ones get discarded first). Default: 0. Range: -100 to 100.</RimExodus_SettingsPreserveWeightHomeTip>
+  <RimExodus_SettingsPreserveWeightAgeLabel>Keep-weight Y (archive recency): {0}</RimExodus_SettingsPreserveWeightAgeLabel>
+  <RimExodus_SettingsPreserveWeightAgeTip>Keep-weight = X * (home area cells) + Y * (archive recency rank, 1 = most recent, larger = older). When over the archive limit, the LOWEST weight is discarded first.\n\nDefault -1 = discard the oldest first ("keep the most recent N"). A positive value inverts this (newest archives get discarded first). Range: -100 to 100.</RimExodus_SettingsPreserveWeightAgeTip>
+  <RimExodus_SettingsPreservePromptLabel>Ask about small home areas before deleting</RimExodus_SettingsPreservePromptLabel>
+  <RimExodus_SettingsPreservePromptTip>When a map whose home area is smaller than the threshold above reaches the delete distance, show a dialog asking whether to keep (archive) or discard (delete) it.\n\nTurning this OFF (or answering "don't ask again" in the dialog) makes such maps delete silently - their buildings will NOT be preserved. Default: ON.</RimExodus_SettingsPreservePromptTip>
+
   <RimExodus_SettingsCombatLabel>Cross-map targeting &amp; shooting</RimExodus_SettingsCombatLabel>
   <RimExodus_SettingsCombatTip>Allow pawns to see, target and shoot enemies standing on the neighboring map across the seam. Turn off if you prefer strictly original combat rules (nothing on another map can be interacted with).</RimExodus_SettingsCombatTip>
 
@@ -99,10 +113,36 @@ Turn on only the module relevant to the problem you are investigating (or that a
   <RimExodus_DeleteTileMap>Delete this map</RimExodus_DeleteTileMap>
   <RimExodus_DeleteTileMapDesc>Remove this map from memory entirely. Revisiting this world tile will regenerate it from scratch - everything built or left here will be lost.</RimExodus_DeleteTileMapDesc>
   <RimExodus_DeleteTileMapConfirm>Delete the map at "{0}"?\n\nEverything on it will be lost. Revisiting the tile will regenerate it from scratch.</RimExodus_DeleteTileMapConfirm>
+  <!-- Outpost preservation: gizmo delete routed to archive when home area qualifies (2026-09 single delete entry). -->
+  <RimExodus_ArchiveTileMapConfirm>Keep (archive) the map at "{0}"?\n\nThis map has a home area, so instead of being deleted it will be ARCHIVED: your buildings, floors, roofs and stockpiles inside the home area are recorded and rebuilt when you return.\n\nTo abandon it completely, archive it now and then use "Discard archived outpost" on the teal tile afterwards.</RimExodus_ArchiveTileMapConfirm>
   <!-- Native-family POI map delete (2026-09): vanilla-location semantics + blocker disable reason. -->
   <RimExodus_DeletePoiMapDesc>Remove this map from memory. The location itself follows vanilla rules: settlements stay on the world map and their garrison regenerates when revisited; other locations (ambushes, battlefields, destroyed settlements) are removed together with their world icon. Pawns or transporters on the map can block deletion.</RimExodus_DeletePoiMapDesc>
   <RimExodus_DeletePoiMapConfirm>Delete the map at "{0}"?\n\nThe map is removed from memory. The location itself follows vanilla rules: settlements stay on the world map and regenerate when revisited; other locations (ambushes, battlefields) are removed together with their world icon.</RimExodus_DeletePoiMapConfirm>
   <RimExodus_DeletePoiMapBlocked>Cannot delete: pawns or transporters on this map block its removal (vanilla rules).</RimExodus_DeletePoiMapBlocked>
+  <!-- Outpost preservation (2026-09): sub-threshold prompt + archive lifecycle texts. -->
+  <RimExodus_ArchiveProgress>Archiving outpost map...</RimExodus_ArchiveProgress>
+  <RimExodus_PreservePromptText>The map at "{0}" is about to be deleted by map rolling dormancy.
+
+It has a home area of {1} cell(s), which is below your preservation threshold of {2} cell(s), so it will not be archived automatically.
+
+Keep (archive) it? Its buildings, floors, roofs and stockpiles inside the home area will be rebuilt when you return. You can adjust the threshold in the mod settings.</RimExodus_PreservePromptText>
+  <RimExodus_PreserveKeepBtn>Keep (archive)</RimExodus_PreserveKeepBtn>
+  <RimExodus_PreserveDiscardBtn>Don't keep (delete)</RimExodus_PreserveDiscardBtn>
+  <RimExodus_PreserveNeverAskBtn>Don't keep, never ask again</RimExodus_PreserveNeverAskBtn>
+  <RimExodus_PreserveNeverAskConfirmText>Never ask about small home areas again?
+
+What this means:
+- From now on, maps whose home area is below your preservation threshold will be DELETED outright when they get too far away. Anything built there will NOT be preserved.
+- You will never be interrupted by this dialog again.
+
+You can re-enable the prompt and change the threshold at any time in the mod settings (RimExodus -> Map rolling dormancy).
+
+Are you sure?</RimExodus_PreserveNeverAskConfirmText>
+  <RimExodus_PreserveEvicted>Archived outpost at "{0}" was discarded to stay within your archive limit (see mod settings).</RimExodus_PreserveEvicted>
+  <RimExodus_PreserveConflictMsg>{0} building(s) in a restored outpost could not be rebuilt (occupied by indestructible structures).</RimExodus_PreserveConflictMsg>
+  <RimExodus_DeleteArchivedMap>Discard archived outpost</RimExodus_DeleteArchivedMap>
+  <RimExodus_DeleteArchivedMapDesc>Discard this archived outpost record. The world tile becomes an ordinary unexplored tile - nothing is rebuilt when revisited.</RimExodus_DeleteArchivedMapDesc>
+  <RimExodus_DeleteArchivedMapConfirm>Discard the archived outpost at "{0}"?\n\nThe recorded buildings and items will not be rebuilt. Visiting the tile later will generate a fresh map.</RimExodus_DeleteArchivedMapConfirm>
   <!-- Save during incremental map generation (2026-08): rejected until generation completes. -->
   <RimExodus.SaveBlockedDuringGenerationLabel>Save rejected</RimExodus.SaveBlockedDuringGenerationLabel>
   <RimExodus.SaveBlockedDuringGeneration>Save rejected: a neighboring map is still being generated.\n\nPlease do not save during map generation to test this mod's reliability. Its author has already gained a profound understanding of how unreliable it is.\n\nSaving will work normally again in a few seconds, once generation finishes.</RimExodus.SaveBlockedDuringGeneration>

@@ -249,6 +249,25 @@ namespace RimExodus
                         s.dormancyThrottlePercent, 0, 100, v => s.dormancyThrottlePercent = (int)v);
                     SliderRow(listing, "RimExodus_SettingsThrottleRadiusLabel", "RimExodus_SettingsThrottleRadiusTip",
                         s.throttleSeamFastRadius, 0, 50, v => s.throttleSeamFastRadius = (int)v);
+                    // 前哨保留（2026-09 封存/重放）：数值输入行（不用滑条——阈值/权重跨越数量级，
+                    // 且允许负值权重）；弹窗开关。语义唯一出处 = SeamlessMapModificationTracker。
+                    listing.Gap(6f);
+                    listing.Label("RimExodus_SettingsPreserveHeader".Translate(),
+                        -1f, new TipSignal("RimExodus_SettingsPreserveHeaderTip".Translate()));
+                    NumericRow(listing, "RimExodus_SettingsPreserveThresholdLabel", "RimExodus_SettingsPreserveThresholdTip",
+                        s.dormancyPreserveHomeAreaThreshold, 0, 500,
+                        v => s.dormancyPreserveHomeAreaThreshold = v, ref preserveThresholdBuf);
+                    NumericRow(listing, "RimExodus_SettingsPreserveCountLabel", "RimExodus_SettingsPreserveCountTip",
+                        s.dormancyPreserveCount, 0, 999,
+                        v => s.dormancyPreserveCount = v, ref preserveCountBuf);
+                    NumericRow(listing, "RimExodus_SettingsPreserveWeightHomeLabel", "RimExodus_SettingsPreserveWeightHomeTip",
+                        s.dormancyPreserveWeightHome, -100, 100,
+                        v => s.dormancyPreserveWeightHome = v, ref preserveWeightHomeBuf);
+                    NumericRow(listing, "RimExodus_SettingsPreserveWeightAgeLabel", "RimExodus_SettingsPreserveWeightAgeTip",
+                        s.dormancyPreserveWeightAge, -100, 100,
+                        v => s.dormancyPreserveWeightAge = v, ref preserveWeightAgeBuf);
+                    CheckRow(listing, "RimExodus_SettingsPreservePromptLabel", "RimExodus_SettingsPreservePromptTip",
+                        v => s.dormancyPreservePromptDisabled = v, s.dormancyPreservePromptDisabled);
                     break;
 
                 case SettingsTab.Combat:
@@ -349,6 +368,26 @@ namespace RimExodus
             var tmp = current;
             listing.CheckboxLabeled(labelKey.Translate(), ref tmp, tipKey.Translate());
             set(tmp);
+        }
+
+        // TextFieldNumeric 的输入缓冲（跨帧持久——字段为空时 Widgets 自初始化为当前值）。
+        private static string preserveThresholdBuf;
+        private static string preserveCountBuf;
+        private static string preserveWeightHomeBuf;
+        private static string preserveWeightAgeBuf;
+
+        /// <summary>
+        /// 带 tooltip 的数值输入行（2026-09 前哨保留设置）：标签行显示当前值，下一行是数字输入框。
+        /// 与 SliderRow 同构；输入缓冲必须跨帧持久（ref 静态字段），否则每次重绘丢中间输入。
+        /// </summary>
+        private static void NumericRow(Listing_Standard listing, string labelKey, string tipKey,
+            int value, int min, int max, Action<int> set, ref string buffer)
+        {
+            listing.Label(string.Format(labelKey.Translate(), value), -1f, new TipSignal(tipKey.Translate()));
+            var tmp = value;
+            listing.TextFieldNumeric(ref tmp, ref buffer, min, max);
+            set(tmp);
+            listing.Gap(2f);
         }
 
         /// <summary>

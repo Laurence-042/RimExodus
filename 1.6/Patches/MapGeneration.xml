@@ -22,6 +22,7 @@
       RimExodus_SeamlessTile (389, void+snapshot+pathGrid 刷新，Roads 390 前、Settlement 400 前；2026-08-30 从 391 再提前——道路 A* 视界内六边形外不可走，河端点免延伸) →
       RimExodus_SeamOverride (392, 混合+pathGrid 刷新) →
       RimExodus_CenterCorridor (100, Caves 网格中心走廊——必须在 RocksFromGrid(200) 前) →
+      RimExodus_ZoneRestore (1100, 前哨保留·区域置换——全部常规建筑生成源[Settlement 400/landmark 500/ScatterGroup 960]之后、Animals 1200 之前) →
       RimExodus_EnterSpots (1490, 铺传送点) → Fog(1500)
     CoastalEdgeFill 提前到 230（此前在 1801）是为了让补铺的水在 Plants(900) 之前就位，避免植物浮在水上。
     SeamlessTile/SeamOverride 在 389/392（2026-08 从 1400/1410 再提前）：Settlement 及之后全部步骤在
@@ -62,6 +63,7 @@
       <li>RimExodus_CoastalEdgeFill</li>
       <li>RimExodus_SeamlessTile</li>
       <li>RimExodus_SeamOverride</li>
+      <li>RimExodus_ZoneRestore</li>
       <li>RimExodus_EnterSpots</li>
     </value>
   </Operation>

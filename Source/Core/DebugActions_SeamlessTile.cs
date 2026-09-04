@@ -83,10 +83,12 @@ namespace RimExodus
 
             foreach (var parent in toRemove)
             {
-                manager.RemoveTileMap(parent);
+                // 单一删除入口（2026-09 收拢）：达阈前哨经入口内部分流转为封存——清场后要彻底
+                // 放弃再手动"丢弃已封存"。
+                manager.RemoveRollingMap(parent);
             }
 
-            Log.Message($"[RimExodus] Removed {toRemove.Count} seamless tile maps.");
+            Log.Message($"[RimExodus] Removed/archived {toRemove.Count} seamless tile maps.");
         }
 
         /// <summary>手动休眠当前图（软休眠验证：不 tick、不显示为邻接地图、无访问入口，内容完好）。</summary>
@@ -121,7 +123,7 @@ namespace RimExodus
             }
         }
 
-        /// <summary>强制删除当前受管辖图（地块图销毁 Map+WorldObject；原生家族延迟原版偏好；等同 governor 的删除路径；家园/未管辖图拒绝）。</summary>
+        /// <summary>强制删除当前受管辖图（唯一删除入口 RemoveRollingMap：地块图达阈前哨转封存、其余销毁 Map+WorldObject；原生家族延迟原版偏好；家园/未管辖图拒绝）。</summary>
         [DebugAction(Category, "Force Delete Current Tile Map", allowedGameStates = AllowedGameStates.PlayingOnMap)]
         private static void ForceDeleteCurrentTileMap()
         {
@@ -133,7 +135,7 @@ namespace RimExodus
             }
             var tile = SeamlessTileRegistry.GetMapWorldTile(map);
             map.GetComponent<SeamlessTileManager>()?.RemoveRollingMap(map.Parent);
-            Log.Message($"[RimExodus] Deleted rolling map wt={tile}.");
+            Log.Message($"[RimExodus] Deleted/archived rolling map wt={tile}.");
         }
 
         /// <summary>休眠状态报告：活跃/休眠图数、地图总数（127 上限余量）、governor 设置。</summary>

@@ -96,8 +96,14 @@ If you have any suggestions, feel free to share them here (though, due to limita
 0.1.9
 - 装有 Geological Landforms 时不再需要手动关闭它的河流地貌：河流现在会在相邻地块之间连续流动（此前若不关闭，河在地块交界处会错位断裂）。注意只对新生成的地图生效，已生成过的地图不会变化
   Geological Landforms' river landforms no longer need to be disabled manually: rivers now flow continuously across neighboring tiles when GL is installed (previously rivers would be misaligned and broken at tile borders unless you disabled them). Note this only applies to newly generated maps; already-generated maps are unaffected.
-- 修复装有 Geological Landforms 时，已生成地图里的河水会经地块交界复制、盖掉相邻新地图地面的问题
-  Fixed river water from an already-generated map being copied across the tile border and covering the ground of a newly generated neighboring map when GL is installed.
+
+0.1.10
+- 前哨保留：你建造过的地图（画了家居区的）离你太远时不再被删除，而是被"封存"——家居区里的建筑、地板、屋顶和留下的物资都会记录在案；你再回来时地图重新生成，你的前哨会在原样重建（家居区内挖开的山体也不会复原）。封存的地块在世界地图上显示青绿色和中心白点，不想要了可以在上面选"丢弃已封存"
+  Outpost preservation: maps you have built on (with a home area) are no longer deleted when they get too far away - they are archived instead. Buildings, floors, roofs and stockpiles inside the home area are recorded; when you return, the map is regenerated and your outpost is rebuilt on it (mountain dug out inside the home area stays dug out). Archived tiles show teal with a white dot on the world map; you can discard an archive from the tile if you no longer want it.
+- 家居区太小的地图在删除前会弹窗问你保不保留；可选"以后不再询问"（之后这类地图会直接删除，可在设置里重新开启询问）。封存数量上限与淘汰规则（按家居区大小/封存新旧）也可在设置里调整
+  Maps with a very small home area ask once before being deleted - keep (archive) or discard. "Never ask again" makes such maps delete silently (re-enable in settings). Archive count limit and eviction weighting (by home area size / archive recency) are also configurable in settings.
+- 世界地图上的"删除此图"对有家居区的地图现在会转为封存（确认框会说明）；彻底放弃需要在封存后再选一次"丢弃已封存"
+  The "delete this map" command on the world map now archives maps that have a home area (the confirmation dialog explains this); to fully abandon one, discard the archive afterwards.
 
 
 TODO（优先级从高到低）

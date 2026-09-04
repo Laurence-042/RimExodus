@@ -111,15 +111,20 @@ namespace RimExodus
                                 $"restored ({(usedFallback ? "nearest-copy fallback" : "snapshot")}).");
             }
 
-            // ⑤ 删除全部地块图（快照列表遍历，删除中遍历安全）。
+            // ⑤ 删除全部地块图（快照列表遍历，删除中遍历安全）。预清封存记录（2026-09 前哨保留）：
+            // mod 即将卸载，记录无法重放、WO 类即将失联——清空后单一删除入口的封存分流对全部
+            // tile WO 判定 None，与旧的直删行为零差异。
+            var hostManager = Find.Maps.FirstOrDefault()?.GetComponent<SeamlessTileManager>();
             foreach (var tp in tileParents)
             {
-                // RemoveTileMap 是 SeamlessTileManager 实例方法但方法体只用全局态——任一图的组件皆可代调；
-                // 地块图已销毁（map null）的孤儿 parent 也走 Destroy 分支。
-                var hostManager = Find.Maps.FirstOrDefault()?.GetComponent<SeamlessTileManager>();
+                tp.preserveRecord = null;
+                // 唯一删除入口（2026-09 收拢）：有图走 RemoveRollingMap（分派同旧行为），
+                // 无图（封存 WO）回落 RemoveTileMap 的 Destroy 分支。
                 if (tp.Map != null)
+                {
                     hostManager = tp.Map.GetComponent<SeamlessTileManager>();
-                hostManager?.RemoveTileMap(tp);
+                }
+                hostManager?.RemoveRollingMap(tp);
             }
 
             // ⑥ 全局善后：影子拆除、手动休眠锁清空（所锁图多半已删，锁本身也随 mod 消失无意义）、天气域重算。
