@@ -83,12 +83,12 @@ namespace RimExodus
 
             foreach (var parent in toRemove)
             {
-                // 单一删除入口（2026-09 收拢）：达阈前哨经入口内部分流转为封存——清场后要彻底
-                // 放弃再手动"丢弃已封存"。
+                // 单一删除入口（2026-09 收拢）：达阈前哨经入口内部分流转为封存、小于阈且提示开则
+                // 入队询问——清场后要彻底放弃再手动"丢弃已封存"。
                 manager.RemoveRollingMap(parent);
             }
 
-            Log.Message($"[RimExodus] Removed/archived {toRemove.Count} seamless tile maps.");
+            Log.Message($"[RimExodus] Remove-all dispatched via single entry: {toRemove.Count} map(s) (outcomes in entry logs).");
         }
 
         /// <summary>手动休眠当前图（软休眠验证：不 tick、不显示为邻接地图、无访问入口，内容完好）。</summary>
@@ -135,7 +135,8 @@ namespace RimExodus
             }
             var tile = SeamlessTileRegistry.GetMapWorldTile(map);
             map.GetComponent<SeamlessTileManager>()?.RemoveRollingMap(map.Parent);
-            Log.Message($"[RimExodus] Deleted/archived rolling map wt={tile}.");
+            // 结局（封存/延后询问/删除）由单一入口的 ARCHIVE/DEFERRED/DELETE 日志输出，此处不重复断言。
+            Log.Message($"[RimExodus] Force delete dispatched via single entry wt={tile}.");
         }
 
         /// <summary>休眠状态报告：活跃/休眠图数、地图总数（127 上限余量）、governor 设置。</summary>

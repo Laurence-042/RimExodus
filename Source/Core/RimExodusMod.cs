@@ -256,18 +256,20 @@ namespace RimExodus
                         -1f, new TipSignal("RimExodus_SettingsPreserveHeaderTip".Translate()));
                     NumericRow(listing, "RimExodus_SettingsPreserveThresholdLabel", "RimExodus_SettingsPreserveThresholdTip",
                         s.dormancyPreserveHomeAreaThreshold, 0, 500,
-                        v => s.dormancyPreserveHomeAreaThreshold = v, ref preserveThresholdBuf);
+                        v => s.dormancyPreserveHomeAreaThreshold = v, ref preserveThresholdBuf, "RimExodus_FieldPreserveThreshold");
                     NumericRow(listing, "RimExodus_SettingsPreserveCountLabel", "RimExodus_SettingsPreserveCountTip",
                         s.dormancyPreserveCount, 0, 999,
-                        v => s.dormancyPreserveCount = v, ref preserveCountBuf);
+                        v => s.dormancyPreserveCount = v, ref preserveCountBuf, "RimExodus_FieldPreserveCount");
                     NumericRow(listing, "RimExodus_SettingsPreserveWeightHomeLabel", "RimExodus_SettingsPreserveWeightHomeTip",
                         s.dormancyPreserveWeightHome, -100, 100,
-                        v => s.dormancyPreserveWeightHome = v, ref preserveWeightHomeBuf);
+                        v => s.dormancyPreserveWeightHome = v, ref preserveWeightHomeBuf, "RimExodus_FieldPreserveWeightHome");
                     NumericRow(listing, "RimExodus_SettingsPreserveWeightAgeLabel", "RimExodus_SettingsPreserveWeightAgeTip",
                         s.dormancyPreserveWeightAge, -100, 100,
-                        v => s.dormancyPreserveWeightAge = v, ref preserveWeightAgeBuf);
+                        v => s.dormancyPreserveWeightAge = v, ref preserveWeightAgeBuf, "RimExodus_FieldPreserveWeightAge");
+                    // 极性勿再接反（2026-09-04 首轮回归 bug）：标签语义是"询问"，字段语义是"禁用询问"
+                    // ——显示与写入都必须取反；首版直连导致默认显示未勾选、勾选反而关闭询问。
                     CheckRow(listing, "RimExodus_SettingsPreservePromptLabel", "RimExodus_SettingsPreservePromptTip",
-                        v => s.dormancyPreservePromptDisabled = v, s.dormancyPreservePromptDisabled);
+                        v => s.dormancyPreservePromptDisabled = !v, !s.dormancyPreservePromptDisabled);
                     break;
 
                 case SettingsTab.Combat:
@@ -378,14 +380,22 @@ namespace RimExodus
 
         /// <summary>
         /// 带 tooltip 的数值输入行（2026-09 前哨保留设置）：标签行显示当前值，下一行是数字输入框。
-        /// 与 SliderRow 同构；输入缓冲必须跨帧持久（ref 静态字段），否则每次重绘丢中间输入。
+        /// 输入缓冲必须跨帧持久（否则每帧丢中间输入）；**未聚焦时强制镜像当前值**——静态 buffer
+        /// 跨存档存活，读新档后残留上一档的文本会误显并被当作编辑基线写回（2026-09-04 首轮回归
+        /// bug）；聚焦中不干预（保住输入过程，失焦后下一帧自然归一）。
         /// </summary>
         private static void NumericRow(Listing_Standard listing, string labelKey, string tipKey,
-            int value, int min, int max, Action<int> set, ref string buffer)
+            int value, int min, int max, Action<int> set, ref string buffer, string controlName)
         {
             listing.Label(string.Format(labelKey.Translate(), value), -1f, new TipSignal(tipKey.Translate()));
+            var rect = listing.GetRect(30f);
+            GUI.SetNextControlName(controlName);
             var tmp = value;
-            listing.TextFieldNumeric(ref tmp, ref buffer, min, max);
+            Widgets.TextFieldNumeric(rect, ref tmp, ref buffer, min, max);
+            if (GUI.GetNameOfFocusedControl() != controlName && buffer != tmp.ToString())
+            {
+                buffer = null; // 下帧由 TextFieldNumeric 按当前值重建显示
+            }
             set(tmp);
             listing.Gap(2f);
         }

@@ -843,39 +843,55 @@ namespace RimExodus
         /// <summary>
         /// 滚动删除统一入口（governor 距离 ≥ deleteHops / gizmo / Dev / 弹窗"不保留"全部经此，
         /// 2026-09 用户定夺"整个删除流程根本只有一个入口，其内部处理封存"——勿在任何调用方
-        /// 自行前置封存判定，霰弹实现教训：gizmo 删除曾绕过封存直接销毁达阈前哨）：
-        /// 地块图居住区达阈（<see cref="SeamlessMapModificationTracker.Evaluate"/> == Auto）→
-        /// <see cref="SeamlessDormancyGovernor.ArchiveTileMap"/> 封存（拆图保 WO）而非删除；
-        /// 否则原分派——地块图 → <see cref="RemoveTileMap"/>（销毁 Map+WorldObject，"从未出现过"）；
-        /// 原生家族 → <see cref="RemoveNativeFamilyMap"/>（延迟原版偏好）。
-        /// 弹窗"不保留"语境安全：弹窗只对 BelowThreshold 图出现，本分流对 BelowThreshold 不封存 → 删。
-        /// 捕获失败回落（ArchiveTileMap 内 record==null → 回调本方法）无环：Evaluate 重读状态，
-        /// 此时居住区已空 → None → 走删除。家园图不进本方法（governor 保活分支先行豁免；
-        /// Dev 侧由 <see cref="SeamlessMapGovernance.CanRollingDelete"/> 拦截）。
+        /// 自行前置封存判定，霰弹实现教训：gizmo 删除曾绕过封存直接销毁达阈前哨；首轮回归第二刀
+        /// = 弹窗策略也曾散落在 sweep 一处，显式删除路径不弹——现已全部折进本入口）。
+        /// 内部封存分流（地块图 + 活图）：
+        /// - <see cref="PreserveDecision.Auto"/>（居住区达阈）→ <see cref="SeamlessDormancyGovernor.ArchiveTileMap"/>
+        ///   封存（拆图保 WO）而非删除；
+        /// - <see cref="PreserveDecision.BelowThreshold"/>（非空但小于阈）且提示开关开 → 入队封存弹窗、
+        ///   **本次不删**（任何删除路径统一触发——距离删除/主动删除同语义；开关关闭则直删）；
+        /// - 其余 → 原分派：地块图 → <see cref="RemoveTileMap"/>；原生家族 → <see cref="RemoveNativeFamilyMap"/>。
+        /// <paramref name="preservePromptAnswered"/>：弹窗自身的"不保留"答复执行位——玩家已在弹窗里
+        /// 做过选择，跳过 BelowThreshold 的再次询问防死循环（Auto 封存分流不受此参数影响）。
         /// </summary>
-        public void RemoveRollingMap(MapParent parent)
+        public void RemoveRollingMap(MapParent parent, bool preservePromptAnswered = false)
         {
             // 前哨保留内部分流（2026-09 单一入口收拢）：显式删除（gizmo/Dev）与距离删除同语义——
-            // 达阈即封存；要彻底放弃，玩家在封存后的世界图 WO 上选"丢弃已封存"。
+            // 达阈即封存；小于阈且提示开则先问；要彻底放弃，玩家在封存后的世界图 WO 上选"丢弃已封存"。
             if (parent is MapParent_SeamlessTile preserveParent && !preserveParent.Destroyed)
             {
                 var interiorMap = preserveParent.Map;
-                if (interiorMap != null && !interiorMap.Disposed
-                    && SeamlessMapModificationTracker.Evaluate(interiorMap, out var homeCells) == PreserveDecision.Auto)
+                if (interiorMap != null && !interiorMap.Disposed)
                 {
+                    var decision = SeamlessMapModificationTracker.Evaluate(interiorMap, out var homeCells);
                     var governor = Current.Game?.GetComponent<SeamlessDormancyGovernor>();
                     if (governor != null)
                     {
-                        var tile = SeamlessTileRegistry.GetMapWorldTile(interiorMap);
-                        governor.ArchiveTileMap(preserveParent, interiorMap, tile, homeCells,
-                            "delete routed to archive (single entry)");
-                        return;
+                        if (decision == PreserveDecision.Auto)
+                        {
+                            var tile = SeamlessTileRegistry.GetMapWorldTile(interiorMap);
+                            governor.ArchiveTileMap(preserveParent, interiorMap, tile, homeCells,
+                                "delete routed to archive (single entry)");
+                            return;
+                        }
+                        if (decision == PreserveDecision.BelowThreshold && !preservePromptAnswered
+                            && !(RimExodusMod.Settings?.dormancyPreservePromptDisabled ?? false))
+                        {
+                            var tile = SeamlessTileRegistry.GetMapWorldTile(interiorMap);
+                            if (governor.QueuePreservePrompt(preserveParent, interiorMap, tile, homeCells))
+                            {
+                                Log.Message($"[RimExodus] Dormancy DELETE DEFERRED: map {interiorMap.uniqueID} wt={tile} " +
+                                            "(home area below threshold) — preserve prompt queued");
+                                return; // 弹窗未决，本次不删（同 tile 去重，见队列）
+                            }
+                        }
                     }
                 }
             }
-            if (parent is MapParent_SeamlessTile tileParent)
+            Log.Message($"[RimExodus] Dormancy DELETE: map {parent.Map?.uniqueID.ToString() ?? "(-)"} (parent={parent.def.defName}) wt={SeamlessTileRegistry.GetMapWorldTile(parent.Map)} — single entry dispatch");
+            if (parent is MapParent_SeamlessTile tileParent2)
             {
-                RemoveTileMap(tileParent);
+                RemoveTileMap(tileParent2);
                 return;
             }
             RemoveNativeFamilyMap(parent);

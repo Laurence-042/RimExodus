@@ -294,19 +294,11 @@ namespace RimExodus
                 if (d >= deleteHops)
                 {
                     // 滚动删除（可删判定归一层：受管辖且非家园——家园已在上方保活分支 return）。
-                    // **删除流程单一入口（2026-09 收拢，用户定夺"根本只有一个入口，内部处理封存"）**：
-                    // Auto/None 都直调 RemoveRollingMap——达阈封存分流在入口内部；这里只保留
-                    // BelowThreshold 的弹窗前置询问（"要不要删"的策略层，非删除路径的一部分）。
+                    // **删除流程单一入口（2026-09 二轮归一）**：Auto 封存分流、BelowThreshold 弹窗
+                    // 询问、None 直删——全部在 RemoveRollingMap 入口内部，这里不再有任何前置判定
+                    //（首轮实现把弹窗策略留在本分支 = 显式删除路径不弹的霰弹残留，已收拢）。
                     if (SeamlessMapGovernance.CanRollingDelete(m))
                     {
-                        if (m.Parent is MapParent_SeamlessTile
-                            && SeamlessMapModificationTracker.Evaluate(m, out var homeCells) == PreserveDecision.BelowThreshold
-                            && !(RimExodusMod.Settings?.dormancyPreservePromptDisabled ?? false))
-                        {
-                            QueuePreservePrompt(m, (MapParent_SeamlessTile)m.Parent, tile, homeCells);
-                            continue; // 弹窗未决，本轮不删（同 tile 去重，见队列）。
-                        }
-                        Log.Message($"[RimExodus] Dormancy DELETE: map {m.uniqueID} wt={tile} (BFS dist={d} ≥ deleteHops={deleteHops}) — governor rolling delete");
                         m.GetComponent<SeamlessTileManager>()?.RemoveRollingMap(m.Parent);
                     }
                     continue;
@@ -393,14 +385,19 @@ namespace RimExodus
             RefreshPreservedTiles();
         }
 
-        /// <summary>入队封存询问（同 tile 去重——弹窗未决期间每轮 Sweep 都会命中删除分支）。</summary>
-        private void QueuePreservePrompt(Map map, MapParent_SeamlessTile parent, int tile, int homeCells)
+        /// <summary>
+        /// 入队封存询问（2026-09 二轮归一：唯一入队点 = 单一删除入口 RemoveRollingMap 的内部分流，
+        /// 所有删除路径——距离删除/gizmo/Dev——统一触发）。同 tile 去重；返回 true = 已入队或已在队
+        ///（= 调用方应视为"本次不删"）。
+        /// </summary>
+        internal bool QueuePreservePrompt(MapParent_SeamlessTile parent, Map map, int tile, int homeCells)
         {
             for (int i = 0; i < preservePrompts.Count; i++)
             {
-                if (preservePrompts[i].tile == tile) return;
+                if (preservePrompts[i].tile == tile) return true; // 已在队（弹窗未决期间每轮 Sweep 重入）
             }
             preservePrompts.Add(new PreservePrompt { map = map, parent = parent, tile = tile, homeCells = homeCells });
+            return true;
         }
 
         /// <summary>
@@ -484,8 +481,9 @@ namespace RimExodus
 
         private static void DeleteFromPrompt(PreservePrompt p, string reason)
         {
-            Log.Message($"[RimExodus] Dormancy DELETE: map {p.map.uniqueID} wt={p.tile} — {reason}");
-            p.map.GetComponent<SeamlessTileManager>()?.RemoveRollingMap(p.parent);
+            // preservePromptAnswered: true——玩家已在弹窗里选了"不保留"，跳过入口的 BelowThreshold
+            // 再次询问（防死循环：询问→删→又询问）。实际删除日志由入口统一输出。
+            p.map.GetComponent<SeamlessTileManager>()?.RemoveRollingMap(p.parent, preservePromptAnswered: true);
         }
 
         /// <summary>
