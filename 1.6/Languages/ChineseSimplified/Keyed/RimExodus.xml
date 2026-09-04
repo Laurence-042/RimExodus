@@ -55,7 +55,7 @@
 
   <!-- 前哨保留（2026-09）：有居住区的地图到删除距离时封存而非删除。 -->
   <RimExodus_SettingsPreserveHeader>前哨保留（封存而不删除）</RimExodus_SettingsPreserveHeader>
-  <RimExodus_SettingsPreserveHeaderTip>你建造过的地图（以居住区为准）在离你太远时不再被删除，而是封存：居住区内的建筑、地板、屋顶与物资会被记录在案，地图本体从内存卸载；你再回来时地图重新生成，你的前哨会在其上原样重建。\n\n居住区就是原版的家居区（建造时自动扩展，也可以自己用画笔添加）。只有居住区内的东西会被保留——想保住什么（比如挖开的隧道）就画上家居区，不在乎的就别画。</RimExodus_SettingsPreserveHeaderTip>
+  <RimExodus_SettingsPreserveHeaderTip>你建造过的地图（以居住区为准）在离你太远时不再被删除，而是封存：居住区内的建筑、地板、屋顶与物资会被记录在案，地图本体从内存卸载；你再回来时地图重新生成，你的前哨会在其上原样重建。\n\n居住区就是原版的居住区（建造时自动扩展，也可以自己用画笔添加）。只有居住区内的东西会被保留——想保住什么（比如挖开的隧道）就画上居住区，不在乎的就别画。</RimExodus_SettingsPreserveHeaderTip>
   <RimExodus_SettingsPreserveThresholdLabel>自动封存所需的最小居住区：{0} 格</RimExodus_SettingsPreserveThresholdLabel>
   <RimExodus_SettingsPreserveThresholdTip>当一张有居住区的地图到达删除距离时：居住区不小于此格数 → 自动封存、不询问；小于此格数 → 弹窗问你一次这张图保不保留（可用下方开关关掉询问）。\n\n0 = 只要有居住区就自动封存（弹窗永不出现）。默认值：20——随手建的一面墙不会悄悄换来一个永久封存。</RimExodus_SettingsPreserveThresholdTip>
   <RimExodus_SettingsPreserveCountLabel>最多保留最近多少个封存：{0}（0 = 不限）</RimExodus_SettingsPreserveCountLabel>
