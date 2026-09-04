@@ -1,0 +1,26 @@
+ （Mod 介绍有字数限制，这里是详细补充说明）
+(The mod description has a character limit, so this is a detailed supplement.)
+
+本 Mod 基本没有性能消耗，唯一的定期任务只有每秒 1 次的兜底检查来确认人员和地图格的距离关系，而这个检查计算量不重，理论上不存在可感知的性能损失。
+This mod has virtually no performance cost. Its only periodic task is a once-per-second fallback check of the distance between your units and each map tile. This check is computationally light — theoretically there is no perceptible performance loss.
+
+在原版 RimWorld 同时维持很多地图运行确实会导致 TPS 暴跌，但是本 Mod 提供了一种机制来减少无人地图的算力消耗。
+In vanilla RimWorld, keeping many maps active at once does tank your TPS. This mod provides a mechanism to reduce the computing cost of unattended maps.
+
+在默认设置下：
+With default settings:
+
+- 如果所有玩家单位（包括动物）需要跨越接缝 3 次才能到达一个地图，那么这个地图就会被彻底删除，下次进入时重新生成地图（自然，在上面做出的修改都会丢失）。
+If a map is 3 seam crossings away from all player units (animals included), it is deleted outright and regenerated from scratch next time you enter (so any changes you made there are lost, naturally).
+
+- 如果所有玩家单位（包括动物）需要跨越接缝 2 次才能到达一个地图，那么这个地图就会被休眠。休眠的地图不再会被 tick，0 算力占用，但其会保存在存档和内存中，下次接近时会将其唤醒，在上面做出的修改都会保留。
+If a map is 2 seam crossings away, it is put into dormancy. Dormant maps are no longer ticked — zero computing cost — but they stay in your save and in memory. They are woken up when you approach again, and all your changes there are preserved.
+
+- 玩家单位所在的地图和家园地图正常运行。
+The map your units are on, and your home map, always run normally.
+
+- 其他地图（在默认设置下是需要跨越 1 次接缝才能到达的地图）会被降频。同时与玩家单位所在地图邻接的部分仍能正常频率计算。在默认配置下，接缝 15 格内（快速区）的动植物会正常 tick，而 15 格之外的则会以半速 tick。如果快速区设置为 0 格且降频 tick 比例设置为 0，那么就等价于休眠，0 算力占用。
+All other maps (by default, those 1 seam crossing away) run at a reduced tick rate. Areas adjacent to the map your units are on still compute at full rate. With default settings, flora and fauna within 15 cells of a seam (the "fast zone") tick normally, while everything beyond ticks at half speed. If you set the fast zone to 0 cells and the throttle percentage to 0, this becomes equivalent to dormancy — zero computing cost.
+
+通过这些机制，尤其是降频机制，你可以自由调整实际性能消耗，把算力花在需要的地方，保证 TPS 处于一个优雅的状态。在最极端的配置下（即介绍页的例图，降频和快速区都直接设成了 0），即使在同时有 14 个可见的草原、雨林地图的情况下，实际算力消耗仍然只有 2 个地图。
+With these mechanisms — especially the throttling — you can freely tune the actual performance cost and spend your CPU where it matters, keeping TPS in a graceful state. In the most extreme configuration (as in the example image on the workshop page, with both the throttle percentage and fast zone set to 0), even with 14 visible grassland and rainforest maps at once, the actual computing cost is still only that of 2 maps.
