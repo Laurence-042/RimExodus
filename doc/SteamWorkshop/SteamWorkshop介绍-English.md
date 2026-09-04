@@ -4,7 +4,7 @@ Say goodbye to the disjointed "exit map → world map → reload" travel loop. R
 
 [img]https://raw.githubusercontent.com/Laurence-042/RimExodus/main/doc/img/demo.gif[/img]
 
-[b]⚠ In development; deep map-system changes — the save format is now basically stable, and problem reports are welcome. Before uninstalling, run "Restore vanilla compatibility" in settings and save; the first mod-free load shows harmless one-time red errors, gone after one more save. But map-generation-related limits remain — see the "About uninstalling" post.[/b]
+[b]⚠ In development; deep map-system changes — bugs may still pop up in odd places. The save format is now basically stable, and problem reports are welcome. Before uninstalling, run "Restore vanilla compatibility" in settings and save; the first mod-free load shows harmless one-time red errors, gone after one more save. But map-generation-related limits remain — see the "About uninstalling" post.[/b]
 
 [h1]What It Does[/h1]
 
@@ -23,7 +23,7 @@ Shooting across a seam
 
 [*][b]Incremental frame-sliced generation[/b]: neighbor tile maps generate as colonists are ordered toward the border, usually without pausing the game or a loading screen (saving blocked while generating — takes seconds).
 
-[*][b]Rolling map dormancy[/b]: far maps go dormant (no ticking; contents preserved, reawakened anytime); farther maps are deleted and regenerated on revisit — freshly, so left-behind items, buildings, and terrain changes are lost. Home is never dormant or deleted. Both distances are adjustable.
+[*][b]Rolling map dormancy[/b]: far maps go dormant (no ticking; contents preserved, reawakened anytime); farther maps are deleted and regenerated on revisit. If a map has a home area above the threshold size, buildings and stockpiles inside it are archived and rebuilt when the map regenerates. Note: regeneration is a fresh map — archiving only guarantees that buildings and stockpiles within the home area are restored. The home map is never auto-dormant or deleted. Dormancy/deletion distances and the archiving threshold are all adjustable in settings.
 
 [*][b]Native content integration[/b]: world-map POIs — faction settlements, ancient mechanitor compounds, ambushes, opportunity sites — generate as seamless tiles via the vanilla pipeline as you approach, naturally compatible with other mods' structures; camps too.
 
@@ -39,51 +39,11 @@ Trading with a settlement trader
 
 In theory, anything that doesn't modify base maps (the per-tile maps on the planet view) works.
 
-[b]Adapted:[/b]
-[list]
-[*][b]Geological Landforms[/b] — broadly adapted: landforms generate correctly, but seamless river stitching isn't fully adapted yet.
-
-[*][b]MapPreview[/b] — previews faithful to the real terrain generation.
-
-[*][b]Vehicle Framework[/b] — vehicles cross seams: drive up to a transfer spot; cross-map orders work. Large multi-tile vehicles get full-vehicle arrival validation (honestly refused if the far side has no room), and count as pawns for dormancy.
-
-[*][b]Vehicle Map Framework[/b] — a vehicle carrying colonists on its map crosses normally.
-
-[*][b]Perspective Shift[/b] — first-person WASD movement crosses maps fine; cross-map shooting works too.
-[/list]
-
-[b]Expected to be incompatible:[/b]
-[list]
-[*][b]RimSkyBlock (Edge of War sky islands)[/b] — its sky-island conversion breaks this mod's map setup, leaving those maps non-seamless, and its movement logic is uninvestigated and may cause extra issues. Not planned, given the tone clash.
-
-[*][b]CE[/b] — Character Editor is of course compatible. As for Combat Extended… cross-seam shooting isn't supported yet; single-map combat works. Vanilla comes first; cross-seam combat and related mod adaptation later.
-
-[*][b]As above, So below 2[/b] — its map assumptions conflict outright: it must resize and re-split maps, and RimExodus can't keep tile borders smooth under that. The veteran multi-floor mod MultiFloors is adapted, though.
-
-[*][b]Mods deeply modifying map generation, borders, or world tiles[/b] — untested. On conflicts, turn off "incremental generation" so tile maps use the vanilla synchronous pipeline (other mods' patches then apply, at the cost of a brief freeze).
-[/list]
+For details, see the "Compatibility Details" post in the discussions.
 
 [h1]Known Limitations[/h1]
 
-[list]
-[*]If weather is force-modified and the source map is deleted before the source clears (e.g. its game condition hasn't ended), weather can never return to normal — the restoration path died with it.
-
-[*]Designation-first commands (mining, chopping, etc.) don't appear in cross-map right-click menus (fine once you've crossed the seam).
-
-[*]No cross-map hauling or cross-map work — this mod makes Odyssey more Odyssey, not one giant megabase.
-
-[*]Odyssey space-layer maps and pocket maps (underground vaults, pits, VMF vehicle interiors, etc.) stay outside the seamless system, keeping vanilla behavior.
-
-[*]Settlement trading only supports carried items (prisoners/slaves not yet); the trader is designated once at generation, never re-picked.
-
-[*]Saving is blocked while an adjacent map generates (progress shows in the top-left corner).
-
-[*]Neighbor rendering is approximate (no shadows/ripples); neighbors in another weather cluster follow the current map's sky.
-
-[*]Connections around the planet's 12 pentagon tiles look slightly off, but movement is fine.
-
-[*]Edge-spawned raids spawn near the seam, loaded neighbor or not. May improve later (spawning from the outskirts of loaded maps) — undecided, pending research into conflicting mods.
-[/list]
+For details, see the "Known Limitations" post in the discussions.
 
 [h1]Performance[/h1]
 
@@ -93,7 +53,7 @@ With both set to 0, an extreme stress test of 14 active grassland/rainforest map
 
 [img]https://raw.githubusercontent.com/Laurence-042/RimExodus/main/doc/img/performance.png[/img]
 
-See the GitHub README for details.
+For details, see the "Performance Notes" post in the discussions.
 
 [h1]Settings[/h1]
 

@@ -34,6 +34,7 @@ Vanilla Landmarks Expanded：除了改地图大小的地标外，其他地标都
 Except for landmarks that change map size, all landmarks use the mechanism provided by Odyssey and should be compatible.
 
 Geological Landforms：它虽然用正常的地图生成步骤生成地图，但额外 patch 了原版地图生成器管线，所以最初不兼容。考虑到用户较多、体验确实好，做了额外适配。但仍然可能有些地形表现不符合预期，或者连续性有些许问题。
+Geological Landforms: it generates maps through normal generation steps, but additionally patches the vanilla map generation pipeline, so it was initially incompatible. Given its large user base and the real improvement it brings, extra adaptation was done. Still, some terrain may occasionally not look as expected, or continuity may have minor issues.
 
 MapPreview：本来就需要添加额外地图生成步骤的 Mod 主动适配，本 Mod 已正常适配。
 This mod requires active adaptation from mods that add extra gen steps; RimExodus has adapted to it.
@@ -72,6 +73,7 @@ RimExodus doesn't touch any single-map combat content, but CE's combat follows a
 ----------------------------------------------------------
 
 RimSkyBlock 之类的空岛 Mod：简单来说，没有非常硬性的不兼容，但可能有各种不符合预期的渲染、天气表现。严格来说，RimSkyBlock本身有一个保护机制来避免清除RimExodus的关键设施，使RimExodus的无缝加载、移动在空岛上仍能起效。但同时也会导致其留下空心六边形的地基框架，而且其空岛移动机制也会破坏RimExodus的“地图和世界地块一一对应”的假设，导致出现各种预期之外的问题。RimExodus不承诺可以解决这些问题，所以将其视为不兼容。因为如果考虑地图脱离地块移动的场景，很多简单高效的逻辑都不得不做得臃肿低效。不过考虑到并非硬不兼容，所以没有将其和 As above, So below 2 一样在mod元信息里标注为不兼容。
+Sky-island mods such as RimSkyBlock: in short, there is no hard incompatibility, but you may see various unexpected rendering and weather behavior. Strictly speaking, RimSkyBlock itself has a protection mechanism that avoids removing RimExodus's key infrastructure, so RimExodus's seamless loading and movement still function on sky islands. However, this also leaves hollow hexagonal foundation frames behind, and its sky-island movement mechanism breaks RimExodus's assumption of a one-to-one mapping between maps and world tiles, causing all kinds of unexpected problems. RimExodus does not promise to fix these, so it is treated as incompatible — supporting maps that detach from their world tile would force a lot of simple, efficient logic to become bloated and slow. That said, since it isn't a hard incompatibility, it is not flagged in this mod's metadata as incompatible like As above, So below 2.
 
 As above, So below 2：它需要生成一个巨大的地图并切分为表示各个高度层级的区域，会把本 Mod 的六边形裁坏；且本 Mod 没有可行方案在适应其切分行为的同时保证地图过渡生成平滑。但因为 MultiFloors 使用完整的口袋地图作为层级，不动基础地图的生成，所以是适配的。
 It generates one huge map and splits it into altitude-layer regions, which breaks this mod's hexagons; and there is no feasible way to accommodate its splitting while keeping seam generation smooth. MultiFloors, however, is compatible: it uses full pocket maps as its layers and doesn't touch base map generation.

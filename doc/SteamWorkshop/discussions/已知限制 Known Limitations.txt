@@ -1,67 +1,92 @@
 （Mod 介绍有字数限制，这里是详细补充说明）
+(The mod description has a character limit, so this is a detailed supplement.)
 
 ---
 
 - 天气被强制修改后，若修改源未处理（如游戏条件未结束）其所在地图就被删除，天气将无法恢复——恢复途径随修改源一起被删了。
+If the weather is force-modified and the source of the modification (e.g. an unfinished game condition) is on a map that gets deleted before it clears up, the weather can never return to normal — the restoration path was deleted along with the source.
 
 严格来说，这个mod对这个问题做过一些防护，但是仍然不建议在天气控制器、仪式导致异常天气期间删除地图，以免产生问题。
+Strictly speaking, this mod does have some safeguards against this, but it is still not recommended to delete maps during abnormal weather caused by weather controllers or rituals, to avoid problems.
 
 ---
 
 - 挖矿/砍伐等"designation 前置型"命令不出现在跨图右键菜单（走近过缝后一切正常）。
+"Designation-first" commands such as mining and chopping don't appear in cross-map right-click menus (everything works normally once you've walked across the seam).
 
 这是因为相关的跨图菜单会要求patch远比现在多的地方，考虑到可维护性没有硬写。而且完全可以多走几步到对应地图上正常执行操作，不需要强求跨图操作。
+This is because cross-map menus for these would require patching far more places than the current implementation does, and it was deliberately skipped for maintainability. Besides, you can simply walk a few steps onto that map and order normally there — cross-map operation isn't really necessary.
 
 ---
 
 - 不会做跨图搬运等跨图工作支持。
+Cross-map hauling and other cross-map work support will not be implemented.
 
 这个mod设计背景是为了让Odyssey更Odyssey，而不是建造超大基地。
+This mod is designed to make Odyssey more Odyssey, not to build one giant megabase.
 
 ---
 
 - Odyssey 空间层地图与各类口袋图（Pocket Map，比如地下仓库、巨坑、 VMF 的载具内部图之类的）不参与表面无缝语义，保持原版行为。
+Odyssey space-layer maps and pocket maps (underground vaults, pits, VMF vehicle interiors, etc.) stay outside the surface seamless system and keep vanilla behavior.
 
 无缝在毫无内容的外太空移动毫无意义。而地下部分、载具地图之类的并没有绑定的星球坐标，无法合理做切分。而且口袋地图通常语义上也不适合做无缝。
+Seamless movement through empty outer space is meaningless. Underground maps and vehicle maps have no bound planet coordinates, so there is no sensible way to carve them. And pocket maps generally don't fit the seamless concept semantically either.
 
 ---
 
 - 据点交易仅支持随身物品（地上的物品、随行囚犯/奴隶出售暂不支持）。
+Settlement trading only supports carried items (items on the ground and selling accompanying prisoners/slaves are not supported yet).
 
 这个其实是一个妥协设计。
+This is actually a compromise design.
 
 这个据点交易的本质其实是维护了一个不可见、不可被埋伏、和当前地块上的殖民者成员对应的影子远行队。殖民者身上的东西会直接被算作影子远行队的库存，所以能直接售卖。但是存储区的物品和囚犯/奴隶就没有这个待遇了。
+Under the hood, settlement trading maintains an invisible, ambush-immune shadow caravan matching the colonists on the current tile. Items on a colonist count directly as the shadow caravan's inventory, so they can be sold. Items in stockpiles and prisoners/slaves don't get this treatment.
 
 不过我想这也不是一个大问题。
+But I don't think this is a big deal.
 
 如果你使用穿梭机，那么只需要别进入定居点，作为真远行队交易就行了。
+If you use shuttles, just don't enter the settlement — trade as a real caravan instead.
 
 如果使用 Vehicle Framework 的载具，它们也会被视为远行队的一员，所以其后备箱里的东西也会被视为可以交易的随身物品。
+With Vehicle Framework vehicles, the vehicle counts as a caravan member too, so items in its trunk count as tradable carried items.
 
 而且应该没人想麻醉囚犯后扛着到处跑，或者带着一堆奴隶去探索世界吧？如果真的要卖奴隶……先用原版远行队吧。
+And surely nobody wants to carry unconscious prisoners around while exploring, or travel the world with a crowd of slaves? If you really must sell slaves… use a vanilla caravan for that.
 
 ---
 
 - 分帧生成邻接地图的过程中（进度显示在屏幕左上角）无法存档。
+Saving is blocked while an adjacent map generates frame-by-frame (progress shows in the top-left corner).
 
 我寻思着不是啥问题
+I don't consider this much of a problem.
 
 ---
 
 - 邻居地图渲染为近似实现（无阴影/水波等细节），跨天气域的邻居天色跟随当前图。
+Neighbor maps are rendered approximately (no shadows/ripples and similar details), and neighbors in another weather domain follow the current map's sky.
 
 都是为了性能考虑，RimWorld的天气特效说实话挺费fps的，而fps消耗过大也会影响tps
+This is all for performance: RimWorld's weather effects are honestly quite FPS-hungry, and heavy FPS load drags TPS down too.
 
 ---
 
 - 星球上的12个五边形地块周围一圈的六边形地图连接视觉上会有点问题，但不影响跨图移动。
+Hexagon maps around the planet's 12 pentagon tiles have some visual issues at their connections, but cross-map movement is unaffected.
 
 这是因为五边形附近的投影畸变更加严重，3格宽的接缝无法吸收这个畸变了（实际上即使是普通六边形地图也会因为投影畸变有些许旋转，但一般不会超过接缝范围）
+This is because projection distortion is worse near pentagons, and the 3-cell-wide seam band can no longer absorb it (in fact even regular hexagon maps get slight rotation from projection distortion, but it usually stays within the seam band).
 
 但因为投影总是以当前地块的表现为优先考虑的，所以聚焦对应地块后会发现原本断裂的地方是拼好的，不影响实际移动
+Since projection always prioritizes the currently focused tile, once you focus the tile in question you'll find the previously broken spot is stitched together — actual movement is unaffected.
 
 ---
 
 - 原生成在地图边缘的袭击会生成在接缝附近，不论对侧是否已加载地图（之后可能优化为从已加载地图外围生成，未定，需先调研可能冲突的mod实现）
+Raids that would originally spawn at the map edge spawn near the seam instead, regardless of whether the far side has a loaded map (may later be improved to spawn from the outskirts of loaded maps — undecided, pending research into possibly conflicting mod implementations)
 
 暂未实现的功能
+Not implemented yet.
