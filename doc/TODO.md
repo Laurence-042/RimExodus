@@ -1,4 +1,4 @@
 - 取得报告者日志（开 `logCaravanExit` 开关，看 `[caravan-exit]`）确定caravan无法正确撤离的原因
-- ~~GL河流无缝~~（2026-09-03 已实现待游戏内回归：`Source/Compat/SeamlessGLRiverCompat.cs` 两手动绑定 patch——GetOrCreateTileLinkData 穿越点对齐 + GeneratePostTerrain void 还原/河格登记，机制与已知限制见 AGENTS"GL 1.7 河流地貌盲区→已适配"条；README 已撤"禁用河流地貌"指引）
-- 更新下对空岛兼容性的描述
-- **前哨保留（封存/重放）游戏内回归（2026-09 已实现，清单 = `doc/地图滚动休眠.md` 第五节第 14 条；2026-09-04 首轮回归通过项：删除单一入口/gizmo 封存语义；其余项——重放保真/居住区恢复/landmark 不覆盖/淘汰/round-trip——待回归）**
+- [已处置待游戏内回归 2026-09-05] Vehicle wrecks from Vehicle Framework Tier 3 spawn on the edge of the map, leaving most (if not all) seamless maps completely empty of repairable wrecks. I DO see them spawn at the very edge of the map, but they're out of the actual playable area and can't be reached - they disappear on crossing.（根因定案：残骸生成走 VEF 的 ObjectSpawns 系统，其逐格判据不知道六边形裁切且无通行性检查 → 方形边缘 void 环是全图最大"合格空格池"（植被群系里核心区几乎全被植物/岩石占据），物体系统性落 void；且增量分帧路径不调用 `MapGenerator.GenerateMap` 方法本体 → VEF 的 Harmony Postfix 在地块图上根本不跑（零刷出）。修复两件：`Source/Compat/SeamlessVEFCompat.cs` 格级 CanSpawnAt Postfix 把 void ∪ 接缝带判不可刷（覆盖全部触发路径）+ `Source/Generation/GenerateMapPostfixReplay.cs` 通用复放 GenerateMap postfix（增量路径补齐，一切挂该方法的第三方 Postfix 受益不止 VEF）。回归清单见 AGENTS.md「邻居预加载与异步加载」节两新条 + README 兼容表 VEF 行；启动确认行 = "VEF compat: bound ObjectSpawns cell filter"。）
+
+It would be cool if some objects were tagged as persistent, like walls and constructables near the borders, so you could have an actual seamless transition.

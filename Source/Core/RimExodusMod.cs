@@ -55,6 +55,13 @@ namespace RimExodus
             // "GL river compat: bound" 三行。
             SeamlessGLRiverCompat.Register(harmony);
 
+            // VEF ObjectSpawns 位置过滤（2026-09）：VEF 的地图物体刷出（VVE 载具残骸等）逐格判据
+            // 不知道六边形裁切，系统性落进方形边缘 void（不可达不可修）。Postfix 挂其格级
+            // CanSpawnAt，把 void ∪ 接缝带判为不可刷。软检测未装短路；手动绑定全程 try/catch；
+            // 成功标志 = "VEF compat: bound ObjectSpawns cell filter"（增量分帧路径的覆盖由
+            // GenerateMapPostfixReplay 复放机制提供，见 IncrementalMapGenerator.FinishGeneration）。
+            SeamlessVEFCompat.Register(harmony);
+
             // 绑定核对（2026-08，配合离线验证器甄别 CLR 伪迹 vs 死代码）：GetPatchedMethods 列出
             // 本 harmony 实例实际绑定的方法（真实 Mono 运行时结果，不受离线 CLR 伪迹影响）。
             // 离线验证器的 9 个伪迹失败 patch（GetClearRects/SelectInternal/SetTerrain/MapPreTick·MapUpdate/

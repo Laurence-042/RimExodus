@@ -37,6 +37,12 @@ namespace RimExodus
         private Action<Map> onComplete;
         private bool finalizing;
 
+        // ===== GenerateMap postfix 复放实参（2026-09）=====
+        // 与原版 MapGenerator.GenerateMap 形参表逐位对应的实参快照（isPocketMap/stepDebugger 恒
+        // false——增量路径只生成表面地块图）。FinishGeneration 成功后交给
+        // GenerateMapPostfixReplay 复放第三方 postfix（VEF ObjectSpawns 等，机制详见其类注释）。
+        private object[] generateMapArgs;
+
         // ===== 全程计时（verbose 诊断，2026-08：genStep 后收尾长尾用时统计）=====
         private float startRealtime;   // Start 同步段起点（Time.realtimeSinceStartup），总算 wall 时长。
         private int startTickGame;     // Start 时刻 GenTicks.TicksGame，总算生成消耗的 tick 数。
@@ -256,6 +262,12 @@ namespace RimExodus
                     comp.currentStepIndex = 0;
                     comp.baseSeed = seed;
                     comp.onComplete = onComplete;
+                    // 原版 GenerateMap 形参序：(mapSize, parent, mapGenerator, extraGenStepDefs,
+                    // extraInitBeforeContentGen, isPocketMap, stepDebugger)。复放器按位置/名字编组。
+                    comp.generateMapArgs = new object[]
+                    {
+                        mapSize, mapParent, mapGeneratorDef, extraGenStepDefs, extraInitBeforeContentGen, false, false
+                    };
                     comp.startRealtime = prepStartRealtime;
                     comp.startTickGame = GenTicks.TicksGame;
                     current = comp;
@@ -509,6 +521,10 @@ namespace RimExodus
             // 单独出日志；onComplete 内的 RimExodus 邻居登记链由 SeamlessTileManager 回调内部计时。
             var timer = SectionTimer.StartIf(RimExodusLog.Enabled(RimExodusLogModule.Generation));
             long tScenario, tFinalizeInit, tMapComponents, tParentPost, tPostInit, tOnComplete;
+            // 复放前置状态：FinishGeneration 无异常跑完才算"原方法成功返回"（原生语义：原方法抛
+            // 异常则 postfix 不跑）；completedMap 在 finally 置空 generatingMap 前捕获。
+            var completed = false;
+            Map completedMap = null;
 
             try
             {
@@ -544,6 +560,9 @@ namespace RimExodus
                                 $"wall={(UnityEngine.Time.realtimeSinceStartup - startRealtime) * 1000f:F0}ms " +
                                 $"ticks={GenTicks.TicksGame - startTickGame} genSteps={genSteps.Count} genStepCpu={totalGenStepMs:F0}ms.");
                 }
+
+                completed = true;
+                completedMap = generatingMap;
             }
             catch (Exception ex)
             {
@@ -560,6 +579,13 @@ namespace RimExodus
                 current = null;
                 generatingMap = null;
             }
+
+            // GenerateMap postfix 复放（2026-09）：finally 之后调用对齐原生时点（Harmony postfix 在
+            // 原方法 try/finally 完成后执行，此时 MapGenerator static 已是清理后的值）。只在增量
+            // 路径触发——同步逃生/POI 原生/营地路径调原方法本体，patch 原生生效，复放会双跑。
+            // onComplete（邻居登记/传送点/ZoneRestore）已先行 → VEF 的 no-thing 判据能看到传送点。
+            if (completed && completedMap != null)
+                GenerateMapPostfixReplay.Replay(completedMap, generateMapArgs);
         }
 
         // ===== 辅助 =====
