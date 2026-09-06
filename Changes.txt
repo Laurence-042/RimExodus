@@ -125,7 +125,11 @@ TODO (Priority Order)
 - （常驻）bug 修复
 (Ongoing) Bug fixes
 - （@Orizay的需求）适配VGE 1，其 gauss cannon 似乎无法射击邻接地图
+  (Requested by @Orizay) Add compatibility for VGE 1; its Gauss Cannon currently fails to fire into adjacent maps.
 - （@lophothedilo的需求）适配 Giddy-Up 2 - Continued https://steamcommunity.com/workshop/filedetails/?id=3674332861 ，当前骑乘动物跨过接缝时人和动物分离了（应该是因为缺少了类似奴隶叛乱、征召状态相似的恢复处理——更统一的适配方式？）
+  (Requested by @lophothedilo) Add compatibility for Giddy-Up 2 - Continued (https://steamcommunity.com/workshop/filedetails/?id=3674332861); currently, the rider and mount separate when crossing map boundaries (likely due to a missing recovery mechanism similar to those used for slave rebellions or drafted states—perhaps a more unified compatibility approach is needed?).
+-  优化跨图射击，这样结合0.1.10的邻接地图日常冻结+袭击时解冻机制，这将可以把跨图战斗变成常态，让玩家使用xml patch修改武器射程，实现真正的步枪射击距离
+  Optimize cross-map shooting. Combined with the mechanism introduced in v0.1.10—where adjacent maps are frozen during normal play but unfreeze during raids—this will allow cross-map combat to become a standard feature, enabling players to use XML patches to adjust weapon ranges and achieve realistic rifle engagement distances.
 
 曾在计划中但调研后放弃
 Previously planned but abandoned after research
