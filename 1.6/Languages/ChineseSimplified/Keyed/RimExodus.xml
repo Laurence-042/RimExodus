@@ -48,10 +48,15 @@
 当前所在地图与家园地图永远不会被删除。默认值：3。</RimExodus_SettingsDeleteTip>
   <RimExodus_SettingsSweepIntervalLabel>休眠扫描间隔：每 {0} 秒</RimExodus_SettingsSweepIntervalLabel>
   <RimExodus_SettingsSweepIntervalTip>mod 每隔多久重新检查一次"哪些地图应该休眠/删除"（地图滚动休眠背后的周期扫描）。\n\n调小 = 你离开后地图更快休眠/清理，但扫描跑得更勤；调大 = 稍微省一点事，但你离开后远处的地图会多保持活跃一段时间。扫描本身很轻量（一次受删除距离限界的、很小的世界地图搜索）。\n\n即时事件（殖民者跨缝、远行队进出地图）不受此间隔限制——它们始终立刻触发重新检查。仅在上方的"启用地图滚动休眠"开启时生效。默认值：10。</RimExodus_SettingsSweepIntervalTip>
+  <RimExodus_SettingsThreatPollLabel>活跃敌人复查间隔：每 {0} 秒</RimExodus_SettingsThreatPollLabel>
+  <RimExodus_SettingsThreatPollTip>图上存在活跃敌人（袭击者、被激怒的虫子、被唤醒的机械族、游荡的蹒跚怪猎群——也包括敌对派系基地的驻军）时，该地图始终全速模拟、不降频，并且右下角告警会列出这些地图。\n\n本滑条设置的是：发现敌人之后，每隔多久复查一次"敌人是否已清零"——最后一名敌人消失（死亡或离开）后，该地图在下次复查时恢复正常的休眠/降频规则。没有任何地图存在敌人时复查完全不执行、零开销（只对被追踪的地图运行）。发现**新**敌人则遵循上方的"休眠扫描间隔"。默认值：2。</RimExodus_SettingsThreatPollTip>
   <RimExodus_SettingsThrottlePercentLabel>降频地图 tick 比例：{0}%</RimExodus_SettingsThrottlePercentLabel>
   <RimExodus_SettingsThrottlePercentTip>仅在上方的"启用地图滚动休眠"开启时生效。\n\n距离足够近而保持活跃（未达休眠距离）、但图上没有玩家殖民者的地图，将按比例降频 tick——每 N 个 tick 才真正模拟 1 个。这让你同时开着许多邻近地图也不会明显变卡。\n\n100 = 原生行为（所有活跃地图全速模拟）。50 = 一半速度。0 = 完全不 tick（看得见的凝固世界——类似休眠，但地图仍作为邻图可见）。降频地图上的 NPC 与动物同样变慢——远处的世界只是运行得更慢，属预期语义。\n\n有玩家殖民者的地图、你正在查看的地图、家园地图始终全速；进入一张降频地图会立即恢复全速。默认值：50。</RimExodus_SettingsThrottlePercentTip>
   <RimExodus_SettingsThrottleRadiusLabel>接缝快速区半径：{0} 格</RimExodus_SettingsThrottleRadiusLabel>
   <RimExodus_SettingsThrottleRadiusTip>仅在上方的"降频地图 tick 比例"低于 100% 时有实义。\n\n降频地图上，距接缝边不超过此距离的事物（炮塔、投射物、追兵——跨图战斗相关）保持全速 tick；更远的区域按降频比例 tick。0 = 不设快速区（整图按降频比例）。地图级系统（电网、天气、野生动物生成）不做分区——整图统一按降频比例。默认值：15。</RimExodus_SettingsThrottleRadiusTip>
+  <RimExodus_ThreatKeepaliveLabel>因活跃敌人保持全速的地图：{0}</RimExodus_ThreatKeepaliveLabel>
+  <RimExodus_ThreatKeepaliveEntry>经纬度 {0} - {1}</RimExodus_ThreatKeepaliveEntry>
+  <RimExodus_ThreatKeepaliveExplanation>以下地图当前存在活跃敌人（袭击者、被激怒的虫子、被唤醒的机械族、蹒跚怪猎群、敌对驻军），因此保持全速模拟、不被降频。最后一名敌人离开或死亡后不久，它们会恢复正常休眠/降频规则。\n\n{0}</RimExodus_ThreatKeepaliveExplanation>
 
   <!-- 前哨保留（2026-09）：有居住区的地图到删除距离时封存而非删除。 -->
   <RimExodus_SettingsPreserveHeader>前哨保留（封存而不删除）</RimExodus_SettingsPreserveHeader>

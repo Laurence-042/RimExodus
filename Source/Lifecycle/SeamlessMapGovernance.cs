@@ -94,5 +94,36 @@ namespace RimExodus
             }
             return false;
         }
+
+        /// <summary>
+        /// 图上是否存在活跃敌人（2026-09 威胁保活，"活跃敌人"判定的唯一出处）。消费方 = governor
+        /// Sweep 的威胁发现与追踪轮询；口径与用户定夺：
+        /// - **零排除分支**（用户定夺 2026-09）：驻军、炮塔一律不排除——语义始终是"活跃敌人"，
+        ///   一致性优先；已知后果 = 敌对据点/Site 图因常驻驻军恒保活（活跃圈内不降频），记录为
+        ///   定夺行为而非缺陷。倒地/逃跑/休眠/雾中目标仍不算"活跃"（原版谓词内置，属"活跃"语义
+        ///   本身而非额外排除）。
+        /// - **虫激怒窄判**（用户定夺 2026-09）：与原版地图威胁/撤退判定同语义——守巢/激进守巢
+        ///   的虫不算（原版 <c>IsActiveThreatTo</c> 对 LordJob_DefendAndExpandHive 且非
+        ///   AssaultColony duty 的豁免），只有真正发起进攻的虫才算。
+        /// 主判定直接复用原版 <see cref="GenHostility.AnyHostileActiveThreatToPlayer(Map)"/>
+        /// （走 attackTargetsCache 事件增量缓存，非全图 pawn 遍历；官方先例 = 原版撤离门
+        /// CaravanExitMapUtility / CompShuttle 的"图上有威胁"判定）。蹒跚怪单独补充：动物版猎群
+        /// faction==null 不进敌对缓存桶（GenHostility 的 shambler 专用分支判其非敌对），走
+        /// <see cref="MapPawns.SpawnedShamblers"/> 专用列表；无 Anomaly 时该列表恒空，天然安全。
+        /// </summary>
+        internal static bool HasActiveThreat(Map map)
+        {
+            if (map == null || map.Disposed) return false;
+            if (GenHostility.AnyHostileActiveThreatToPlayer(map)) return true;
+
+            var shamblers = map.mapPawns?.SpawnedShamblers;
+            if (shamblers == null) return false;
+            for (int i = 0; i < shamblers.Count; i++)
+            {
+                var s = shamblers[i];
+                if (s != null && !s.Dead && !s.Downed) return true;
+            }
+            return false;
+        }
     }
 }

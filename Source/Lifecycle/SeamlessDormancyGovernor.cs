@@ -48,6 +48,34 @@ namespace RimExodus
         /// <summary>下次扫描的 game tick（不序列化：读档后立即首轮扫描，见类注释）。</summary>
         private int nextSweepTick;
 
+        /// <summary>威胁追踪轮询间隔下限（ticks，2026-09 威胁保活）：UI 滑条以秒为单位，最小 1 秒。</summary>
+        private const int MinThreatPollIntervalTicks = 60;
+
+        /// <summary>
+        /// 活跃威胁保活追踪名单（2026-09，实例字段不序列化——随 Game 重建天然换档干净，读档后
+        /// 首轮 Sweep 重新发现注册）。Sweep 对非休眠图跑 <see cref="SeamlessMapGovernance.HasActiveThreat"/>
+        /// 发现敌人 → 注册 + Unthrottle（豁免降频/休眠/删除 = 保活第四条）；独立轮询段按
+        /// <c>threatKeepalivePollIntervalTicks</c> 复查，敌人清零/图休眠/销毁 → 注销，回落交给
+        /// 下轮 Sweep 按距离收敛（0% 图重新摘表走既有幂等路径）。**休眠图刻意不注册**（休眠冻结
+        /// 防级联语义保留——袭击打不进休眠图，唯一残留 = 玩家撤离留追兵后图休眠，冻着属预期）。
+        /// 消费方 = 保活分支 + 告警（Alert_ThreatKeepalive 读快照）。
+        /// </summary>
+        private readonly HashSet<Map> threatKeepaliveMaps = new HashSet<Map>();
+
+        /// <summary>下次威胁轮询的 game tick（名单空时不动，零常驻成本）。</summary>
+        private int nextThreatPollTick;
+
+        /// <summary>追踪名单只读快照（告警 <see cref="Alert_ThreatKeepalive"/> 消费；拷贝防遍历中变异）。</summary>
+        public List<Map> ThreatKeepaliveSnapshot()
+        {
+            var list = new List<Map>(threatKeepaliveMaps.Count);
+            foreach (var m in threatKeepaliveMaps)
+            {
+                if (m != null && !m.Disposed) list.Add(m);
+            }
+            return list;
+        }
+
         /// <summary>
         /// 手动休眠锁的持久化面（2026-08，用户要求存档保留）：存世界 tile id 而非 Map 引用——
         /// 手动休眠对任意受管辖图（地块图 ∪ 原生家族 Settlement 等）均可用，挂 MapParent_SeamlessTile
@@ -175,6 +203,44 @@ namespace RimExodus
             // 游戏暂停、队列静止）。（首版 +120t 延迟冲突清理已随 ZoneRestore order 后置整体拆除，
             // 此处不再有 Cleaner.Tick。）
             DrainPreservePrompts();
+
+            // 威胁保活轮询（2026-09，独立于 Sweep 间隔可配——名单空时零成本）：复查追踪名单，
+            // 敌人清零（死亡/离图皆覆盖——轮询查实况而非事件，自愈）/ 图休眠（玩家手动睡让位）/
+            // 图销毁 → 注销。**回落不立即 Throttle**：交给下轮 Sweep 按距离重新收敛（0% 图重新
+            // 摘表走既有幂等路径）——"袭击者也都离开地图时再次做一次判断"的落点。
+            if (threatKeepaliveMaps.Count > 0 && Find.TickManager.TicksGame >= nextThreatPollTick)
+            {
+                var interval = System.Math.Max(RimExodusMod.Settings?.threatKeepalivePollIntervalTicks ?? 120,
+                    MinThreatPollIntervalTicks);
+                nextThreatPollTick = Find.TickManager.TicksGame + interval;
+                PollThreatKeepalive();
+            }
+        }
+
+        /// <summary>威胁追踪轮询体：注销失效条目（心跳日志无条件——生命周期事件非 spam）。</summary>
+        private void PollThreatKeepalive()
+        {
+            var removed = null as List<Map>;
+            foreach (var m in threatKeepaliveMaps)
+            {
+                if (m == null || m.Disposed
+                    || SeamlessDormancyManager.IsDormant(m)
+                    || !SeamlessMapGovernance.HasActiveThreat(m))
+                {
+                    (removed ??= new List<Map>()).Add(m);
+                }
+            }
+
+            if (removed == null) return;
+            foreach (var m in removed)
+            {
+                threatKeepaliveMaps.Remove(m);
+                if (m != null && !m.Disposed)
+                {
+                    Log.Message($"[RimExodus] Threat keepalive ended: map {m.uniqueID} " +
+                        $"(wt={SeamlessTileRegistry.GetMapWorldTile(m)}) — no active threats, next sweep re-evaluates");
+                }
+            }
         }
 
         private void Sweep()
@@ -256,10 +322,26 @@ namespace RimExodus
                 var tile = SeamlessTileRegistry.GetMapWorldTile(m);
                 if (!dist.TryGetValue(tile, out var d)) d = int.MaxValue; // BFS 未收录 = 超过 deleteHops 或不连通。
 
-                // 保活（无条件活跃）：玩家正看着的图 / 玩家 pawn 所在图 / 玩家家园。
+                // 威胁保活发现（2026-09，第四条保活的注册点，用户定夺"图上有活跃敌人即忽略降速"）：
+                // 非休眠图上发现活跃敌人 → 注册追踪（下方保活分支豁免降频/休眠/删除；清零回落走
+                // GameComponentTick 的独立轮询段）。已追踪图跳过谓词（交给轮询复查，省 Sweep 成本）；
+                // 休眠图刻意不注册（休眠冻结防级联语义保留，见 threatKeepaliveMaps 注释）。
+                // 发现延迟 ≤ 一个 Sweep 周期——顺带自愈"袭击 incident 选中降频图、敌人冻在 0%
+                // 生成点"的既有半 bug。
+                if (!SeamlessDormancyManager.IsDormant(m) && !threatKeepaliveMaps.Contains(m)
+                    && SeamlessMapGovernance.HasActiveThreat(m))
+                {
+                    threatKeepaliveMaps.Add(m);
+                    SeamlessTickThrottle.Unthrottle(m, "active threat keepalive");
+                    Log.Message($"[RimExodus] Threat keepalive ON: map {m.uniqueID} " +
+                        $"(wt={SeamlessTileRegistry.GetMapWorldTile(m)}) — active threats present");
+                }
+
+                // 保活（无条件活跃）：玩家正看着的图 / 玩家 pawn 所在图 / 玩家家园 / 活跃威胁追踪中。
                 // 家园（IsProtectedHome，2026-08 用户定夺"不休眠不删除"）：开局家园/定居/gravship
                 // 降落/引力引擎营地——特权判定全项目唯一行为消费点在此，删除分支不再有独立豁免。
-                if (m == current || sources.Contains(tile) || SeamlessMapGovernance.IsProtectedHome(m))
+                if (m == current || sources.Contains(tile) || SeamlessMapGovernance.IsProtectedHome(m)
+                    || threatKeepaliveMaps.Contains(m))
                 {
                     // 保活 = 恢复全速（降频一并解除；玩家落图/进图的即时解除另有事件入口，此处兜底）。
                     SeamlessTickThrottle.Unthrottle(m, "governor keep-alive");
@@ -275,7 +357,9 @@ namespace RimExodus
                             ? "governor keep-alive (CurrentMap)"
                             : sources.Contains(tile)
                                 ? "governor keep-alive (player pawn on map)"
-                                : "governor keep-alive (player home)";
+                                : threatKeepaliveMaps.Contains(m)
+                                    ? "governor keep-alive (active threat)"
+                                    : "governor keep-alive (player home)";
                         SeamlessDormancyManager.Wake(m, keepReason);
                     }
                     continue;

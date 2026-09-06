@@ -19,11 +19,14 @@ namespace RimExodus
     /// 【0% 凝固 = 摘 thing tick 表（2026-09 性能修复，勿回退为"只靠 DoTick 门控"）】实测
     /// 6 邻图全凝固时每 tick 仍有 ~1ms 花在"跳过判定"本身：DoTick 的 Harmony Prefix+Postfix
     /// 调度与 <see cref="ShouldThingTick"/> 对被跳过的 thing 照跑（6 图 × ~100 thing/tick ≈ 620 次
-    /// 空转调用，落在剖析器 unaccounted 桶）。0% 语义本就是"DoTick 一个不跑"——直接
-    /// RemoveAllFromMap 摘表是纯等价变换（显示/邻接口径不动，仍走活跃图路径），把空转也省掉。
+    /// 空转调用，落在剖析器 unaccounted 桶）。0% 语义本就是"DoTick 一个不跑"——对**判定结果
+    /// 恒为跳过**的 thing（= 快速区外的全部物体）直接 DeRegister 摘出全局 tick 表是纯等价变换，
+    /// 把空转判定也省掉；**快速区内 thing 刻意保留注册与判定**（0% 仍全速——跨缝战斗保护，
+    /// 判定放行结果正被消费）。显示/邻接口径不动，仍走活跃图路径。
     /// 摘/注册簿记与 Sleep/Wake 精确互斥（TickList.RegisterThing 无去重，双注册 = 活物双 tick）：
     /// ①摘表来源唯一标记 = <see cref="tickSuspendedMaps"/>；②恢复注册唯一实现 =
-    /// <see cref="RestoreThingTicks"/>（Wake 的重注册段收口于此，含影子陈旧条目的 Map 过滤）；
+    /// <see cref="RestoreThingTicks"/>（先 RemoveAllFromMap 整图归零再全注册 = 幂等——0% 摘表
+    /// 只摘了区外，区内 thing 一直注册着，直接补注册会双注册；含影子陈旧条目的 Map 过滤）；
     /// ③Sleep 调 Unthrottle 时传 restoreTicks:false（图即将全摘，恢复无意义且会与 Wake 双注册）；
     /// ④Unthrottle 恢复前查 IsDormant（防御路径：图已休眠则注册归 Wake 独责）。
     ///
@@ -178,7 +181,8 @@ namespace RimExodus
                 throttled.Remove(map); // 走下方完整重建路径。
             }
 
-            throttled[map] = new MapThrottleState { fastCells = BuildFastRegion(map, cachedFastRadius), radius = cachedFastRadius };
+            var state = new MapThrottleState { fastCells = BuildFastRegion(map, cachedFastRadius), radius = cachedFastRadius };
+            throttled[map] = state;
 
             if (suspend)
             {
@@ -186,7 +190,8 @@ namespace RimExodus
             }
 
             Log.Message($"[RimExodus] Throttle ON: map {map.uniqueID} (wt={SeamlessTileRegistry.GetMapWorldTile(map)}) " +
-                        $"at {cachedPercent}% (N={cachedN}, fastRadius={cachedFastRadius}, thingTicks={(suspend ? "suspended" : "registered")}) — {reason}");
+                        $"at {cachedPercent}% (N={cachedN}, fastRadius={cachedFastRadius}, tickTable={(suspend
+                            ? (state.fastCells != null ? "frozen outside fast zone" : "frozen") : "registered")}) — {reason}");
         }
 
         /// <summary>
@@ -221,14 +226,26 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 摘除该图全部 thing 的全局 tick 注册（0% 凝固用；幂等——标记已存在则无操作，
-        /// 防 Sleep/Throttle 双摘交错）。配套结束声音 sustainer 与天气域停摆通知
-        /// （0% = 等价休眠的两侧语义）。
+        /// 摘除该图 thing 的全局 tick 注册（0% 凝固用；幂等——标记已存在则无操作，
+        /// 防 Sleep/Throttle 双摘交错）。**只摘快速区外的 thing**：0% 的"可见凝固"刻意保留
+        /// 跨缝战斗保护——快速区内（throttleSeamFastRadius &gt; 0 时）的 thing 照旧全速 tick
+        /// （留在注册表上，每次 DoTick 经 <see cref="ShouldThingTick"/> 的快速区白名单放行，
+        /// 判定对它们不是空转——放行结果正在被消费；2026-09 首版全摘曾误伤快速区，实测
+        /// fastRadius 0 未暴露、勿复犯）。fastCells == null（半径 0/关闭）= 全图摘。
+        /// 配套结束声音 sustainer 与天气域停摆通知（0% = 等价休眠的两侧语义）。
         /// </summary>
         private static void SuspendThingTicks(Map map)
         {
             if (!tickSuspendedMaps.Add(map)) return;
-            Find.TickManager.RemoveAllFromMap(map);
+            var fastCells = throttled.TryGetValue(map, out var st) ? st.fastCells : null;
+            var spawned = map.spawnedThings;
+            for (var i = 0; i < spawned.Count; i++)
+            {
+                var t = spawned[i];
+                if (t.Map != map) continue; // 陈旧条目防御（与 RestoreThingTicks 同款）。
+                if (fastCells != null && fastCells.Contains(t.Position)) continue; // 快速区豁免。
+                Find.TickManager.DeRegisterAllTickabilityFor(t);
+            }
             map.weatherManager.EndAllSustainers(); // 本图自己的实例（形态 B），无跨图影响。
             Find.SoundRoot.sustainerManager.EndAllInMap(map);
             // 0% 凝固 = 等价休眠（2026-09-02 天气域注册制事件②）：若本图是域激活图 → 接任。
@@ -238,13 +255,16 @@ namespace RimExodus
         /// <summary>
         /// 恢复该图 thing 的全局 tick 注册——Wake 重注册段的收口实现（Sleep 摘表与 0% 凝固摘表
         /// 两个来源共用；调用方负责保证只调一次——Sleep 摘的由 Wake 调、0% 摘的由 Unthrottle 调，
-        /// 经 tickSuspendedMaps/dormant 标记互斥）。
+        /// 经 tickSuspendedMaps/dormant 标记互斥）。**先 RemoveAllFromMap 再全注册 = 幂等**：
+        /// 0% 摘表只摘了快速区外，区内 thing 一直注册着——直接补注册会造成双注册
+        /// （RegisterThing 无去重），必须整图归零后统一重建。
         /// Map 守卫（2026-08 持有链审计）：innerList 可能残留"已活在别图"的陈旧条目（影子注入期
         /// DeSpawn 的 Remove 静默失败残留），重注册会造成 TickList 双注册 = 活人双 tick。
         /// 影子系统的 60t 轮询清扫为主，此处按 Map 过滤兜底。
         /// </summary>
         internal static void RestoreThingTicks(Map map)
         {
+            Find.TickManager.RemoveAllFromMap(map);
             var spawned = map.spawnedThings;
             for (var i = 0; i < spawned.Count; i++)
             {

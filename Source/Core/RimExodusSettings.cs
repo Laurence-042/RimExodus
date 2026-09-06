@@ -120,6 +120,17 @@ namespace RimExodus
         public int dormancySweepIntervalTicks = 600;
 
         /// <summary>
+        /// 威胁保活轮询间隔（ticks，2026-09 威胁保活）：governor 对"因活跃敌人而保活"的追踪名单
+        /// 复查敌人是否清零的间隔，独立于扫描间隔（敌人清零后多久回落降频）。默认 120 ticks
+        ///（2 游戏秒）；名单空时零成本。敌人的**发现**仍在扫描间隔粒度（≤ 一轮 Sweep）。
+        /// **与休眠扫描间隔刻意不合并（2026-09 用户定夺，勿复犯）**：两者节奏本质不同——本复查
+        /// 平时不执行零开销、有敌人时较高频执行以保证敌人行为正常回落；休眠扫描平时就要一直
+        /// 低频跑。设置 UI 里两个滑条相邻摆放（同族"间隔"设置），机制独立。
+        /// 运行时 clamp ≥60。
+        /// </summary>
+        public int threatKeepalivePollIntervalTicks = 120;
+
+        /// <summary>
         /// 分级休眠中间档（2026-08）：活跃圈内（BFS dist &lt; sleepHops）**无玩家 pawn** 的图按
         /// 百分比降频 tick（100 = 原生全速；50 = 每两 tick 一拍；0 = 永不放行 = 可见的凝固，
         /// 等价休眠但保留显示与 tick 注册）。Pawn 一并降频（远处世界变慢属预期语义）。
@@ -263,6 +274,7 @@ namespace RimExodus
             Scribe_Values.Look(ref dormancySleepHops, "dormancySleepHops", 2);
             Scribe_Values.Look(ref dormancyDeleteHops, "dormancyDeleteHops", 3);
             Scribe_Values.Look(ref dormancySweepIntervalTicks, "dormancySweepIntervalTicks", 600);
+            Scribe_Values.Look(ref threatKeepalivePollIntervalTicks, "threatKeepalivePollIntervalTicks", 120);
             Scribe_Values.Look(ref dormancyThrottlePercent, "dormancyThrottlePercent", 50);
             Scribe_Values.Look(ref throttleSeamFastRadius, "throttleSeamFastRadius", 15);
             Scribe_Values.Look(ref crossMapCombatEnabled, "crossMapCombatEnabled", true);

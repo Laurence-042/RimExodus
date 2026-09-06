@@ -250,6 +250,12 @@ namespace RimExodus
                     SliderRow(listing, "RimExodus_SettingsSweepIntervalLabel", "RimExodus_SettingsSweepIntervalTip",
                         s.dormancySweepIntervalTicks / 60f, 1f, 60f,
                         v => s.dormancySweepIntervalTicks = Mathf.Max((int)(v * 60f), 60), "{0:F0}");
+                    // 威胁保活复查（2026-09，与扫描间隔相邻摆放——同族"间隔"设置；机制刻意独立：
+                    // 复查平时名单空零成本、有敌人时较高频执行以保证敌人行为正常，与"平时一直
+                    // 低频跑"的休眠扫描节奏本质不同，勿合并——2026-09 曾误合并被用户撤销）。
+                    SliderRow(listing, "RimExodus_SettingsThreatPollLabel", "RimExodus_SettingsThreatPollTip",
+                        s.threatKeepalivePollIntervalTicks / 60f, 1f, 30f,
+                        v => s.threatKeepalivePollIntervalTicks = Mathf.Max((int)(v * 60f), 60), "{0:F0}");
                     // 分级休眠中间档（2026-08）：百分比/快速区半径每 tick 现读（SeamlessTickThrottle），
                     // 拖动即时生效；百分比变更后快速区在下一轮 Sweep 幂等重入时按新值重建。
                     SliderRow(listing, "RimExodus_SettingsThrottlePercentLabel", "RimExodus_SettingsThrottlePercentTip",
