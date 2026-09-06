@@ -21,6 +21,10 @@ Hexagonal tile carving and seam alignment
 [img]https://raw.githubusercontent.com/Laurence-042/RimExodus/main/doc/img/shoot.png[/img]
 Shooting across a seam
 
+[*][b]Raids that march in from neighboring maps[/b]: walking attackers can enter at an unseen outer seam of an adjacent map, then cross the world-tile border to advance on and attack you, instead of materializing between two maps that are already loaded.
+
+[*][b]Future long-range combat[/b]: further improvements to shooting across world-tile borders are planned, bringing it together with cross-map raid entry and attacks. The goal is to break past the engagement-distance limit of a single map. With weapon ranges adjusted by XML patches, this may eventually enable pistols with roughly 30-meter ranges, SMGs with 100-meter ranges, and automatic rifles with 200-meter ranges — rather than today's roughly 10 / 20 / 40-meter scale. This is a future plan, not a completed feature.
+
 [*][b]Incremental frame-sliced generation[/b]: neighbor tile maps generate as colonists are ordered toward the border, usually without pausing the game or a loading screen (saving blocked while generating — takes seconds).
 
 [*][b]Rolling map dormancy[/b]: far maps go dormant (no ticking; contents preserved, reawakened anytime); farther maps are deleted and regenerated on revisit. If a map has a home area above the threshold size, buildings and stockpiles inside it are archived and rebuilt when the map regenerates. Note: regeneration is a fresh map — archiving only guarantees that buildings and stockpiles within the home area are restored. The home map is never auto-dormant or deleted. Dormancy/deletion distances and the archiving threshold are all adjustable in settings.
