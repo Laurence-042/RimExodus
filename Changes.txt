@@ -102,6 +102,10 @@ If you have any suggestions, feel free to share them here (though, due to limita
 0.1.10
 - 修复：Vanilla Vehicles Expanded 的载具残骸（以及其他依赖 Vanilla Expanded Framework 往地图上随机添加物体的内容）此前会生成在无缝地图边缘之外的不可达区域——看得见但走不过去，跨过地缝后还会"消失"；部分无缝地图上则完全不刷。现在这些物体会生成在实际可到达的区域内，分帧生成的地图上也会正常出现
   Fixed: vehicle wrecks from Vanilla Vehicles Expanded (and other content that uses Vanilla Expanded Framework to scatter objects onto maps) used to spawn in the unreachable area beyond the edge of seamless maps — visible but unreachable, and they would "disappear" once you crossed the seam; some seamless maps got none at all. These objects now spawn inside the actually reachable area, and frame-split generated maps get them properly too.
+- 修复：部分 Odyssey 远古排放孔（如远古热浪排放孔）从相邻地块的背景看过去时整只不显示，必须切换到那张地图才能看到。
+  Fixed: some ancient vents from Odyssey (e.g., ancient heat vents) were entirely invisible when seen from an adjacent map's background, only appearing after switching to that map.
+- 修复：远处地图上的持续环境音（如排放孔的轰鸣）会反复报错刷屏（"Tried to maintain ended sustainer"）。
+  Fixed: sustained ambient sounds on distant maps (e.g., ancient vent roars) repeatedly spammed the error log ("Tried to maintain ended sustainer").
 
 
 TODO（优先级从高到低）

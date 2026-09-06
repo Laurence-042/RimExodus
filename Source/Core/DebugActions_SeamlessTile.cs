@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using HarmonyLib;
 using LudeonTK;
 using RimWorld;
 using RimWorld.Planet;
@@ -189,6 +190,207 @@ namespace RimExodus
             }
 
             Log.Message(sb.ToString().TrimEnd());
+        }
+
+        // ------- 2026-09 诊断：ancient vent 邻图背景不可见调查（定案后去留随正式修复定夺） -------
+        // 背景：AncientSmokeVent 是 MapMeshOnly 静态 mesh thing，印刷链（SectionLayer_Things.Regenerate
+        // → Thing.Print → Graphic.Print → Printer_Plane.PrintPlane）与邻图收集链（SeamlessTileRenderer
+        // 的 SectionLayer_ThingsGeneral 精确类型收集）逐环节静态核验闭合、无任何 per-def 排除，但实测
+        // 该 thing 在邻图背景整只缺失（同区域岩石/建筑正常）。两个动作各一次实测即可定案：
+        //   Probe —— 回答"四边形到底在不在邻图 mesh 里"（读 mesh.vertices 权威几何），并复算
+        //            Regenerate 的逐条印刷条件（雾快照/RealtimeOnly/雪沙埋藏）供直接对照；
+        //   Regen —— 全量重烘邻图 sections，区分"mesh 陈旧/烘焙期缺失"与"收集/提交侧丢失"。
+
+        /// <summary>探针目标 def（Odyssey 三种 ancient vent；RealtimeOnly 的 HeatVent 预期不在 mesh，作对照）。</summary>
+        private static readonly string[] MeshProbeDefNames = { "AncientSmokeVent", "AncientToxVent", "AncientHeatVent" };
+
+        /// <summary>MapDrawer.sections 私有字段访问（诊断动作自持，勿扩散到生产代码）。</summary>
+        private static AccessTools.FieldRef<MapDrawer, Section[,]> meshProbeSectionsRef;
+
+        private static Section[,] MeshProbeSections(Map map)
+        {
+            meshProbeSectionsRef ??= AccessTools.FieldRefAccess<MapDrawer, Section[,]>("sections");
+            return meshProbeSectionsRef(map.mapDrawer);
+        }
+
+        /// <summary>
+        /// 探针：对每个收集中的邻图上的目标 def，输出印刷条件复算 + 所在 section 状态 +
+        /// "四边形是否真在邻图 ThingsGeneral mesh 里"（扫描全部 section 的已上传 mesh.vertices，
+        /// 找 TrueCenter ±3.6 格内的顶点，≥4 即一个 quad）。输出为 Dev 动作结果，常开不门控。
+        /// </summary>
+        [DebugAction(Category, "Probe: Neighbor Things Mesh", allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void ProbeNeighborThingsMesh()
+        {
+            var map = Find.CurrentMap;
+            if (map == null) return;
+            if (SeamlessTileRegistry.GetMapWorldTile(map) < 0)
+            {
+                Log.Warning("[RimExodus][mesh-probe] Current map has no valid world tile.");
+                return;
+            }
+
+            var neighbors = new List<SeamlessTileGraph.NeighborInfo>();
+            SeamlessTileGraph.PopulateNeighbors(map, neighbors);
+            if (neighbors.Count == 0)
+            {
+                Log.Message("[RimExodus][mesh-probe] no collected neighbors (dormant/unloaded?).");
+                return;
+            }
+
+            var hostViewRect = Find.CameraDriver.CurrentViewRect.ExpandedBy(1);
+            var foundAny = false;
+            foreach (var nb in neighbors)
+            {
+                var sections = MeshProbeSections(nb.map);
+                if (sections == null)
+                {
+                    Log.Message($"[RimExodus][mesh-probe] neighbor tile={nb.worldTile}: mapDrawer.sections == null");
+                    continue;
+                }
+                var neighborView = hostViewRect.MovedBy(-nb.offset).ClipInsideMap(nb.map);
+                Log.Message($"[RimExodus][mesh-probe] === neighbor tile={nb.worldTile} map={nb.map.uniqueID} offset={nb.offset} neighborView={neighborView} ===");
+
+                foreach (var t in nb.map.listerThings.AllThings)
+                {
+                    if (t.Destroyed || !IsMeshProbeTarget(t)) continue;
+                    foundAny = true;
+                    ProbeOneThing(nb.map, sections, neighborView, t);
+                }
+            }
+
+            if (!foundAny)
+            {
+                var sb = new System.Text.StringBuilder("[RimExodus][mesh-probe] no probe def found on collected neighbors. Maps containing probe defs:");
+                foreach (var m in Find.Maps)
+                {
+                    var count = 0;
+                    foreach (var t in m.listerThings.AllThings)
+                    {
+                        if (!t.Destroyed && IsMeshProbeTarget(t)) count++;
+                    }
+                    if (count > 0)
+                    {
+                        sb.Append($" [map={m.uniqueID} wt={SeamlessTileRegistry.GetMapWorldTile(m)} x{count}]");
+                    }
+                }
+                Log.Message(sb.Append(" (不在收集集合 = 该图休眠/未加载/非直接邻居)").ToString());
+            }
+        }
+
+        private static bool IsMeshProbeTarget(Thing t)
+        {
+            var defName = t.def.defName;
+            foreach (var probe in MeshProbeDefNames)
+            {
+                if (defName == probe) return true;
+            }
+            return false;
+        }
+
+        private static void ProbeOneThing(Map nbMap, Section[,] sections, CellRect neighborView, Thing t)
+        {
+            var center = t.TrueCenter();
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"[RimExodus][mesh-probe] {t.def.defName} id={t.thingIDNumber} map={nbMap.uniqueID} pos={t.Position} trueCenter=({center.x:F2},{center.z:F2})");
+            // Regenerate 六条件逐项复算（对照 SectionLayer_Things.Regenerate 的过滤序）。
+            var snow = nbMap.snowGrid.GetDepth(t.Position);
+            var sand = t.Position.GetSandDepth(nbMap);
+            sb.AppendLine($"    cond[fog] fogged={nbMap.fogGrid.IsFogged(t.Position)} seeThroughFog={t.def.seeThroughFog}");
+            sb.AppendLine($"    cond[drawerType]={t.def.drawerType} cond[snowSand]={Mathf.Max(snow, sand):F2}/{t.def.hideAtSnowOrSandDepth} cond[plant]={(t.def.plant == null ? "n/a(building)" : "plant")} dontPrint={t.def.dontPrint}");
+
+            var scX = Mathf.FloorToInt(t.Position.x / 17f);
+            var scZ = Mathf.FloorToInt(t.Position.z / 17f);
+            var sec = sections[scX, scZ];
+            var thingsLayer = sec?.GetLayer(typeof(SectionLayer_ThingsGeneral));
+            sb.AppendLine($"    section=({scX},{scZ}) bounds={sec?.Bounds.ToStringSafe()} dirtyFlags={sec?.dirtyFlags} overlapsNeighborView={(sec != null && sec.Bounds.Overlaps(neighborView))} layer={(thingsLayer == null ? "NULL" : thingsLayer.GetType().Name)} layerDirty={thingsLayer?.Dirty ?? false}");
+            if (thingsLayer != null)
+            {
+                var shown = 0;
+                foreach (var sm in thingsLayer.subMeshes)
+                {
+                    if (shown++ >= 8)
+                    {
+                        sb.AppendLine("      ...(more submeshes omitted)");
+                        break;
+                    }
+                    sb.AppendLine($"      subMesh mat={sm.material?.name} queue={sm.material?.renderQueue} finalized={sm.finalized} disabled={sm.disabled} verts={(sm.mesh == null ? -1 : sm.mesh.vertexCount)}");
+                }
+            }
+
+            // 四边形存在性判定：扫描全部 section 的 ThingsGeneral 已上传几何（mesh.vertices 为权威，
+            // 不依赖 FinalizeMesh 后 verts 列表是否留存）。
+            var hitVerts = 0;
+            for (var x = 0; x < sections.GetLength(0); x++)
+            {
+                for (var z = 0; z < sections.GetLength(1); z++)
+                {
+                    var layer = sections[x, z]?.GetLayer(typeof(SectionLayer_ThingsGeneral));
+                    if (layer == null) continue;
+                    foreach (var sm in layer.subMeshes)
+                    {
+                        if (sm.mesh == null) continue;
+                        var verts = sm.mesh.vertices;
+                        var hits = 0;
+                        foreach (var v in verts)
+                        {
+                            if (Mathf.Abs(v.x - center.x) <= 3.6f && Mathf.Abs(v.z - center.z) <= 3.6f) hits++;
+                        }
+                        if (hits > 0)
+                        {
+                            hitVerts += hits;
+                            sb.AppendLine($"      QUAD-HIT section=({x},{z}) mat={sm.material?.name} queue={sm.material?.renderQueue} finalized={sm.finalized} disabled={sm.disabled} meshVerts={verts.Length} nearVerts={hits}");
+                        }
+                    }
+                }
+            }
+            sb.AppendLine(hitVerts >= 4
+                ? "    => quad IS in mesh（提交侧问题：下一步给 CollectLayer 加提交日志二分）"
+                : "    => quad NOT in mesh（烘焙侧问题：对照上方 cond 行与 subMesh 清单定位被哪条过滤）");
+            Log.Message(sb.ToString().TrimEnd());
+        }
+
+        /// <summary>
+        /// 强制全量重烘全部收集邻图的 sections（EnsureSectionsGenerated 的手动全覆盖版：
+        /// RegenerateAllLayers + 清 dirtyFlags）。配合观察：按完后邻图背景 vent 是否出现——
+        /// 出现 = mesh 曾陈旧/烘焙期缺失；仍不出现 = 收集/提交侧丢失（与 Probe 输出互相印证）。
+        /// 注意单次成本 = 邻图 mesh 全量重建（历史实测单图数百 ms 量级），仅诊断用。
+        /// </summary>
+        [DebugAction(Category, "Force Regen Neighbor Sections", allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        private static void ForceRegenNeighborSections()
+        {
+            var map = Find.CurrentMap;
+            if (map == null) return;
+            var neighbors = new List<SeamlessTileGraph.NeighborInfo>();
+            SeamlessTileGraph.PopulateNeighbors(map, neighbors);
+            if (neighbors.Count == 0)
+            {
+                Log.Message("[RimExodus][mesh-probe] no collected neighbors to regenerate.");
+                return;
+            }
+
+            foreach (var nb in neighbors)
+            {
+                var sections = MeshProbeSections(nb.map);
+                if (sections == null)
+                {
+                    Log.Message($"[RimExodus][mesh-probe] tile={nb.worldTile}: sections == null, skipped");
+                    continue;
+                }
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var regen = 0;
+                for (var x = 0; x < sections.GetLength(0); x++)
+                {
+                    for (var z = 0; z < sections.GetLength(1); z++)
+                    {
+                        var sec = sections[x, z];
+                        if (sec == null) continue;
+                        sec.RegenerateAllLayers();
+                        sec.dirtyFlags = 0uL;
+                        regen++;
+                    }
+                }
+                Log.Message($"[RimExodus][mesh-probe] force regen tile={nb.worldTile}: {regen} sections in {sw.ElapsedMilliseconds}ms（观察下一帧邻图背景）");
+            }
         }
     }
 }

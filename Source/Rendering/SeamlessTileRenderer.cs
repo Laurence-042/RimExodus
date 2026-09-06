@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using HarmonyLib;
+using RimWorld;
 using RimWorld.Planet;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -117,6 +118,7 @@ namespace RimExodus
                 CollectNeighborLayers(neighbor.map, neighbor.offset, neighbor.offset.ToVector3(), hostViewRect);
                 DrawNeighborPawns(neighbor.map, neighbor.offset.ToVector3(), hostViewRect);
                 DrawNeighborProjectiles(neighbor.map, neighbor.offset.ToVector3(), hostViewRect);
+                DrawNeighborRealtimeThings(neighbor.map, neighbor.offset.ToVector3(), hostViewRect);
             }
 
             if (drawCommands.Count == 0)
@@ -204,6 +206,55 @@ namespace RimExodus
                 catch (Exception ex)
                 {
                     Log.ErrorOnce($"[RimExodus] Failed to draw seamless neighbor projectile {thing}: {ex}", thing.thingIDNumber ^ 0x5eaf01);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 邻图上的 RealtimeOnly thing（2026-09 AncientHeatVent 邻图背景不可见定案修复）：
+        /// 这类 thing 的**唯一**绘制路径是聚焦图的 DynamicDrawManager（原版 Map.MapUpdate 的
+        /// CurrentMap 门内），静态 mesh 印刷被 SectionLayer_Things.Regenerate 的 RealtimeOnly
+        /// 过滤结构性排除——四个收集层 + 旧的两类手画（pawn/弹丸）都不覆盖它，跨缝看整只缺失。
+        /// 与 pawn/弹丸同法平移绘制（DrawNowAt + 视区裁剪 + 雾过滤镜像 DynamicDrawManager）。
+        /// **只挑 drawerType == RealtimeOnly**：MapMeshAndRealTime 的本体已在 mesh 里（再画双画）；
+        /// pawn / Projectile 各有专门通道（再画双画），显式排除。列表来自
+        /// DynamicDrawManager.DrawThings（公开只读属性，即聚焦图动态管线自己的登记表）。
+        /// 已知边界：thing 的自定义 DrawAt 若读 Find.CurrentMap 全局态（罕见 mod 写法）会画错
+        /// 位置——与 pawn 通道同级的既有风险面，try/catch 防崩。
+        /// </summary>
+        private static void DrawNeighborRealtimeThings(Map neighborMap, Vector3 offset, CellRect hostViewRect)
+        {
+            var drawThings = neighborMap.dynamicDrawManager.DrawThings;
+            for (var i = 0; i < drawThings.Count; i++)
+            {
+                var thing = drawThings[i];
+                if (thing == null || thing.Destroyed) continue;
+                if (thing.def.drawerType != DrawerType.RealtimeOnly || thing is Pawn || thing is Projectile)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var drawPos = thing.DrawPos + offset;
+                    // 宿主坐标系判定：平移后的世界坐标转 cell 坐标后是否在视区内。
+                    if (!hostViewRect.Contains(new IntVec3(
+                            Mathf.FloorToInt(drawPos.x), 0, Mathf.FloorToInt(drawPos.z))))
+                    {
+                        continue;
+                    }
+
+                    // 雾过滤镜像 DynamicDrawManager（同 DrawNeighborPawns 的判据）。
+                    if (!thing.def.seeThroughFog && neighborMap.fogGrid.IsFogged(thing.Position))
+                    {
+                        continue;
+                    }
+
+                    thing.DrawNowAt(drawPos);
+                }
+                catch (Exception ex)
+                {
+                    Log.ErrorOnce($"[RimExodus] Failed to draw seamless neighbor realtime thing {thing}: {ex}", thing.thingIDNumber ^ 0x5eaf02);
                 }
             }
         }
