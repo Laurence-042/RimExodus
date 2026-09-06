@@ -136,6 +136,11 @@ namespace RimExodus
 
         public override void GameComponentTick()
         {
+            // 降频设置缓存刷新（2026-09 热路径收口）：每 tick 一次读设置进 static 缓存，
+            // ShouldThingTick/MoveCostMultiplier（每 thing 每 tick）不再各自读设置+Clamp；
+            // 滑条即时性损失 ≤1 tick。必须先于本方法后续一切 Throttle/Unthrottle 消费。
+            SeamlessTickThrottle.RefreshSettingsCache();
+
             // tick 剖析器心跳（2026-08-27）：每游戏 tick 恒调，测相邻调用墙钟差 = 每 tick 墙钟
             // 耗时 + 触发周期汇报。关闭时零开销（内部首行早退）。
             SeamlessTickProfiler.OnGameComponentTick();

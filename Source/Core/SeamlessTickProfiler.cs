@@ -40,12 +40,16 @@ namespace RimExodus
 
         private static double tickMs;
         private static int tickCount;
+        private static double worldMs;      // Verse.World.WorldTick 段（unaccounted 拆桶，2026-09）
+        private static double compMs;       // GameComponentUtility.GameComponentTick 段（同上）
 
         // 桶间传递时间戳（无重入，见类注释）。0 = 本次调用被门控跳过（供后缀计 skipped）。
         private static long thingStamp;
         private static long preStamp;
         private static long postStamp;
         private static long updateStamp;
+        private static long worldStamp;
+        private static long compStamp;
 
         private static int nextReportTick = -1;
 
@@ -112,6 +116,29 @@ namespace RimExodus
             s.UpdateFrames++;
         }
 
+        // unaccounted 拆桶挂点（2026-09）：World tick 与 GameComponent tick 是 DoSingleTick 里
+        // 两段与地图无关但可能被 mod 环境放大的大头（第三方 GameComponent 遍历全部地图等），
+        // 单独计时使"剩余未归账"可归因。剖析器关闭时 no-op。
+        public static void BeginWorld()
+        {
+            worldStamp = Enabled ? Stopwatch.GetTimestamp() : 0;
+        }
+
+        public static void EndWorld()
+        {
+            if (Enabled) worldMs += ElapsedMs(worldStamp);
+        }
+
+        public static void BeginGameComponents()
+        {
+            compStamp = Enabled ? Stopwatch.GetTimestamp() : 0;
+        }
+
+        public static void EndGameComponents()
+        {
+            if (Enabled) compMs += ElapsedMs(compStamp);
+        }
+
         private static long lastBeatStamp;
         private static bool beating;
 
@@ -162,6 +189,7 @@ namespace RimExodus
             {
                 if (m == null || !stats.TryGetValue(m, out var s)) continue;
                 var state = SeamlessDormancyManager.IsDormant(m) ? "dormant"
+                    : SeamlessTickThrottle.IsFrozen(m) ? "throttled-frozen"
                     : SeamlessTickThrottle.IsThrottled(m) ? "throttled" : "active";
                 var wt = SeamlessTileRegistry.GetMapWorldTile(m);
                 var fast = SeamlessTickThrottle.IsThrottled(m)
@@ -174,18 +202,24 @@ namespace RimExodus
                 postSum += s.PostMs;
                 updateSum += s.UpdateMs;
             }
-            // 汇总 + 未归账缺口：wall − (things+pre+post) = World tick / 非地图 thing / TickList 与
-            // GameComponent 自身开销等剖析器覆盖不到的部分（update 是每帧口径、不参与 tick 账）。
+            // 汇总 + 未归账缺口：wall − (things+pre+post) = World tick / GameComponent tick /
+            // TickList 遍历与非地图 thing 等（update 是每帧口径、不参与 tick 账）。前两段
+            // 2026-09 起单独计时（Patches_TickThrottle 的两个剖析 patch），剩余 other =
+            // TickList 调度本身 + 降频门控前缀等零散项。
             var accounted = thingSum + preSum + postSum;
+            var unaccounted = System.Math.Max(tickMs - accounted, 0);
             sb.Append($"\n  totals: things {thingSum:F0}ms + pre {preSum:F0}ms + post {postSum:F0}ms = {accounted:F0}ms " +
                 $"({accounted / System.Math.Max(tickMs, 0.01) * 100f:F0}% of tick wall), " +
-                $"unaccounted {System.Math.Max(tickMs - accounted, 0):F0}ms (World/non-map things/TickList etc.); " +
+                $"unaccounted {unaccounted:F0}ms (world {worldMs:F0}ms + gameComponents {compMs:F0}ms + other " +
+                $"{System.Math.Max(unaccounted - worldMs - compMs, 0):F0}ms = TickList dispatch/throttle prefix/etc.); " +
                 $"map updates {updateSum:F0}ms are per-frame, not part of tick wall");
             Log.Message(sb.ToString());
 
             // 复位（保留字典骨架，Map 引用定期清防泄漏——删除的图下次汇报前清掉）。
             tickMs = 0;
             tickCount = 0;
+            worldMs = 0;
+            compMs = 0;
             stats.Clear();
         }
     }

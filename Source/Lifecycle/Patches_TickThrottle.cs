@@ -62,4 +62,39 @@ namespace RimExodus
             }
         }
     }
+
+    /// <summary>
+    /// 剖析器 unaccounted 拆桶（2026-09）：World tick 与 GameComponent tick 是 DoSingleTick 里
+    /// 两段与地图数量无关、但可能被 mod 环境（第三方 GameComponent 遍历全部地图等）放大的大头。
+    /// 单独计时使剖析报告的"剩余未归账"可归因（DoSingleTick 本体是 BurstCompile 勿 patch——
+    /// 这两个被调方法是普通方法，安全）。剖析器关闭时挂点 no-op；每 tick 四次 patch 调度
+    /// 的固定成本 ~2µs，忽略不计。
+    /// </summary>
+    [HarmonyPatch(typeof(RimWorld.Planet.World), nameof(RimWorld.Planet.World.WorldTick))]
+    static class Patch_World_WorldTick_Profiler
+    {
+        static void Prefix()
+        {
+            SeamlessTickProfiler.BeginWorld();
+        }
+
+        static void Postfix()
+        {
+            SeamlessTickProfiler.EndWorld();
+        }
+    }
+
+    [HarmonyPatch(typeof(GameComponentUtility), nameof(GameComponentUtility.GameComponentTick))]
+    static class Patch_GameComponentUtility_GameComponentTick_Profiler
+    {
+        static void Prefix()
+        {
+            SeamlessTickProfiler.BeginGameComponents();
+        }
+
+        static void Postfix()
+        {
+            SeamlessTickProfiler.EndGameComponents();
+        }
+    }
 }

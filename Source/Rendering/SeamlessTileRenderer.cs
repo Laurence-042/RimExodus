@@ -329,8 +329,6 @@ namespace RimExodus
                 return;
             }
 
-            EnsureSectionsGenerated(sections);
-
             // 把宿主视区平移到邻居坐标系：邻居本地坐标 + offset = 宿主坐标，
             // 故邻居视区 = 宿主视区 - offset。ClipInsideMap 防越界误判。
             var neighborView = hostViewRect.MovedBy(-offsetInt).ClipInsideMap(neighborMap);
@@ -352,6 +350,26 @@ namespace RimExodus
                     if (!neighborView.Overlaps(section.Bounds))
                     {
                         continue;
+                    }
+
+                    // 视区内的脏 section 复用原版 Section.TryUpdate(view)（2026-09 性能修复，勿回退为
+                    // "任意脏 → RegenerateAllLayers + 清零"的全图全层扫描）：TryUpdate 是参数化视区方法
+                    // （原版 MapMeshDrawerUpdate_First 只对 CurrentMap 调它，但方法体无全局态依赖——
+                    // 传平移后的 neighborView 即可），只重建 dirtyFlags 命中的层、视区外层保留 Dirty。
+                    // 旧实现在暴雨/暴雪期间是每帧重建风暴：SteadyEnvironmentEffects 每 tick 采样
+                    // Area×0.0006 格持续标脏 Snow|Things（降雪 AddDepth / 融雪 / 雨冲污物），降频邻图
+                    // 照常积脏，而邻图的脏标记唯一消费者是本渲染器 → 任意脏 = 全层重建（Terrain 顶点
+                    // 重排 + ThingsGeneral 全量重印刷 + LightingOverlay 逐格 glow 采样）× 无视区 ×
+                    // 无上限，单帧数 ms~数十 ms。
+                    // Snow 位命中我们不收集的雪层也照常重建（勿剥位省性能）：dirtyFlags 清零后无人
+                    // 再标记，邻图转正为 CurrentMap 时雪层 mesh 将永久 stale——正确性不可换性能。
+                    // 视区外脏 section 的 dirtyFlags 保留：stale mesh 本就不被收集（同一视区判定），
+                    // 点击拾取走 thingGrid/thing collider 不依赖 section mesh；相机平移后新进视区的
+                    // section 当帧重建，邻图被切为 CurrentMap 时由原版路径闭环（layer.Dirty 保留正是
+                    // TryUpdate 留给 DrawSection 兜底的原生语义）。
+                    if (section.dirtyFlags != 0)
+                    {
+                        section.TryUpdate(neighborView);
                     }
 
                     CollectLayer(section, matrix, typeof(SectionLayer_Terrain));
@@ -454,27 +472,6 @@ namespace RimExodus
             });
         }
 
-        private static void EnsureSectionsGenerated(Section[,] sections)
-        {
-            for (var x = 0; x < sections.GetLength(0); x++)
-            {
-                for (var z = 0; z < sections.GetLength(1); z++)
-                {
-                    var section = sections[x, z];
-                    if (section == null || section.dirtyFlags == 0)
-                    {
-                        continue;
-                    }
-
-                    section.RegenerateAllLayers();
-
-                    // RegenerateAllLayers 不会像 TryUpdate 一样清除 dirtyFlags。
-                    // 邻居 section 不在当前地图 ViewRect 内，不能依赖 TryUpdate。
-                    section.dirtyFlags = 0uL;
-                }
-            }
-        }
-
         /// <summary>
         /// 收集指定精确类型的 SectionLayer 的 submesh。materialOverride 非空时替换 subMesh 材质提交。
         /// 必须用精确类型匹配：
@@ -487,8 +484,8 @@ namespace RimExodus
         ///   透传），若邻图 overlay 也用原材质，void 透明圈会被两层天色各染一次 = sky² 双染暗带。分层后：
         ///   天色染色只由"当前图 overlay（自己方形内）+ 天色 quad（邻图非重叠 L 形区）"各管一块，
         ///   glow/roof 数据层不受影响——重叠区两图 glow 叠加 = 跨缝照明（物理合理，接受）；void 格无
-        ///   roof，岩顶不会双份。glow/roof 脏标记（Roofs|GroundGlow）由 EnsureSectionsGenerated 的
-        ///   RegenerateAllLayers 连带重建消化。可见性开关 DebugViewSettings.drawLightingOverlay 经
+        ///   roof，岩顶不会双份。glow/roof 脏标记（Roofs|GroundGlow）由收集循环内的 Section.TryUpdate
+        ///   视区重建消化。可见性开关 DebugViewSettings.drawLightingOverlay 经
         ///   下方 layer.Visible 检查自动尊重。
         /// - 仍不收集 SunShadows/Gas 等有 shadow/grid 依赖且不适合偏移绘制的层。
         /// </summary>

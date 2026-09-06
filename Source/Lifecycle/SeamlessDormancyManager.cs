@@ -65,7 +65,9 @@ namespace RimExodus
             if (map == null || map.Disposed || dormantMaps.Contains(map)) return;
 
             // 降频 → 休眠升档：tick 注册即将全摘，降频集合一并清（保持三档互斥）。
-            SeamlessTickThrottle.Unthrottle(map, "sleeping (dormancy supersedes throttle)");
+            // restoreTicks:false（2026-09 摘表互斥）：图马上整表全摘，此刻恢复注册无意义、
+            // 且若 0% 凝固摘过表会造成与 Wake 重注册的双注册（RegisterThing 无去重）。
+            SeamlessTickThrottle.Unthrottle(map, "sleeping (dormancy supersedes throttle)", restoreTicks: false);
 
             dormantMaps.Add(map);
             if (manual)
@@ -109,17 +111,10 @@ namespace RimExodus
             if (manualDormantMaps.Remove(map)) // 任意来源的唤醒都解除手动锁（含 CurrentMap/预加载带）。
                 SyncManualTile(map, register: false);
 
-            // 重注册全局 Thing tick：遍历 spawnedThings 逐个注册（读档路径 FinalizeLoading 的
-            // 重 spawn 走的就是同一 API，语义等价"这张图像刚读档一样恢复"）。
-            // Map 守卫（2026-08 持有链审计）：innerList 可能残留"已活在别图"的陈旧条目（影子注入期 DeSpawn
-            // 的 Remove 静默失败残留），重注册会造成 TickList 双注册（RegisterThing 无去重）= 活人双 tick。
-            // 影子系统的 60t 轮询清扫（SeamlessShadowCaravan.ScrubAllMaps）为主，此处按 Map 过滤兜底。
-            var spawned = map.spawnedThings;
-            for (var i = 0; i < spawned.Count; i++)
-            {
-                if (spawned[i].Map != map) continue;
-                Find.TickManager.RegisterAllTickabilityFor(spawned[i]);
-            }
+            // 重注册全局 Thing tick：读档路径 FinalizeLoading 的重 spawn 走的就是同一 API，
+            // 语义等价"这张图像刚读档一样恢复"。实现收口在 SeamlessTickThrottle.RestoreThingTicks
+            //（2026-09 与 0% 凝固摘表的恢复共用——含影子陈旧条目的 Map 过滤兜底，见该方法注释）。
+            SeamlessTickThrottle.RestoreThingTicks(map);
 
             // 天气状态校准（2026-09 形态 B）：休眠期本图 curWeatherAge 落后于激活图（换天广播会归零
             // 自愈，两次换天间的漂移在此补齐——lerp 进度/过渡视觉与域一致）。

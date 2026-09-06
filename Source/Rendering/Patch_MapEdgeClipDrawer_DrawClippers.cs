@@ -18,6 +18,14 @@ namespace RimExodus
 
         private static readonly MaterialPropertyBlock propertyBlock = new MaterialPropertyBlock();
 
+        // 每帧复用缓冲：DrawClippers 只对当前图每帧跑一次，无并发面。footprint 挖洞
+        // 计算原本每帧新建 6-10 个 List，是渲染热路径上的常驻 GC 底噪（2026-09 顺带修复）。
+        // DrawPlane 把 rect 值拷进 matrix/propertyBlock，buffer 内容不被引用，复用安全。
+        private static readonly List<Rect> clipRectBuffer = new List<Rect>(4);
+        private static readonly List<Rect> footprintRectBuffer = new List<Rect>();
+        private static readonly List<Rect> remainingBuffer = new List<Rect>();
+        private static readonly List<Rect> subtractBuffer = new List<Rect>();
+
         public static bool Prefix(Map map)
         {
             if (!map.DrawMapClippers)
@@ -41,53 +49,54 @@ namespace RimExodus
             var halfVerticalWidth = VerticalClipWidth / 2f;
             var horizontalCenter = size.x / 2f;
 
-            var clipRects = new List<Rect>
-            {
-                Rect.MinMaxRect(-ClipSize, 0f, 0f, size.z),
-                Rect.MinMaxRect(size.x, 0f, size.x + ClipSize, size.z),
-                Rect.MinMaxRect(horizontalCenter - halfVerticalWidth, -ClipSize,
-                    horizontalCenter + halfVerticalWidth, 0f),
-                Rect.MinMaxRect(horizontalCenter - halfVerticalWidth, size.z,
-                    horizontalCenter + halfVerticalWidth, size.z + ClipSize)
-            };
+            clipRectBuffer.Clear();
+            clipRectBuffer.Add(Rect.MinMaxRect(-ClipSize, 0f, 0f, size.z));
+            clipRectBuffer.Add(Rect.MinMaxRect(size.x, 0f, size.x + ClipSize, size.z));
+            clipRectBuffer.Add(Rect.MinMaxRect(horizontalCenter - halfVerticalWidth, -ClipSize,
+                horizontalCenter + halfVerticalWidth, 0f));
+            clipRectBuffer.Add(Rect.MinMaxRect(horizontalCenter - halfVerticalWidth, size.z,
+                horizontalCenter + halfVerticalWidth, size.z + ClipSize));
 
-            var footprintRects = new List<Rect>(footprints.Count);
+            footprintRectBuffer.Clear();
             foreach (var footprint in footprints)
             {
-                footprintRects.Add(new Rect(
+                footprintRectBuffer.Add(new Rect(
                     footprint.minX,
                     footprint.minZ,
                     footprint.Width,
                     footprint.Height));
             }
 
-            foreach (var clipRect in clipRects)
+            foreach (var clipRect in clipRectBuffer)
             {
-                var remaining = new List<Rect> { clipRect };
-                foreach (var footprintRect in footprintRects)
+                remainingBuffer.Clear();
+                remainingBuffer.Add(clipRect);
+                foreach (var footprintRect in footprintRectBuffer)
                 {
-                    remaining = SubtractFromAll(remaining, footprintRect);
-                    if (remaining.Count == 0)
+                    SubtractFromAll(remainingBuffer, footprintRect);
+                    if (remainingBuffer.Count == 0)
                     {
                         break;
                     }
                 }
 
-                foreach (var rect in remaining)
+                for (var i = 0; i < remainingBuffer.Count; i++)
                 {
-                    DrawPlane(map.MapEdgeMaterial, rect);
+                    DrawPlane(map.MapEdgeMaterial, remainingBuffer[i]);
                 }
             }
         }
 
-        private static List<Rect> SubtractFromAll(List<Rect> sources, Rect cut)
+        private static void SubtractFromAll(List<Rect> sources, Rect cut)
         {
-            var result = new List<Rect>(sources.Count * 2);
+            subtractBuffer.Clear();
             foreach (var source in sources)
             {
-                Subtract(source, cut, result);
+                Subtract(source, cut, subtractBuffer);
             }
-            return result;
+
+            sources.Clear();
+            sources.AddRange(subtractBuffer);
         }
 
         private static void Subtract(Rect source, Rect cut, List<Rect> result)

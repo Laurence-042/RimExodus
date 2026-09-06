@@ -350,8 +350,9 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 强制全量重烘全部收集邻图的 sections（EnsureSectionsGenerated 的手动全覆盖版：
-        /// RegenerateAllLayers + 清 dirtyFlags）。配合观察：按完后邻图背景 vent 是否出现——
+        /// 强制全量重烘全部收集邻图的 sections（手动全覆盖锤：RegenerateAllLayers + 清 dirtyFlags，
+        /// 2026-09 起常规渲染路径只做视区内命中层的 Section.TryUpdate，此动作保留为诊断用全量重烘）。
+        /// 配合观察：按完后邻图背景 vent 是否出现——
         /// 出现 = mesh 曾陈旧/烘焙期缺失；仍不出现 = 收集/提交侧丢失（与 Probe 输出互相印证）。
         /// 注意单次成本 = 邻图 mesh 全量重建（历史实测单图数百 ms 量级），仅诊断用。
         /// </summary>
