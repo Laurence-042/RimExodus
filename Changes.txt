@@ -118,6 +118,16 @@ If you have any suggestions, feel free to share them here (though, due to limita
   New: maps with active enemies (raiders, angered insects, etc., including hostile settlement garrisons) now always simulate at full speed instead of being throttled, and fall back automatically once the enemies are gone; a low-priority alert on the right lists which maps are being kept at full speed. Note that hostile settlement garrisons never leave, so their maps stay at full speed while you're nearby.
 - 修复：敌人撤退走到两侧都有地图的接缝时会凭空消失。现在撤退的敌人会真正穿过接缝、进入相邻地图继续逃跑，直到跑出你已探索的区域才彻底离开；对面没有地图时则走到接缝处再离开。访客、商队等离场角色同样受益
   Fixed: retreating enemies used to vanish into thin air at seams where both sides had maps. They now actually cross the seam into the neighboring map and keep fleeing until they leave your explored area; if there's no map on the far side, they walk up to the seam before departing. Visiting caravans and other departing NPCs benefit as well.
+- 修复：部分 Odyssey 地貌或任务地点可能同时生成本应互斥的内容；分帧地图生成现在遵守与原版相同的排除规则
+  Fixed: some Odyssey terrain features or quest locations could generate content that should have been mutually exclusive; frame-sliced map generation now follows the same exclusion rules as vanilla.
+- 修复：读取存档后恢复地图边缘时，部分常见地形、岩石或屋顶可能被误当成空白；新旧存档现在都能正确识别这些数据
+  Fixed: when restoring map edges after loading a save, some common terrain, rock, or roof data could be mistaken for empty entries; both new and existing saves now resolve this data correctly.
+- 修复：河中岛地貌的河道仍可能在相邻地块交界处错位；现在它也使用与普通河流相同的接缝对齐修正（仅影响新生成地图）
+  Fixed: rivers using the river-island terrain feature could still be misaligned at neighboring tile borders; they now receive the same seam-alignment correction as ordinary rivers (newly generated maps only).
+- 修复：隐藏休眠地图或空地图的顶部殖民者栏分组后，图标位置和拖动分组可能错位，极端情况下会引发界面报错
+  Fixed: after hiding dormant or empty map groups from the colonist bar, icon positions and drag groups could become misaligned and, in edge cases, cause UI errors.
+- 修复：分帧地图生成失败后，同一地块可能在本次游戏中一直无法重试生成；失败残留现在会被完整清理
+  Fixed: after frame-sliced map generation failed, the same tile could remain impossible to generate again during that game session; failed-generation state is now cleaned up completely.
 
 
 TODO（优先级从高到低）

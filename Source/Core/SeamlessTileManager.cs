@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using RimWorld;
 using RimWorld.Planet;
@@ -410,6 +411,27 @@ namespace RimExodus
         }
 
         /// <summary>
+        /// 释放一次分帧生成持有的 RimExodus 运行时状态。
+        /// 成功路径由 IncrementalMapGenerator.FinishGeneration 调用一次；
+        /// 失败路径只由 CleanupFailedGeneration 调用一次。
+        /// </summary>
+        internal static void ReleaseIncrementalGenerationState(Map map)
+        {
+            try
+            {
+                var worldTile = map?.info?.parent?.Tile.tileId ?? -1;
+                if (worldTile >= 0) ClearGeneratingTile(worldTile);
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[RimExodus] Failed to release incremental generation lock: {ex}");
+            }
+
+            NeighborGenerationSourceTile = -1;
+            ClearGenerationTrigger();
+        }
+
+        /// <summary>
         /// 生成无缝地块口袋地图（分帧增量生成，主线程每帧跑 1 genStep，不暂停 tick）。
         /// 准备阶段（ConstructComponents→AddMap→组装 genSteps）同步完成，genStep 链分帧执行，
         /// FinalizeInit + 后续配置（邻居登记/传送点铺设/void 刷新）在最后帧的 onComplete 回调执行。
@@ -697,11 +719,6 @@ namespace RimExodus
 
                     // 前哨保留·恢复收尾（2026-09，两条生成路径共用 FinishZoneRestore）。
                     FinishZoneRestore(interiorMap, mapParent, newWorldTile);
-
-                    // 清理防重入锁（分帧生成完成）。
-                    ClearGeneratingTile(newWorldTile);
-                    NeighborGenerationSourceTile = -1;
-                    ClearGenerationTrigger();
                 });
 
             if (!started)

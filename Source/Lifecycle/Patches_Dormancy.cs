@@ -1,7 +1,9 @@
 using System.Collections.Generic;
+using System.Reflection;
 using HarmonyLib;
 using RimWorld;
 using RimWorld.Planet;
+using UnityEngine;
 using Verse;
 
 namespace RimExodus
@@ -133,10 +135,16 @@ namespace RimExodus
         [HarmonyPatch(typeof(ColonistBar), "CheckRecacheEntries")]
         static class Patch_ColonistBar_CheckRecacheEntries
         {
+            private static readonly FieldInfo CachedEntriesField = AccessTools.Field(typeof(ColonistBar), "cachedEntries");
+            private static readonly FieldInfo CachedDrawLocsField = AccessTools.Field(typeof(ColonistBar), "cachedDrawLocs");
+            private static readonly FieldInfo CachedReorderableGroupsField = AccessTools.Field(typeof(ColonistBar), "cachedReorderableGroups");
+            private static readonly FieldInfo CachedScaleField = AccessTools.Field(typeof(ColonistBar), "cachedScale");
+            private static readonly FieldInfo DrawLocsFinderField = AccessTools.Field(typeof(ColonistBar), "drawLocsFinder");
+
             static void Postfix(ColonistBar __instance)
             {
-                var entriesField = AccessTools.Field(typeof(ColonistBar), "cachedEntries");
-                if (!(entriesField?.GetValue(__instance) is List<ColonistBar.Entry> entries)) return;
+                if (!(CachedEntriesField?.GetValue(__instance) is List<ColonistBar.Entry> entries)) return;
+                if (!TryGetDerivedCaches(__instance, out var groups, out var drawLocs, out var finder)) return;
 
                 // 休眠图过滤（既定设计，常开）+ 空组过滤（hideEmptyColonistBarGroups 开关，默认关 =
                 // 原生行为，2026-08 增）：非玩家家且无玩家 pawn 的图整组隐藏。玩家家含空家保留
@@ -160,6 +168,36 @@ namespace RimExodus
                     }
                     entries[i] = new ColonistBar.Entry(e.pawn, e.map, newGroup);
                 }
+
+                RebuildDerivedCaches(__instance, entries, newGroup + 1, groups, drawLocs, finder);
+            }
+
+            private static bool TryGetDerivedCaches(ColonistBar instance, out List<int> groups,
+                out List<Vector2> drawLocs, out ColonistBarDrawLocsFinder finder)
+            {
+                groups = CachedReorderableGroupsField?.GetValue(instance) as List<int>;
+                drawLocs = CachedDrawLocsField?.GetValue(instance) as List<Vector2>;
+                finder = DrawLocsFinderField?.GetValue(instance) as ColonistBarDrawLocsFinder;
+                if (groups != null && drawLocs != null && finder != null && CachedScaleField != null) return true;
+
+                Log.ErrorOnce("[RimExodus] ColonistBar cache fields could not be resolved; map-group filtering was skipped.",
+                    0x4D28E91);
+                return false;
+            }
+
+            /// <summary>
+            /// CheckRecacheEntries 原版体已用过滤前 entries 算完三个派生缓存。
+            /// 绘制层用同一索引访问它们，因此 entry 列表缩短后必须整体重建。
+            /// 所有私有字段反射都缓存在类级别，避免每次 UI recache 重复查找。
+            /// </summary>
+            private static void RebuildDerivedCaches(ColonistBar instance, List<ColonistBar.Entry> entries,
+                int groupCount, List<int> groups, List<Vector2> drawLocs, ColonistBarDrawLocsFinder finder)
+            {
+                groups.Clear();
+                for (var i = 0; i < entries.Count; i++) groups.Add(-1);
+
+                finder.CalculateDrawLocs(drawLocs, out var scale, groupCount);
+                CachedScaleField.SetValue(instance, scale);
             }
         }
     }
