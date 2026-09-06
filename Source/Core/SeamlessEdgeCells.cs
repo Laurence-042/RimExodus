@@ -90,6 +90,24 @@ namespace RimExodus
         }
 
         /// <summary>
+        /// 朝向指定世界邻居 tile 的传送点格（袭击外缘生成 2026-09）。spot 由
+        /// <see cref="SeamlessEnterSpotPlacer"/> 铺满全部世界邻居边（含未生成邻居——
+        /// hasArrival=false 不影响取格），故按 <c>targetWorldTile</c> 过滤即得该侧格集，
+        /// 无需几何锚点。无缓存（袭击低频；def 索引 O(1)）。
+        /// </summary>
+        internal static void PopulateFacingCells(Map map, int worldTile, List<IntVec3> result)
+        {
+            result.Clear();
+            if (map == null || EnterSpotDef == null || worldTile < 0) return;
+            var spots = map.listerThings.ThingsOfDef(EnterSpotDef);
+            for (int i = 0; i < spots.Count; i++)
+            {
+                var comp = spots[i].TryGetComp<CompSeamlessTileEnterSpot>();
+                if (comp != null && comp.targetWorldTile == worldTile) result.Add(spots[i].Position);
+            }
+        }
+
+        /// <summary>
         /// cell 是否为传送点格（thingGrid 直查 spot def，O(1)，与 <see cref="GetSeamEdgeCells"/> 同源同口径：
         /// 传送点铺设位置集合 = 接缝带权威定义）。供预加载排除等单格判定使用，避免取整表。
         /// </summary>

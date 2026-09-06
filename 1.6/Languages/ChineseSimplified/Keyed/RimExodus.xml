@@ -70,6 +70,9 @@
   <RimExodus_SettingsCombatLabel>跨图索敌与射击</RimExodus_SettingsCombatLabel>
   <RimExodus_SettingsCombatTip>允许 pawn 看见、瞄准并射击站在缝对侧相邻地图上的敌人。若你偏好严格的原版战斗规则（无法与另一张地图上的任何目标交互），请关闭。</RimExodus_SettingsCombatTip>
 
+  <RimExodus_SettingsRaidOuterSpawnLabel>步行袭击从外缘进场</RimExodus_SettingsRaidOuterSpawnLabel>
+  <RimExodus_SettingsRaidOuterSpawnTip>步行来袭的敌人（部落/海盗的步行袭击、发狂的动物、食尸鬼等）从对侧你尚未看见（未生成或休眠地图）的接缝进场，而不再出现在正对着你已观察地图的边界上凭空冒出来。敌对步行袭击也可能在相邻地图的外侧边缘进场，然后行军穿过接缝向你进攻。空投、钻地等非步行进场方式不受影响。默认：开启。</RimExodus_SettingsRaidOuterSpawnTip>
+
   <RimExodus_SettingsNoiseLabel>接缝覆写噪声幅度：{0}</RimExodus_SettingsNoiseLabel>
   <RimExodus_SettingsNoiseTip>两张地图接缝处的地形混合被随机化的强度（0 = 完全平直的过渡，数值越高 = 更自然的不规则边界）。默认值：0.15。</RimExodus_SettingsNoiseTip>
   <RimExodus_SettingsLogModulesLabel>分模块诊断日志</RimExodus_SettingsLogModulesLabel>

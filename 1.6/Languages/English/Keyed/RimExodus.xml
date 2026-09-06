@@ -70,6 +70,9 @@ The map you are currently on and your home map are never deleted. Default: 3.</R
   <RimExodus_SettingsCombatLabel>Cross-map targeting &amp; shooting</RimExodus_SettingsCombatLabel>
   <RimExodus_SettingsCombatTip>Allow pawns to see, target and shoot enemies standing on the neighboring map across the seam. Turn off if you prefer strictly original combat rules (nothing on another map can be interacted with).</RimExodus_SettingsCombatTip>
 
+  <RimExodus_SettingsRaidOuterSpawnLabel>Walk-in raids arrive from the outer edge</RimExodus_SettingsRaidOuterSpawnLabel>
+  <RimExodus_SettingsRaidOuterSpawnTip>Walking enemies (tribal or pirate raiders on foot, manhunter packs, ghouls, etc.) enter from a seam whose far side you have not seen (an unloaded or dormant map) instead of appearing at a border that faces a map you are already watching. Hostile walking raids may arrive on the outer edge of a neighboring map and march across the seam toward you. Drop pods, tunnels and other non-walking arrivals are unaffected. Default: ON.</RimExodus_SettingsRaidOuterSpawnTip>
+
   <RimExodus_SettingsNoiseLabel>Seam override noise amplitude: {0}</RimExodus_SettingsNoiseLabel>
   <RimExodus_SettingsNoiseTip>How strongly terrain blending at the seam between two maps is randomized (0 = perfectly straight blending, higher = more natural-looking irregular borders). Default: 0.15.</RimExodus_SettingsNoiseTip>
   <RimExodus_SettingsLogModulesLabel>Diagnostic logs by module</RimExodus_SettingsLogModulesLabel>

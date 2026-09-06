@@ -37,7 +37,19 @@ namespace RimExodus
             if (map == null) return true;
             if (!SeamlessEdgeCells.HasSeamEdge(map)) return true; // 非 RimExodus 地块放行原版
 
-            var cells = SeamlessEdgeCells.GetSeamEdgeCells(map);
+            // 袭击外缘生成（2026-09）：同图约束窗口内（本次袭击的 TryExecuteWorker 执行中）且
+            // map 是被袭击图 → 候选池过滤为"朝向允许 tile 的传送点格"；**过滤池空回落整圈池**
+            // （绝不比现状更容易失败——保护 EdgeWalkInDarkness 等带额外谓词的模式）。窗口外
+            // 零行为变化（一次静态判空）。validator 链原样复用（含 CanReachColony 等原版把关）。
+            var raidConstrained = SeamlessRaidOuterSpawn.TryGetSameMapFacingCells(map, _raidFacingCells);
+            var cells = raidConstrained ? (List<IntVec3>)_raidFacingCells : SeamlessEdgeCells.GetSeamEdgeCells(map);
+            if ((cells == null || cells.Count == 0) && raidConstrained)
+            {
+                raidConstrained = false;
+                cells = SeamlessEdgeCells.GetSeamEdgeCells(map);
+                RimExodusLog.Message(RimExodusLogModule.Combat,
+                    $"Raid outer spawn: facing pool empty on map {map.uniqueID}, fell back to full seam pool.");
+            }
             if (cells == null || cells.Count == 0)
             {
                 result = IntVec3.Invalid;
@@ -64,6 +76,9 @@ namespace RimExodus
                     {
                         result = cell;
                         __result = true;
+                        if (raidConstrained)
+                            RimExodusLog.Message(RimExodusLogModule.Combat,
+                                $"Raid outer spawn: entry cell {cell} on map {map.uniqueID} resolved from facing pool.");
                         return false;
                     }
                 }
@@ -94,6 +109,10 @@ namespace RimExodus
         }
 
         private static readonly List<IntVec3> _scratch = new();
+
+        // 袭击外缘生成（2026-09）：同图约束窗口的朝向格池（与 _scratch 分离——
+        // TryGetSameMapFacingCells 填充、下方复制进 _scratch，两层职责不混用）。
+        private static readonly List<IntVec3> _raidFacingCells = new();
     }
 
     /// <summary>

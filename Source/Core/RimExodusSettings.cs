@@ -192,6 +192,14 @@ namespace RimExodus
         public bool crossMapCombatEnabled = true;
 
         /// <summary>
+        /// 袭击外缘生成（2026-09）：步行类袭击（部落/海盗步行袭击、发狂动物、食尸鬼等）从
+        /// "对侧未被看见（无图或休眠）的外侧接缝"进场，而非被袭击图朝向已加载邻图的边上凭空
+        /// 出现。敌对袭击可生成在一跳邻图的外侧边并自行行军跨缝进攻（复用追击链）。空投/虫灾
+        /// 等非步行进场不受影响。false = 完全原版落点。见 <see cref="SeamlessRaidOuterSpawn"/>。
+        /// </summary>
+        public bool raidOuterSpawnEnabled = true;
+
+        /// <summary>
         /// 接缝带显示与撤离开关（2026-08，默认 true）。false = 沉浸模式（拍视频等）：
         /// 隐藏浅绿撤离带与接缝中心划线，并禁用一切经接缝带的原生离场成远行队（征召踩带、
         /// JobGiver_ExitMap、组队界面出口重定向一并关闭——隐藏后误触撤离比看不见边线严重）。
@@ -258,6 +266,7 @@ namespace RimExodus
             Scribe_Values.Look(ref dormancyThrottlePercent, "dormancyThrottlePercent", 50);
             Scribe_Values.Look(ref throttleSeamFastRadius, "throttleSeamFastRadius", 15);
             Scribe_Values.Look(ref crossMapCombatEnabled, "crossMapCombatEnabled", true);
+            Scribe_Values.Look(ref raidOuterSpawnEnabled, "raidOuterSpawnEnabled", true);
             Scribe_Values.Look(ref seamExitBandEnabled, "seamExitBandEnabled", true);
             Scribe_Values.Look(ref hideEmptyColonistBarGroups, "hideEmptyColonistBarGroups", false);
             Scribe_Values.Look(ref incrementalGenerationEnabled, "incrementalGenerationEnabled", true);

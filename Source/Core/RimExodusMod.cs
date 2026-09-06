@@ -283,6 +283,9 @@ namespace RimExodus
                     // ===== tab：跨图战斗 =====
                     CheckRow(listing, "RimExodus_SettingsCombatLabel", "RimExodus_SettingsCombatTip",
                         v => s.crossMapCombatEnabled = v, s.crossMapCombatEnabled);
+                    // 袭击外缘生成（2026-09）：步行袭击从外侧（对侧未被看见的）接缝进场。
+                    CheckRow(listing, "RimExodus_SettingsRaidOuterSpawnLabel", "RimExodus_SettingsRaidOuterSpawnTip",
+                        v => s.raidOuterSpawnEnabled = v, s.raidOuterSpawnEnabled);
                     break;
 
                 case SettingsTab.Advanced:

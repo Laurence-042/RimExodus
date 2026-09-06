@@ -100,22 +100,16 @@ If you have any suggestions, feel free to share them here (though, due to limita
   Outpost preservation: maps you have built on (with a home area drawn) are no longer fully deleted when they get too far away. Buildings, floors, roofs and items left inside the home area are "archived" to disk — the map no longer occupies memory, but your changes are preserved. When you come back, the map regenerates and your outpost is rebuilt as it was (mountains you mined out within the home area stay mined, too). Archived tiles show a teal color on the world map; if you no longer want one, select the tile and choose "Discard archived data" to delete that map's archive.
 
 0.1.10
-- 修复：Vanilla Vehicles Expanded 的载具残骸（以及其他依赖 Vanilla Expanded Framework 往地图上随机添加物体的内容）此前会生成在无缝地图边缘之外的不可达区域——看得见但走不过去，跨过地缝后还会"消失"；部分无缝地图上则完全不刷。现在这些物体会生成在实际可到达的区域内，分帧生成的地图上也会正常出现
-  Fixed: vehicle wrecks from Vanilla Vehicles Expanded (and other content that uses Vanilla Expanded Framework to scatter objects onto maps) used to spawn in the unreachable area beyond the edge of seamless maps — visible but unreachable, and they would "disappear" once you crossed the seam; some seamless maps got none at all. These objects now spawn inside the actually reachable area, and frame-split generated maps get them properly too.
-- 修复：部分 Odyssey 远古排放孔（如远古热浪排放孔）从相邻地块的背景看过去时整只不显示，必须切换到那张地图才能看到。
-  Fixed: some ancient vents from Odyssey (e.g., ancient heat vents) were entirely invisible when seen from an adjacent map's background, only appearing after switching to that map.
-- 修复：远处地图上的持续环境音（如排放孔的轰鸣）会反复报错刷屏（"Tried to maintain ended sustainer"）。
-  Fixed: sustained ambient sounds on distant maps (e.g., ancient vent roars) repeatedly spammed the error log ("Tried to maintain ended sustainer").
+- 修复：Vanilla Vehicles Expanded 的载具残骸（以及其他依赖 Vanilla Expanded Framework 往地图上随机添加物体的内容）此前会生成在无缝地图边缘之外的不可达区域——看得见但走不过去，跨过地缝后还会"消失"；部分无缝地图上则完全不刷。现在这些物体会生成在实际可到达的区域内，分帧生成的地图上也会正常出现（@Icarus 报告的问题）
+  Fixed: vehicle wrecks from Vanilla Vehicles Expanded (and other content that uses Vanilla Expanded Framework to scatter objects onto maps) used to spawn in the unreachable area beyond the edge of seamless maps — visible but unreachable, and they would "disappear" once you crossed the seam; some seamless maps got none at all. These objects now spawn inside the actually reachable area, and frame-split generated maps get them properly too.(@Icarus reported this issue)
+- 步行来袭的敌人（部落的步行袭击、海盗的步行袭击、发狂的动物、异象的食尸鬼等）现在会从你还没探索过的方向进场：要么出现在当前地图朝向"对面还没有地图或处于休眠"的边上，要么出现在相邻地图的外侧边缘然后一路向你进军——不再从你正盯着的已加载地图之间的边界上凭空冒出来。空投、钻地等非步行进场不受影响。可在设置"跨图战斗"页关闭
+  Enemies that attack on foot (walking tribal or pirate raiders, manhunter packs, Anomaly ghouls, etc.) now arrive from directions you have not explored: they either appear at a border whose far side has no map yet (or a dormant one), or enter along the outer edge of a neighboring map and march toward you — instead of popping out of thin air at a border between the maps you are already watching. Drop pods, tunnelers and other non-walking arrivals are unaffected. Can be disabled in the "Cross-map combat" settings tab
 
 
 TODO（优先级从高到低）
 TODO (Priority Order)
 - （常驻）bug 修复
 (Ongoing) Bug fixes
-- 优化休眠逻辑，允许不超过10个做出过修改的地图（特指进行了建筑增删行为）持久地休眠而不被删除
-  Optimize the hibernation logic to allow no more than 10 modified maps (specifically those with added or deleted buildings) to remain in hibernation without being deleted.
-- 优化袭击生成逻辑，让袭击生成在已加载地图外边界，而非从当前地块对侧已加载地图的边界凭空出现
-  Optimize raid spawning logic so that raids will spawn at the outer boundaries of the loaded map area, rather than appearing out of thin air at the boundary of the loaded area directly opposite the current tile.
 
 曾在计划中但调研后放弃
 Previously planned but abandoned after research

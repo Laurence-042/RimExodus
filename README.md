@@ -44,6 +44,8 @@
 ### 跨图战斗
 - 爆炸 AoE 不跨缝（弹着点在落点地图原生结算）；迫击炮类越顶投射物不跨缝。
     - 设计如此：我不想patch太多导致兼容性下降
+- **袭击外缘生成的边界**：从邻图行军过来的袭击者不会绑架/偷窃（与跨缝追击的敌人同语义）；袭击超时计时包含行军时间；行军途经图上有你的殖民者/建筑时会先与本地交战（涌现行为）；发狂动物与食尸鬼只做进场方向约束、不会从邻图走过来；邪教徒围攻与访客/旅行者暂不参与外缘进场。
+    - 设计如此：动物类近战索敌不跨图、邪教徒围攻机制特殊且跨图化难度剧增
 - 跨图寻路/选点为**单跳**（不支持一次下令穿越多张地图；多段行程需逐图下令）。
     - 设计如此：rimworld的地图运行开销不算小，我不建议玩家同时开太多地图。而且要实现视野内同时显示多格地图不仅会带来额外的常驻渲染开销，还需要改很多摄像机相关内容，可能和SimpleCameraSetting之类的产生冲突
 
@@ -161,6 +163,7 @@
 | Keep-weight X / Y | 0 / -1 | 淘汰权重 = X×居住区格数 + Y×封存新近度序号（1 = 最近封存），超限先淘汰权重最低者。默认 X=0/Y=-1 = 最旧先出（"保留最近 N 个"）；调大 X 保护大基地、Y 正值反向（新封存先出） |
 | Ask about small home areas before deleting | 开 | 居住区低于阈值的地图到删除距离时弹窗询问保留/删除；"以后不再询问"选项需二次确认（讲清后果），之后这类地图直接删除。可在本设置重开 |
 | Cross-map targeting & shooting | 开 | 跨缝索敌与射击总开关（关 = 战斗语义回原版，便于 A/B） |
+| Walk-in raids arrive from the outer edge | 开 | 步行来袭的敌人（步行袭击者、发狂动物、食尸鬼等）从对侧尚未看见的接缝进场，而非从已加载地图之间的边界凭空出现；敌对步行袭击可在一跳邻图外侧进场并行军跨缝攻来（空投/钻地等非步行进场不受影响；邪教徒围攻与访客等暂不在此范围）。关 = 完全原版落点 |
 | Seam band & evacuation toggle | 开 | **不在设置窗口，在地图右下角全局控制条（PlaySettings）**。沉浸模式开关：关闭后隐藏浅绿撤离带与接缝划线，并禁用一切经接缝带的原生离场成队（含组队界面出口）——跨缝步行/跨图下令不受影响。为录视频/截图的沉浸需求设计，非正常游玩用途（关闭期间无法主动经接缝带组队离场） |
 | Hide empty colonist bar groups | 关 | **同上，在全局控制条（PlaySettings）**。开启后殖民者栏隐藏"无玩家 pawn 的非玩家家地图"的空分组框（无缝世界常驻多图时原版为每图画一个可点空框，挤占栏位）；玩家家园（含暂时无人的家）始终保留。默认关 = 殖民者栏原生行为 |
 | Diagnostic logs by module（分模块诊断日志） | 全关 | 按模块开关详细日志（9 个模块 + 一个总控）：生成与地形 / 传送与边界 / **远行队离场诊断（[caravan-exit]）** / **天气域** / 休眠与性能 / 跨图战斗 / 兼容层 / 据点与贸易 / 核心与图管理。排查问题或向作者报告时**只开相关模块**，避免全量日志刷屏。警告/错误与低频生命周期心跳（休眠入睡/唤醒/删除、降频开/关）不受开关控制、始终记录。取代旧的单一"详细日志"总开关 |
@@ -194,7 +197,7 @@
 | `Lifecycle/` | 地图滚动生命周期：软休眠、距离删除、天气域、原生家族/Settlement 接管 | `SeamlessDormancyGovernor`（距离策略 + 全局静态清扫）+ `Patches_Dormancy`、`SeamlessTickThrottle` + `Patches_TickThrottle`（分级休眠中间档：无玩家空图降频 tick + 接缝快速区）、`SeamlessMapGovernance`（管辖/家园特权判定唯一出处）、`SeamlessWeatherClusterManager` + `Patches_WeatherDomain`（群系连通域共享天气：决策集中在激活图、执行各图原生进行）、`Patches_CampTileMap`（营地接入生成链）、`Patches_NativeMapFamily`（"人走即删"族接管 + 败亡守卫）、`SeamlessManualDormancyGizmos`（手动休眠/删除 gizmo 唯一构造处：地块图覆写 + 原生家族 MapParent.GetGizmos Postfix）、`SeamlessSettlementTrader`/`SeamlessSettlementTalk`/`Patches_SettlementTrade`（派系基地贸易商与对话/交易） |
 | `Transfer/` | 跨缝传送机制：许可登记、触发、桥接下令 | `SeamlessMapTransferTrigger`（踩点热路径）、`SeamlessTransferGrants`（许可登记表）、`SeamlessMapTransfer`（传送执行）、`SeamlessCrossMapOrders`（桥接下令 + 双侧代价场选点）、`SeamlessPathCostField`（Dijkstra 代价场）、`SeamlessBoundaryRules`（主体资格判定）、`Patches_Job`（StartJob 钩子：撤离登记/许可清理）、`Patches_PawnPathFollower`（nextCell 踩点触发） |
 | `Interaction/` | 跨图交互 UI 层：点击重放、选中保持、相机、虚拟传送 | `Patches_ClickReplay` + `SeamlessReplayContext`（邻图点击重放链）、`SeamlessGenUI`、`SeamlessSelectionTracker`（跨切图选中保持）、`SeamlessCameraFocus`（自动聚焦 + 无感相机）、`SeamlessVirtualTeleporter`（评估窗口零写入的坐标系虚拟传送）、`Patches_CrossMapCommon`/`Patches_ReachabilityCrossMap`（CanReach 真实化等公共函数层）、`Patches_Selector`（殖民者栏休眠过滤）、`Patches_CaravanExitDiagnostics` |
-| `Combat/` | 跨图索敌与射击 | `SeamlessCrossMapSight`（分段 LOS）、`SeamlessCombatCoords`（统一坐标与归属路由）、`Patches_CombatTargetSearch`（索敌两层模型跨图化）、`Patches_CombatTargeting`（TryCastShot 门/ShotReport）、`Patches_Projectile`（弹丸缝交接）、`Patches_CombatVisuals`（朝向/瞄准角/连线等视觉修正） |
+| `Combat/` | 跨图索敌与射击 | `SeamlessCrossMapSight`（分段 LOS）、`SeamlessCombatCoords`（统一坐标与归属路由）、`Patches_CombatTargetSearch`（索敌两层模型跨图化）、`Patches_CombatTargeting`（TryCastShot 门/ShotReport）、`Patches_Projectile`（弹丸缝交接）、`Patches_CombatVisuals`（朝向/瞄准角/连线等视觉修正）、`SeamlessRaidOuterSpawn` + `Patches_RaidOuterSpawn`（袭击外缘生成：步行袭击从外侧接缝进场，敌对袭击可从一跳邻图行军攻来） |
 | `EdgeBehavior/` | 地图边缘语义接缝化与预加载 | `SeamlessBorderPreloader`/`SeamlessTilePreloader`（边界带预加载队列）、`Patches_CellFinder`/`Patches_RCellFinder`（边缘出口格接缝池）、`Patches_Reachability`（CanReachMapEdge）、`Patches_RegionMaker`（区域触边判定）、`Patches_ExitMapGrid`（撤离带）、`Patches_PlaySettings`（沉浸模式开关 + 缩放门控） |
 | `Rendering/` | void 渲染与邻居背景 | `SeamlessTileRenderer`（CommandBuffer 邻图四层收集 + 光照天色分层）、`SeamlessVoidRockLink`（void 边界岩隐形 link 延续体）、`Patch_MapEdgeClipDrawer_DrawClippers` |
 | `Compat/` | 第三方 mod 兼容层（全部软检测，缺 mod 时零开销） | `SeamlessLandformsCompat`（Geological Landforms 分帧路径复刻）、`SeamlessMapPreviewCompat`（预览线程守卫与避让）、`SeamlessPerspectiveShiftCompat`（Perspective Shift 第一人称移动接入）、`SeamlessVehiclesCompat`（Vehicle Framework 载具移动/下令接入无缝世界）、`SeamlessVEFCompat`（VEF ObjectSpawns 地图物体刷出的可玩区位置过滤）；`Generation/GenerateMapPostfixReplay`（分帧路径通用复放第三方 GenerateMap postfix，VEF 刷出在地块图上生效的机制基础） |
