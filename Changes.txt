@@ -108,12 +108,18 @@ If you have any suggestions, feel free to share them here (though, due to limita
   Fixed: some ancient vents from Odyssey (e.g., ancient heat vents) were entirely invisible when seen from an adjacent map's background, only appearing after switching to that map.(@Touhoufanatic reported this issue)
 - 修复：远处地图上的持续环境音（如排放孔的轰鸣）会反复报错刷屏（"Tried to maintain ended sustainer"）
   Fixed: sustained ambient sounds on distant maps (e.g., ancient vent roars) repeatedly spammed the error log ("Tried to maintain ended sustainer")
+- 修复：较小的地图（如 200×200 开局）上，远古精炼厂等大型地标建筑可能缺一角——建筑选址偶尔会落在被裁切掉的区域上，压在那里的部分就整个消失。现在这些建筑总是完整落在实际可到达的区域内；空间实在不够时建筑会整体出现在地图中心附近，而不是缺一块
+  Fixed: on smaller maps (e.g., 200x200 starts), large landmark buildings such as the ancient chemfuel refinery could come up missing a corner — their placement occasionally landed partly on the cut-away area, and anything overlapping it was silently dropped. These buildings now always generate fully inside the reachable area; when there genuinely isn't room, the whole building appears near the map center instead of losing a chunk.
+- 修复：较小的地图上部分地图内容会整块缺失并刷警告（如"机械体坠毁平台找不到可用的空地"、废墟群不生成）——内容选址用的"可用空地"被过度裁掉了。现在选址会自动收缩到可到达区域内而不是直接放弃，这些内容恢复正常生成
+  Fixed: on smaller maps, some map content could be skipped entirely with a warning (e.g., crashed mechanoid platforms reporting "did not find any valid rects", ruins not spawning) — the usable placement rects were being cut away too aggressively. Placement rects are now shrunk to fit the reachable area instead of being discarded, so this content generates normally again.
 
 
 TODO（优先级从高到低）
 TODO (Priority Order)
 - （常驻）bug 修复
 (Ongoing) Bug fixes
+- （@Orizay的需求）适配VGE 1，其 gauss cannon 似乎无法射击邻接地图
+- （@lophothedilo的需求）适配 Giddy-Up 2 - Continued https://steamcommunity.com/workshop/filedetails/?id=3674332861 ，当前骑乘动物跨过接缝时人和动物分离了（应该是因为缺少了类似奴隶叛乱、征召状态相似的恢复处理——更统一的适配方式？）
 
 曾在计划中但调研后放弃
 Previously planned but abandoned after research
