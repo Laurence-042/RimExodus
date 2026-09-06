@@ -104,6 +104,10 @@ If you have any suggestions, feel free to share them here (though, due to limita
   Fixed: vehicle wrecks from Vanilla Vehicles Expanded (and other content that uses Vanilla Expanded Framework to scatter objects onto maps) used to spawn in the unreachable area beyond the edge of seamless maps — visible but unreachable, and they would "disappear" once you crossed the seam; some seamless maps got none at all. These objects now spawn inside the actually reachable area, and frame-split generated maps get them properly too.(@Icarus reported this issue)
 - 步行来袭的敌人（部落的步行袭击、海盗的步行袭击、发狂的动物、异象的食尸鬼等）现在会从你还没探索过的方向进场：要么出现在当前地图朝向"对面还没有地图或处于休眠"的边上，要么出现在相邻地图的外侧边缘然后一路向你进军——不再从你正盯着的已加载地图之间的边界上凭空冒出来。空投、钻地等非步行进场不受影响。可在设置"跨图战斗"页关闭
   Enemies that attack on foot (walking tribal or pirate raiders, manhunter packs, Anomaly ghouls, etc.) now arrive from directions you have not explored: they either appear at a border whose far side has no map yet (or a dormant one), or enter along the outer edge of a neighboring map and march toward you — instead of popping out of thin air at a border between the maps you are already watching. Drop pods, tunnelers and other non-walking arrivals are unaffected. Can be disabled in the "Cross-map combat" settings tab
+- 修复：部分 Odyssey 远古排放孔（如远古热浪排放孔）从相邻地块的背景看过去时整只不显示，必须切换到那张地图才能看到（@Touhoufanatic 报告的问题）
+  Fixed: some ancient vents from Odyssey (e.g., ancient heat vents) were entirely invisible when seen from an adjacent map's background, only appearing after switching to that map.(@Touhoufanatic reported this issue)
+- 修复：远处地图上的持续环境音（如排放孔的轰鸣）会反复报错刷屏（"Tried to maintain ended sustainer"）
+  Fixed: sustained ambient sounds on distant maps (e.g., ancient vent roars) repeatedly spammed the error log ("Tried to maintain ended sustainer")
 
 
 TODO（优先级从高到低）

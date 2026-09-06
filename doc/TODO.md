@@ -21,7 +21,7 @@ It would be cool if some objects were tagged as persistent, like walls and const
 邪教徒围攻的机制可能和其他聚集生成的步行袭击不同，需要确定其机制再决定做不做。而且邪教徒围攻在更大范围生成可能会带来显著的难度提升（原本玩家就需要绕地图一圈打邪教徒，绕多个地图一圈显然难度大幅上升），所以不能做也是可以接受的
 
 
-- @Touhoufanatic报告，排期0.1.10：ancient_smoke_vent在邻接地图上没有显示，按理说这应该是一个building
+- [已修复 2026-09-06，游戏内回归通过] @Touhoufanatic报告，排期0.1.10：ancient_smoke_vent在邻接地图上没有显示，按理说这应该是一个building（根因定案：报告观察到的实为 `AncientHeatVent` 等 `drawerType=RealtimeOnly` 的排放孔——其唯一绘制路径是聚焦图的 DynamicDrawManager（原版只在 CurrentMap 上跑），静态 mesh 被 `SectionLayer_Things.Regenerate` 的 RealtimeOnly 过滤结构性排除，而邻图背景只收集四个静态 section 层 + 手画 pawn/弹丸 → 跨缝整只缺失、聚焦才可见。修复 = `SeamlessTileRenderer.DrawNeighborRealtimeThings`（遍历邻图 `dynamicDrawManager.DrawThings` 只挑 RealtimeOnly、排除 pawn/弹丸防双画、视区+雾过滤与 pawn 通道同族）；烟/毒型排放孔是 MapMeshOnly 本体本就在 mesh 内正常显示，其烟柱 fleck 属邻图不画的动态粒子（已知缺口，是否补画待定夺）。诊断/定案过程与探针勘误见 AGENTS.md「void 渲染与邻居背景」节）
 - @Icarus报告，排期0.1.10： 较小的地图上某些大型地标建筑（比如燃料精炼设施）可能会缺少一角
 - @Orizay报告，排期0.1.11：when using turrets that can shoot cross maps like VGE 1 gauss cannon the shoots gets stuck on the neighbor maps. For example if I have all the six maps generated around my home map and I shoot in to another map far away the shoots just get's stuck on the maps around my home map. Hope u can replicate a and fix the bug, overall I'm loving this mod so far.
 - @@lophothedilo报告，排期0.1.11：Giddy-Up 2 - Continued https://steamcommunity.com/workshop/filedetails/?id=3674332861 骑乘动物跨过接缝时人和动物分离了（应该是因为缺少了类似奴隶叛乱、征召状态相似的恢复处理——更统一的适配方式？）
