@@ -84,6 +84,10 @@ namespace RimExodus
             /// <summary>只剩已访问出口可用：踩点直接原生离场（撤离链终止兜底）。</summary>
             public bool ForceExit;
 
+            /// <summary>撤离推迟 patch（Patches_EvacuationExitDefer）的日志节流：
+            /// 上次输出 deferred 日志的 tick，0 = 未输出过（许可按 job 重建，天然按许可重置）。</summary>
+            public int LastDeferLogTick;
+
             public int CreatedTick = GenTicks.TicksGame;
         }
 
@@ -110,7 +114,8 @@ namespace RimExodus
 
         private static ThingDef _enterSpotDef;
 
-        private static ThingDef EnterSpotDef
+        /// <summary>传送点 def（缓存；撤离推迟 patch 与踩点触发器共用的判据源）。</summary>
+        internal static ThingDef EnterSpotDef
         {
             get
             {

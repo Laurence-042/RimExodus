@@ -227,6 +227,23 @@ namespace RimExodus
                     + "— opposite not loaded, JobDriver pre-tick will despawn (exits as world pawn).");
         }
 
+        /// <summary>
+        /// cell 上是否有 RimExodus 传送点 thing。撤离推迟 patch（Patches_EvacuationExitDefer）的判据，
+        /// 与 <see cref="TryTriggerTransfer"/> 的 spot 识别同口径（thingGrid 逐 thing 比 def）。
+        /// </summary>
+        internal static bool HasEnterSpotAt(Map map, IntVec3 cell)
+        {
+            if (map == null || !cell.InBounds(map)) return false;
+            var spotDef = SeamlessTransferGrants.EnterSpotDef;
+            if (spotDef == null) return false;
+            var things = map.thingGrid.ThingsListAt(cell);
+            for (var i = 0; i < things.Count; i++)
+            {
+                if (things[i].def == spotDef) return true;
+            }
+            return false;
+        }
+
         /// <summary>传送成功后的公共收尾：相机聚焦、选中恢复、传送完成事件（续程 + 追击/跟随扫描）。</summary>
         private static void AfterTransfer(Pawn pawn, Map departureMap, Thing departureSpot, Map arrivalMap, SeamlessTransferGrants.Grant grant)
         {
