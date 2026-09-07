@@ -21,6 +21,13 @@ namespace RimExodus
         /// </summary>
         internal static bool TryTransferPawn(Pawn pawn, Thing departureSpot, Map arrivalMap, IntVec3 arrivalCell, SeamlessTransferGrants.Grant grant, out bool wasSelected)
         {
+            return TryTransferPawnInternal(pawn, departureSpot, arrivalMap, arrivalCell, grant, out wasSelected,
+                captureAssociations: true);
+        }
+
+        private static bool TryTransferPawnInternal(Pawn pawn, Thing departureSpot, Map arrivalMap, IntVec3 arrivalCell,
+            SeamlessTransferGrants.Grant grant, out bool wasSelected, bool captureAssociations)
+        {
             wasSelected = false;
             if (pawn == null || departureSpot == null || arrivalMap == null)
             {
@@ -71,6 +78,7 @@ namespace RimExodus
             }
             var departureCell = pawn.Position;
             var rotation = pawn.Rotation;
+            var associationSessions = captureAssociations ? SeamlessTransferAssociations.Capture(pawn) : null;
             if (SeamlessVehiclesCompat.IsVehicle(pawn))
             {
                 // ① 对图 VF 网格同步就绪化（Urgent，官方模式）——未就绪时一切 VF 判定都是错的
@@ -133,6 +141,12 @@ namespace RimExodus
                 pawn.drafter.Drafted = true;
                 pawn.drafter.FireAtWill = wasFireAtWill;
             }
+
+            // Restore multi-pawn relationships only after the primary pawn is safely spawned. Associated pawns
+            // use this same state-preserving transfer path, but do not recursively capture the same relationship.
+            SeamlessTransferAssociations.Restore(associationSessions, associatedPawn =>
+                TryTransferPawnInternal(associatedPawn, departureSpot, arrivalMap, arrivalCell, null, out _,
+                    captureAssociations: false));
 
             if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] Seamless transfer: {pawn.LabelShort} "

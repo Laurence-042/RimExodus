@@ -62,6 +62,11 @@ namespace RimExodus
             // GenerateMapPostfixReplay 复放机制提供，见 IncrementalMapGenerator.FinishGeneration）。
             SeamlessVEFCompat.Register(harmony);
 
+            // Giddy-Up 2 compatibility: mounted riders and animals are separate spawned pawns. Register a
+            // generic transfer-association provider which moves the mount through the normal state-preserving
+            // transfer path and asks Giddy-Up to rebuild its own relationship/job after arrival.
+            SeamlessGiddyUpCompat.Register();
+
             // 绑定核对（2026-08，配合离线验证器甄别 CLR 伪迹 vs 死代码）：GetPatchedMethods 列出
             // 本 harmony 实例实际绑定的方法（真实 Mono 运行时结果，不受离线 CLR 伪迹影响）。
             // 离线验证器的 9 个伪迹失败 patch（GetClearRects/SelectInternal/SetTerrain/MapPreTick·MapUpdate/

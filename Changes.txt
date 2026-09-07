@@ -6,98 +6,23 @@ Although I would like to boldly claim that I can implement all of these features
 
 If you have any suggestions, feel free to share them here (though, due to limitations in my time and ability, I may not be able to implement all of them).
 
-0.1.0（初次发布）
-0.1.0 (Initial Release)
-- 地图无缝拼接
-  Seamless map stitching
-- 地图六边形/五边形裁剪
-  Hexagonal/pentagonal map clipping
-- 跨图寻路
-  Cross-map pathfinding
-- 分帧生成地图
-  Frame-sliced map generation
-- 连续地形
-  Continuous terrain
-- 跨图战斗
-  Cross-map combat
-- 地图滚动休眠/删除
-  Map suspension/deletion based on distance
-- 盟友定居点内的贸易商
-  Traders in allied settlements
+TODO（优先级从高到低）
+TODO (Priority Order)
+- （常驻）bug 修复
+(Ongoing) Bug fixes
+- （@Orizay的需求）适配VGE 1，其 gauss cannon 似乎无法射击邻接地图
+  (Requested by @Orizay) Add compatibility for VGE 1; its Gauss Cannon currently fails to fire into adjacent maps.
+-  优化跨图射击，这样结合0.1.10的邻接地图日常冻结+袭击时解冻机制，这将可以把跨图战斗变成常态，让玩家使用xml patch修改武器射程，实现真正的步枪射击距离
+  Optimize cross-map shooting. Combined with the mechanism introduced in v0.1.10—where adjacent maps are frozen during normal play but unfreeze during raids—this will allow cross-map combat to become a standard feature, enabling players to use XML patches to adjust weapon ranges and achieve realistic rifle engagement distances.
+- 当跨图射击以及可选的武器射程tweak完成后，这个mod就会脱离测试期，进入1.0.0，然后基本就不会有大功能变化了，只会进行一些相对合理且解决代价不大的兼容性、可靠性修复
+- 如果你想问我接下来去干啥。其实我有在开发一个游戏。这个mod实际上只是我在闲暇时测试一些新技术的实验性项目，但它远比我想得受欢迎，为了大家的热情我也为此投入了远超预期的额外时间，这导致游戏开发进度有些滞后了，所以我肯定得去补进度了。
+- 如果你实际上想问我之后还做不做rimworld的mod，我猜也许可能大概也许……会？说实话做rimworld mod有时候比玩rimworld本身还有意思，而且我也确实有些额外想法，比如基于逆重飞船做个类sos2的mod，使用这个mod中催熟的技术，通过同时渲染玩家和敌人舰船的地图，并移动敌人舰船地图的形式，做出类似The Last Starship的效果，避免抽象的单纯按抽象距离结算跨地图互轰（有人受此启发想实现的话尽管去做就行，毕竟还不知道猴年马月我那游戏才能搞定，而且就算搞定也大概率暴死，暴死之后就是继续当社畜，而社畜生活大家是知道的，到时候mod点子甚至都无法得到一个新建文件夹。所以放手去做，只是做之前麻烦和我说下，这样到时候我就不搞了，以免万一我有时间做了结果还撞车）。至于VE组的VGE chapter2，目前来看似乎不是为这个方向设计的，所以应该不必担心和VE组的撞车
 
-0.1.1
-- 添加了隐藏无人地图顶部条目的开关
-  Added an option to hide empty map entries from the top map bar
-- 修复了远行队的问题
-  Fixed caravan-related issues
-- 修复了存档读档后无法跨图的问题
-  Fixed the issue where cross-map functionality stopped working after loading a save
-- 精简发布包大小
-  Reduced release package size
-
-0.1.2
-- 优化性能
-  Improved performance
-- 优化邻接地图加载机制，允许短时间触发多个邻接地图的加载
-  Improved the adjacent map loading mechanism, allowing multiple adjacent maps to be loaded within a short period of time
-- 修复邻接地图的动物被渲染在迷雾上方的 bug
-  Fixed a bug where animals on adjacent maps were rendered above the fog of war
-
-0.1.3
-- 优化地图生成机制，应该有助于避免出现奇怪的石墙（@辰 报告的问题）
-  Improved the map generation mechanism, which should help prevent strange rock wall formations (@辰's reported issue)
-- 优化地形探针的输出内容，让调试更加简单
-  Improved terrain probe output to make debugging easier
-- 优化 pawns 归属地块状态追踪机制，应该有助于避免出现殖民者偶尔被同时计在两个地点的问题 bug（@rex20d 报告的问题）
-  Improved pawn location tracking, which should help prevent the bug where colonists were occasionally counted as belonging to two locations at the same time (@rex20d's reported issue)
-- 添加主动将地图恢复为兼容原版的状态，以可控地卸载 mod 的功能（路线计划的一部分）
-  Added the ability to actively restore maps to vanilla-compatible states, allowing controlled mod unloading (part of the roadmap)
-- 将休眠和删除阈值下界设为 2，并避免设置为 1 时频繁休眠删除带来的体验问题
-  Increased the minimum suspension/deletion threshold to 2, avoiding the poor experience caused by frequent suspension and deletion when set to 1
-
-0.1.4
-- 修复偶现的与 Dubs Mint Minimap 共同使用时 OnGUI 每帧空引用崩溃的bug
-  Fixed an intermittent NullReferenceException crash occurring every frame in OnGUI when used alongside Dubs Mint Minimap.
-
-0.1.5
-- 修复激活mod时太空地图背景被清除为黑色的bug
-  Fixed a bug where the space map background was cleared to black while the mod was active
-- 优化体验，邻接生成的地图保证从地图中心到接缝有一条不被岩石阻挡的走廊，避免玩家在 Geological Landforms 提供的五面环山地形走出唯一出口后发现是死路
-  Experience optimization: For adjacent map generation, a corridor free of rock obstructions is guaranteed between the map center and the edge, preventing players from encountering a dead end after exiting the only opening in the "surrounded by mountains on five sides" terrain provided by Geological Landforms.
-- 优化体验：重构河流相关地形生成，现在新地图上的河流的生成会更加自然，连续性也会更好
-  Experience optimization: Refactored river terrain generation; rivers on new maps now generate more naturally and with better continuity.
-  - 已知限制：优化过程中发现 Geological Landforms 的河流地貌会整体替换原版河流生成，这会导致GL的河流在不同地块生成的地图上不连续。如果非常在意连续性，可以在其设置中禁用全部河流地貌并打开原版河流地貌（详见 README 兼容性表）
-    Known limitation: During optimization, it was discovered that Geological Landforms' river features entirely replace vanilla river generation, causing GL rivers to lack continuity across adjacent map tiles. If continuity is a priority, you can disable all GL river features in the settings and enable vanilla river features instead (refer to the compatibility table in the README for details).
-
-0.1.6
-- 修复读取旧存档（或关闭快照入存档后读档）时生成邻接地图接缝地形不连续的问题：生成邻图前若当前地图缺少地形快照，会在一张临时地图上只重跑地形/岩石/屋顶的精简生成来重建快照（每张图一次性几百毫秒），接缝混合参考由此恢复
-  Fixed seam terrain discontinuity on neighboring maps generated after loading older savegames (or with snapshot serialization disabled): if the current map lacks a terrain snapshot before a neighbor map is generated, a lean regeneration (terrain/rock/roof only) runs once on a temporary map to rebuild the snapshot, restoring the seam mixing reference.
-
-0.1.7
-- 优化多地图下的天气表现：同一片连续群系内的相邻地图现在共享同一场天气（同时下雨、同时放晴），且降雨打湿地面、积雪、闪电与天气音效在每张地图上都会正常生效——此前这些天气效果只会出现在其中一张地图上
-  Improved weather across maps: adjacent maps within the same continuous biome now share the same weather (it rains and clears on all of them at once), and rain wetting, snow buildup, lightning and weather ambience now take effect properly on every map — previously these effects only occurred on one of the maps. 
-- 修复仪式、灾害等强制天气在多地图环境下生效与结束时行为不一致的问题（有时会表现为卡死）（@Eziojosh02 报告的问题）
-  Fixed inconsistent behavior of forced weather (rituals, disasters, etc.) starting and ending in multi-map environments(sometimes causing the weather to remain stuck on a specific type). (@Eziojosh02's reported issue)
-- 设置中新增按模块开关的诊断日志（生成、传送、远行队离场、天气等 9 个模块）：向作者报告问题时只需打开相关模块，日志干净易读；同时清理了部分此前始终输出的调试信息
-  Added per-module diagnostic logging toggles in the settings (generation, transfer, caravan exit, weather, etc. — 9 modules): when reporting a problem you only need to enable the relevant module, keeping logs clean and readable; some debug messages that were always printed are now cleaned up.
-- 世界地图上选中已生成地图的派系基地等地点对象时，现在也可以手动休眠/删除（此前仅无缝地块图支持）。删除按原版规则处理：派系基地删图后世界对象保留、再次靠近时重新生成驻军，其余地点（伏击、战场等）连对象一并移除；图上有殖民者/运输舱等阻碍移除的单位时删除不可用（按钮灰显并提示原因）（@Hezmana 和 @Eziojosh02 报告的问题）
-  Faction bases and other location objects with generated maps on the world map can now be manually suspended/deleted (previously only seamless tile maps had this). Deletion follows vanilla rules: faction bases keep their world object and regenerate their garrison when revisited, while other locations (ambushes, battlefields, etc.) are removed entirely; deletion is unavailable (button greyed out with a reason) while pawns or transporters block map removal. (@Hezmana and @Eziojosh02 reported this issue)
-- 修复 Perspective Shift 第一人称模式下持续按住方向跨缝时，在两张地图间来回弹射的问题（@Hezmana 报告的问题）
-  Fixed pawns bouncing back and forth between two maps when holding a movement direction across a seam in Perspective Shift first-person mode. (@Hezmana's reported issue)
-- 修复当使用原版地图生产流程时，生成进度标签来不及显示、卡顿期间画面上没有任何提示的问题
-  Fixed the progress label failing to appear in time during vanilla map generation, leaving no feedback while the game was freezing.
-
-0.1.8
-- 修复内存泄漏：长时间游玩不断探索新地块时，已删除地图的内部数据会一直残留在内存中（每张图约几 MB，探索越多积得越多），现在这些数据会随地图删除一起释放；从主菜单读取其他存档或开新档时也会彻底清理一遍
-  Fixed a memory leak: during long playthroughs with continuous exploration, internal data of deleted maps (a few MB each) kept lingering in memory and piled up as you explored. This data is now released together with its map, and fully cleared when loading another savegame or starting a new one from the main menu.
-- 修复殖民者登上穿梭机或其他运输舱时直接消失的问题（@辰 和 @王三123 报告的问题）
-  Fixed colonists vanishing instantly when boarding shuttles or other transporters. (@辰 and @王三123 reported this issue)
-
-0.1.9
-- 装有 Geological Landforms 时不再需要手动关闭它的河流地貌：河流现在会在相邻地块之间连续流动（此前若不关闭，河在地块交界处会错位断裂）。注意只对新生成的地图生效，已生成过的地图不会变化
-  Geological Landforms' river landforms no longer need to be disabled manually: rivers now flow continuously across neighboring tiles when GL is installed (previously rivers would be misaligned and broken at tile borders unless you disabled them). Note this only applies to newly generated maps; already-generated maps are unaffected.
-- 前哨保留：你建造过的地图（画了居住区的）离你太远时不再被完全删除，居住区里的建筑、地板、屋顶和留下的物资会被"封存"到硬盘——地图不再占用内存，但修改仍能保留；你再回来时地图重新生成，你的前哨会在原样重建（居住区内挖开的山体也不会复原）。封存的地块在世界地图上显示青绿色，不想要了可以在上面选"丢弃已封存"来删掉对应地图的封存数据
-  Outpost preservation: maps you have built on (with a home area drawn) are no longer fully deleted when they get too far away. Buildings, floors, roofs and items left inside the home area are "archived" to disk — the map no longer occupies memory, but your changes are preserved. When you come back, the map regenerates and your outpost is rebuilt as it was (mountains you mined out within the home area stay mined, too). Archived tiles show a teal color on the world map; if you no longer want one, select the tile and choose "Discard archived data" to delete that map's archive.
+0.1.11
+- 修复：新生成的原版河流在相邻地块交界处有时会出现不自然的急拐或凹陷。现在河道会更平滑地穿过地块边界（仅影响新生成的地图；@月吟裔德格 报告的问题）
+  Fixed: newly generated vanilla rivers could sometimes form unnatural sharp bends or dips where neighboring tiles meet. Rivers now cross tile borders more smoothly (only affects newly generated maps; reported by @月吟裔德格).
+- 修复：使用 Giddy-Up 2 - Continued 骑乘动物跨越地块接缝时，骑手与坐骑会被留在两张地图。现在坐骑会随骑手一同过缝并保持骑乘状态（@lophothedilo 报告的问题）
+  Fixed: when using Giddy-Up 2 - Continued, riders and mounts could end up on separate maps after crossing a tile seam. Mounts now cross with their riders and remain mounted. (Reported by @lophothedilo.)
 
 0.1.10
 - 修复：Vanilla Vehicles Expanded 等模组随机散布到地图上的物体（如载具残骸）会生成在无缝地图边缘外的不可达区域、或干脆不出现。现在它们总是生成在实际可到达的区域内（@Icarus 报告的问题）
@@ -129,24 +54,98 @@ If you have any suggestions, feel free to share them here (though, due to limita
 - 修复：分帧地图生成失败后，同一地块可能在本次游戏中一直无法重试生成；失败残留现在会被完整清理
   Fixed: after frame-sliced map generation failed, the same tile could remain impossible to generate again during that game session; failed-generation state is now cleaned up completely.
 
-0.1.11
-- 修复：新生成的原版河流在相邻地块交界处有时会出现不自然的急拐或凹陷。现在河道会更平滑地穿过地块边界（仅影响新生成的地图；@月吟裔德格 报告的问题）
-  Fixed: newly generated vanilla rivers could sometimes form unnatural sharp bends or dips where neighboring tiles meet. Rivers now cross tile borders more smoothly (only affects newly generated maps; reported by @月吟裔德格).
+0.1.9
+- 装有 Geological Landforms 时不再需要手动关闭它的河流地貌：河流现在会在相邻地块之间连续流动（此前若不关闭，河在地块交界处会错位断裂）。注意只对新生成的地图生效，已生成过的地图不会变化
+  Geological Landforms' river landforms no longer need to be disabled manually: rivers now flow continuously across neighboring tiles when GL is installed (previously rivers would be misaligned and broken at tile borders unless you disabled them). Note this only applies to newly generated maps; already-generated maps are unaffected.
+- 前哨保留：你建造过的地图（画了居住区的）离你太远时不再被完全删除，居住区里的建筑、地板、屋顶和留下的物资会被"封存"到硬盘——地图不再占用内存，但修改仍能保留；你再回来时地图重新生成，你的前哨会在原样重建（居住区内挖开的山体也不会复原）。封存的地块在世界地图上显示青绿色，不想要了可以在上面选"丢弃已封存"来删掉对应地图的封存数据
+  Outpost preservation: maps you have built on (with a home area drawn) are no longer fully deleted when they get too far away. Buildings, floors, roofs and items left inside the home area are "archived" to disk — the map no longer occupies memory, but your changes are preserved. When you come back, the map regenerates and your outpost is rebuilt as it was (mountains you mined out within the home area stay mined, too). Archived tiles show a teal color on the world map; if you no longer want one, select the tile and choose "Discard archived data" to delete that map's archive.
 
+0.1.8
+- 修复内存泄漏：长时间游玩不断探索新地块时，已删除地图的内部数据会一直残留在内存中（每张图约几 MB，探索越多积得越多），现在这些数据会随地图删除一起释放；从主菜单读取其他存档或开新档时也会彻底清理一遍
+  Fixed a memory leak: during long playthroughs with continuous exploration, internal data of deleted maps (a few MB each) kept lingering in memory and piled up as you explored. This data is now released together with its map, and fully cleared when loading another savegame or starting a new one from the main menu.
+- 修复殖民者登上穿梭机或其他运输舱时直接消失的问题（@辰 和 @王三123 报告的问题）
+  Fixed colonists vanishing instantly when boarding shuttles or other transporters. (@辰 and @王三123 reported this issue)
 
-TODO（优先级从高到低）
-TODO (Priority Order)
-- （常驻）bug 修复
-(Ongoing) Bug fixes
-- （@Orizay的需求）适配VGE 1，其 gauss cannon 似乎无法射击邻接地图
-  (Requested by @Orizay) Add compatibility for VGE 1; its Gauss Cannon currently fails to fire into adjacent maps.
-- （@lophothedilo的需求）适配 Giddy-Up 2 - Continued https://steamcommunity.com/workshop/filedetails/?id=3674332861 ，当前骑乘动物跨过接缝时人和动物分离了（应该是因为缺少了类似奴隶叛乱、征召状态相似的恢复处理——更统一的适配方式？）
-  (Requested by @lophothedilo) Add compatibility for Giddy-Up 2 - Continued (https://steamcommunity.com/workshop/filedetails/?id=3674332861); currently, the rider and mount separate when crossing map boundaries (likely due to a missing recovery mechanism similar to those used for slave rebellions or drafted states—perhaps a more unified compatibility approach is needed?).
--  优化跨图射击，这样结合0.1.10的邻接地图日常冻结+袭击时解冻机制，这将可以把跨图战斗变成常态，让玩家使用xml patch修改武器射程，实现真正的步枪射击距离
-  Optimize cross-map shooting. Combined with the mechanism introduced in v0.1.10—where adjacent maps are frozen during normal play but unfreeze during raids—this will allow cross-map combat to become a standard feature, enabling players to use XML patches to adjust weapon ranges and achieve realistic rifle engagement distances.
-- 当跨图射击以及可选的武器射程tweak完成后，这个mod就会脱离测试期，进入1.0.0，然后基本就不会有大功能变化了，只会进行一些相对合理且解决代价不大的兼容性、可靠性修复
-- 如果你想问我接下来去干啥。其实我有在开发一个游戏。这个mod实际上只是我在闲暇时测试一些新技术的实验性项目，但它远比我想得受欢迎，为了大家的热情我也为此投入了远超预期的额外时间，这导致游戏开发进度有些滞后了，所以我肯定得去补进度了。
-- 如果你实际上想问我之后还做不做rimworld的mod，我猜也许可能大概也许……会？说实话做rimworld mod有时候比玩rimworld本身还有意思，而且我也确实有些额外想法，比如基于逆重飞船做个类sos2的mod，使用这个mod中催熟的技术，通过同时渲染玩家和敌人舰船的地图，并移动敌人舰船地图的形式，做出类似The Last Starship的效果，避免抽象的单纯按抽象距离结算跨地图互轰（有人受此启发想实现的话尽管去做就行，毕竟还不知道猴年马月我那游戏才能搞定，而且就算搞定也大概率暴死，暴死之后就是继续当社畜，而社畜生活大家是知道的，到时候mod点子甚至都无法得到一个新建文件夹。所以放手去做，只是做之前麻烦和我说下，这样到时候我就不搞了，以免万一我有时间做了结果还撞车）。至于VE组的VGE chapter2，目前来看似乎不是为这个方向设计的，所以应该不必担心和VE组的撞车
+0.1.7
+- 优化多地图下的天气表现：同一片连续群系内的相邻地图现在共享同一场天气（同时下雨、同时放晴），且降雨打湿地面、积雪、闪电与天气音效在每张地图上都会正常生效——此前这些天气效果只会出现在其中一张地图上
+  Improved weather across maps: adjacent maps within the same continuous biome now share the same weather (it rains and clears on all of them at once), and rain wetting, snow buildup, lightning and weather ambience now take effect properly on every map — previously these effects only occurred on one of the maps.
+- 修复仪式、灾害等强制天气在多地图环境下生效与结束时行为不一致的问题（有时会表现为卡死）（@Eziojosh02 报告的问题）
+  Fixed inconsistent behavior of forced weather (rituals, disasters, etc.) starting and ending in multi-map environments(sometimes causing the weather to remain stuck on a specific type). (@Eziojosh02's reported issue)
+- 设置中新增按模块开关的诊断日志（生成、传送、远行队离场、天气等 9 个模块）：向作者报告问题时只需打开相关模块，日志干净易读；同时清理了部分此前始终输出的调试信息
+  Added per-module diagnostic logging toggles in the settings (generation, transfer, caravan exit, weather, etc. — 9 modules): when reporting a problem you only need to enable the relevant module, keeping logs clean and readable; some debug messages that were always printed are now cleaned up.
+- 世界地图上选中已生成地图的派系基地等地点对象时，现在也可以手动休眠/删除（此前仅无缝地块图支持）。删除按原版规则处理：派系基地删图后世界对象保留、再次靠近时重新生成驻军，其余地点（伏击、战场等）连对象一并移除；图上有殖民者/运输舱等阻碍移除的单位时删除不可用（按钮灰显并提示原因）（@Hezmana 和 @Eziojosh02 报告的问题）
+  Faction bases and other location objects with generated maps on the world map can now be manually suspended/deleted (previously only seamless tile maps had this). Deletion follows vanilla rules: faction bases keep their world object and regenerate their garrison when revisited, while other locations (ambushes, battlefields, etc.) are removed entirely; deletion is unavailable (button greyed out with a reason) while pawns or transporters block map removal. (@Hezmana and @Eziojosh02 reported this issue)
+- 修复 Perspective Shift 第一人称模式下持续按住方向跨缝时，在两张地图间来回弹射的问题（@Hezmana 报告的问题）
+  Fixed pawns bouncing back and forth between two maps when holding a movement direction across a seam in Perspective Shift first-person mode. (@Hezmana's reported issue)
+- 修复当使用原版地图生产流程时，生成进度标签来不及显示、卡顿期间画面上没有任何提示的问题
+  Fixed the progress label failing to appear in time during vanilla map generation, leaving no feedback while the game was freezing.
+
+0.1.6
+- 修复读取旧存档（或关闭快照入存档后读档）时生成邻接地图接缝地形不连续的问题：生成邻图前若当前地图缺少地形快照，会在一张临时地图上只重跑地形/岩石/屋顶的精简生成来重建快照（每张图一次性几百毫秒），接缝混合参考由此恢复
+  Fixed seam terrain discontinuity on neighboring maps generated after loading older savegames (or with snapshot serialization disabled): if the current map lacks a terrain snapshot before a neighbor map is generated, a lean regeneration (terrain/rock/roof only) runs once on a temporary map to rebuild the snapshot, restoring the seam mixing reference.
+
+0.1.5
+- 修复激活mod时太空地图背景被清除为黑色的bug
+  Fixed a bug where the space map background was cleared to black while the mod was active
+- 优化体验，邻接生成的地图保证从地图中心到接缝有一条不被岩石阻挡的走廊，避免玩家在 Geological Landforms 提供的五面环山地形走出唯一出口后发现是死路
+  Experience optimization: For adjacent map generation, a corridor free of rock obstructions is guaranteed between the map center and the edge, preventing players from encountering a dead end after exiting the only opening in the "surrounded by mountains on five sides" terrain provided by Geological Landforms.
+- 优化体验：重构河流相关地形生成，现在新地图上的河流的生成会更加自然，连续性也会更好
+  Experience optimization: Refactored river terrain generation; rivers on new maps now generate more naturally and with better continuity.
+  - 已知限制：优化过程中发现 Geological Landforms 的河流地貌会整体替换原版河流生成，这会导致GL的河流在不同地块生成的地图上不连续。如果非常在意连续性，可以在其设置中禁用全部河流地貌并打开原版河流地貌（详见 README 兼容性表）
+    Known limitation: During optimization, it was discovered that Geological Landforms' river features entirely replace vanilla river generation, causing GL rivers to lack continuity across adjacent map tiles. If continuity is a priority, you can disable all GL river features in the settings and enable vanilla river features instead (refer to the compatibility table in the README for details).
+
+0.1.4
+- 修复偶现的与 Dubs Mint Minimap 共同使用时 OnGUI 每帧空引用崩溃的bug
+  Fixed an intermittent NullReferenceException crash occurring every frame in OnGUI when used alongside Dubs Mint Minimap.
+
+0.1.3
+- 优化地图生成机制，应该有助于避免出现奇怪的石墙（@辰 报告的问题）
+  Improved the map generation mechanism, which should help prevent strange rock wall formations (@辰's reported issue)
+- 优化地形探针的输出内容，让调试更加简单
+  Improved terrain probe output to make debugging easier
+- 优化 pawns 归属地块状态追踪机制，应该有助于避免出现殖民者偶尔被同时计在两个地点的问题 bug（@rex20d 报告的问题）
+  Improved pawn location tracking, which should help prevent the bug where colonists were occasionally counted as belonging to two locations at the same time (@rex20d's reported issue)
+- 添加主动将地图恢复为兼容原版的状态，以可控地卸载 mod 的功能（路线计划的一部分）
+  Added the ability to actively restore maps to vanilla-compatible states, allowing controlled mod unloading (part of the roadmap)
+- 将休眠和删除阈值下界设为 2，并避免设置为 1 时频繁休眠删除带来的体验问题
+  Increased the minimum suspension/deletion threshold to 2, avoiding the poor experience caused by frequent suspension and deletion when set to 1
+
+0.1.2
+- 优化性能
+  Improved performance
+- 优化邻接地图加载机制，允许短时间触发多个邻接地图的加载
+  Improved the adjacent map loading mechanism, allowing multiple adjacent maps to be loaded within a short period of time
+- 修复邻接地图的动物被渲染在迷雾上方的 bug
+  Fixed a bug where animals on adjacent maps were rendered above the fog of war
+
+0.1.1
+- 添加了隐藏无人地图顶部条目的开关
+  Added an option to hide empty map entries from the top map bar
+- 修复了远行队的问题
+  Fixed caravan-related issues
+- 修复了存档读档后无法跨图的问题
+  Fixed the issue where cross-map functionality stopped working after loading a save
+- 精简发布包大小
+  Reduced release package size
+
+0.1.0（初次发布）
+0.1.0 (Initial Release)
+- 地图无缝拼接
+  Seamless map stitching
+- 地图六边形/五边形裁剪
+  Hexagonal/pentagonal map clipping
+- 跨图寻路
+  Cross-map pathfinding
+- 分帧生成地图
+  Frame-sliced map generation
+- 连续地形
+  Continuous terrain
+- 跨图战斗
+  Cross-map combat
+- 地图滚动休眠/删除
+  Map suspension/deletion based on distance
+- 盟友定居点内的贸易商
+  Traders in allied settlements
 
 曾在计划中但调研后放弃
 Previously planned but abandoned after research
