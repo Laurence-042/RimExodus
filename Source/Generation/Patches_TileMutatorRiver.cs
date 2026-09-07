@@ -72,7 +72,7 @@ namespace RimExodus
     /// ③ 对称哈希：<see cref="SeamlessPolygonGeometry.SeamCrossingPoint"/>（对侧未生成；两侧同值）。
     ///
     /// 【void 跳过 + 免混合】见 <see cref="Patch_TileMutatorWorker_River_TerrainVoidSkip"/>：
-    /// 河生成时不向将来 void 格铺水/岸（外条带快照干净，根治快照互盖），实际修改格记入
+    /// 河生成时不向将来 void 格铺水/岸（void 侧基础快照干净，根治参考互盖），实际修改格记入
     /// <see cref="SeamlessRiverCells"/> 供 SeamOverride 跳过。
     ///
     /// 【守卫】<c>worldTile &lt; 0</c> 是防御性放行（防异常态/MapPreview 预览图），正常地图一律
@@ -297,7 +297,7 @@ namespace RimExodus
     /// 河流 void 跳过 + 修改格记录（2026-08-31 v3 抽象的落地）：
     /// Prefix 挂原版两个 private 地形判定方法——<c>RiverTerrainAt</c>（水）/ <c>RiverBankTerrainAt</c>
     /// （河岸）——cell 属将来 void 区（<see cref="SeamlessPolygonGeometry.IsVoidCell"/>，与 389 同口径、
-    /// 进程缓存）时返回 null：**河生成不进 void 区**。效果：389 清 void 前捕获的外条带快照
+    /// 进程缓存）时返回 null：**河生成不进 void 区**。效果：389 清 void 前捕获的基础快照
     /// 不再携带河水/岸，根治"旧图延伸河经快照复刻盖掉新图地面"（v2 大外延教训）。
     ///
     /// Postfix 同两方法：返回非 null 时把 cell 记入 <see cref="SeamlessRiverCells"/>（实际修改格），

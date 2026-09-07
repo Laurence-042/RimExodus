@@ -127,31 +127,5 @@ namespace RimExodus
             return false;
         }
 
-        /// <summary>
-        /// 统一取数入口：获取 worldTile 已生成地块的接缝条带快照（新图接缝混合的邻居参考数据）。
-        /// ① 图在 Find.Maps（**含休眠图**——本方法是数据查询而非邻接交互，快照数据不因休眠失效；
-        ///    载体差异由 <see cref="SeamlessMapData.GetSeamStrip"/> 屏蔽，两条路径读到的都是
-        ///    同一份生成期捕获数据）；
-        /// ② 图不在（未来"卸 Map 留 WorldObject"的滚动卸载语义）但地块 WorldObject 还在 → 读其快照
-        ///    （原生家族 parent 无 WorldObject 侧快照挂点——图删即失，再生成时由对端单侧照抄补连续）；
-        /// ③ 都没有（从未生成 / 删除已销毁 WorldObject）→ 返回 false（不参考，"删除 = 从未出现过"）。
-        /// 刻意不走 <see cref="TryGetMapByWorldTile"/>（那是休眠过滤后的交互口径）。
-        /// </summary>
-        public static bool TryGetNeighborSeamStrip(int worldTile, out SeamStripData strip)
-        {
-            strip = null;
-            if (worldTile < 0) return false;
-
-            foreach (var map in Find.Maps)
-            {
-                if (SeamlessTileRegistry.GetMapWorldTile(map) != worldTile || map.Disposed) continue;
-                strip = SeamlessMapData.GetSeamStrip(map);
-                return strip != null;
-            }
-
-            var parent = Find.World.worldObjects.MapParentAt(new PlanetTile(worldTile)) as MapParent_SeamlessTile;
-            strip = parent?.seamStrip;
-            return strip != null;
-        }
     }
 }

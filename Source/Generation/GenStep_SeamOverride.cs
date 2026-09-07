@@ -6,18 +6,14 @@ namespace RimExodus
     /// 接缝覆写 genStep（order=392，3 圈接缝带架构；SeamlessTile(389) 之后、Settlement(400) 之前）。
     ///
     /// 在接缝带 void 裁切（RimExodus_SeamlessTile, 389）之后立刻执行。本 genStep 在接缝带 B ∪ 过渡带 T
-    /// 做 terrainDef 混合：参考所有已生成邻居的接缝条带快照（重叠带地形完全一致 + 外条带距离衰减），
+    /// 做 terrainDef 混合：参考所有实际加载邻图的当前实况与完整基础快照，
     /// 让接缝处地形视觉/通行连续。放在 Settlement 之前使 Plants(900)/Animals(1200) 在混合后的最终
     /// 地形上生成（植物与地形一致，不再出现"树先生成后混成水"）；Fog(1500) 仍在本步之后，据最终地形揭雾。
     /// MutatorFinal(1600) 多数 mutator 不写 terrainGrid，但 AncientUplink/InsectMegahive 的
     /// GeneratePostFog 会 SetTerrain——这些任务地块上本 genStep 的覆写可能被覆盖（已知小瑕疵，罕见场景）。
     ///
-    /// 混合完成后捕获本图的接缝条带快照（<see cref="SeamStripData.CaptureAndStore"/>）：
-    /// B∪T 最终值 + 接缝带外条带原生值，供后续新生成的邻居图参考（跨读档持久——
-    /// 读档后 baseTerrainSnapshot 为 null 的问题由序列化的条带快照解决）。
-    ///
     /// 单向覆写：只改本端（新生成 tile），不改已生成邻居。原生 parent 图（家园等）生成时无已生成邻居
-    /// → ApplyOneWay 空操作，但条带快照仍捕获（供未来邻居参考）。
+    /// → ApplyOneWay 空操作；未来邻居直接读取这张图的当前实况，void 侧回落基础快照。
     ///
     /// 实际逻辑委托 <see cref="SeamlessSeamOverride"/>。本类只做 genStep 壳 + worldTile 提取。
     ///
@@ -41,14 +37,11 @@ namespace RimExodus
 
             RiverSeamDiagnostics.Report(map, worldTile, "postMix");
 
-            // MapPreview 预览（后台线程，2026-08）：本步之后的三个动作都是真实图专用——
-            // ①条带快照存储（预览图 parent null，捕获即白干）；
-            // ②pathGrid 刷新在预览图上 NRE（组件被 MapPreview 裁剪，见 SeamlessMapPreviewCompat）；
-            // ③预设 PlayerStartSpot 写进程级 static，预览线程写会与主线程竞态。
+            // MapPreview 预览（后台线程，2026-08）：本步之后的两个动作都是真实图专用——
+            // ①pathGrid 刷新在预览图上 NRE（组件被 MapPreview 裁剪，见 SeamlessMapPreviewCompat）；
+            // ②预设 PlayerStartSpot 写进程级 static，预览线程写会与主线程竞态。
             // 混合本身（ApplyOneWay，上方）保留——预览要显示接缝混合后的地形。
             if (SeamlessMapPreviewCompat.IsGeneratingPreviewOnCurrentThread) return;
-
-            SeamStripData.CaptureAndStore(map, worldTile);
 
             // void 边界岩的隐形 link 延续体（2026-08 视觉优化）：必须挂在 **392 末（混合之后）**——
             // 紧贴 void 的那圈接缝带岩石多数是上方混合 B 照抄 SyncRockBuildingTo 才 spawn 的

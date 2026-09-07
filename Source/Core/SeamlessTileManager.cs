@@ -10,7 +10,7 @@ namespace RimExodus
     /// <summary>
     /// 无缝地块管理器（MapComponent，由 Map.FillComponents 自动挂到**每张图**——不止地块图）。
     /// 地块图上负责生成/删除与接缝维护；原生 parent 图（家园/原生家族 Settlement 等）上充当
-    /// 数据存储载体（邻居表/条带快照/基础三层快照，原生 MapParent 挂不了我们的字段——
+    /// 数据存储载体（邻居表/基础三层快照，原生 MapParent 挂不了我们的字段——
     /// 读写经 <see cref="SeamlessMapData"/>）与滚动删除入口。
     ///
     /// 邻居表以 worldTile 为主键，offset 隐式编码方向（阶段4a 全面重构后无 direction/edgeAngle 字段）。
@@ -41,7 +41,7 @@ namespace RimExodus
         /// <summary>
         /// 原生 parent 图的基础地形快照（阶段4 接缝覆写）：void 裁切前的完整矩形 topGrid。
         /// 在 GenStep_SeamlessTile（order=389）void 裁切之前备份（通过 BackupSnapshotAndApplyVoid 归一入口）。
-        /// 供接缝条带快照捕获读取。非序列化（生成期临时数据）。读写经 <see cref="SeamlessMapData"/>。
+        /// 供 void 侧接缝参考读取。读写经 <see cref="SeamlessMapData"/>。
         /// </summary>
         public TerrainDef[] baseTerrainSnapshot;
 
@@ -63,13 +63,6 @@ namespace RimExodus
         /// 见 <see cref="SeamlessBaseSnapshotData"/>。清除 = 设置 UI 二次确认流程（PurgeAllSnapshots）。
         /// </summary>
         public SeamlessBaseSnapshotData baseSnapshotData;
-
-        /// <summary>
-        /// 原生 parent 图的接缝条带快照（见 <see cref="SeamStripData"/>）。随图组件序列化——
-        /// 图在则数据在（软休眠不卸图）；图被滚动删除即失（再生成时由对端单侧照抄补缝连续）。
-        /// 地块图的快照挂 WorldObject（卸图后存活）。读写经 <see cref="SeamlessMapData"/>。
-        /// </summary>
-        public SeamStripData seamStrip;
 
         /// <summary>延迟开档接线的 tick 计数（MapGenerated 时 mapBeingGenerated 可能仍非空，需延迟到下一 tick 调 SetupNativeParentMap）。</summary>
         private int pendingAutoGenerateTicks = -1;
@@ -143,7 +136,6 @@ namespace RimExodus
             base.ExposeData();
             Scribe_Values.Look(ref setupOnStartDone, "setupOnStartDone");
             Scribe_Values.Look(ref pendingAutoGenerateTicks, "pendingAutoGenerateTicks", -1);
-            Scribe_Deep.Look(ref seamStrip, "seamStrip");
 
             // 基础三层快照序列化（仅原生 parent 图；捕获受 serializeBaseSnapshots 门控，
             // 已有数据无条件照存——清除是设置 UI 的显式动作）。
@@ -453,12 +445,6 @@ namespace RimExodus
                 return null;
             }
 
-            // 精简快照重生成（2026-08-31）：源图缺内存基础快照（旧档/关闭序列化读档）时同步补齐 +
-            // 重建条带快照——新图的 SeamOverride 混合（392）读源图条带快照作参考，缺失则静默跳过
-            // 混合（接缝不连续）。置于三分支（POI 原生/同步逃生/分帧增量）之前统一覆盖。
-            // 幂等：已有快照零成本早退；互斥避让与失败降级见 SeamlessSnapshotRegenerator。
-            SeamlessSnapshotRegenerator.EnsureSourceSnapshot(map, sourceWorldTile);
-
             // 防递归：该 worldTile 已有任意地图（含非直接邻居）则跳过，补登记邻居。
             if (SeamlessTileGraph.TryGetMapByWorldTile(newWorldTile, out var existingMap))
             {
@@ -497,8 +483,8 @@ namespace RimExodus
                     if (existingTileParent.preserveRecord != null && !existingTileParent.Destroyed)
                     {
                         // 前哨保留恢复（2026-09 封存/重放）：封存 WO（无图有记录）复用自身走生成链——
-                        // 邻居表/seamStrip/tileOrigin 均在 WO 上保留；392 对当前邻居重混缝（缝一致性
-                        // 每次回归自动对齐）、GenStep_ZoneRestore(395) 置换重放记录、onComplete
+                        // 邻居表/tileOrigin 均在 WO 上保留；封存态无 Map，不参与参考。恢复时 392
+                        // 对当前已加载邻居重混缝、GenStep_ZoneRestore 置换重放记录、onComplete
                         // 调度冲突清理并消费记录（FinishZoneRestore）。
                         restoreParent = existingTileParent;
                     }
@@ -583,7 +569,7 @@ namespace RimExodus
             MapParent_SeamlessTile mapParent;
             if (restoreParent != null)
             {
-                // 前哨保留恢复：复用封存 WO。worldTile/Tile/tileOrigin/邻居表/seamStrip 均在其上
+                // 前哨保留恢复：复用封存 WO。worldTile/Tile/tileOrigin/邻居表均在其上
                 // 保留——tileOrigin 刻意**不重算**：恢复的触发方向可能与原生成方向不同（北进南出），
                 // 重算会漂移（当前无消费者，保持稳定性语义）。
                 mapParent = restoreParent;
@@ -814,7 +800,7 @@ namespace RimExodus
 
         /// <summary>
         /// 卸载一个无缝地块地图：清理邻居表双向引用、移除地图、销毁 WorldObject。
-        /// "删除 = 从未出现过"：WorldObject（含接缝条带快照）一并销毁，同 tile 再次预加载将全新生成。
+        /// "删除 = 从未出现过"：WorldObject 一并销毁，同 tile 再次预加载将全新生成。
         /// 与软休眠（<see cref="SeamlessDormancyManager"/>，2026-08）二分：休眠 = 一切保留只停模拟与显示；
         /// 删除 = 本方法（滚动距离策略的终点，governor 距离 ≥ deleteHops 时调用）。
         /// </summary>

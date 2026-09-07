@@ -25,8 +25,8 @@ namespace RimExodus
         /// （地块图存 MapParent_SeamlessTile 字段，原生图存 SeamlessTileManager 组件），
         /// 其余完全一致——避免两份重复的"备份+铺void"逻辑漂移。
         ///
-        /// 三层同点位备份（均非序列化——跨读档的接缝参考由序列化的 SeamStripData 承担）。
-        /// void 铺设会清掉接缝带外格的岩体与屋顶，SeamStripData 对外条带格必须引用**原生**
+        /// 三层同点位备份。地块图不序列化，读档后在需要 void 侧参考时按需重建；原生图可持久化。
+        /// void 铺设会清掉接缝带外格的岩体与屋顶，接缝提供器对这些格必须引用**原生**
         /// 三层（同源）。**清理全部归 ApplyPolygonTerrain（依次清 roof → rock → terrain，
         /// 用户定夺 2026-08）**：原生数据先落快照再被清理，时序天然安全。历史教训：曾在
         /// order 200 patch 提前清岩，外条带原生岩体在备份前丢失 → 新图照抄区岩壁整齐切断。

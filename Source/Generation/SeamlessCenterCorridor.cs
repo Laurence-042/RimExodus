@@ -43,7 +43,7 @@ namespace RimExodus
         /// <summary>
         /// 走廊足迹格（运行时，不序列化——只在生成期消费）：392 混合的免疫保护集，
         /// 与道路保护（<see cref="SeamlessRoadPaths"/> → BuildRoadGuard）同机制。
-        /// 不免疫则 N 侧 void 外条带快照（清 void 前的原生连绵山体）经照抄区把岩体
+        /// 不免疫则 N 侧 void 下的基础快照（清 void 前的原生连绵山体）经照抄区把岩体
         /// spawn 回 B 的接缝带上，压掉走廊末端（用户实测指出，2026-08-30）。
         /// </summary>
         public class CorridorCellsComponent : MapComponent

@@ -9,7 +9,7 @@ using Verse.Noise;
 namespace RimExodus
 {
     /// <summary>
-    /// 接缝覆写（新架构：3 圈接缝带 + 连续边中点对齐 + 接缝条带快照参考，权威定义见 doc/接缝带定义.md）。
+    /// 接缝覆写（3 圈接缝带 + 连续边中点对齐 + 实时地图/基础快照参考，权威定义见 doc/接缝带定义.md）。
     ///
     /// 【混合范围】枚举 C（新生成 tile）自己的接缝带 B ∪ 过渡带 T（显式几何集合，
     /// <see cref="SeamlessPolygonGeometry.BuildSeamBand"/> 缓存）。旧方案"从 A 全图 snapshot 枚举候选"
@@ -17,30 +17,28 @@ namespace RimExodus
     /// 每格反向找邻居参考）。带外圈（新定义下为实地形）也参与混合，跨缝两侧地形成对一致。
     ///
     /// 【混合规则（用户定夺 2026-08，规则轴 = 本端圈层，对端只提供数据不参与规则判定）】
-/// - **B_C（接缝带三圈）→ 字面照抄对端对应格**：a = c − offset，strip 有数据即抄地形与岩体
+    /// - **B_C（接缝带三圈）→ 字面照抄对端对应格**：a = c − offset，有参考即抄地形与岩体
 ///   （岩体用对端 def——跨缝岩色连续；地形未变时岩体同步仍执行）。无任何地形例外（对端是
 ///   Marsh/深水本端就是——不能走 pawn 自然绕路）。错位时 a 落在对端哪个圈层无所谓，
-///   strip 覆盖 B_A∪T_A∪外条带，照抄天然免疫错位（历史：按对端圈层分规则的版本需要
-///   B_A/T_A/外条带/核心区四条判定 + 错位补偿补丁，已废弃勿回退）。参考 = **对端生成时
-///   snapshot 的渲染映射格值**（B_A∪T_A 段=混合后定格实况；外条带段=对端 389 清 void 前的
-///   原生快照——对端 void 之下的自然山体，T·1 复刻原生岩体 = 山体延续"假设成真"。曾把外条带
-///   岩体/屋顶参考改存清除后实际(null)"数据归一"，实测误杀对端带内有延续岩的真实山体，
-///   2026-08 回退勿复犯）。一切参考只认 a = c − offset 渲染映射（地图偏移带旋转，
-///   切比雪夫圈对应 ≠ 渲染映射对应）；
+    ///   参考域覆盖 B_A∪限定深度 T_A∪外条带，照抄天然免疫错位（历史：按对端圈层分规则的版本需要
+    ///   B_A/T_A/外条带/核心区四条判定 + 错位补偿补丁，已废弃勿回退）。参考优先读**对端当前
+    ///   实况**；映射格已被裁成 void 或不可读时回落 389 清理前的完整基础快照，从而既反映玩家
+    ///   后续修改，又保留 void 之下的自然山体延续。一切参考只认 a = c − offset 渲染映射
+    ///   （地图偏移带旋转，切比雪夫圈对应 ≠ 渲染映射对应）；
     /// - **void_C → 不在枚举范围**（直接用自己的 void）；
-    /// - **T_C（过渡带）→ 卷积权重覆盖（源地图轴权重）**：过渡带数据驱动（a 在邻居 strip 内
-    ///   即参与，外条带数据全深到源方形边）。w = dSq/(dSq+dOut)——dOut = a 距源接缝带切比雪夫
+    /// - **T_C（过渡带）→ 卷积权重覆盖（源地图轴权重）**：过渡带数据驱动（a 在邻居参考域内
+    ///   即参与，外条带全深到源方形边）。w = dSq/(dSq+dOut)——dOut = a 距源接缝带切比雪夫
     ///   深度（贴缝≈0），dSq = a 到源方形边切比雪夫距离：**接近源六边形权重高，到源方形边
     ///   权重渐近 0**——混合范围截止边界（源方形边）恰好是权重归零处，自然闭合无锐利边缘；
     ///   乘性 dither（端点 0/1 不动）打散等值线。历史教训（勿回退）：曾按"本端距接缝带固定
     ///   深度衰减 + 外条带限深 7 格"，数据边界处权重残值戛然而止，源方形边在 C 上投影成
-    ///   一条直线。self 分布（C 当前 topGrid 3×3）+ 各参考分布（strip 3×3）→ 众数覆写；
+    ///   一条直线。self 分布（C 当前 topGrid 3×3）+ 各参考分布（实时/基础快照 3×3）→ 众数覆写；
     ///   **岩体/屋顶跟随主导参考（w 最大）的 def**——与照抄区语义统一（地形走卷积混合，
     ///   离散层跟随参考；地形驱动 spawn 会在参考无岩体处生成本端岩体，2026-08 用户实测）。
     /// 顶点楔形区（B_C 多邻居命中）保留卷积合成（几何模糊地带，各 w=1）。
     ///
-    /// 【参考源（所有已生成邻居）】经统一入口 <see cref="SeamlessTileGraph.TryGetNeighborSeamStrip"/>
-    /// 取接缝条带快照（活图优先，地图卸载后 WorldObject 回落——滚动加载卸载预埋）。
+    /// 【参考源（所有实际加载邻图）】B 与限定深度 T 优先读当前 terrain/rock/roof；当前格为
+    /// null/void 时回落完整基础快照，外条带直接读基础快照。无 Map 的封存图不参与参考。
     /// offset 现算（<see cref="SeamlessNeighborRegistry.ComputeNeighborOffset"/>，与邻居表登记
     /// 同公式恒等）——genStep 392 运行时邻居表尚未登记（RegisterNeighborBidirectional 在
     /// onComplete，晚于整个 genStep 链），运行时消费方（传送/渲染）才走邻居表。
@@ -57,7 +55,7 @@ namespace RimExodus
     /// 匹配误伤 Marsh 造成接缝断裂）——河的保护是**实际修改格级**，非水体类型级，海岸/沼泽不受影响。
     ///
     /// 【三层归一框架（用户定夺 2026-08）】terrain/building/roof 三层共用同一混合框架：
-    /// 照抄区 = 每层读对端参考值（<see cref="seamLayers"/>.ReadStrip）→ 与本端不同（ReadLocal）则写
+    /// 照抄区 = 每层读对端参考值（<see cref="seamLayers"/>.ReadReference）→ 与本端不同（ReadLocal）则写
     /// （Write，委托内含必要守卫）；卷积区 = terrain（唯一连续层）走加权众数，离散层跟随主导
     /// 参考。层差异全部收在 <see cref="seamLayers"/> 的三个委托里，新增层只需追加一项。
     ///
@@ -73,10 +71,14 @@ namespace RimExodus
         {
             public int worldTile;
             public IntVec3 offset;
-            public SeamStripData strip;
+            public Map map;
+            public SeamlessPolygonGeometry.SeamBandInfo band;
+            public TerrainDef[] baseTerrain;
+            public ThingDef[] baseBuilding;
+            public RoofDef[] baseRoof;
         }
 
-        /// <summary>单格的邻居参考（对齐格 a + 权重 + 所属邻居；三层的参考值经 <see cref="seamLayers"/> 的 ReadStrip 按层现读）。</summary>
+        /// <summary>单格的邻居参考（对齐格 a + 权重 + 所属邻居；三层参考按层实时读取）。</summary>
         private struct CellRef
         {
             public float w;
@@ -87,7 +89,7 @@ namespace RimExodus
         /// <summary>
         /// 混合层操作集（**三层归一框架**，用户定夺 2026-08）：terrain/building/roof 三层共用同一
         /// 混合框架（照抄 = 读对端参考值 → 与本端不同则写；卷积区见主循环），层差异全部收进委托：
-        /// <see cref="ReadLocal"/>（读本端）、<see cref="ReadStrip"/>（读对端条带参考）、<see cref="Write"/>
+        /// <see cref="ReadLocal"/>（读本端）、<see cref="ReadReference"/>（读对端实时/基础参考）、<see cref="Write"/>
         /// （写本端，委托内部含必要守卫——如岩石 spawn 的 existing==null 检查、屋顶判等）。
         /// 新增层（如植物）只需在此追加一项。
         /// </summary>
@@ -96,17 +98,17 @@ namespace RimExodus
             public readonly string Name;
             /// <summary>读本端当前值。</summary>
             public readonly Func<Map, IntVec3, Def> ReadLocal;
-            /// <summary>读对端条带参考值。</summary>
-            public readonly Func<SeamStripData, IntVec3, Def> ReadStrip;
+            /// <summary>读对端当前实况或基础快照参考值。</summary>
+            public readonly Func<NeighborRef, IntVec3, (bool has, Def value)> ReadReference;
             /// <summary>写本端。</summary>
             public readonly Action<Map, IntVec3, Def> Write;
 
             public SeamLayer(string name, Func<Map, IntVec3, Def> readLocal,
-                Func<SeamStripData, IntVec3, Def> readStrip, Action<Map, IntVec3, Def> write)
+                Func<NeighborRef, IntVec3, (bool has, Def value)> readReference, Action<Map, IntVec3, Def> write)
             {
                 Name = name;
                 ReadLocal = readLocal;
-                ReadStrip = readStrip;
+                ReadReference = readReference;
                 Write = write;
             }
         }
@@ -116,27 +118,41 @@ namespace RimExodus
         {
             new("terrain",
                 (m, c) => m.terrainGrid.topGrid[m.cellIndices.CellToIndex(c)],
-                (s, a) => s.terrainLookup.TryGetValue(a, out var t) ? t : null,
+                (r, a) => ReadReference(r, a, ReferenceLayer.Terrain),
                 (m, c, v) =>
                 {
                     m.terrainGrid.topGrid[m.cellIndices.CellToIndex(c)] = (TerrainDef)v;
                     m.mapDrawer.MapMeshDirty(c, MapMeshFlagDefOf.Terrain, regenAdjacentCells: false, regenAdjacentSections: false);
                 }),
             new("building",
-                (m, c) => SeamStripData.RockDefAt(m, c),
-                (s, a) => s.buildingLookup.TryGetValue(a, out var b) ? b : null,
+                (m, c) => RockDefAt(m, c),
+                (r, a) => ReadReference(r, a, ReferenceLayer.Building),
                 (m, c, v) => SyncRockBuildingTo(m, c, (ThingDef)v, out _)),
             new("roof",
                 (m, c) => m.roofGrid.RoofAt(c),
-                (s, a) => s.roofLookup.TryGetValue(a, out var r) ? r : null,
+                (r, a) => ReadReference(r, a, ReferenceLayer.Roof),
                 (m, c, v) => SyncRoofTo(m, c, (RoofDef)v)),
         };
 
-        private static readonly List<NeighborRef> neighborRefs = new();
-        private static readonly HashSet<IntVec3> bandCells = new();
-        private static readonly List<CellRef> cellRefs = new();
-        private static readonly List<(Dictionary<TerrainDef, float> dist, float w)> blendParts = new();
+        // MapPreview 会在后台线程运行 392；这些复用容器必须线程隔离，不能与主线程正式生成互踩。
+        [ThreadStatic] private static List<NeighborRef> neighborRefs;
+        [ThreadStatic] private static HashSet<IntVec3> bandCells;
+        [ThreadStatic] private static List<CellRef> cellRefs;
+        [ThreadStatic] private static List<(Dictionary<TerrainDef, float> dist, float w)> blendParts;
         private static readonly HashSet<IntVec3> EmptyCells = new();
+
+        private enum ReferenceLayer { Terrain, Building, Roof }
+        private enum ReferenceSource { Missing, Current, BaseSnapshot }
+        private static TerrainDef cachedVoidDef;
+        private static TerrainDef VoidDef => cachedVoidDef ??= DefDatabase<TerrainDef>.GetNamedSilentFail("RimExodus_Void");
+
+        private static void EnsureScratchBuffers()
+        {
+            neighborRefs ??= new List<NeighborRef>();
+            bandCells ??= new HashSet<IntVec3>();
+            cellRefs ??= new List<CellRef>();
+            blendParts ??= new List<(Dictionary<TerrainDef, float> dist, float w)>();
+        }
 
         /// <summary>
         /// 对 map 的所有已生成邻居做单向接缝覆写（只改 map 自身，不改邻居）。
@@ -146,6 +162,7 @@ namespace RimExodus
         public static void ApplyOneWay(Map map, int worldTile)
         {
             if (map == null || worldTile < 0) return;
+            EnsureScratchBuffers();
 
             var mapSize = map.Size.x;
 
@@ -162,7 +179,7 @@ namespace RimExodus
             var band = SeamlessPolygonGeometry.BuildSeamBand(worldTile, mapSize);
             if (band.Band.Count == 0) return;
 
-            var voidDef = DefDatabase<TerrainDef>.GetNamedSilentFail("RimExodus_Void");
+            var voidDef = VoidDef;
             var cellIndices = map.cellIndices;
             var topGrid = map.terrainGrid.topGrid;
             var mapDrawer = map.mapDrawer;
@@ -178,7 +195,7 @@ namespace RimExodus
 
             // 主循环：枚举 C 的接缝带 B ∪ 过渡带 T。**规则轴 = 本端圈层**（对端只提供数据，
             // 不参与规则判定——错位天然免疫）：
-            // - B_C（三圈）→ 字面照抄对端对应格的地形与岩体（a = c − offset，strip 有数据即抄）；
+            // - B_C（三圈）→ 字面照抄对端对应格的地形与岩体（a = c − offset，有参考即抄）；
             // - T_C（过渡带）→ 卷积权重覆盖（w 按本端过渡深度衰减 + dither）；
             // - void_C → 不在枚举范围（直接用自己的 void）。
             // 顶点楔形区（B_C 多邻居命中）保留卷积合成（几何模糊地带，各 w=1）。
@@ -206,7 +223,7 @@ namespace RimExodus
                 // 照抄区 = B ∪ {T depth=1}（2026-08 用户逻辑，距缝切比雪夫 0/1/2 三带完全参考对端）：
                 // T depth=1（本图带内侧一圈）与对侧 OuterStrip depth=1（对侧 void 第一圈）是同一条
                 // 空间带——先生成侧在该 void 带上按 own snapshot 放的 void rock，要求后生成侧在
-                // 镜像位置"直接复刻"（含岩体，对端外条带段快照=清 void 前原生岩 = 山体延续），
+                    // 镜像位置"直接复刻"（含岩体，对端外条带基础快照=清 void 前原生岩 = 山体延续），
                 // 本图 T depth=1 因此不走卷积、与 B 同款字面照抄。depth≥2 的 T 仍走卷积
                 //（对端无对应义务，渐进混合归位）。
                 var isCopyZone = inBand
@@ -227,7 +244,9 @@ namespace RimExodus
                     var anyWritten = false;
                     foreach (var layer in seamLayers)
                     {
-                        var target = layer.ReadStrip(ref0.owner.strip, ref0.aCell);
+                        var read = layer.ReadReference(ref0.owner, ref0.aCell);
+                        if (!read.has) continue;
+                        var target = read.value;
                         if (ReferenceEquals(target, layer.ReadLocal(map, cCell))) continue;
                         layer.Write(map, cCell, target);
                         anyWritten = true;
@@ -249,10 +268,11 @@ namespace RimExodus
 
                     seamLayers[0].Write(map, cCell, chosenTerrain);
                     var dominant = DominantRef(cellRefs);
-                    // 离散层跟随主导参考的渲染映射格 snapshot 值（band 段=定格实况 / 外条带段=原生）。
+                    // 离散层跟随主导参考的渲染映射格值（带内=当前实况 / void 外条带=基础快照）。
                     for (var i = 1; i < seamLayers.Length; i++)
                     {
-                        seamLayers[i].Write(map, cCell, seamLayers[i].ReadStrip(dominant.owner.strip, dominant.aCell));
+                        var read = seamLayers[i].ReadReference(dominant.owner, dominant.aCell);
+                        if (read.has) seamLayers[i].Write(map, cCell, read.value);
                     }
                     written++;
                 }
@@ -264,9 +284,8 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 预收集参考源到 <see cref="neighborRefs"/>：C 的每个世界邻居中"已生成"
-        /// （<see cref="SeamlessTileGraph.TryGetNeighborSeamStrip"/> 命中接缝条带快照）的邻居，
-        /// 附 offset（现算，与邻居表登记同公式恒等）与邻居带几何。
+        /// 预收集参考源到 <see cref="neighborRefs"/>：C 的每个世界邻居中实际有 Map 的邻居，
+        /// 附 offset（现算，与邻居表登记同公式恒等）、邻居带几何和完整基础快照。
         /// </summary>
         private static void CollectNeighborRefs(Map map, int worldTile)
         {
@@ -277,17 +296,30 @@ namespace RimExodus
             {
                 var neighborTile = nt.tileId;
                 if (neighborTile == worldTile) continue;
-                if (!SeamlessTileGraph.TryGetNeighborSeamStrip(neighborTile, out var strip)) continue;
-                if (strip == null || strip.terrainLookup == null || strip.terrainLookup.Count == 0) continue;
+                Map neighborMap = null;
+                foreach (var candidate in Find.Maps)
+                {
+                    if (candidate == null || candidate.Disposed) continue;
+                    if (SeamlessTileRegistry.GetMapWorldTile(candidate) == neighborTile)
+                    {
+                        neighborMap = candidate;
+                        break;
+                    }
+                }
+                if (neighborMap == null) continue;
 
-                var offset = SeamlessNeighborRegistry.ComputeNeighborOffset(worldTile, neighborTile, map);
+                var offset = SeamlessNeighborRegistry.ComputeNeighborOffset(worldTile, neighborTile, map, neighborMap);
                 if (offset == IntVec3.Zero) continue;
 
                 neighborRefs.Add(new NeighborRef
                 {
                     worldTile = neighborTile,
                     offset = offset,
-                    strip = strip
+                    map = neighborMap,
+                    band = SeamlessPolygonGeometry.BuildSeamBand(neighborTile, neighborMap.Size.x),
+                    baseTerrain = SeamlessMapData.GetBaseTerrainSnapshot(neighborMap),
+                    baseBuilding = SeamlessMapData.GetBaseBuildingSnapshot(neighborMap),
+                    baseRoof = SeamlessMapData.GetBaseRoofSnapshot(neighborMap)
                 });
             }
         }
@@ -295,8 +327,8 @@ namespace RimExodus
         /// <summary>
         /// 收集 cCell 的各邻居参考到 <see cref="cellRefs"/>（复用 <see cref="neighborRefs"/>），
         /// 返回是否有参考。**规则轴 = 本端圈层**（用户定夺 2026-08）：
-        /// - c ∈ 照抄区（B_C 或 T·1）：命中 = a 在邻居 strip 内（有数据即命中，不看对端圈层），
-        ///   w = 1（仅多命中合成时用到）——错位时 a 落在对端哪个圈层都无所谓，strip 有数据就抄；
+        /// - c ∈ 照抄区（B_C 或 T·1）：命中 = a 在邻居参考域内（有数据即命中），
+        ///   w = 1（仅多命中合成时用到）；
         /// - c ∈ T_C depth≥2（卷积区）：w = dSq/(dSq+dOut)（源地图轴：接近源六边形高 → 源方形边 0）
         ///   ×乘性 dither。
         /// </summary>
@@ -310,8 +342,8 @@ namespace RimExodus
                 // 实测整缝系统性偏 1 格——本侧带抄"对端同一位置再往里 1 格"的值，图案向本侧
                 // 平移；已回退，勿再加参考偏移）。
                 var aCell = new IntVec3(cCell.x - nref.offset.x, 0, cCell.z - nref.offset.z);
-                // 命中判定用 terrain 层的 ReadStrip（terrain 无参考价值的格不入 strip）。
-                if (seamLayers[0].ReadStrip(nref.strip, aCell) == null) continue;
+                // terrain 决定此格是否有参考；building/roof 的 null 是明确的“无”，不能当缺数据。
+                if (!seamLayers[0].ReadReference(nref, aCell).has) continue;
 
                 float wRaw;
                 if (inCopyZone)
@@ -327,10 +359,10 @@ namespace RimExodus
                     // 截止边界（A 方形边）恰好是权重归零处，自然闭合无锐利边缘（历史教训：
                     // 按本端固定深度衰减 + 外条带限深 7 格，数据边界处权重残值 ~0.14 戛然而止，
                     // 源方形边在 C 上投影成一条直线）。乘性 dither（端点 0/1 不动）打散等值线。
-                    var nSize = nref.strip.mapSize;
+                    var nSize = nref.map.Size.x;
                     var dSq = Mathf.Min(Mathf.Min(aCell.x, aCell.z),
                         Mathf.Min(nSize - 1 - aCell.x, nSize - 1 - aCell.z));
-                    var dOut = nref.strip.depthLookup.TryGetValue(aCell, out var d) ? d : 0;
+                    var dOut = ReferenceDepth(nref, aCell);
                     var wBase = (dSq + dOut) > 1e-3f ? (float)dSq / (dSq + dOut) : 0f;
                     wRaw = weightNoise != null
                         ? Mathf.Clamp01(wBase * (1f + (float)weightNoise.GetValue(cCell) * noiseAmp))
@@ -355,8 +387,102 @@ namespace RimExodus
         }
 
         /// <summary>
+        /// 读取邻图在映射格上的权威参考。接缝带/浅层过渡带优先用当前实况；当前格已是 void
+        /// 或不可读时回落 389 基础快照。void 侧外条带始终读基础快照。返回 has=true,value=null
+        /// 表示“明确无岩/无顶”，与 has=false（没有参考数据）严格区分。
+        /// </summary>
+        private static (bool has, Def value) ReadReference(NeighborRef nref, IntVec3 cell, ReferenceLayer layer)
+        {
+            if (nref.map == null || !cell.InBounds(nref.map)) return (false, null);
+
+            var inLiveBand = nref.band.Band.Contains(cell)
+                || (nref.band.TransitionDepth.TryGetValue(cell, out var td)
+                    && td <= SeamlessPolygonGeometry.SeamStripInnerDepth);
+            var inOuter = nref.band.OuterStripDepth.ContainsKey(cell);
+            if (!inLiveBand && !inOuter) return (false, null);
+
+            if (inLiveBand)
+            {
+                var terrain = nref.map.terrainGrid.topGrid[nref.map.cellIndices.CellToIndex(cell)];
+                if (terrain != null && terrain != VoidDef)
+                {
+                    return layer switch
+                    {
+                        ReferenceLayer.Terrain => (true, terrain),
+                        ReferenceLayer.Building => (true, RockDefAt(nref.map, cell)),
+                        ReferenceLayer.Roof => (true, nref.map.roofGrid.RoofAt(cell)),
+                        _ => (false, null)
+                    };
+                }
+            }
+
+            var idx = nref.map.cellIndices.CellToIndex(cell);
+            if (nref.baseTerrain == null || idx < 0 || idx >= nref.baseTerrain.Length
+                || nref.baseTerrain[idx] == null)
+                return (false, null);
+            return layer switch
+            {
+                ReferenceLayer.Terrain => (true, nref.baseTerrain[idx]),
+                ReferenceLayer.Building => nref.baseBuilding != null && idx < nref.baseBuilding.Length
+                    ? (true, nref.baseBuilding[idx]) : (false, null),
+                ReferenceLayer.Roof => nref.baseRoof != null && idx < nref.baseRoof.Length
+                    ? (true, nref.baseRoof[idx]) : (false, null),
+                _ => (false, null)
+            };
+        }
+
+        private static ReferenceSource GetReferenceSource(NeighborRef nref, IntVec3 cell)
+        {
+            if (nref.map == null || !cell.InBounds(nref.map)) return ReferenceSource.Missing;
+            var inLiveBand = nref.band.Band.Contains(cell)
+                || (nref.band.TransitionDepth.TryGetValue(cell, out var td)
+                    && td <= SeamlessPolygonGeometry.SeamStripInnerDepth);
+            if (inLiveBand)
+            {
+                var terrain = nref.map.terrainGrid.topGrid[nref.map.cellIndices.CellToIndex(cell)];
+                if (terrain != null && terrain != VoidDef) return ReferenceSource.Current;
+            }
+            return ReadReference(nref, cell, ReferenceLayer.Terrain).has
+                ? ReferenceSource.BaseSnapshot : ReferenceSource.Missing;
+        }
+
+        private static int ReferenceDepth(NeighborRef nref, IntVec3 cell)
+        {
+            if (nref.band.Band.Contains(cell)) return 0;
+            if (nref.band.TransitionDepth.TryGetValue(cell, out var inner)) return inner;
+            return nref.band.OuterStripDepth.TryGetValue(cell, out var outer) ? outer : 0;
+        }
+
+        internal static ThingDef RockDefAt(Map map, IntVec3 cell)
+        {
+            var edifice = cell.GetEdifice(map);
+            return edifice != null && edifice.def.building != null && edifice.def.building.isNaturalRock
+                ? edifice.def
+                : null;
+        }
+
+        internal static bool TryReadRockReference(Map neighborMap, int neighborWorldTile, IntVec3 cell,
+            out ThingDef rockDef)
+        {
+            rockDef = null;
+            if (neighborMap == null || neighborMap.Disposed) return false;
+            var nref = new NeighborRef
+            {
+                worldTile = neighborWorldTile,
+                map = neighborMap,
+                band = SeamlessPolygonGeometry.BuildSeamBand(neighborWorldTile, neighborMap.Size.x),
+                baseTerrain = SeamlessMapData.GetBaseTerrainSnapshot(neighborMap),
+                baseBuilding = SeamlessMapData.GetBaseBuildingSnapshot(neighborMap),
+                baseRoof = SeamlessMapData.GetBaseRoofSnapshot(neighborMap)
+            };
+            var read = ReadReference(nref, cell, ReferenceLayer.Building);
+            rockDef = read.value as ThingDef;
+            return read.has;
+        }
+
+        /// <summary>
         /// 组装卷积合成输入到 <see cref="blendParts"/>：self 分布（C 当前 topGrid，selfW>0 时）+
-        /// 各邻居参考分布（快照稀疏字典 3×3 采样）。
+        /// 各邻居参考分布（实时地图/基础快照 3×3 采样）。
         /// </summary>
         private static void CollectBlendParts(TerrainDef[] topGrid, int mapSize, TerrainDef voidDef, IntVec3 cCell)
         {
@@ -371,7 +497,7 @@ namespace RimExodus
             }
             foreach (var r in cellRefs)
             {
-                var refDist = Convolve3x3FromStrip(r.owner.strip.terrainLookup, r.aCell);
+                var refDist = Convolve3x3FromReference(r.owner, r.aCell);
                 if (refDist != null) blendParts.Add((refDist, r.w));
             }
         }
@@ -392,7 +518,7 @@ namespace RimExodus
         {
             var guard = new HashSet<IntVec3>();
             var comp = map.GetComponent<SeamlessRoadPaths>();
-            // 中心走廊足迹（2026-08-30）：走廊格免疫混合（照抄 + 卷积）——N 侧 void 外条带快照
+            // 中心走廊足迹（2026-08-30）：走廊格免疫混合（照抄 + 卷积）——N 侧 void 下的基础快照
             // 是清 void 前的原生连绵山体，照抄区会把岩体 spawn 回 B 的接缝带压掉走廊末端。
             // 精确格集（WriteCaveDisc 记录的整条走廊宽度足迹），无需道路那样的 ±3 缓冲
             // （那是 Bezier 偏离 + 无 tag 路面半宽的兜底，走廊足迹无此近似）。
@@ -463,12 +589,12 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 3×3 卷积（稀疏字典源，邻居参考用）：采样接缝条带快照 lookup 中 center 周围 3×3 邻域。
-        /// 条带是带状区域，窗口越出区域的格跳过（不 clamp——条带外无数据，与数组源的矩形边界
+        /// 3×3 卷积（邻居参考用）：采样实时地图/基础快照提供器中 center 周围 3×3 邻域。
+        /// 窗口越出参考域的格跳过（不 clamp——参考域外无数据，与数组源的矩形边界
         /// 语义不同）。**无地形例外**（同 <see cref="Convolve3x3"/>，水体照常参与）。
         /// total=0 返回 null。
         /// </summary>
-        private static Dictionary<TerrainDef, float> Convolve3x3FromStrip(Dictionary<IntVec3, TerrainDef> lookup, IntVec3 center)
+        private static Dictionary<TerrainDef, float> Convolve3x3FromReference(NeighborRef nref, IntVec3 center)
         {
             Dictionary<TerrainDef, int> counts = null;
             var total = 0;
@@ -477,7 +603,9 @@ namespace RimExodus
             var window = GenAdj.AdjacentCellsAndInside;
             for (var i = 0; i < window.Length; i++)
             {
-                if (!lookup.TryGetValue(new IntVec3(center.x + window[i].x, 0, center.z + window[i].z), out var t) || t == null) continue;
+                var read = ReadReference(nref,
+                    new IntVec3(center.x + window[i].x, 0, center.z + window[i].z), ReferenceLayer.Terrain);
+                if (!read.has || read.value is not TerrainDef t) continue;
                 counts ??= new Dictionary<TerrainDef, int>();
                 counts.TryGetValue(t, out var c);
                 counts[t] = c + 1;
@@ -531,8 +659,8 @@ namespace RimExodus
         /// 每侧三段：**位置**（坐标 + 圈层，以"接缝带中圈 = 离散边圈"为基准的相对圈数）/
         /// **生成时 snapshot**（389 三层原生备份，非序列化——读档后不可用时如实注明）/
         /// **当前实际**（会进 snapshot 的三层现值：topGrid 地面 / 岩石 edifice / roof）。
-        /// 本侧另附**混合情况追踪**（权重 / 本侧 snapshot 各层 3×3 卷积 / 各对侧 strip 各层 3×3 卷积 /
-        /// 各层混合结果）；对侧附**条带快照值**（本侧混合实际读到的参考源）。
+        /// 本侧另附**混合情况追踪**（权重 / 本侧 snapshot 各层 3×3 卷积 / 各对侧参考各层 3×3 卷积 /
+        /// 各层混合结果）；对侧附本侧实际读取的来源（当前实况/基础快照/缺失）。
         /// 权重/卷积/混合复用 ApplyOneWay 同一实现（CollectCellRefs/DominantRef/GetMode）——
         /// 报告与真实逻辑共享同一份代码，不会因复刻而漂移。
         ///
@@ -542,13 +670,14 @@ namespace RimExodus
         /// </summary>
         public static string DescribeCellReport(Map map, int worldTile, IntVec3 cell)
         {
+            EnsureScratchBuffers();
             var sb = new System.Text.StringBuilder();
             var band = SeamlessPolygonGeometry.BuildSeamBand(worldTile, map.Size.x);
-            var voidDef = DefDatabase<TerrainDef>.GetNamedSilentFail("RimExodus_Void");
+            var voidDef = VoidDef;
             var mapSize = map.Size.x;
             var idx = map.cellIndices.CellToIndex(cell);
             var localTerrain = map.terrainGrid.topGrid[idx];
-            var localRock = SeamStripData.RockDefAt(map, cell);
+            var localRock = RockDefAt(map, cell);
             var localRoof = map.roofGrid.RoofAt(cell);
 
             // ―― 本侧 ――
@@ -588,7 +717,7 @@ namespace RimExodus
             else if (roadGuard.Contains(cell))
                 skipReason = "道路保护②(A* 路径 ±3 格缓冲)";
             else if (!hasRefs)
-                skipReason = "无已生成邻居参考（或对齐格不在任何邻居 strip 内）";
+                skipReason = "无已加载邻图参考（或对齐格不在参考区域内）";
 
             if (skipReason != null)
             {
@@ -603,23 +732,25 @@ namespace RimExodus
 
                 // 本侧 snapshot 各层 3×3 卷积（快照缺失回落当前实际并注明）。
                 var selfTerrDist = Convolve3x3(baseT ?? map.terrainGrid.topGrid, mapSize, baseT != null ? null : voidDef, cell);
-                sb.AppendLine($"    本侧 snapshot 3×3:  地面: {FormatDist(selfTerrDist)}  岩体: {ConvolveLayer3x3(SelfReader(map, baseB, static (m, c) => SeamStripData.RockDefAt(m, c)), cell)}  屋顶: {ConvolveLayer3x3(SelfReader(map, baseR, static (m, c) => c.GetRoof(m)), cell)}{(baseT != null ? "" : "  (snapshot 不可用，self 回落当前实际)")}");
+                sb.AppendLine($"    本侧 snapshot 3×3:  地面: {FormatDist(selfTerrDist)}  岩体: {ConvolveLayer3x3(SelfReader(map, baseB, static (m, c) => RockDefAt(m, c)), cell)}  屋顶: {ConvolveLayer3x3(SelfReader(map, baseR, static (m, c) => c.GetRoof(m)), cell)}{(baseT != null ? "" : "  (snapshot 不可用，self 回落当前实际)")}");
 
-                // 各对侧 strip 各层 3×3 卷积。
+                // 各对侧实时/基础快照组合参考的 3×3 卷积。
                 foreach (var r in cellRefs)
                 {
-                    var strip = r.owner.strip;
-                    sb.AppendLine($"    对侧 wt={r.owner.worldTile} strip 3×3:  地面: {FormatDist(Convolve3x3FromStrip(strip.terrainLookup, r.aCell))}  岩体: {ConvolveLayer3x3(StripReader(strip.buildingLookup), r.aCell)}  屋顶: {ConvolveLayer3x3(StripReader(strip.roofLookup), r.aCell)}");
+                    sb.AppendLine($"    对侧 wt={r.owner.worldTile} 参考 3×3:  地面: {FormatDist(Convolve3x3FromReference(r.owner, r.aCell))}  岩体: {ConvolveLayer3x3(ReferenceReader(r.owner, ReferenceLayer.Building), r.aCell)}  屋顶: {ConvolveLayer3x3(ReferenceReader(r.owner, ReferenceLayer.Roof), r.aCell)}  来源: {ReferenceSourceSummary(r.owner, r.aCell)}");
                 }
 
-                // 各层混合结果（照抄区单参考 = 逐层 ReadStrip；卷积区 = terrain 加权众数 + 离散层跟随主导参考）。
+                // 各层混合结果（照抄区单参考 = 逐层 ReadReference；卷积区 = terrain 加权众数 + 离散层跟随主导参考）。
                 TerrainDef terrPart; ThingDef rockPart; RoofDef roofPart; string modeLabel;
                 if (isCopyZone && cellRefs.Count == 1)
                 {
                     var ref0 = cellRefs[0];
-                    terrPart = (TerrainDef)seamLayers[0].ReadStrip(ref0.owner.strip, ref0.aCell);
-                    rockPart = (ThingDef)seamLayers[1].ReadStrip(ref0.owner.strip, ref0.aCell);
-                    roofPart = (RoofDef)seamLayers[2].ReadStrip(ref0.owner.strip, ref0.aCell);
+                    var readT = seamLayers[0].ReadReference(ref0.owner, ref0.aCell);
+                    var readB = seamLayers[1].ReadReference(ref0.owner, ref0.aCell);
+                    var readR = seamLayers[2].ReadReference(ref0.owner, ref0.aCell);
+                    terrPart = readT.has ? (TerrainDef)readT.value : localTerrain;
+                    rockPart = readB.has ? (ThingDef)readB.value : localRock;
+                    roofPart = readR.has ? (RoofDef)readR.value : localRoof;
                     modeLabel = "照抄区单参考";
                 }
                 else
@@ -628,13 +759,15 @@ namespace RimExodus
                     if (selfW > 0f && selfTerrDist != null) blendParts.Add((selfTerrDist, selfW));
                     foreach (var r in cellRefs)
                     {
-                        var refDist = Convolve3x3FromStrip(r.owner.strip.terrainLookup, r.aCell);
+                        var refDist = Convolve3x3FromReference(r.owner, r.aCell);
                         if (refDist != null) blendParts.Add((refDist, r.w));
                     }
                     var dominant = DominantRef(cellRefs);
                     terrPart = blendParts.Count > 0 ? GetMode(BlendDistributions(blendParts)) : null;
-                    rockPart = (ThingDef)seamLayers[1].ReadStrip(dominant.owner.strip, dominant.aCell);
-                    roofPart = (RoofDef)seamLayers[2].ReadStrip(dominant.owner.strip, dominant.aCell);
+                    var readB = seamLayers[1].ReadReference(dominant.owner, dominant.aCell);
+                    var readR = seamLayers[2].ReadReference(dominant.owner, dominant.aCell);
+                    rockPart = readB.has ? (ThingDef)readB.value : localRock;
+                    roofPart = readR.has ? (RoofDef)readR.value : localRoof;
                     modeLabel = $"卷积区/多参考，离散层随主导 wt={dominant.owner.worldTile}";
                 }
                 sb.AppendLine($"    各层混合结果({modeLabel}):  {LayerTriple(terrPart, rockPart, roofPart)}{VerdictSuffix(terrPart, localTerrain, "地面")}{VerdictSuffix(rockPart, localRock, "岩体")}{VerdictSuffix(roofPart, localRoof, "屋顶")}");
@@ -643,14 +776,11 @@ namespace RimExodus
             // ―― 对侧对应位置（每个参考邻居一栏）――
             foreach (var r in cellRefs)
             {
-                var strip = r.owner.strip;
-                var nBand = SeamlessPolygonGeometry.BuildSeamBand(r.owner.worldTile, strip.mapSize);
+                var nBand = r.owner.band;
                 sb.AppendLine($"―― 对侧 wt={r.owner.worldTile}  对应格 ({r.aCell.x},{r.aCell.z})  offset={r.owner.offset} ――");
                 sb.AppendLine($"  位置: ({r.aCell.x},{r.aCell.z})  圈层: {RingLabel(nBand, r.aCell)}");
 
-                Map nMap = null;
-                if (SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, r.owner.worldTile, out var nInfo))
-                    nMap = nInfo.map;
+                var nMap = r.owner.map;
                 if (nMap != null && r.aCell.InBounds(nMap))
                 {
                     var nIdx = nMap.cellIndices.CellToIndex(r.aCell);
@@ -658,17 +788,43 @@ namespace RimExodus
                     var nBaseB = SeamlessMapData.GetBaseBuildingSnapshot(nMap);
                     var nBaseR = SeamlessMapData.GetBaseRoofSnapshot(nMap);
                     sb.AppendLine($"  生成时 snapshot:  {LayerTriple(SnapAt(nBaseT, nIdx), SnapAt(nBaseB, nIdx), SnapAt(nBaseR, nIdx))}{(nBaseT != null ? "" : "  (非序列化，读档后不可用)")}");
-                    sb.AppendLine($"  当前实际:         {LayerTriple(nMap.terrainGrid.topGrid[nIdx], SeamStripData.RockDefAt(nMap, r.aCell), nMap.roofGrid.RoofAt(r.aCell))}");
+                    sb.AppendLine($"  当前实际:         {LayerTriple(nMap.terrainGrid.topGrid[nIdx], RockDefAt(nMap, r.aCell), nMap.roofGrid.RoofAt(r.aCell))}");
                 }
                 else
                 {
                     sb.AppendLine("  图未加载或对应格越界 → 生成时 snapshot / 当前实际不可读");
                 }
 
-                var stripT = (TerrainDef)seamLayers[0].ReadStrip(strip, r.aCell);
-                var stripB = (ThingDef)seamLayers[1].ReadStrip(strip, r.aCell);
-                var stripR = (RoofDef)seamLayers[2].ReadStrip(strip, r.aCell);
-                sb.AppendLine($"  条带快照(本侧参考源):  {LayerTriple(stripT, stripB, stripR)}{(stripT == null ? "  (不在条带区域)" : "")}");
+                var refT = seamLayers[0].ReadReference(r.owner, r.aCell);
+                var refB = seamLayers[1].ReadReference(r.owner, r.aCell);
+                var refR = seamLayers[2].ReadReference(r.owner, r.aCell);
+                sb.AppendLine($"  本侧实际参考源[{ReferenceSourceLabel(GetReferenceSource(r.owner, r.aCell))}]:  {LayerTriple(refT.value, refB.value, refR.value)}{(!refT.has ? "  (无参考数据)" : "")}");
+            }
+
+            // 已加载邻图但本格缺参考时也必须显式报告；不能因 CollectCellRefs 跳过而让“缺失”
+            // 从探针里消失，否则会再次把明确空值与数据缺口混淆。
+            foreach (var nref in neighborRefs)
+            {
+                var alreadyShown = false;
+                for (var i = 0; i < cellRefs.Count; i++)
+                {
+                    if (cellRefs[i].owner.worldTile == nref.worldTile) { alreadyShown = true; break; }
+                }
+                if (alreadyShown) continue;
+
+                var aCell = new IntVec3(cell.x - nref.offset.x, 0, cell.z - nref.offset.z);
+                if (!aCell.InBounds(nref.map)) continue;
+                var inReferenceDomain = nref.band.Band.Contains(aCell)
+                    || nref.band.TransitionDepth.TryGetValue(aCell, out _)
+                    || nref.band.OuterStripDepth.ContainsKey(aCell);
+                if (!inReferenceDomain) continue;
+
+                sb.AppendLine($"―― 对侧 wt={nref.worldTile}  对应格 ({aCell.x},{aCell.z})  offset={nref.offset} ――");
+                sb.AppendLine($"  位置: ({aCell.x},{aCell.z})  圈层: {RingLabel(nref.band, aCell)}");
+                var nIdx = nref.map.cellIndices.CellToIndex(aCell);
+                sb.AppendLine($"  生成时 snapshot:  {LayerTriple(SnapAt(nref.baseTerrain, nIdx), SnapAt(nref.baseBuilding, nIdx), SnapAt(nref.baseRoof, nIdx))}{(nref.baseTerrain != null ? "" : "  (不可用)")}");
+                sb.AppendLine($"  当前实际:         {LayerTriple(nref.map.terrainGrid.topGrid[nIdx], RockDefAt(nref.map, aCell), nref.map.roofGrid.RoofAt(aCell))}");
+                sb.AppendLine($"  本侧实际参考源[缺失]:  地面=(null)  岩体=无  屋顶=无  (无参考数据；3×3 来源: {ReferenceSourceSummary(nref, aCell)})");
             }
 
             return sb.ToString().TrimEnd();
@@ -741,11 +897,33 @@ namespace RimExodus
             };
         }
 
-        /// <summary>对侧条带读子：lookup 含 null 值（无岩/无顶），缺键 = 不在条带。</summary>
-        private static Func<int, int, (bool has, Def v)> StripReader<T>(Dictionary<IntVec3, T> lookup) where T : Def
+        private static Func<int, int, (bool has, Def v)> ReferenceReader(NeighborRef nref, ReferenceLayer layer)
         {
-            return (x, z) => lookup.TryGetValue(new IntVec3(x, 0, z), out var v) ? (true, v) : (false, null);
+            return (x, z) => ReadReference(nref, new IntVec3(x, 0, z), layer);
         }
+
+        private static string ReferenceSourceSummary(NeighborRef nref, IntVec3 center)
+        {
+            var current = 0; var snapshot = 0; var missing = 0;
+            var window = GenAdj.AdjacentCellsAndInside;
+            for (var i = 0; i < window.Length; i++)
+            {
+                switch (GetReferenceSource(nref, center + window[i]))
+                {
+                    case ReferenceSource.Current: current++; break;
+                    case ReferenceSource.BaseSnapshot: snapshot++; break;
+                    default: missing++; break;
+                }
+            }
+            return $"当前={current} 基础快照={snapshot} 缺失={missing}";
+        }
+
+        private static string ReferenceSourceLabel(ReferenceSource source) => source switch
+        {
+            ReferenceSource.Current => "当前实况",
+            ReferenceSource.BaseSnapshot => "基础快照",
+            _ => "缺失"
+        };
 
         /// <summary>分布格式化：按占比降序拼接 defName=0.xxx（null = 窗口无数据）。</summary>
         private static string FormatDist(Dictionary<TerrainDef, float> dist)

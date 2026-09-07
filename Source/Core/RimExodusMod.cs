@@ -48,7 +48,7 @@ namespace RimExodus
             SeamlessVehiclesCompat.Register(harmony);
 
             // GL 河流接缝适配（2026-09 v9）：GL 的河流地貌替换原版河流 mutator 后，原版河四 patch
-            // 全部失效（河在接缝处各 tile 种子随机错位 + 河水污染外条带快照）。补绑三个 GL 侧
+            // 全部失效（河在接缝处各 tile 种子随机错位 + 河水污染 void 侧基础快照）。补绑三个 GL 侧
             // patch（GetOrCreateTileLinkData 穿越点对齐 + GeneratePostTerrain void 还原/河格登记 +
             // PathTracer.Trace Prefix/Postfix Path 树钉位与偏差诊断——河路本体层，水/岸/biome/海拔
             // 全层自动一致）。软检测未装短路；手动绑定全程 try/catch；成功标志 =
@@ -345,8 +345,7 @@ namespace RimExodus
                     // 三层快照序列化开关（2026-08 卸载恢复支撑）：关闭只影响"新数据不入档"，
                     // 内存快照总保留、不再弹"删除已有快照"提示（2026-08-31 语义收拢）。
                     SnapshotToggleRow(listing, s);
-                    // 精简快照重生成（2026-08-31）：读档后源图缺快照时生成邻图前自动补齐，
-                    // 接缝混合参考恢复。
+                    // 精简快照重生成：正式生成前为目标周围所有已加载参考图补缺失基础快照。
                     CheckRow(listing, "RimExodus_SettingsRegenSnapshotLabel", "RimExodus_SettingsRegenSnapshotTip",
                         v => s.regenerateMissingSnapshots = v, s.regenerateMissingSnapshots);
                     // 卸载前恢复原版兼容模式（2026-08）：一次性动作，二次确认后执行。

@@ -174,7 +174,7 @@
 
 确定吗？</RimExodus_SettingsSnapshotDisableConfirm>
   <RimExodus_SettingsRegenSnapshotLabel>生成邻接地图时精简重生成缺失的快照</RimExodus_SettingsRegenSnapshotLabel>
-  <RimExodus_SettingsRegenSnapshotTip>生成邻接地图时，若当前地图内存中没有地形快照（旧存档读档后、或关闭了快照入存档），先在一张临时地图上只跑地形/岩石/屋顶的精简生成重建快照，再正常生成邻图。这保证旧存档读档后接缝混合仍然生效（每张图一次性卡顿几百毫秒）。
+  <RimExodus_SettingsRegenSnapshotTip>正式生成地图前，检查目标周围所有已加载的参考地图。若其中某张缺少基础地形快照（旧存档读档后、或关闭了快照入存档），就在临时地图上只跑地形/岩石/屋顶的精简生成来补齐。这样被裁掉区域下的自然状态仍能用于接缝衔接（每张缺失地图一次性卡顿几百毫秒）。关闭后，相邻地图当前可见区域仍可作为参考，但缺少快照的裁切区域会被跳过。
 
 默认：开。</RimExodus_SettingsRegenSnapshotTip>
   <RimExodus_SnapshotPurged>已删除 {0} 张图的已存快照，下次存档起从存档中消失。</RimExodus_SnapshotPurged>

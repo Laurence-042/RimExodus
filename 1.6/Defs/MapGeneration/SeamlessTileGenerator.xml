@@ -28,7 +28,7 @@
         守门正常工作。
       RimExodus_SeamlessTile    (389)：备份 snapshot（void 裁切前的完整矩形 topGrid）+ 按六边形铺 void
         + pathGrid 全量刷新。snapshot 记录 210/220/230 铺的地形（**2026-08-30 从 391 提前到 Roads(390)
-        之前**：外条带快照只覆盖 void 侧格、道路被 TerrainGrid void 守卫拦住写不进 void 格，快照不受
+        之前**：基础快照覆盖完整裁切前地图、道路被 TerrainGrid void 守卫拦住写不进 void 格，快照不受
         Roads 影响；Roads 改在 void 之后跑 = 道路 A* 视界内六边形外全不可走，河端点无需再延伸到
         方形边防绕行——河端点取缝中点即可，见 Patches_TileMutatorRiver）。
       RimExodus_SeamOverride    (392)：混合带卷积混合（读两端 snapshot，写本端 topGrid）+ pathGrid 刷新。
@@ -50,10 +50,10 @@
 
     **旧否决理由的重新评估（2026-08，详见 doc/地图生成步骤.md）**：旧文档以"Settlement/site BaseGen
     地板写 topGrid，snapshot 必须在其后备份；FloorFill 会覆盖混合带"为由否决 391-399。今天选址
-    patch（ScatterEdgeMargin=20 / ClearRectMargin=10）已把结构推离六边形边，快照的游戏逻辑消费面
-    仅剩 void 侧外条带（SeamStripData.CaptureAndStore），地板写入被拦在带外。残余风险记观察项：
+    patch（ScatterEdgeMargin=20 / ClearRectMargin=10）已把结构推离六边形边，基础快照的接缝消费面
+    是已被裁成 void 的对应位置，地板写入被拦在带外。残余风险记观察项：
     ①贴附矩形（GetOutpostRect）/降落平台残余缺口处地板可盖混合结果（旧序相反：混合盖地板）；
-    ②Harbor 桥等 400-1400 地形写入不再进外条带快照（跨缝复制行为有变化）；③污染地块(890)的
+    ②Harbor 桥等 400-1400 地形写入发生在基础快照之后（void 侧不作为参考）；③污染地块(890)的
     污染变体发生在混合之后，带格与对端可能不一致；④completelyIgnoreFertility 植物不受肥力门
     约束可能漏进 void（原 1400 序靠事后清理兜住）。MutatorFinal(1600) 覆写接缝的已知瑕疵与顺序无关，仍存在。
 

@@ -22,9 +22,8 @@ namespace RimExodus
     public static class SeamlessPolygonGeometry
     {
         /// <summary>
-        /// 条带快照的 B∪T（最终实况区）存储限深（格，切比雪夫）：接缝带 B 全收 + 过渡带 T
-        /// 收到这个深度。T 区数据只服务"错位 ≤3 格时对端照抄格的浅层参考"，限深即可。
-        /// **外条带（原生参考区）不限深**——存到 A 的方形边（权重衰减参考数据全深，
+        /// 实时参考域的 B∪T 限深（格，切比雪夫）：接缝带 B 全收 + 过渡带 T 收到这个深度。
+        /// **void 外条带的基础快照参考不限深**——延伸到 A 的方形边（权重衰减参考数据全深，
         /// 见 SeamlessSeamOverride 权重公式）。
         /// </summary>
         public const int SeamStripInnerDepth = 6;
@@ -419,7 +418,7 @@ namespace RimExodus
         /// **消费方（3 圈接缝带重构后）**：仅剩 <see cref="SeamlessBorderLookup"/> 的预加载带
         /// （borderPreloadDistance，默认 15）与禁建带（borderNoBuildDistance，默认 3）——两者读
         /// terrainGrid void 实况即可，自动适应新 void 形状（void 边界退到接缝带外）。传送点带
-        /// 已改用 <see cref="BuildSeamBand"/> 传送圈（纯几何），SeamOverride 已改用接缝条带快照。
+        /// 已改用 <see cref="BuildSeamBand"/> 传送圈（纯几何），SeamOverride 也以此判定实时/基础参考域。
         ///
         /// **调用时机**：必须在 void 铺设（ApplyPolygonTerrain）之后调用——本方法直接读 terrainGrid 判定 void。
         /// </summary>

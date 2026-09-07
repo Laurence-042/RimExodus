@@ -46,19 +46,18 @@ namespace RimExodus
         /// <summary>
         /// 基础地形快照（阶段4 接缝覆写）：void 裁切前的完整矩形地形备份。
         /// 在 GenStep_SeamlessTile（order=389）开头备份——此时全部基础地形写入步骤（Terrain 210 /
-        /// Coast 220 / CoastalEdgeFill 230 / Roads 390）已跑完，Plants(900)/Animals(1200) 尚未
+        /// Coast 220 / CoastalEdgeFill 230）已跑完，Roads(390)/Plants(900)/Animals(1200) 尚未
         /// （它们不写 topGrid）；400+ 的 BaseGen 地板写入被选址 patch 拦在接缝带之外（残余缺口见
         /// SeamlessTileGenerator.xml 观察项）。
-        /// 供接缝条带快照捕获（SeamStripData.CaptureAndStore 读外条带格的原生值）。
-        /// 非序列化：生成期临时数据，读档后为 null（原生图快照存组件、亦同）——
-        /// 跨读档的接缝参考由 <see cref="seamStrip"/>（序列化）承担。
+        /// 接缝参考在当前格已被裁成 void 时读取此数组。地块图不序列化，读档后需要时由
+        /// <see cref="SeamlessSnapshotRegenerator"/> 在正式生成开始前按需重建。
         /// </summary>
         public TerrainDef[] baseTerrainSnapshot;
 
         /// <summary>
         /// 原生建筑快照（岩石体 BuildingDef，null=无；与 <see cref="baseTerrainSnapshot"/> 同点位
         /// 备份、非序列化）。与地形快照平行的第二层：void 铺设会清除接缝带外格上的岩体，
-        /// 接缝条带快照对外条带格必须引用**原生**两层（同源），否则世界连续的岩壁会被误判
+        /// void 侧参考必须引用**原生**两层（同源），否则世界连续的岩壁会被误判
         /// 无岩体（2026-08 实测：(98,233) 连续岩壁到该格突然消失）。存 BuildingDef 而非 bool：
         /// 完全一致区 spawn 用对端岩石 def，跨缝岩色也连续。
         /// </summary>
@@ -72,18 +71,9 @@ namespace RimExodus
         public RoofDef[] baseRoofSnapshot;
 
         /// <summary>
-        /// 接缝条带快照（接缝带 B ∪ 过渡带 T 最终值 + 接缝带外条带原生值）。
-        /// 挂在 WorldObject 上（非 Map）：随存档序列化，**地图卸载后数据存活**——
-        /// 地图滚动加载卸载的生命周期预埋（未来卸 Map、留 WorldObject 时，
-        /// SeamlessTileGraph.TryGetNeighborSeamStrip 的 WorldObject 回落路径自动接管）。
-        /// Dev 完全卸载（RemoveTileMap）销毁本对象即数据消失（"完全卸载 = 从未出现过"）。
-        /// </summary>
-        public SeamStripData seamStrip;
-
-        /// <summary>
         /// 前哨封存记录（2026-09 前哨保留）。非 null = 本 WO 处于封存态（Map 已拆、记录在档）：
         /// - 到达删除距离且居住区达阈时由 governor 捕获（<see cref="ZoneMapRecord.Capture"/>）并拆图，
-        ///   本 WO 刻意保留（邻居链不断、seamStrip 可被邻图生成参考、世界图第四态图标）；
+        ///   本 WO 刻意保留（邻居链不断、世界图第四态图标）；封存态无 Map，不参与接缝参考；
         /// - 再次生成时由 <see cref="SeamlessTileManager.GenerateTileMap"/> 守卫识别并复用本 WO，
         ///   <see cref="GenStep_ZoneRestore"/>(395) 在生成链内重放，onComplete 消费置 null。
         /// 淘汰/手动删除封存 = 销毁本 WO（记录随亡）。
@@ -157,7 +147,6 @@ namespace RimExodus
             Scribe_Values.Look(ref worldTile, "worldTile", -1);
             Scribe_Values.Look(ref autoFocused, "autoFocused", false);
             Scribe_Values.Look(ref tileOrigin, "tileOrigin", Vector2.zero);
-            Scribe_Deep.Look(ref seamStrip, "seamStrip");
             Scribe_Deep.Look(ref preserveRecord, "preserveRecord");
 
             // 邻居表序列化：用 IExposable 的 NeighborLink 列表。

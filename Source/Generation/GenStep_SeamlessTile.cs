@@ -17,8 +17,8 @@ namespace RimExodus
     /// void 格上合法生成、再靠撤离兜底，而撤离曾因 pathGrid 过期失效（动物站 void 的历史 bug）。
     ///
     /// **snapshot 备份点选在 389**：在所有基础地形写入步骤（Terrain 210 / Coast 220 / CoastalEdgeFill 230）
-    /// 之后；Roads(390) 虽在其后但被 TerrainGrid void 守卫拦住写不进 void 格，外条带快照（唯一游戏逻辑
-    /// 消费面，SeamStripData.CaptureAndStore）不受影响。order 400+ 的 BaseGen 地板写入已被选址 patch
+    /// 之后；Roads(390) 虽在其后但被 TerrainGrid void 守卫拦住写不进 void 格，因此 389 基础快照
+    /// 仍是 void 下自然地形的权威来源。order 400+ 的 BaseGen 地板写入已被选址 patch
     /// （ScatterEdgeMargin=20 / ClearRectMargin=10）拦在接缝带之外，残余缺口（贴附矩形/降落平台/Harbor 桥）记观察项。
     ///
     /// 实际逻辑已抽到 <see cref="SeamlessTerrainFill.BackupSnapshotAndApplyVoid"/>（归一入口）。

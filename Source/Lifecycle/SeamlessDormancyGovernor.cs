@@ -436,7 +436,7 @@ namespace RimExodus
         // 前哨保留（2026-09 封存/重放）。设计定案（四轮对话收敛，详见 doc/地图滚动休眠.md）：
         // - 判定唯一出处 = SeamlessMapModificationTracker（居住区语义，不与删除策略混杂）；
         // - 封存 = 捕获 ZoneMapRecord 挂 WO + DeinitAndRemoveMap 拆图，WO 刻意保留
-        //   （邻居链不断/seamStrip 可被邻图生成参考/世界图第四态——与 RemoveTileMap 的差异）；
+        //   （邻居链不断/世界图第四态——与 RemoveTileMap 的差异；无 Map 时不参与接缝参考）；
         // - 恢复 = 生成守卫识别"无图有记录"复用 WO 走生成链，GenStep_ZoneRestore(395) 置换重放；
         // - 淘汰不设硬上限：保留数量 N（0=不限）+ 权重公式 X×居住区格数 + Y×新近度序号，
         //   超限淘汰权重最低者（默认 X=0/Y=-1 = 淘汰最旧 = "保留最近 N 个"）。
@@ -458,9 +458,9 @@ namespace RimExodus
             }
             parent.preserveRecord = record;
 
-            // 拆图（与 RemoveTileMap 的三点差异，勿"顺手对齐"：①WO 保留——邻居链/seamStrip/
-            // 世界图第四态的载体；②不 CleanupNeighborLinks——链接指向活 WO，跨档有效，邻图在
-            // 封存期间生成还能经 TryGetNeighborSeamStrip 的 WO 回落读条带参考；③不
+            // 拆图（与 RemoveTileMap 的三点差异，勿"顺手对齐"：①WO 保留——邻居链/
+            // 世界图第四态的载体；②不 CleanupNeighborLinks——链接指向活 WO，跨档有效；封存态
+            // 无 Map，不参与接缝参考，恢复后重新生成自然外围并与当前邻图混合；③不
             // ReleaseTileMesh——WO 仍在绘制（封存态）。Forget 先行 = 删前清扫 + 休眠集合摘除）。
             SeamlessDormancyManager.Forget(map);
             Current.Game.DeinitAndRemoveMap(map, false);

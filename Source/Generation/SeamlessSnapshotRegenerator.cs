@@ -13,9 +13,8 @@ namespace RimExodus
     /// 精简快照重生成器（2026-08-31）：生成邻接地图前，若**源图**内存里没有基础三层快照
     /// （旧存档读档 / <c>serializeBaseSnapshots</c> 关闭后读档的准确特征），在一张临时 Map 上
     /// 同步重跑 order &lt; <see cref="SnapshotStepOrderCutoff"/> 的 genStep 子集（恰为基础快照
-    /// 在 389 备份时点的地形/岩体/屋顶状态），得到精简快照后回填源图并重建条带快照——
-    /// 否则 <see cref="SeamlessSeamOverride.CollectNeighborRefs"/> 查不到参考，新图接缝
-    /// 混合被静默跳过（玩家报告的"读档后生成的新图不连续"）。
+    /// 在 389 备份时点的地形/岩体/屋顶状态），得到精简快照后回填邻图。这样邻图当前已为
+    /// void 的映射格仍能提供裁切前的自然地形，同时带内玩家修改继续直接取当前实况。
     ///
     /// 【口径与先例】
     /// - genStep 组装 / 种子派生 / RockNoises / GL shim / per-step Rand+ProgramState 包裹全部
@@ -31,8 +30,7 @@ namespace RimExodus
     /// - 互斥：全程持有 <see cref="MapGenerator.mapBeingGenerated"/>（与原生 GenerateMap 同款
     ///   单飞语义）；入口若已有分帧增量/预览在飞则本次跳过（不阻塞邻图生成本身，混合退回
     ///   既有静默跳过，下次生成再补）。
-    /// - 重建条带快照 = <see cref="SeamStripData.CaptureAndStore"/>（幂等覆盖）：B∪T 段取当前
-    ///   实况（含玩家改动），外条带段取重生成的原生值——与 392 捕获语义同构。
+    /// - 只回填完整基础快照，不保存派生条带子集；接缝提供器按格决定读当前实况还是基础快照。
     /// </summary>
     internal static class SeamlessSnapshotRegenerator
     {
@@ -42,8 +40,8 @@ namespace RimExodus
         private static readonly FieldInfo gravshipField = AccessTools.Field(typeof(MapGenerator), "gravship");
 
         /// <summary>
-        /// 生成邻接地图前调用：源图缺内存基础快照时同步精简重生成（幂等；已有快照零成本早退）。
-        /// 任何失败只出错误日志，绝不抛出——快照缺失的既有降级（混合跳过）仍优于断生成链。
+        /// 生成邻接地图前调用：参考图缺内存基础快照时同步精简重生成（幂等；已有快照零成本早退）。
+        /// 任何失败只出警告，绝不抛出——该图非 void 当前实况仍可参考，缺失的 void 侧格跳过。
         /// </summary>
         internal static void EnsureSourceSnapshot(Map sourceMap, int worldTile)
         {
@@ -51,8 +49,12 @@ namespace RimExodus
             {
                 if (sourceMap == null || worldTile < 0) return;
                 if (!(RimExodusMod.Settings?.regenerateMissingSnapshots ?? true)) return;
-                // 已有内存快照（生成期 389 备份过、或本轮已补过）——无事可做。
-                if (SeamlessMapData.GetBaseTerrainSnapshot(sourceMap) != null) return;
+                // 三层必须成套可用；旧档/异常数据只有 terrain 时也要补，不能把缺失的岩体/屋顶层
+                // 误当成“明确为空”。
+                if (SeamlessMapData.GetBaseTerrainSnapshot(sourceMap) != null
+                    && SeamlessMapData.GetBaseBuildingSnapshot(sourceMap) != null
+                    && SeamlessMapData.GetBaseRoofSnapshot(sourceMap) != null)
+                    return;
                 // 互斥避让：精简生成消费 MapGenerator 进程级 static（data/RockNoises/mapBeingGenerated），
                 // 与分帧增量 / 原生生成 / MapPreview 预览线程互踩。跳过本次（不重试不阻塞）——
                 // 邻图生成本身照常，混合该方向退回既有静默跳过，下次触发生成时再补。
@@ -65,7 +67,35 @@ namespace RimExodus
             }
             catch (Exception ex)
             {
-                Log.Error($"[RimExodus] Snapshot regeneration failed for map {sourceMap?.uniqueID} (wt={worldTile}): {ex}");
+                Log.Warning($"[RimExodus] Snapshot regeneration failed for map {sourceMap?.uniqueID} (wt={worldTile}); current non-void cells remain usable: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// 在目标图正式占用 MapGenerator 静态状态前，为它周围所有已加载地图补齐基础快照。
+        /// 接缝单格通常只命中一个邻图、顶点处命中两个，但整张目标图可能沿不同边参考多张图，
+        /// 因此不能只补触发生成的源图。无 Map 的封存/占位 WorldObject 不参与参考。
+        /// </summary>
+        internal static void EnsureNeighborSnapshots(PlanetTile targetTile)
+        {
+            if (!targetTile.Valid || targetTile.LayerDef != PlanetLayerDefOf.Surface) return;
+            if (SeamlessMapPreviewCompat.IsGeneratingPreviewOnCurrentThread) return;
+
+            var neighbors = new List<PlanetTile>();
+            Find.WorldGrid.GetTileNeighbors(targetTile, neighbors);
+            foreach (var neighbor in neighbors)
+            {
+                Map live = null;
+                foreach (var candidate in Find.Maps)
+                {
+                    if (candidate == null || candidate.Disposed) continue;
+                    if (SeamlessTileRegistry.GetMapWorldTile(candidate) == neighbor.tileId)
+                    {
+                        live = candidate;
+                        break;
+                    }
+                }
+                if (live != null) EnsureSourceSnapshot(live, neighbor.tileId);
             }
         }
 
@@ -135,9 +165,13 @@ namespace RimExodus
                         enumerable = enumerable.Where(s => !mut.preventGenSteps.Contains(s.def));
                 if (landformExtraSteps != null)
                     enumerable = enumerable.Concat(landformExtraSteps);
+                // 原版先在完整链上执行 GenStepDef.preventsGenSteps，再运行排序结果。不能先按 <389
+                // 截断：order 较高的声明者也可能排除一个较早步骤，若忽略会让重建快照偏离原图。
                 var orderedSteps = enumerable.Distinct()
-                    .Where(s => s.def.order < SnapshotStepOrderCutoff)
                     .OrderBy(x => x.def.order).ThenBy(x => x.def.index).ToList();
+                orderedSteps.RemoveAll(step => orderedSteps.Any(other =>
+                    other.def.preventsGenSteps != null && other.def.preventsGenSteps.Contains(step.def)));
+                orderedSteps.RemoveAll(step => step.def.order >= SnapshotStepOrderCutoff);
 
                 Rand.PushState();
                 try
@@ -175,12 +209,11 @@ namespace RimExodus
                     }
                 }
 
-                // ===== 提取三层 → 回填源图 → 重建条带快照 =====
+                // ===== 提取三层 → 回填源图 =====
                 SeamlessMapData.SetBaseSnapshots(sourceMap,
                     (TerrainDef[])tempMap.terrainGrid.topGrid.Clone(),
                     SeamlessTerrainFill.BackupBuildingSnapshot(tempMap),
                     SeamlessTerrainFill.BackupRoofSnapshot(tempMap));
-                SeamStripData.CaptureAndStore(sourceMap, worldTile);
 
                 if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
                 {
@@ -259,6 +292,30 @@ namespace RimExodus
         {
             return !Find.Scenario.AllParts.Any(p =>
                 typeof(ScenPart_DisableMapGen).IsAssignableFrom(p.def.scenPartClass) && p.def.genStep == def);
+        }
+    }
+
+    /// <summary>
+    /// 原版同步生成的统一预备入口。必须在 GenerateMap 方法体翻转 ProgramState、占用
+    /// mapBeingGenerated 之前运行；覆盖营地、POI、任务图和第三方直接调用。分帧生成不经过该方法，
+    /// 由 IncrementalMapGenerator.Start 显式调用同一准备函数。
+    /// </summary>
+    [HarmonyPatch(typeof(MapGenerator), nameof(MapGenerator.GenerateMap))]
+    internal static class Patch_MapGenerator_GenerateMap_PrepareSeamReferences
+    {
+        [HarmonyPriority(Priority.First)]
+        private static void Prefix(MapParent parent, bool isPocketMap)
+        {
+            // 同时看显式参数与 parent 类型：第三方若漏传 isPocketMap，口袋图仍不得进入表面参考链。
+            if (isPocketMap || parent == null || parent is PocketMapParent) return;
+            try
+            {
+                SeamlessSnapshotRegenerator.EnsureNeighborSnapshots(parent.Tile);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"[RimExodus] Preparing neighbor terrain snapshots failed; map generation continues with available references: {ex}");
+            }
         }
     }
 }

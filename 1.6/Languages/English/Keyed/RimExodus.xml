@@ -174,7 +174,7 @@ Existing stored snapshots are kept (they still work).
 
 Are you sure?</RimExodus_SettingsSnapshotDisableConfirm>
   <RimExodus_SettingsRegenSnapshotLabel>Regenerate missing snapshots when generating neighbor maps</RimExodus_SettingsRegenSnapshotLabel>
-  <RimExodus_SettingsRegenSnapshotTip>When generating a neighboring map, if the current map has no terrain snapshot in memory (after loading an older savegame, or with snapshot serialization turned off), a temporary lean generation (terrain/rock/roof only) is run once to rebuild the snapshot, then the neighbor map is generated normally. This keeps seam mixing working after loading old saves (a brief one-time hitch of a few hundred milliseconds per map).
+  <RimExodus_SettingsRegenSnapshotTip>Before a map is generated, all loaded neighboring maps that can serve as references are checked. If any lacks its base terrain snapshot (after loading an older save, or with snapshot serialization disabled), a temporary lean generation rebuilds its terrain, rock, and roof data. This keeps the natural state beneath cut-away areas available for seam matching (a brief one-time hitch of a few hundred milliseconds per missing map). If disabled, current visible neighbor terrain remains usable, but cut-away samples without a snapshot are skipped.
 
 Default: ON.</RimExodus_SettingsRegenSnapshotTip>
   <RimExodus_SnapshotPurged>Deleted stored terrain snapshots on {0} map(s). They disappear from the savefile on the next save.</RimExodus_SnapshotPurged>

@@ -9,7 +9,7 @@ namespace RimExodus
     /// 地图数据存储访问层（2026-08 归一）。「地块图数据挂 <see cref="MapParent_SeamlessTile"/>
     /// 字段（随 WorldObject 序列化、卸图后存活），原生 parent 图（家园/原生家族 Settlement 等——
     /// 原生 MapParent 挂不了我们的字段）挂 <see cref="SeamlessTileManager"/> 组件」的载体分支
-    /// 只在本类出现，上层读写邻居表 / 接缝条带快照 / 基础三层快照 / tileOrigin 一律经此，
+    /// 只在本类出现，上层读写邻居表 / 基础三层快照 / tileOrigin 一律经此，
     /// 不再各处手写 is 分支（历史：16 处散落分支，读写路径漂移风险）。
     /// 查询类入口见 <see cref="SeamlessTileGraph"/>（邻接/休眠口径过滤在其上）。
     /// </summary>
@@ -33,32 +33,10 @@ namespace RimExodus
             return map.Parent is MapParent_SeamlessTile tileParent ? tileParent.tileOrigin : Vector2.zero;
         }
 
-        /// <summary>接缝条带快照（无则 null）。地块图挂 WorldObject 字段（卸图后存活），原生图挂组件。</summary>
-        internal static SeamStripData GetSeamStrip(Map map)
-        {
-            if (map == null) return null;
-            if (map.Parent is MapParent_SeamlessTile tileParent) return tileParent.seamStrip;
-            return map.GetComponent<SeamlessTileManager>()?.seamStrip;
-        }
-
-        /// <summary>写入接缝条带快照（幂等覆盖）。存储位随载体类型自动选择。</summary>
-        internal static void SetSeamStrip(Map map, SeamStripData data)
-        {
-            if (map == null) return;
-            if (map.Parent is MapParent_SeamlessTile tileParent)
-            {
-                tileParent.seamStrip = data;
-            }
-            else
-            {
-                var manager = map.GetComponent<SeamlessTileManager>();
-                if (manager != null) manager.seamStrip = data;
-            }
-        }
-
         /// <summary>
         /// 写入基础三层快照（void 裁切前的原生 terrain/building/roof，同点位平行三层，
-        /// 非序列化生成期数据——跨读档参考由序列化的 <see cref="SeamStripData"/> 承担）。
+        /// 地块图中仅驻内存、缺失时由 <see cref="SeamlessSnapshotRegenerator"/> 按需重建；
+        /// 原生图可经 <see cref="SeamlessBaseSnapshotData"/> 持久化以服务卸载恢复）。
         /// </summary>
         internal static void SetBaseSnapshots(Map map, TerrainDef[] terrain, ThingDef[] building, RoofDef[] roof)
         {

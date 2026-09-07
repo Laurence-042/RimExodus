@@ -136,6 +136,10 @@ namespace RimExodus
                 return false;
             }
 
+            // 分帧路径不调用 MapGenerator.GenerateMap，必须在占用其进程级静态状态前显式执行
+            // 与同步路径 Prefix 相同的邻图基础快照准备。
+            SeamlessSnapshotRegenerator.EnsureNeighborSnapshots(mapParent.Tile);
+
             var prepStartRealtime = UnityEngine.Time.realtimeSinceStartup;
             try
             {

@@ -242,8 +242,8 @@ namespace RimExodus
         /// <summary>
         /// 生成邻接地图时源图缺内存快照的精简重生成（2026-08-31，默认开）：读档后（旧档或
         /// <see cref="serializeBaseSnapshots"/> 关闭）源图无基础三层快照 → 在临时 Map 上同步重跑
-        /// order &lt; 389 的地形/岩体/屋顶 genStep 子集得到精简快照，回填源图并重建条带快照
-        /// （新图接缝混合的参考源）。关闭 = 维持旧行为（混合静默跳过，接缝可能不连续）。
+        /// order &lt; 389 的地形/岩体/屋顶 genStep 子集得到精简基础快照，回填所有实际参考邻图。
+        /// 关闭后，缺失快照的 void 侧采样跳过，但邻图非 void 当前实况仍可参与混合。
         /// 见 <see cref="SeamlessSnapshotRegenerator"/>。
         /// </summary>
         public bool regenerateMissingSnapshots = true;

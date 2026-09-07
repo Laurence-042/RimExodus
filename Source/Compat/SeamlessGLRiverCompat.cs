@@ -46,7 +46,7 @@ namespace RimExodus
     /// portID 对连接；workshop 正式版与此副本逐行一致。）
     ///
     /// 【void 还原 + 修改格登记（原版 RiverTerrainAt/BankVoidSkip 的 GL 等价物，v1 起保留）】
-    /// GL 在 genStep 220 把河地形写进全图（含将来 void 区），389 清 void 前备份的外条带快照会
+    /// GL 在 genStep 220 把河地形写进全图（含将来 void 区），389 清 void 前备份的基础快照会
     /// 携带河水 → 对端照抄时盖掉新图地面（v2 教训在 GL 路径的重现面）。修法 = Prefix 快照
     /// topGrid，Postfix 把将来 void 格的河写入还原 pre-worker 地形——与原版"河生成不进 void
     /// 区"同语义，快照天然干净，389 无需任何快照侧特判。河走廊格记入 SeamlessRiverCells

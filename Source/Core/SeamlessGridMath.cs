@@ -15,7 +15,7 @@ namespace RimExodus
     ///
     /// **消费口径地图**（改语义须全链路同步）：
     /// - 接缝带 B = Cheb(D,1) 膨胀、过渡带/外条带多轮膨胀：BuildSeamBand；
-    /// - 权重衰减 dOut/dSq（条带深度、方形边距离）：SeamStripData.depths（膨胀时逐轮记深度）；
+    /// - 权重衰减 dOut/dSq（参考域深度、方形边距离）：SeamBandInfo 深度字典（膨胀时逐轮记深度）；
     /// - void 岩石判邻与对端一致性 3×3 窗口：SeamlessVoidRockLink；
     /// - 混合 3×3 卷积采样：Convolve3x3 / Convolve3x3FromStrip。
     /// 半径 &gt;1 的切比雪夫方形窗口（如道路保护 RoadGuardRadius=3）无原版数组可用，保留显式

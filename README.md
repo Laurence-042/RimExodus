@@ -72,7 +72,7 @@
 - **前哨保留（封存/重放）**：有**居住区（居住区）**的地块图到删除距离时不再被删除，而是**封存**——居住区内的建筑、地板、屋顶与地面物资被记录成一份极小的稀疏数据，地图本体从内存卸载（世界图该地块显示青绿色 + 中心白点）；你再回来时地图重新生成，你的前哨会在其上重建（居住区内采空的山体也不会复原）。居住区随建造自动扩展，也可以自己用居住区画笔圈定保留范围（"画居住区 = 画保留区"）；只有居住区内的东西会被保留。
   - 弹窗与阈值：居住区小于阈值（默认 20 格，可设 0 = 关闭）的地图到删除距离时会弹窗问你保不保留；"以后不再询问"需二次确认，之后这类小居住区地图直接删除不保留（设置里可重开询问）。
   - 保留数量与淘汰：封存记录只有 KB 级、无内存代价，默认不限数量；可在设置里设"最多保留最近 N 个"并用权重公式（居住区大小 × X + 封存新旧 × Y，均可配）决定超限时先淘汰谁。
-  - 已知限制：封存重放不保真 comp 级状态（床的归属、温控设定等会丢）；重放的图自然层（植被/野生动物/土壤）按新种子重摇；重放区域内若有**不可拆除**的建筑（如任务 monolith），记录中与之重叠的建筑会跳过恢复；未铺地板的采掘隧道不在居住区内时，山体会长回复塞洞口——补画居住区即可。
+  - 已知限制：封存只承诺居住区记录；恢复时外围自然环境会重新生成，并按当时已加载的邻图重新衔接，不保证与封存前完全相同。comp 级状态（床的归属、温控设定等）不保真；重放区域内若有**不可拆除**的建筑（如任务 monolith），记录中与之重叠的建筑会跳过恢复；未铺地板的采掘隧道不在居住区内时，山体会长回复塞洞口——补画居住区即可。
 - 地块图按距离策略删除后，下次进入走完整生成链重建（等同"从未出现过"，新地形种子确定性一致但生物群落细节会重新生成）。
   - 设计如此：我考虑过持久化地图到存档，但是说实话一张地图数据量还挺大的……考虑结果就是别给存档增肥了。前哨保留就是对这个取舍的正式回答：玩家建造过的图封存重放（见上），没建造过的照删。
 - 原版"全员离开即删图"的地图族（派系基地/site/战场等）改为距离策略接管；真败亡的派系基地删图后世界对象保留（原版重访语义）。
@@ -136,7 +136,7 @@
     - 预加载队列与分帧生成推进：每 tick 一次队列消费，队列空时就是一次计数比较。
       - 实现限制：总得有个地方判断是不是有新的分帧地图生成要跑，显然这是个全新特性，没有现成基础计算让我复用，所以一个计数比较已经是最小性能消耗了，而且这已经小到不可感知了
   - 生成期 / 读档一次性（不构成持续开销）
-    - 区域重建的接缝化、边界速查表构建、条带快照与接缝混合——只在新图生成和读档重建时发生。
+    - 区域重建的接缝化、边界速查表构建、基础快照补建与接缝混合——只在新图生成和需要补快照时发生。接缝不再为每图保存一份大体积派生条带数据。
   - 已知小额开销点（后续微优化项）
     - 地形写入守卫与传送点 def 查找中有几处未缓存的按名 Def 查询（主要影响生成期高频路径，单次量级很小）；拾取命中邻图时有少量 GC 分配。
 - 偶现问题
@@ -174,7 +174,7 @@
 | Seam override noise amplitude | 0.15 | 接缝混合过渡带的噪声打散幅度（0 = 关闭） |
 | 海岸补铺深水/浅水/沙滩距离 | 0.15 / 0.25 / 0.35 | 暂未在设置界面暴露（存档可改） |
 | Save base terrain snapshots | 开 | 把每张原生地图接缝裁切前的地形/岩石/屋顶三层快照以紧凑格式存入存档，供"恢复原版兼容模式"按钮在任何会话按真实地形恢复（无快照的图只能就近复制边界地形，观感可能奇怪）。会增大存档体积；长玩在意体积可关——关闭只影响"新快照不再入档"（已存数据保留、内存快照常驻、读档后由下一项自动补齐），需一次确认。见下方"卸载须知" |
-| Regenerate missing snapshots | 开 | 生成邻接地图时，若当前地图内存中没有地形快照（旧存档读档后、或上一项关闭），先在临时地图上只跑地形/岩石/屋顶的精简生成重建快照再生成邻图——保证读档后接缝混合（跨缝地形/岩石/屋顶连续）仍生效。每张图一次性几百毫秒卡顿。关闭则旧档读档后生成的邻图接缝可能不连续 |
+| Regenerate missing snapshots | 开 | 正式生成地图前，检查目标周围所有已加载参考地图；缺少基础快照者会在临时图上只跑地形/岩石/屋顶的精简生成。这样被裁成 void 的对应位置仍可还原自然状态。每张缺失图一次性几百毫秒卡顿；关闭后当前非 void 实况仍可参考，但缺快照的 void 侧采样会跳过 |
 | Restore vanilla compatibility（按钮） | — | 高级诊断 tab 的一次性动作：删全部无缝地块图（需先撤走上面的玩家 pawn）、家园/原生图就地恢复 void 地形（快照回填）并清除传送点等足迹；执行后**立即存档**，之后即可安全卸载本 mod |
 
 ## 卸载须知
@@ -194,8 +194,8 @@
 
 | 目录 | 职责 | 关键文件 |
 |---|---|---|
-| `Core/` | mod 入口、设置与跨域基础数据 | `RimExodusMod`（启动/PatchAll/绑定报告）、`RimExodusSettings`（设置窗口与 ModSettings）、`MapParent_SeamlessTile`（地块 WorldObject）、`SeamlessTileManager`（生成链入口 `GenerateTileMap`）、`SeamlessMapData`（邻居表/条带快照的载体分支唯一出处）、`SeamlessTileGraph`/`SeamlessTileRegistry`（邻接查询）、`SeamlessGridMath`（切比雪夫/邻格遍历统一口径）、`WorldTileGeometry`、`SeamlessMapUtility`（多边形归属解析）、`SeamlessEdgeCells`、`SeamlessBorderLookup`（边界带速查表）、`DebugActions_SeamlessTile`（Dev 菜单） |
-| `Generation/` | 地图生成管线：六边形裁切、void、接缝混合、分帧增量生成 | 四个注入 genStep（`GenStep_SeamlessTile` 389 备份+铺 void / `GenStep_SeamOverride` 392 接缝混合 / `GenStep_EnterSpots` 1490 铺传送点 / `GenStep_CoastalEdgeFill` 230）、`SeamlessPolygonGeometry`（接缝带几何唯一实现）、`SeamlessTerrainFill`、`SeamlessSeamOverride`（卷积混合规则）、`SeamStripData`（三层条带快照）、`SeamlessBaseSnapshotData`（三层快照的序列化载体）、`SeamlessSnapshotRegenerator`（读档后缺失快照的精简重生成）、`IncrementalMapGenerator`（分帧增量生成）、`MapGenerationProgressUI`、`SeamlessEnterSpotPlacer` + `CompSeamlessTileEnterSpot`（传送点铺设与标记）、配套 patch：河流/道路对齐（`Patches_TileMutatorRiver`/`Patches_GenStepRoads`）、建筑选址（`Patches_BuildingPlacement`）、揭雾分径（`Patches_GenStepFog`）、地形守卫（`Patches_TerrainGrid`）、生成计时与互斥（`Patches_MapGenTiming`/`Patches_IncrementalMapGen`）、`Patches_GenConstruct`、远行队进图出生点（`Patches_CaravanEnterMap`） |
+| `Core/` | mod 入口、设置与跨域基础数据 | `RimExodusMod`（启动/PatchAll/绑定报告）、`RimExodusSettings`（设置窗口与 ModSettings）、`MapParent_SeamlessTile`（地块 WorldObject）、`SeamlessTileManager`（生成链入口 `GenerateTileMap`）、`SeamlessMapData`（邻居表/基础快照的载体分支唯一出处）、`SeamlessTileGraph`/`SeamlessTileRegistry`（邻接查询）、`SeamlessGridMath`（切比雪夫/邻格遍历统一口径）、`WorldTileGeometry`、`SeamlessMapUtility`（多边形归属解析）、`SeamlessEdgeCells`、`SeamlessBorderLookup`（边界带速查表）、`DebugActions_SeamlessTile`（Dev 菜单） |
+| `Generation/` | 地图生成管线：六边形裁切、void、接缝混合、分帧增量生成 | 四个注入 genStep（`GenStep_SeamlessTile` 389 备份+铺 void / `GenStep_SeamOverride` 392 接缝混合 / `GenStep_EnterSpots` 1490 铺传送点 / `GenStep_CoastalEdgeFill` 230）、`SeamlessPolygonGeometry`（接缝带几何唯一实现）、`SeamlessTerrainFill`、`SeamlessSeamOverride`（实时地图/基础快照提供器与卷积混合）、`SeamlessBaseSnapshotData`（原生图三层快照的序列化载体）、`SeamlessSnapshotRegenerator`（读档后为所有实际参考邻图按需补快照）、`IncrementalMapGenerator`（分帧增量生成）、`MapGenerationProgressUI`、`SeamlessEnterSpotPlacer` + `CompSeamlessTileEnterSpot`（传送点铺设与标记）、配套 patch：河流/道路对齐（`Patches_TileMutatorRiver`/`Patches_GenStepRoads`）、建筑选址（`Patches_BuildingPlacement`）、揭雾分径（`Patches_GenStepFog`）、地形守卫（`Patches_TerrainGrid`）、生成计时与互斥（`Patches_MapGenTiming`/`Patches_IncrementalMapGen`）、`Patches_GenConstruct`、远行队进图出生点（`Patches_CaravanEnterMap`） |
 | `Lifecycle/` | 地图滚动生命周期：软休眠、距离删除、天气域、原生家族/Settlement 接管 | `SeamlessDormancyGovernor`（距离策略 + 全局静态清扫）+ `Patches_Dormancy`、`SeamlessTickThrottle` + `Patches_TickThrottle`（分级休眠中间档：无玩家空图降频 tick + 接缝快速区）、`SeamlessMapGovernance`（管辖/家园特权判定唯一出处）、`SeamlessWeatherClusterManager` + `Patches_WeatherDomain`（群系连通域共享天气：决策集中在激活图、执行各图原生进行）、`Patches_CampTileMap`（营地接入生成链）、`Patches_NativeMapFamily`（"人走即删"族接管 + 败亡守卫）、`SeamlessManualDormancyGizmos`（手动休眠/删除 gizmo 唯一构造处：地块图覆写 + 原生家族 MapParent.GetGizmos Postfix）、`SeamlessSettlementTrader`/`SeamlessSettlementTalk`/`Patches_SettlementTrade`（派系基地贸易商与对话/交易） |
 | `Transfer/` | 跨缝传送机制：许可登记、触发、桥接下令 | `SeamlessMapTransferTrigger`（踩点热路径）、`SeamlessTransferGrants`（许可登记表）、`SeamlessMapTransfer`（传送执行）、`SeamlessTransferAssociations`（多 Pawn 关联随迁/恢复扩展点）、`SeamlessCrossMapOrders`（桥接下令 + 双侧代价场选点）、`SeamlessPathCostField`（Dijkstra 代价场）、`SeamlessBoundaryRules`（主体资格判定）、`Patches_Job`（StartJob 钩子：撤离登记/许可清理）、`Patches_PawnPathFollower`（nextCell 踩点触发） |
 | `Interaction/` | 跨图交互 UI 层：点击重放、选中保持、相机、虚拟传送 | `Patches_ClickReplay` + `SeamlessReplayContext`（邻图点击重放链）、`SeamlessGenUI`、`SeamlessSelectionTracker`（跨切图选中保持）、`SeamlessCameraFocus`（自动聚焦 + 无感相机）、`SeamlessVirtualTeleporter`（评估窗口零写入的坐标系虚拟传送）、`Patches_CrossMapCommon`/`Patches_ReachabilityCrossMap`（CanReach 真实化等公共函数层）、`Patches_Selector`（殖民者栏休眠过滤）、`Patches_CaravanExitDiagnostics` |

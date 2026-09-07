@@ -164,7 +164,7 @@ namespace RimExodus
         /// 调试工具（Dev 地图工具）：点击地图格，输出该格的**结构化接缝诊断报告**
         /// （<see cref="SeamlessSeamOverride.DescribeCellReport"/>）：本侧 + 各对侧对应位置两栏，
         /// 每侧 = 位置（坐标+圈层）/ 生成时 snapshot（389 三层原生备份）/ 当前实际（三层现值）；
-        /// 本侧另附混合情况追踪（权重 / 两侧各层 3×3 卷积 / 各层混合结果），对侧附条带快照参考值。
+        /// 本侧另附混合情况追踪（权重 / 两侧各层 3×3 卷积 / 各层混合结果），对侧附实时/基础参考来源。
         /// 用于精确定位"某格 snapshot 是水/沙，但被邻居土卷积成了泥"、孤儿岩墙等接缝混合问题。
         /// </summary>
         [DebugAction(Category, "Inspect Snapshot At Position", false, false, false, false, false, 0, false,

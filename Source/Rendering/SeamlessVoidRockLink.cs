@@ -14,8 +14,8 @@ namespace RimExodus
     /// <c>RimExodus_VoidRockLink</c>（drawerType=None 不渲染、只向 LinkGrid 提供 Rock flag，
     /// Spawn 自动以 regenAdjacentCells 脏化邻格 Things mesh），边界岩即选"连续"片。
     ///
-    /// **挂接时机 = genStep 392 末（<see cref="GenStep_SeamOverride.Generate"/> 混合之后、
-    /// 条带快照捕获之后）**：紧贴 void 的那圈接缝带岩石多数是 392 混合 B 照抄
+    /// **挂接时机 = genStep 392 末（<see cref="GenStep_SeamOverride.Generate"/> 混合之后）**：
+    /// 紧贴 void 的那圈接缝带岩石多数是 392 混合 B 照抄
     /// SyncRockBuildingTo 才 spawn 的（原生无岩），389 时点"4 邻含岩石"条件全灭一格都铺不出
     /// （2026-08 实测教训，首版曾挂 389）；own baseBuildingSnapshot 虽非序列化但生成期仍在
     /// 内存可读，双分支判据不受挂接时点影响。**单向原则（用户定夺 2026-08，勿回退）**：
@@ -27,13 +27,13 @@ namespace RimExodus
     ///    本地不做岩石邻接过滤——放不放只看参考源；
         /// 2. **判据 = 参考源镜像格的 3×3（切比雪夫 1）窗口内有岩**（对角邻也参与 rock 贴图角部，
         ///    与混合权重衰减的切比雪夫口径一致）：
-        ///    - 归属邻居（按最近多边形边，"边 j ↔ 邻居 j"架构）**已生成** → 对端条带快照 building 层
-        ///      镜像格 a = c − offset 的 3×3（外条带存对端 389 清理前的原生岩体，对端图无需活跃）；
+        ///    - 归属邻居（按最近多边形边，"边 j ↔ 邻居 j"架构）有 Map → 对端实时/基础快照
+        ///      building 层镜像格 a = c − offset 的 3×3；无 Map（未生成或已封存）走 own 分支；
         ///    - **未生成** → own baseBuildingSnapshot（本图 389 备份的清理前原生岩体）镜像位 3×3
         ///      ——本侧被截断的 rock 只能按本侧 snapshot 假设延续（初始家园图场景）；
         /// 3. **复刻闭环**：own-snapshot 假设要求后生成的对端在对应位置同样有岩——由 SeamOverride
         ///    的照抄区（B ∪ {T·1}）承担：本图 T depth=1 与对侧 OuterStrip depth=1 是同一条空间带，
-        ///    对端在此字面照抄本侧原生岩体（外条带段快照）= 先生成侧假设成真（含真实山体延续，
+        ///    对端在此字面照抄本侧原生岩体（void 侧基础快照）= 先生成侧假设成真（含真实山体延续，
         ///    2026-08 实测确认该复刻是设计语义——曾误删致延续山体断裂，已恢复）；
         /// 4. 对应关系（距缝切比雪夫距离）：0 = 两图离散边互为镜像；1 = 本图 Inner/OuterRing ↔
         ///    对侧 Outer/InnerRing（空间重叠）；2 = 本图 T·1 ↔ 对侧 OuterStrip·1（本条铺设带）。
@@ -48,18 +48,18 @@ namespace RimExodus
         // SeamlessGridMath 统一口径，勿自建）。
         private static readonly IntVec3[] _window1 = GenAdj.AdjacentCellsAndInside;
 
-        /// <summary>per-邻居参考（offset 现算与邻居表登记同公式恒等；strip 为 null = 该邻居未生成）。</summary>
+        /// <summary>per-邻居参考（offset 现算与邻居表登记同公式恒等；map 为 null = 未生成或已封存）。</summary>
         private struct NeighborRef
         {
             public int worldTile;
             public IntVec3 offset;
-            public SeamStripData strip;
+            public Map map;
         }
 
         private static readonly List<NeighborRef> _neighborRefs = new();
 
         /// <summary>
-        /// 392 末调用（<see cref="GenStep_SeamOverride.Generate"/> 混合完成后，快照捕获之后——
+        /// 392 末调用（<see cref="GenStep_SeamOverride.Generate"/> 混合完成后——
         /// 挂点理由见类注释：392 照抄才 spawn 的接缝带岩石是"4 邻含岩石"条件的主角）。
         /// </summary>
         public static void PlaceAfterSeamOverride(Map map, int worldTile)
@@ -77,7 +77,7 @@ namespace RimExodus
             // own 原生岩体快照（389 备份于清岩之前）——邻居未生成时的延续判据。
             var ownBuildingSnapshot = SeamlessMapData.GetBaseBuildingSnapshot(map);
 
-            // 邻居参考（含未生成者——strip 留 null 走 own snapshot 分支；按最近边归属时要用
+            // 邻居参考（含未生成/封存者——map 留 null 走 own snapshot 分支；按最近边归属时要用
             // 全部世界邻居，不能像 SeamOverride 那样只收已生成的）。
             if (!CollectNeighborRefs(map, worldTile)) return;
 
@@ -108,7 +108,7 @@ namespace RimExodus
                 if (edgeIdx >= 0 && edgeIdx < _neighborRefs.Count)
                 {
                     var nref = _neighborRefs[edgeIdx];
-                    decided = nref.strip != null
+                    decided = nref.map != null
                         ? NeighborHasRockAt(nref, cell)
                         : OwnSnapshotHasRockAt(ownBuildingSnapshot, map, cell);
                 }
@@ -117,7 +117,7 @@ namespace RimExodus
                     for (var i = 0; i < _neighborRefs.Count && !decided; i++)
                     {
                         var nref = _neighborRefs[i];
-                        decided = nref.strip != null
+                        decided = nref.map != null
                             ? NeighborHasRockAt(nref, cell)
                             : OwnSnapshotHasRockAt(ownBuildingSnapshot, map, cell);
                     }
@@ -136,7 +136,7 @@ namespace RimExodus
 
         /// <summary>
         /// 收集全部世界邻居到 <see cref="_neighborRefs"/>（顺序与多边形边环绕一致，索引即边索引）。
-        /// 与 EnterSpotPlacer 的邻居枚举同款；strip 命中失败（未生成）保留 null 占位。
+        /// 与 EnterSpotPlacer 的邻居枚举同款；无实际 Map（未生成或封存）保留 null 占位。
         /// </summary>
         private static bool CollectNeighborRefs(Map map, int worldTile)
         {
@@ -148,24 +148,28 @@ namespace RimExodus
             {
                 var neighborTile = nt.tileId;
                 if (neighborTile == worldTile) { _neighborRefs.Clear(); return false; } // 防御：序结构异常
-                SeamStripData strip = null;
-                if (SeamlessTileGraph.TryGetNeighborSeamStrip(neighborTile, out var s)
-                    && s != null && s.buildingLookup != null && s.buildingLookup.Count > 0)
+                Map neighborMap = null;
+                foreach (var candidate in Find.Maps)
                 {
-                    strip = s;
+                    if (candidate == null || candidate.Disposed) continue;
+                    if (SeamlessTileRegistry.GetMapWorldTile(candidate) == neighborTile)
+                    {
+                        neighborMap = candidate;
+                        break;
+                    }
                 }
-                var offset = strip != null
-                    ? SeamlessNeighborRegistry.ComputeNeighborOffset(worldTile, neighborTile, map)
+                var offset = neighborMap != null
+                    ? SeamlessNeighborRegistry.ComputeNeighborOffset(worldTile, neighborTile, map, neighborMap)
                     : IntVec3.Zero;
-                if (strip != null && offset == IntVec3.Zero) strip = null; // offset 算不出 = 参考不可用，退 own 分支
-                _neighborRefs.Add(new NeighborRef { worldTile = neighborTile, offset = offset, strip = strip });
+                if (neighborMap != null && offset == IntVec3.Zero) neighborMap = null;
+                _neighborRefs.Add(new NeighborRef { worldTile = neighborTile, offset = offset, map = neighborMap });
             }
             return _neighborRefs.Count > 0;
         }
 
         /// <summary>
-        /// 对端分支：strip building 层镜像格 a = c − offset 的**3×3（切比雪夫 1）邻域**内有岩
-        /// （外条带 = 对端 389 前原生岩体）。3×3 窗口与本地条件 1 的 8 邻候选口径一致——
+        /// 对端分支：实时/基础 building 层镜像格 a = c − offset 的**3×3（切比雪夫 1）邻域**内有岩。
+        /// 3×3 窗口与本地条件 1 的 8 邻候选口径一致——
         /// 本地按对角判候选、对端只查镜像单格会错位。
         /// </summary>
         private static bool NeighborHasRockAt(NeighborRef nref, IntVec3 cell)
@@ -175,7 +179,8 @@ namespace RimExodus
             for (var i = 0; i < _window1.Length; i++)
             {
                 var probe = new IntVec3(aX + _window1[i].x, 0, aZ + _window1[i].z);
-                if (nref.strip.buildingLookup.TryGetValue(probe, out var rockDef) && rockDef != null)
+                if (SeamlessSeamOverride.TryReadRockReference(nref.map, nref.worldTile, probe, out var rockDef)
+                    && rockDef != null)
                 {
                     return true;
                 }
