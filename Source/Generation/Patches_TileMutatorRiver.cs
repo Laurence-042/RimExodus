@@ -353,18 +353,20 @@ namespace RimExodus
     /// 各自随机（Rand.Int），推的方向/幅度不同 → 缝两侧水带各偏各的（实测 tAvg 差数格）。
     ///
     /// 【做法】不掰方向：中线 = 弦点 + 蜿蜒位移×W(t)。弦点由 node 端点算出（s+t·d），
-    /// 蜿蜒位移 = 原结果 − 弦点；W 在每个穿越点处为 0、向图内 <see cref="BendFreeCells"/> 格
-    /// smootherstep（C2）升到 1。效果：缝处曲线精确过穿越点、切向=弦向（两侧弦向差 = 河链
-    /// 本身的折角，与世界地图一致）；图中部蜿蜒原样保留。与 v2"垂直接近段"的本质区别：
-    /// 本 patch 不注入任何目标方向，只是把随机蜿蜒从缝边衰减掉。
+    /// 蜿蜒位移 = 原结果 − 弦点。两个穿越点共同构造无分段有符号量：令沿弦物理坐标为 s，
+    /// 两穿越点为 a&lt;b，则 q=(s-a)(b-s)/(b-a)。q 在两点之间为正、两点之外为负、两点处为 0，
+    /// 且全域光滑；再取 W=2·Logistic(q/<see cref="BendFreeCells"/>)-1。W 是以 0 为中心的奇
+    /// sigmoid，穿越点精确归轴，内侧沿正半轴恢复原版偏移，外侧沿负半轴连续反向延伸偏移，
+    /// 从而让跨轴走向平滑而非在轴线上折返。无有限窗口、无 min/abs 折点。
     ///
-    /// 匹配：node 端点与登记弦上下文比对（容忍调用方 IsFlowingAToB 交换 start/end，t 取 1−t）；
+    /// 匹配：node 端点与登记弦上下文比对（容忍调用方 IsFlowingAToB 交换 start/end；反向时只把
+    /// 登记的穿越点参数映射为 1−t，当前采样 t 始终保持 RiverNode.start→end 坐标系）；
     /// 无匹配（fallback vanilla / 未锚定端）不处理。生成期单线程安全（预览图 fallback 不登记）。
     /// </summary>
     [HarmonyPatch(typeof(TileMutatorWorker_River), "GetDisplacedPoint")]
     static class Patch_TileMutatorWorker_River_GetDisplacedPoint
     {
-        /// <summary>穿越点两侧的蜿蜒归零区长度（格，沿弦）。覆盖接缝带 3 圈 + 过渡余量。</summary>
+        /// <summary>零中心 Logistic 的特征尺度（格）；不作为有限窗口边界。</summary>
         private const float BendFreeCells = 25f;
 
         /// <summary>verbose 日志去重：每 node 只记一次（避免深度场逐格刷屏）。worldTile 变更时清。</summary>
@@ -382,35 +384,39 @@ namespace RimExodus
 
             // 找本 node 的弦上下文（端点匹配，容忍交换）。
             float tA = 0f, tB = 0f;
-            bool swapped = false;
             var found = false;
             foreach (var c in Patch_TileMutatorWorker_River_GetMapEdgeNodes.riverChords)
             {
                 if (Approx(c.s, s) && Approx(c.e, e)) { tA = c.tA; tB = c.tB; found = true; break; }
-                if (Approx(c.s, e) && Approx(c.e, s)) { tA = 1f - c.tA; tB = 1f - c.tB; swapped = true; found = true; break; }
+                if (Approx(c.s, e) && Approx(c.e, s)) { tA = 1f - c.tA; tB = 1f - c.tB; found = true; break; }
             }
             if (!found) return;
-            if (swapped) t = 1f - t;
 
-            // 蜿蜒位移 = 原结果 − 弦点；W 按到最近穿越点的沿弦距离衰减。
+            // 蜿蜒位移 = 原结果 − 弦点。两穿越点共同定义光滑有符号量：区间内正、区间外负、
+            // 两个根处为零；再映射到 2*Logistic-1。没有有限范围，也没有 nearest/min 分段折点。
             var chordPoint = s + d * t;
             var bend = __result - chordPoint;
             var len = Mathf.Sqrt(lenSqr);
-            var distCells = Mathf.Min(Mathf.Abs(t - tA), Mathf.Abs(t - tB)) * len;
-            var w = SmootherStep(distCells / BendFreeCells);
+            var crossingMin = Mathf.Min(tA, tB) * len;
+            var crossingMax = Mathf.Max(tA, tB) * len;
+            var crossingSpan = crossingMax - crossingMin;
+            if (crossingSpan < 1e-4f) return;
+            var sample = t * len;
+            var signedDistance = (sample - crossingMin) * (crossingMax - sample) / crossingSpan;
+            var w = ZeroCenteredLogistic(signedDistance / BendFreeCells);
             __result = chordPoint + bend * w;
 
             if (RimExodusLog.Enabled(RimExodusLogModule.Generation) && loggedNodes.Add(riverNode))
-                Log.Message($"[RimExodus] River bend-free window: node width={riverNode.width:F0} " +
-                            $"tA={tA:F3} tB={tB:F3} len={len:F0} first-t={t:F3} w={w:F2} bendMag={bend.magnitude:F1}");
+                Log.Message($"[RimExodus] River bend sigmoid: node width={riverNode.width:F0} " +
+                            $"crossings=[{Mathf.Min(tA, tB):F3},{Mathf.Max(tA, tB):F3}] len={len:F0} " +
+                            $"first-t={t:F3} signed={signedDistance:F1} w={w:F3} bendMag={bend.magnitude:F1}");
         }
 
         private static bool Approx(Vector2 a, Vector2 b) => (a - b).sqrMagnitude < 1f;
 
-        private static float SmootherStep(float x)
+        private static float ZeroCenteredLogistic(float x)
         {
-            x = Mathf.Clamp01(x);
-            return x * x * x * (x * (6f * x - 15f) + 10f);
+            return 2f / (1f + Mathf.Exp(-x)) - 1f;
         }
     }
 

@@ -99,6 +99,10 @@ If you have any suggestions, feel free to share them here (though, due to limita
 - 前哨保留：你建造过的地图（画了居住区的）离你太远时不再被完全删除，居住区里的建筑、地板、屋顶和留下的物资会被"封存"到硬盘——地图不再占用内存，但修改仍能保留；你再回来时地图重新生成，你的前哨会在原样重建（居住区内挖开的山体也不会复原）。封存的地块在世界地图上显示青绿色，不想要了可以在上面选"丢弃已封存"来删掉对应地图的封存数据
   Outpost preservation: maps you have built on (with a home area drawn) are no longer fully deleted when they get too far away. Buildings, floors, roofs and items left inside the home area are "archived" to disk — the map no longer occupies memory, but your changes are preserved. When you come back, the map regenerates and your outpost is rebuilt as it was (mountains you mined out within the home area stay mined, too). Archived tiles show a teal color on the world map; if you no longer want one, select the tile and choose "Discard archived data" to delete that map's archive.
 
+0.1.11
+- 修复：新生成的原版河流在相邻地块交界处有时会出现不自然的急拐或凹陷。现在河道会更平滑地穿过地块边界（仅影响新生成的地图；@月吟裔德格 报告的问题）
+  Fixed: newly generated vanilla rivers could sometimes form unnatural sharp bends or dips where neighboring tiles meet. Rivers now cross tile borders more smoothly (only affects newly generated maps; reported by @月吟裔德格).
+
 0.1.10
 - 修复：Vanilla Vehicles Expanded 等模组随机散布到地图上的物体（如载具残骸）会生成在无缝地图边缘外的不可达区域、或干脆不出现。现在它们总是生成在实际可到达的区域内（@Icarus 报告的问题）
   Fixed: objects scattered onto maps by mods like Vanilla Vehicles Expanded (e.g., vehicle wrecks) used to spawn in the unreachable area beyond seamless map edges, or not appear at all. They now always spawn inside the actually reachable area. (@Icarus reported this issue)
