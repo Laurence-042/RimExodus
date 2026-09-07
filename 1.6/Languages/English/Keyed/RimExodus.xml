@@ -118,9 +118,11 @@ Turn on only the module relevant to the problem you are investigating (or that a
   <RimExodus_SleepTileMap>Sleep this map</RimExodus_SleepTileMap>
   <RimExodus_SleepTileMapDesc>Put this map to sleep immediately. Everything on it is kept; the map simply stops simulating and is not shown as a neighboring map until you wake it.\n\nUnlike automatic dormancy, a manually slept map is NOT woken by distance again - it only wakes when you enter it (the "view map" command) or order a colonist to approach its side of the seam.</RimExodus_SleepTileMapDesc>
   <RimExodus_SleepTileMapDisabledCurrentMap>You are currently viewing this map. Switch to another map first.</RimExodus_SleepTileMapDisabledCurrentMap>
+  <RimExodus_SleepTileMapPlayerPawnConfirm>Sleep the map at "{0}" while player-controlled characters are still on it?\n\nAll player colonists, slaves, and animals on this map will stop simulating until the map is woken again.</RimExodus_SleepTileMapPlayerPawnConfirm>
   <RimExodus_DeleteTileMap>Delete this map</RimExodus_DeleteTileMap>
   <RimExodus_DeleteTileMapDesc>Remove this map from memory entirely. Revisiting this world tile will regenerate it from scratch - everything built or left here will be lost.</RimExodus_DeleteTileMapDesc>
   <RimExodus_DeleteTileMapConfirm>Delete the map at "{0}"?\n\nEverything on it will be lost. Revisiting the tile will regenerate it from scratch.</RimExodus_DeleteTileMapConfirm>
+  <RimExodus_DeleteTileMapPlayerPawnConfirm>Player-controlled characters are still on the map at "{0}". Delete it anyway?\n\nPlayer colonists, slaves, and animals on this map may be permanently lost. This cannot be undone.</RimExodus_DeleteTileMapPlayerPawnConfirm>
   <!-- Outpost preservation: gizmo delete routed to archive when home area qualifies (2026-09 single delete entry). -->
   <RimExodus_ArchiveTileMapConfirm>Keep (archive) the map at "{0}"?\n\nThis map has a home area, so instead of being deleted it will be ARCHIVED: your buildings, floors, roofs and stockpiles inside the home area are recorded and rebuilt when you return.\n\nTo abandon it completely, archive it now and then use "Discard archived outpost" on the teal tile afterwards.</RimExodus_ArchiveTileMapConfirm>
   <!-- Native-family POI map delete (2026-09): vanilla-location semantics + blocker disable reason. -->

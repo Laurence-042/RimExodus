@@ -31,6 +31,30 @@ namespace RimExodus
     /// </summary>
     internal static class SeamlessManualDormancyGizmos
     {
+        private static bool IsLiveParentMap(MapParent parent, Map map)
+        {
+            return parent != null && !parent.Destroyed
+                && map != null && !map.Disposed && parent.Map == map;
+        }
+
+        private static void RemoveAfterPlayerPawnWarning(MapParent parent, Map map)
+        {
+            if (!IsLiveParentMap(parent, map)) return;
+            if (!SeamlessMapGovernance.HasPlayerPawn(map))
+            {
+                map.GetComponent<SeamlessTileManager>()?.RemoveRollingMap(parent);
+                return;
+            }
+
+            Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                "RimExodus_DeleteTileMapPlayerPawnConfirm".Translate(parent.Label), delegate
+                {
+                    // 弹窗停留期间地图可能已被移除或换绑；执行前按最新状态复核对象。
+                    if (!IsLiveParentMap(parent, map)) return;
+                    map.GetComponent<SeamlessTileManager>()?.RemoveRollingMap(parent);
+                }, destructive: true));
+        }
+
         public static IEnumerable<Gizmo> ForParent(MapParent parent)
         {
             // 封存态（2026-09 前哨保留）：无图有记录的 WO——只提供"删除此封存"（销毁 WO 连记录
@@ -92,7 +116,9 @@ namespace RimExodus
                                 : tileMap ? "RimExodus_DeleteTileMapConfirm" : "RimExodus_DeletePoiMapConfirm"
                             ).Translate(parent.Label), delegate
                             {
-                                map.GetComponent<SeamlessTileManager>()?.RemoveRollingMap(parent);
+                                // 第一层保留原有删除/封存确认；答复时按地图最新状态决定是否追加
+                                // “玩家 pawn 在场”风险确认（口径复用治理层，勿另写遍历）。
+                                RemoveAfterPlayerPawnWarning(parent, map);
                             }, destructive: true));
                     },
                 };
@@ -116,7 +142,19 @@ namespace RimExodus
                     alsoClickIfOtherInGroupClicked = false,
                     action = delegate
                     {
-                        SeamlessDormancyManager.Sleep(map, "player gizmo (world map)", manual: true);
+                        if (!SeamlessMapGovernance.HasPlayerPawn(map))
+                        {
+                            SeamlessDormancyManager.Sleep(map, "player gizmo (world map)", manual: true);
+                            return;
+                        }
+
+                        Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                            "RimExodus_SleepTileMapPlayerPawnConfirm".Translate(parent.Label), delegate
+                            {
+                                if (!IsLiveParentMap(parent, map) || map == Find.CurrentMap
+                                    || SeamlessDormancyManager.IsDormant(map)) return;
+                                SeamlessDormancyManager.Sleep(map, "player gizmo (world map)", manual: true);
+                            }, destructive: true));
                     },
                 };
                 if (isCurrentMap)
