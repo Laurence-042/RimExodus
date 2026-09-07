@@ -69,6 +69,8 @@ Open source under the MIT License; code on GitHub.
 
 Special thanks to [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3426502333]Vehicle Map Framework[/url] — it proved that simultaneously rendering multiple interactive maps is possible, and this project's research started there. No code was shared with it; only ideas were referenced.
 
+Special thanks to [url=https://github.com/Nanaloveyuki]Nanaloveyuki[/url] for their help and contributions to this project.
+
 [h1]Links[/h1]
 
 Source and full documentation: [url=https://github.com/Laurence-042/RimExodus]GitHub[/url]

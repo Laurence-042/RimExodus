@@ -99,10 +99,6 @@ If you have any suggestions, feel free to share them here (though, due to limita
 - 前哨保留：你建造过的地图（画了居住区的）离你太远时不再被完全删除，居住区里的建筑、地板、屋顶和留下的物资会被"封存"到硬盘——地图不再占用内存，但修改仍能保留；你再回来时地图重新生成，你的前哨会在原样重建（居住区内挖开的山体也不会复原）。封存的地块在世界地图上显示青绿色，不想要了可以在上面选"丢弃已封存"来删掉对应地图的封存数据
   Outpost preservation: maps you have built on (with a home area drawn) are no longer fully deleted when they get too far away. Buildings, floors, roofs and items left inside the home area are "archived" to disk — the map no longer occupies memory, but your changes are preserved. When you come back, the map regenerates and your outpost is rebuilt as it was (mountains you mined out within the home area stay mined, too). Archived tiles show a teal color on the world map; if you no longer want one, select the tile and choose "Discard archived data" to delete that map's archive.
 
-0.1.11
-- 修复：新生成的原版河流在相邻地块交界处有时会出现不自然的急拐或凹陷。现在河道会更平滑地穿过地块边界（仅影响新生成的地图；@月吟裔德格 报告的问题）
-  Fixed: newly generated vanilla rivers could sometimes form unnatural sharp bends or dips where neighboring tiles meet. Rivers now cross tile borders more smoothly (only affects newly generated maps; reported by @月吟裔德格).
-
 0.1.10
 - 修复：Vanilla Vehicles Expanded 等模组随机散布到地图上的物体（如载具残骸）会生成在无缝地图边缘外的不可达区域、或干脆不出现。现在它们总是生成在实际可到达的区域内（@Icarus 报告的问题）
   Fixed: objects scattered onto maps by mods like Vanilla Vehicles Expanded (e.g., vehicle wrecks) used to spawn in the unreachable area beyond seamless map edges, or not appear at all. They now always spawn inside the actually reachable area. (@Icarus reported this issue)
@@ -133,6 +129,10 @@ If you have any suggestions, feel free to share them here (though, due to limita
 - 修复：分帧地图生成失败后，同一地块可能在本次游戏中一直无法重试生成；失败残留现在会被完整清理
   Fixed: after frame-sliced map generation failed, the same tile could remain impossible to generate again during that game session; failed-generation state is now cleaned up completely.
 
+0.1.11
+- 修复：新生成的原版河流在相邻地块交界处有时会出现不自然的急拐或凹陷。现在河道会更平滑地穿过地块边界（仅影响新生成的地图；@月吟裔德格 报告的问题）
+  Fixed: newly generated vanilla rivers could sometimes form unnatural sharp bends or dips where neighboring tiles meet. Rivers now cross tile borders more smoothly (only affects newly generated maps; reported by @月吟裔德格).
+
 
 TODO（优先级从高到低）
 TODO (Priority Order)
@@ -144,6 +144,9 @@ TODO (Priority Order)
   (Requested by @lophothedilo) Add compatibility for Giddy-Up 2 - Continued (https://steamcommunity.com/workshop/filedetails/?id=3674332861); currently, the rider and mount separate when crossing map boundaries (likely due to a missing recovery mechanism similar to those used for slave rebellions or drafted states—perhaps a more unified compatibility approach is needed?).
 -  优化跨图射击，这样结合0.1.10的邻接地图日常冻结+袭击时解冻机制，这将可以把跨图战斗变成常态，让玩家使用xml patch修改武器射程，实现真正的步枪射击距离
   Optimize cross-map shooting. Combined with the mechanism introduced in v0.1.10—where adjacent maps are frozen during normal play but unfreeze during raids—this will allow cross-map combat to become a standard feature, enabling players to use XML patches to adjust weapon ranges and achieve realistic rifle engagement distances.
+- 当跨图射击以及可选的武器射程tweak完成后，这个mod就会脱离测试期，进入1.0.0，然后基本就不会有大功能变化了，只会进行一些相对合理且解决代价不大的兼容性、可靠性修复
+- 如果你想问我接下来去干啥。其实我有在开发一个游戏。这个mod实际上只是我在闲暇时测试一些新技术的实验性项目，但它远比我想得受欢迎，为了大家的热情我也为此投入了远超预期的额外时间，这导致游戏开发进度有些滞后了，所以我肯定得去补进度了。
+- 如果你实际上想问我之后还做不做rimworld的mod，我猜也许可能大概也许……会？说实话做rimworld mod有时候比玩rimworld本身还有意思，而且我也确实有些额外想法，比如基于逆重飞船做个类sos2的mod，使用这个mod中催熟的技术，通过同时渲染玩家和敌人舰船的地图，并移动敌人舰船地图的形式，做出类似The Last Starship的效果，避免抽象的单纯按抽象距离结算跨地图互轰（有人受此启发想实现的话尽管去做就行，毕竟还不知道猴年马月我那游戏才能搞定，而且就算搞定也大概率暴死，暴死之后就是继续当社畜，而社畜生活大家是知道的，到时候mod点子甚至都无法得到一个新建文件夹。所以放手去做，只是做之前麻烦和我说下，这样到时候我就不搞了，以免万一我有时间做了结果还撞车）。至于VE组的VGE chapter2，目前来看似乎不是为这个方向设计的，所以应该不必担心和VE组的撞车
 
 曾在计划中但调研后放弃
 Previously planned but abandoned after research

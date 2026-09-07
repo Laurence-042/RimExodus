@@ -69,6 +69,8 @@
 
 特别鸣谢 [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3426502333]Vehicle Map Framework[/url]——它证明了同时渲染多张可交互地图是可行的，本项目调研由它起步。我们未复用其任何代码，仅参考了思路。
 
+特别感谢 [url=https://github.com/Nanaloveyuki]Nanaloveyuki[/url] 对本项目的帮助与贡献。
+
 [h1]链接与反馈[/h1]
 
 源码与完整文档：[url=https://github.com/Laurence-042/RimExodus]GitHub[/url]
