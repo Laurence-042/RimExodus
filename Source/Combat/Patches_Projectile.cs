@@ -101,6 +101,9 @@ namespace RimExodus
         public static void Prefix(Projectile __instance, int delta)
         {
             if (!SeamlessCombatCoords.Enabled || __instance.Destroyed || !__instance.Spawned) return;
+            // VGE 世界炮弹必须先抵达当前图的方形真边界，才能由 VGE 转成世界对象；
+            // 六边形接缝处提前迁移会把其边界目的地搬成邻图内部坐标并令弹丸永久卡死。
+            if (SeamlessVGECompat.IsWorldArtilleryLeavingMap(__instance)) return;
             var map = __instance.Map;
             if (map == null || (bool)Patches_Projectile.LandedField.GetValue(__instance)) return;
             if (!SeamlessCombatCoords.HasActiveSeamNeighbors(map)) return;

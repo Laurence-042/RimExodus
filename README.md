@@ -24,6 +24,7 @@
 | **Perspective Shift**（ferny.PerspectiveShift，第一人称自由移动） | 适配：其 WASD 移动绕过原版 job/寻路系统，RimExodus 在其移动处理上补挂了"走近接缝自动预加载邻图 + 踩传送点无缝过缝"（仅当移动朝向对侧时触发过缝——沿缝平行行走不误触发、跨缝后立即折返照常放行）；其右键下令走原版菜单链，天然兼容。第一人称下鼠标瞄准解析看起来已经随常规模式的适配生效而适配了。 |
 | **Vehicle Framework**（SmashPhil.VehicleFramework，载具） | 适配：跨图传送复刻 VF 官方进图管线——传送前同步就绪化对图载具网格 + 整车矩形落点校验（找不到可站地块时如实拒绝，属真实地形限制）；载具征召驶近传送点即跨缝、点击邻图可跨图下令、菜单可达性与执行同口径。载具（含乘员）在地图滚动休眠中视同 pawn。与 Perspective Shift 双装支持第一人称 WASD 驾驶跨缝。已知边界：NPC 敌对载具不跨图追击；跨图不保留朝向；对端接缝若整圈无该载具可站地块则无法从该边跨越。 |
 | **Giddy-Up 2 - Continued**（MemeGoddess.GiddyUp） | 适配（待游戏内回归）：骑乘中的骑手跨越接缝时，坐骑会经同一套跨图状态保留流程随迁，并由 Giddy-Up 自己的即时骑乘逻辑在落地图重建骑乘关系，不再把骑手与坐骑留在两张地图。软检测、无运行时依赖；未安装 Giddy-Up 时不启用兼容逻辑。 |
+| **Vanilla Gravship Expanded** | 适配（待游戏内回归）：高斯炮等世界炮击弹丸会保留 VGE 原生的“飞出发射地图方形边界后转入世界地图、抵达目标图再落地”流程，不再被无缝接缝提前搬进邻图后卡死。软检测、无运行时依赖。 |
 | **Vanilla Expanded Framework 及其地图物体刷出**（含 Vanilla Vehicles Expanded 的可修残骸、Dark Ages / Mythic Ages 的巢穴等一切基于 VEF `ObjectSpawnsDef` 的内容，2026-09） | 适配：VEF 的地图物体刷出原本对六边形裁切一无所知——物体（如 VVE Tier 3 的载具残骸）系统性生成在方形地图边缘的 void 区（看得见够不着、过缝即"消失"），且分帧生成的地块图上完全不刷。现已两处修正：①位置——物体只生成在可玩六边形内（void 与接缝圈不刷，与禁建带同口径）；②覆盖——分帧生成的地块图也正常刷出（通用复放挂在原版生成管线上的第三方生成后处理，不止 VEF 受益）。 |
 
 ### 共存（无运行时依赖）
@@ -202,7 +203,7 @@
 | `Combat/` | 跨图索敌与射击 | `SeamlessCrossMapSight`（分段 LOS）、`SeamlessCombatCoords`（统一坐标与归属路由）、`Patches_CombatTargetSearch`（索敌两层模型跨图化）、`Patches_CombatTargeting`（TryCastShot 门/ShotReport）、`Patches_Projectile`（弹丸缝交接）、`Patches_CombatVisuals`（朝向/瞄准角/连线等视觉修正）、`SeamlessRaidOuterSpawn` + `Patches_RaidOuterSpawn`（袭击外缘生成：步行袭击从外侧接缝进场，敌对袭击可从一跳邻图行军攻来） |
 | `EdgeBehavior/` | 地图边缘语义接缝化与预加载 | `SeamlessBorderPreloader`/`SeamlessTilePreloader`（边界带预加载队列）、`Patches_CellFinder`/`Patches_RCellFinder`（边缘出口格接缝池）、`Patches_Reachability`（CanReachMapEdge）、`Patches_RegionMaker`（区域触边判定）、`Patches_ExitMapGrid`（撤离带）、`Patches_PlaySettings`（沉浸模式开关 + 缩放门控） |
 | `Rendering/` | void 渲染与邻居背景 | `SeamlessTileRenderer`（CommandBuffer 邻图四层收集 + 光照天色分层）、`SeamlessVoidRockLink`（void 边界岩隐形 link 延续体）、`Patch_MapEdgeClipDrawer_DrawClippers` |
-| `Compat/` | 第三方 mod 兼容层（全部软检测，缺 mod 时零开销） | `SeamlessLandformsCompat`（Geological Landforms 分帧路径复刻）、`SeamlessMapPreviewCompat`（预览线程守卫与避让）、`SeamlessPerspectiveShiftCompat`（Perspective Shift 第一人称移动接入）、`SeamlessVehiclesCompat`（Vehicle Framework 载具移动/下令接入无缝世界）、`SeamlessGiddyUpCompat`（Giddy-Up 骑手/坐骑关联随迁与原生重建）、`SeamlessVEFCompat`（VEF ObjectSpawns 地图物体刷出的可玩区位置过滤）；`Generation/GenerateMapPostfixReplay`（分帧路径通用复放第三方 GenerateMap postfix，VEF 刷出在地块图上生效的机制基础） |
+| `Compat/` | 第三方 mod 兼容层（全部软检测，缺 mod 时零开销） | `SeamlessLandformsCompat`（Geological Landforms 分帧路径复刻）、`SeamlessMapPreviewCompat`（预览线程守卫与避让）、`SeamlessPerspectiveShiftCompat`（Perspective Shift 第一人称移动接入）、`SeamlessVehiclesCompat`（Vehicle Framework 载具移动/下令接入无缝世界）、`SeamlessGiddyUpCompat`（Giddy-Up 骑手/坐骑关联随迁与原生重建）、`SeamlessVGECompat`（VGE 世界炮击保留原生出图链）、`SeamlessVEFCompat`（VEF ObjectSpawns 地图物体刷出的可玩区位置过滤）；`Generation/GenerateMapPostfixReplay`（分帧路径通用复放第三方 GenerateMap postfix，VEF 刷出在地块图上生效的机制基础） |
 
 ## 项目文档索引
 
