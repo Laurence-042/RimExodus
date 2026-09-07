@@ -17,6 +17,8 @@ TODO (Priority Order)
 - 如果你实际上想问我之后还做不做rimworld的mod，我猜也许可能大概也许……会？说实话做rimworld mod有时候比玩rimworld本身还有意思，而且我也确实有些额外想法，比如基于逆重飞船做个类sos2的mod，使用这个mod中催熟的技术，通过同时渲染玩家和敌人舰船的地图，并移动敌人舰船地图的形式，做出类似The Last Starship的效果，避免抽象的单纯按抽象距离结算跨地图互轰（有人受此启发想实现的话尽管去做就行，毕竟还不知道猴年马月我那游戏才能搞定，而且就算搞定也大概率暴死，暴死之后就是继续当社畜，而社畜生活大家是知道的，到时候mod点子甚至都无法得到一个新建文件夹。所以放手去做，只是做之前麻烦和我说下，这样到时候我就不搞了，以免万一我有时间做了结果还撞车）。至于VE组的VGE chapter2，目前来看似乎不是为这个方向设计的，所以应该不必担心和VE组的撞车
 
 0.1.11
+- 改进：跨地块射击的子弹飞过边界后不再一段一段跳着移动；征召角色后也可以点击武器按钮，直接点选相邻地图上的目标开火并看到正确的指示标记。画面中的相邻地图现在会正确显示角色手中的枪械，并播放视野内的枪声、爆炸声等短促声音
+  Improved: bullets fired across map borders no longer move in visible jumps after crossing. Drafted characters can use their weapon button to directly target enemies on an adjacent map with the correct order marker. Pawns on visible neighboring maps now show their weapons correctly, and nearby gunshots, explosions, and other one-shot sounds can be heard.
 - 修复：Vanilla Gravship Expanded 的高斯炮等远程火炮向其他世界地块开火时，炮弹可能卡在发射地图边缘，尤其是射击方向上已有相邻地图时。现在炮弹会正常离开发射地图并抵达目标（@Orizay 报告的问题）
   Fixed: long-range artillery such as the Gauss Cannon from Vanilla Gravship Expanded could become stuck at the edge of the firing map when targeting another world tile, especially when a neighboring map was loaded in that direction. Projectiles now leave the firing map and reach their target normally. (Reported by @Orizay.)
 - 修复：少数地图接缝会从旧数据反复复制并不存在的大片岩石，沙地也可能长出整条石带。新生成地图现在以相邻地图的实际现状为准；读取旧存档后需要的自然地形会自动重建。封存地图恢复时仍完整保留居住区，但外围自然环境可能与封存前略有不同（@月吟裔德格 报告的问题）

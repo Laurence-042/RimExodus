@@ -116,9 +116,9 @@ namespace RimExodus
             foreach (var neighbor in cachedNeighbors)
             {
                 CollectNeighborLayers(neighbor.map, neighbor.offset, neighbor.offset.ToVector3(), hostViewRect);
-                DrawNeighborPawns(neighbor.map, neighbor.offset.ToVector3(), hostViewRect);
-                DrawNeighborProjectiles(neighbor.map, neighbor.offset.ToVector3(), hostViewRect);
-                DrawNeighborRealtimeThings(neighbor.map, neighbor.offset.ToVector3(), hostViewRect);
+                DrawNeighborPawns(neighbor.map, hostViewRect);
+                DrawNeighborProjectiles(neighbor.map, hostViewRect);
+                DrawNeighborRealtimeThings(neighbor.map, hostViewRect);
             }
 
             if (drawCommands.Count == 0)
@@ -144,13 +144,16 @@ namespace RimExodus
         /// Thing.DrawNowAt 接受显式坐标，绕开 DrawPos/Position。
         /// 视区裁剪：只绘制平移后落在宿主相机视区内的 pawn。
         /// </summary>
-        private static void DrawNeighborPawns(Map neighborMap, Vector3 offset, CellRect hostViewRect)
+        private static void DrawNeighborPawns(Map neighborMap, CellRect hostViewRect)
         {
             foreach (var pawn in neighborMap.mapPawns.AllPawnsSpawned)
             {
                 try
                 {
-                    var drawPos = pawn.DrawPos + offset;
+                    if (!SeamlessViewProjection.TryProjectToCurrent(neighborMap, pawn.DrawPos, out var drawPos))
+                    {
+                        continue;
+                    }
                     // 宿主坐标系判定：pawn 平移后的世界坐标转 cell 坐标后是否在视区内。
                     if (!hostViewRect.Contains(new IntVec3(
                             Mathf.FloorToInt(drawPos.x), 0, Mathf.FloorToInt(drawPos.z))))
@@ -180,7 +183,7 @@ namespace RimExodus
         /// 交接瞬间两侧绘制坐标一致（统一坐标连续），视觉无跳变。
         /// 弹丸列表来自 listerThings 的 ThingRequestGroup.Projectile 缓存（零分配迭代）。
         /// </summary>
-        private static void DrawNeighborProjectiles(Map neighborMap, Vector3 offset, CellRect hostViewRect)
+        private static void DrawNeighborProjectiles(Map neighborMap, CellRect hostViewRect)
         {
             var projectiles = neighborMap.listerThings.ThingsInGroup(ThingRequestGroup.Projectile);
             for (var i = 0; i < projectiles.Count; i++)
@@ -189,7 +192,10 @@ namespace RimExodus
                 if (thing.Destroyed) continue;
                 try
                 {
-                    var drawPos = thing.DrawPos + offset;
+                    if (!SeamlessViewProjection.TryProjectToCurrent(neighborMap, thing.DrawPos, out var drawPos))
+                    {
+                        continue;
+                    }
                     if (!hostViewRect.Contains(new IntVec3(
                             Mathf.FloorToInt(drawPos.x), 0, Mathf.FloorToInt(drawPos.z))))
                     {
@@ -222,7 +228,7 @@ namespace RimExodus
         /// 已知边界：thing 的自定义 DrawAt 若读 Find.CurrentMap 全局态（罕见 mod 写法）会画错
         /// 位置——与 pawn 通道同级的既有风险面，try/catch 防崩。
         /// </summary>
-        private static void DrawNeighborRealtimeThings(Map neighborMap, Vector3 offset, CellRect hostViewRect)
+        private static void DrawNeighborRealtimeThings(Map neighborMap, CellRect hostViewRect)
         {
             var drawThings = neighborMap.dynamicDrawManager.DrawThings;
             for (var i = 0; i < drawThings.Count; i++)
@@ -236,7 +242,10 @@ namespace RimExodus
 
                 try
                 {
-                    var drawPos = thing.DrawPos + offset;
+                    if (!SeamlessViewProjection.TryProjectToCurrent(neighborMap, thing.DrawPos, out var drawPos))
+                    {
+                        continue;
+                    }
                     // 宿主坐标系判定：平移后的世界坐标转 cell 坐标后是否在视区内。
                     if (!hostViewRect.Contains(new IntVec3(
                             Mathf.FloorToInt(drawPos.x), 0, Mathf.FloorToInt(drawPos.z))))

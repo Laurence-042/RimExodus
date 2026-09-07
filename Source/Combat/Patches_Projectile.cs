@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using UnityEngine;
 using Verse;
@@ -31,6 +32,21 @@ namespace RimExodus
         internal static readonly FieldInfo TicksToImpactField = AccessTools.Field(typeof(Projectile), "ticksToImpact");
         internal static readonly FieldInfo LifetimeField = AccessTools.Field(typeof(Projectile), "lifetime");
         internal static readonly FieldInfo LandedField = AccessTools.Field(typeof(Projectile), "landed");
+
+        // Only projectiles whose launch was admitted as a seamless cross-map shot pay for full-rate ticking.
+        // ConditionalWeakTable follows the projectile lifetime without adding save data or a cleanup hook.
+        private static readonly ConditionalWeakTable<Projectile, object> CrossMapProjectiles =
+            new ConditionalWeakTable<Projectile, object>();
+        private static readonly object CrossMapMarker = new object();
+
+        internal static void MarkCrossMap(Projectile projectile)
+        {
+            CrossMapProjectiles.Remove(projectile);
+            CrossMapProjectiles.Add(projectile, CrossMapMarker);
+        }
+
+        internal static bool IsCrossMap(Projectile projectile) =>
+            projectile != null && CrossMapProjectiles.TryGetValue(projectile, out _);
     }
 
     [HarmonyPatch(typeof(Projectile), nameof(Projectile.Launch),
@@ -52,6 +68,11 @@ namespace RimExodus
             var anchor = intendedTarget.HasThing ? intendedTarget.Thing : (usedTarget.HasThing ? usedTarget.Thing : null);
             if (anchor?.Map == null || anchor.Map == __instance.Map) return;
             if (!SeamlessCombatCoords.TryGetCombatLink(__instance.Map, anchor.Map, out var link)) return;
+
+            // Vanilla drops off-map projectiles to a 15-tick update interval. Since an active neighbor is
+            // part of the same visible tactical scene, keep this projectile at one-tick resolution for its
+            // entire flight (including the segment before and after the seam handoff).
+            Patches_Projectile.MarkCrossMap(__instance);
 
             var dest = (Vector3)Patches_Projectile.DestinationField.GetValue(__instance);
             var usedCell = usedTarget.Cell;
@@ -87,6 +108,19 @@ namespace RimExodus
             Patches_Projectile.DestinationField.SetValue(__instance, dest);
             Patches_Projectile.TicksToImpactField.SetValue(__instance, newTicks);
             Patches_Projectile.LifetimeField.SetValue(__instance, newTicks);
+        }
+    }
+
+
+    [HarmonyPatch(typeof(Projectile), nameof(Projectile.UpdateRateTicks), MethodType.Getter)]
+    public static class Patch_Projectile_UpdateRateTicks
+    {
+        public static void Postfix(Projectile __instance, ref int __result)
+        {
+            if (Patches_Projectile.IsCrossMap(__instance))
+            {
+                __result = 1;
+            }
         }
     }
 

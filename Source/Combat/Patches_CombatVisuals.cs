@@ -25,16 +25,25 @@ namespace RimExodus
             new Vector3(link.offset.x, 0f, link.offset.z);
 
         /// <summary>
-        /// 跨图 fleck 重定向共用判定：fleck 目标图是 CurrentMap 的活跃邻居 → 改写 map 为本图并
-        /// 输出统一坐标 offset；否则不动。返回是否发生重定向。
+        /// 跨图视觉位置公共重定向：来源图是 CurrentMap 的活跃邻居 → 由统一复合视图投影服务
+        /// 同时改写位置与 map；否则不动。
         /// </summary>
-        internal static bool RedirectCrossMapFleck(ref Map map, out IntVec3 offset)
+        internal static bool RedirectCrossMapPosition(ref Vector3 loc, ref Map map)
         {
-            offset = IntVec3.Zero;
             var hostMap = Find.CurrentMap;
-            if (hostMap == null || map == null || map == hostMap || map.Disposed) return false;
-            if (!SeamlessCombatCoords.TryGetCombatLink(hostMap, map, out var link)) return false;
-            offset = link.offset;
+            if (map == null || map == hostMap) return false;
+            if (!SeamlessViewProjection.TryProjectToCurrent(map, loc, out var projected)) return false;
+            loc = projected;
+            map = hostMap;
+            return true;
+        }
+
+        internal static bool RedirectCrossMapPosition(ref IntVec3 cell, ref Map map)
+        {
+            var hostMap = Find.CurrentMap;
+            if (map == null || map == hostMap) return false;
+            if (!SeamlessViewProjection.TryProjectToCurrent(map, cell, out var projected)) return false;
+            cell = projected;
             map = hostMap;
             return true;
         }
@@ -56,9 +65,7 @@ namespace RimExodus
         {
             var pawn = ___pawn;
             if (pawn?.Map == null || pawn.Map == Find.CurrentMap) return true;
-            if (!SeamlessCombatCoords.TryGetCombatLink(Find.CurrentMap, pawn.Map, out var link)) return true;
-
-            var offsetV = Patches_CombatVisuals.OffsetVector(in link);
+            if (!SeamlessViewProjection.TryProjectToCurrent(pawn.Map, Vector3.zero, out var offsetV)) return true;
             var a = (pawn.pather.curPath != null
                 ? pawn.pather.Destination.CenterVector3
                 : pawn.Position.ToVector3Shifted()) + offsetV;
@@ -87,12 +94,11 @@ namespace RimExodus
             {
                 var thing = job.targetA.Thing;
                 if (thing?.Map != null && thing.Map != pawn.Map
-                    && SeamlessCombatCoords.TryGetCombatLink(pawn.Map, thing.Map, out var link))
+                    && SeamlessViewProjection.TryProjectToCurrent(thing.Map, thing.DrawPos, out var unified))
                 {
                     var a = pawn.pather.curPath != null
                         ? pawn.pather.Destination.CenterVector3
                         : pawn.Position.ToVector3Shifted();
-                    var unified = thing.DrawPos + Patches_CombatVisuals.OffsetVector(in link);
                     GenDraw.DrawLineBetween(a, unified, AltitudeLayer.Item.AltitudeFor());
                 }
             }
@@ -101,12 +107,12 @@ namespace RimExodus
             // 移动语义不画目标框（与攻击样式区分；对齐原版移动 = 路径线 + fleck 无框）。
             if (SeamlessTransferGrants.TryGet(pawn, out var grant) && grant.Kind == SeamlessTransferGrants.GrantKind.Bridge
                 && grant.FinalDestMap != null && grant.FinalDestMap != pawn.Map
-                && SeamlessCombatCoords.TryGetCombatLink(pawn.Map, grant.FinalDestMap, out var bridgeLink))
+                && SeamlessViewProjection.TryProjectToCurrent(grant.FinalDestMap,
+                    grant.FinalDestCell.ToVector3Shifted(), out var unifiedDest))
             {
                 var start = pawn.pather.curPath != null
                     ? pawn.pather.Destination.CenterVector3
                     : pawn.Position.ToVector3Shifted();
-                var unifiedDest = grant.FinalDestCell.ToVector3Shifted() + Patches_CombatVisuals.OffsetVector(in bridgeLink);
                 GenDraw.DrawLineBetween(start, unifiedDest, AltitudeLayer.Item.AltitudeFor());
             }
         }
@@ -125,10 +131,7 @@ namespace RimExodus
     {
         public static void Prefix(ref Vector3 loc, ref Map map)
         {
-            if (Patches_CombatVisuals.RedirectCrossMapFleck(ref map, out var offset))
-            {
-                loc += new Vector3(offset.x, 0f, offset.z);
-            }
+            Patches_CombatVisuals.RedirectCrossMapPosition(ref loc, ref map);
         }
     }
 
@@ -138,10 +141,7 @@ namespace RimExodus
     {
         public static void Prefix(ref IntVec3 cell, ref Map map)
         {
-            if (Patches_CombatVisuals.RedirectCrossMapFleck(ref map, out var offset))
-            {
-                cell += offset;
-            }
+            Patches_CombatVisuals.RedirectCrossMapPosition(ref cell, ref map);
         }
     }
 
@@ -188,10 +188,7 @@ namespace RimExodus
     {
         public static void Prefix(ref Vector3 loc, ref Map map)
         {
-            if (Patches_CombatVisuals.RedirectCrossMapFleck(ref map, out var offset))
-            {
-                loc += new Vector3(offset.x, 0f, offset.z);
-            }
+            Patches_CombatVisuals.RedirectCrossMapPosition(ref loc, ref map);
         }
     }
 
@@ -263,9 +260,7 @@ namespace RimExodus
         {
             if (!__instance.Found || __instance.NodesLeftCount <= 0) return false;
             if (pathingPawn?.Map == null || pathingPawn.Map == Find.CurrentMap) return true;
-            if (!SeamlessCombatCoords.TryGetCombatLink(Find.CurrentMap, pathingPawn.Map, out var link)) return true;
-
-            var offsetV = Patches_CombatVisuals.OffsetVector(in link);
+            if (!SeamlessViewProjection.TryProjectToCurrent(pathingPawn.Map, Vector3.zero, out var offsetV)) return true;
             float y = AltitudeLayer.Item.AltitudeFor();
             for (var i = 0; i < __instance.NodesLeftCount - 1; i++)
             {
@@ -312,8 +307,12 @@ namespace RimExodus
 
             var unified = thing.DrawPos + Patches_CombatVisuals.OffsetVector(in link);
             var correctAngle = (unified - pawn.DrawPos).AngleFlat();
+            if (!SeamlessViewProjection.TryProjectToCurrent(pawn.Map, pawn.DrawPos, out var projectedPawn))
+            {
+                return true;
+            }
             // 原始 drawLoc 的贴身偏移按错误角度旋转过——绕 pawn 位置回旋角度差修正。
-            drawLoc = pawn.DrawPos + (drawLoc - pawn.DrawPos).RotatedBy(correctAngle - aimAngle);
+            drawLoc = projectedPawn + (drawLoc - projectedPawn).RotatedBy(correctAngle - aimAngle);
             aimAngle = correctAngle;
             return true;
         }
