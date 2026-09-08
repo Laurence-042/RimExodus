@@ -44,6 +44,11 @@ namespace RimExodus
         {
             if (map == null || worldTile < 0) return;
 
+            // Ocean 本体已经由内置补全铺成深海。若继续按“朝 Ocean 邻居的陆地海岸”处理，六条边会
+            // 各铺一轮深→浅→沙梯度，在纯海中形成河流状浅水条带。关闭内置补全后放行，交给海洋
+            // mod 与原有 Coast/本补铺逻辑自行组合。
+            if (SeamlessOceanMapSupport.Handles(map)) return;
+
             var settings = RimExodusMod.Settings;
             var deepRatio = settings?.coastalEdgeDeepWaterDistance ?? 0.15f;
             var shallowRatio = settings?.coastalEdgeShallowWaterDistance ?? 0.25f;

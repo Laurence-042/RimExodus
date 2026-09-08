@@ -26,6 +26,10 @@ namespace RimExodus
         {
             Settings = GetSettings<RimExodusSettings>();
 
+            // 原版 Ocean 是不可进入的背景 biome，缺少地图地形/天气与陆地生成语义。按启动时设置
+            // 锁存内置补全；设置中途切换只写下次启动值，避免同一会话半生效。
+            SeamlessOceanMapSupport.Initialize(Settings.oceanMapSupportEnabled);
+
             var harmony = new Harmony("RimExodus.SeamlessWorld");
             harmony.PatchAll();
 
@@ -236,6 +240,8 @@ namespace RimExodus
                         s.borderNoBuildDistance, 0, 10, v => s.borderNoBuildDistance = (int)v);
                     CheckRow(listing, "RimExodus_SettingsIncrementalLabel", "RimExodus_SettingsIncrementalTip",
                         v => s.incrementalGenerationEnabled = v, s.incrementalGenerationEnabled);
+                    CheckRow(listing, "RimExodus_SettingsOceanSupportLabel", "RimExodus_SettingsOceanSupportTip",
+                        v => s.oceanMapSupportEnabled = v, s.oceanMapSupportEnabled);
                     SliderRow(listing, "RimExodus_SettingsBatchSizeLabel", "RimExodus_SettingsBatchSizeTip",
                         s.generationBatchSize, 16, 512, v => s.generationBatchSize = (int)v);
                     break;

@@ -29,6 +29,8 @@
   <RimExodus_SettingsBorderNoBuildTip>沿地图边缘的一条禁区宽度（格）：此范围内不能建造，以保持相邻地图之间穿越点的畅通。默认值：3。</RimExodus_SettingsBorderNoBuildTip>
   <RimExodus_SettingsIncrementalLabel>分帧渐进生成地图</RimExodus_SettingsIncrementalLabel>
   <RimExodus_SettingsIncrementalTip>新的相邻地图在多个帧内渐进生成：游戏持续运行，仅在生成期间有轻微卡顿；关闭则使用原版的一次性生成器，地图生成完成前游戏完全冻结、无法操作。\n\n如果其他修改地图生成的 mod 出现异常，请关闭本项——RimExodus 届时改走原版生成管线，其他 mod 对地图生成的改动将照常生效（代价即上述的原版式冻结）。只影响普通地形地图；派系基地等兴趣点无论开关如何都走原版管线。默认：开启。</RimExodus_SettingsIncrementalTip>
+  <RimExodus_SettingsOceanSupportLabel>内置海洋地图补全（需重启）</RimExodus_SettingsOceanSupportLabel>
+  <RimExodus_SettingsOceanSupportTip>补齐原版海洋地块的地图表现：给原本空白的海洋群系提供深海地形与基础晴、雨、雾、雷雨天气；跳过只适用于陆地的出生点、散布物和野生动物；并防止海岸生成器在海洋中央画出浅海水条带。\n\n若其他 mod 已完整提供海洋地图，请关闭本项。重启后 RimExodus 不再套用这些海洋专用默认值与过滤；无缝边界、跨图旅行和正常的接缝揭雾仍然开启。改动需重启游戏生效，并只影响之后新生成的海洋地图。默认：开启。</RimExodus_SettingsOceanSupportTip>
   <RimExodus_SettingsBatchSizeLabel>生成批次大小：{0} 格/帧</RimExodus_SettingsBatchSizeLabel>
   <RimExodus_SettingsBatchSizeTip>分帧渐进生成运行时每帧处理多少格（仅在分帧渐进生成开启时有意义）。\n\n调大 = 地图更快出现，但每一帧更重（卡顿更明显）。默认值：64。</RimExodus_SettingsBatchSizeTip>
 

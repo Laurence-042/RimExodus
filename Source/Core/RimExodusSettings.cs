@@ -14,6 +14,13 @@ namespace RimExodus
         public int borderPreloadDistance = 15;
 
         /// <summary>
+        /// RimExodus 内置 Ocean 地图补全：为原版空白 Ocean biome 提供深海地形与基础天气，并跳过
+        /// 只适用于陆地的出生点/散布器/动物步骤。设置在启动时锁存，修改后须重启；关闭供专门
+        /// 海洋 mod 完整接管 Ocean 地图表现，无缝裁切与跨图框架本身仍然生效。
+        /// </summary>
+        public bool oceanMapSupportEnabled = true;
+
+        /// <summary>
         /// 详细诊断日志总开关。**已退役（2026-09 分模块日志开关取代）**：字段与 Scribe 仅为旧档
         /// 兼容保留，读入后忽略——无 UI、无消费点。新代码勿再读此字段，按模块用
         /// <see cref="RimExodusLog.Enabled(RimExodusLogModule)"/>。
@@ -253,6 +260,7 @@ namespace RimExodus
             Scribe_Values.Look(ref serializeBaseSnapshots, "serializeBaseSnapshots", true);
             Scribe_Values.Look(ref regenerateMissingSnapshots, "regenerateMissingSnapshots", true);
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
+            Scribe_Values.Look(ref oceanMapSupportEnabled, "oceanMapSupportEnabled", true);
             Scribe_Values.Look(ref verboseLogging, "verboseLogging", false); // 退役字段：仅旧档兼容
             Scribe_Values.Look(ref logGeneration, "logGeneration", false);
             Scribe_Values.Look(ref logTransfer, "logTransfer", false);

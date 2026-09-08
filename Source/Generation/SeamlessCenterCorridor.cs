@@ -65,7 +65,7 @@ namespace RimExodus
         private const int BranchMaxLength = 10;
         private const float BranchWidthPenalty = 1f;
 
-        // 接缝带"属于该边"的归属阈值（与 Patch_GenStepFog.CollectStandableRootsOnEdge 同口径，
+        // 接缝带"属于该边"的归属阈值（与 Patch_GenStepFog.CollectRootsOnEdge 同口径，
         // 越过即归邻边——端点绝不能落到不朝 N 的别的边上）。
         private const float EdgeMembershipDist = 6f;
 
