@@ -65,4 +65,25 @@ namespace RimExodus
             return true;
         }
     }
+
+    /// <summary>
+    /// RimExodus 跨缝中转沿用原版 Goto，避免 VF 等系统依赖 JobDefOf.Goto 的契约被自定义 JobDef
+    /// 打断；但原版 Goto 会在 Notify_JobStarted 中让已飞行 Pawn 强制降落。仅对 TransitTag job
+    /// 保持其已经存在的飞行状态，使选点时的 Flying 代价场与段内实际移动模式一致。地面 Pawn
+    /// 不会因此起飞，普通 Goto 也完全走原版。
+    /// </summary>
+    [HarmonyPatch(typeof(Pawn_FlightTracker), nameof(Pawn_FlightTracker.Notify_JobStarted))]
+    public static class Patch_Pawn_FlightTracker_Notify_JobStarted
+    {
+        public static bool Prefix(Pawn_FlightTracker __instance, Job job)
+        {
+            if (job?.dutyTag != SeamlessTransferGrants.TransitTag || !__instance.Flying)
+            {
+                return true;
+            }
+
+            job.flying = true;
+            return false;
+        }
+    }
 }

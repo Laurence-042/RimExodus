@@ -110,8 +110,8 @@ namespace RimExodus
             }
 
             // 双侧代价场：本图从 pawn 出发到各 spot；对图从 dest 出发到各落点（反向泛洪即"落点→dest"成本）。
-            // VF 载具已知近似（2026-08）：代价场按 pawn 权重泛洪，不感知 VehicleDef 的通行差异
-            // （悬浮/轮式/涉水）——仅选点启发式，段内执行与可达性均由 VF 口径判定，接受。
+            // 成本源按移动主体派发：普通 Pawn 走自己的 Normal/FenceBlocked/Flying + WaterCellCost，
+            // VF 载具走该 VehicleDef 的 VehiclePathGrid。泛洪本身不认识具体主体类型。
             var costs1 = SeamlessPathCostField.FloodCosts(fromMap, pawn.Position, spotCells, pawn);
             var costs2 = SeamlessPathCostField.FloodCosts(toMap, destCell, arrivals, pawn);
 

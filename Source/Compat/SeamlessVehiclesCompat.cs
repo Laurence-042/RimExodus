@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq.Expressions;
 using System.Reflection;
 using HarmonyLib;
 using RimWorld;
@@ -87,6 +88,8 @@ namespace RimExodus
         private static PropertyInfo _pathGridEnabledProp;
         private static PropertyInfo _pathDataSuspendedProp;
         private static MethodInfo _pathGridWalkableMethod;
+        private static MethodInfo _pathGridCostMethod;
+        private static Func<object, IntVec3, int> _pathGridCostGetter;
 
         // =====================================================================================
         // 绑定（RimExodusMod 构造器调用，PatchAll 之后）
@@ -150,6 +153,24 @@ namespace RimExodus
                         {
                             _pathGridEnabledProp = AccessTools.Property(pathGridType, "Enabled");
                             _pathGridWalkableMethod = AccessTools.Method(pathGridType, "Walkable", new[] { typeof(IntVec3) });
+                            _pathGridCostMethod = AccessTools.Method(pathGridType, "PerceivedPathCostAt", new[] { typeof(IntVec3) });
+                            if (_pathGridCostMethod != null)
+                            {
+                                // 过缝选点一次最多读取整图成本；把软反射边界编译成一次性 getter，
+                                // 避免 Dijkstra 热循环为每格 MethodInfo.Invoke + object[] 分配。
+                                try
+                                {
+                                    var instance = Expression.Parameter(typeof(object), "pathGrid");
+                                    var cell = Expression.Parameter(typeof(IntVec3), "cell");
+                                    var call = Expression.Call(Expression.Convert(instance, pathGridType), _pathGridCostMethod, cell);
+                                    _pathGridCostGetter = Expression.Lambda<Func<object, IntVec3, int>>(call, instance, cell).Compile();
+                                }
+                                catch (Exception ex)
+                                {
+                                    Log.Warning($"[RimExodus] VF compat: vehicle path-cost getter could not be compiled; "
+                                        + $"falling back to walkability-only bridge selection. {ex.GetType().Name}: {ex.Message}");
+                                }
+                            }
                         }
                     }
                     if (_pathDataIndexerMethod == null || _pathGridProp == null || _pathDataSuspendedProp == null || _pathGridEnabledProp == null)
@@ -583,6 +604,38 @@ namespace RimExodus
             return pathGrid != null
                 && (bool)_pathGridEnabledProp.GetValue(pathGrid)
                 && !(bool)_pathDataSuspendedProp.GetValue(pathData);
+        }
+
+        /// <summary>
+        /// 读取目标地图上该 VehicleDef 的 VF 格成本，供核心 Dijkstra 排序使用。核心层只看 Pawn/Map，
+        /// 不引用任何 VF 类型。精确成本方法签名漂移时退化为 Walkable 的二值成本；两者都缺失才失败。
+        /// 调用方必须先 <see cref="EnsureGridsReady"/>，避免未生成 NativeArray 的默认零值假阳性。
+        /// </summary>
+        public static bool TryGetVehiclePathCost(Pawn vehicle, Map map, IntVec3 cell, out int cost)
+        {
+            cost = 10000;
+            if (!_initialized || !IsVehicle(vehicle) || map == null || !cell.InBounds(map)) return false;
+            try
+            {
+                var pathGrid = GetPathGridFor(vehicle, map);
+                if (pathGrid == null) return false;
+                if (_pathGridCostGetter != null)
+                {
+                    cost = _pathGridCostGetter(pathGrid, cell);
+                    return true;
+                }
+                if (_pathGridWalkableMethod != null)
+                {
+                    cost = (bool)_pathGridWalkableMethod.Invoke(pathGrid, new object[] { cell }) ? 0 : 10000;
+                    return true;
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Log.ErrorOnce($"[RimExodus] VF compat: vehicle path-cost read failed: {ex}", 187430921);
+                return false;
+            }
         }
 
         /// <summary>

@@ -69,17 +69,19 @@ namespace RimExodus
                 Log.Warning($"[RimExodus] Seamless transfer rejected: arrival cell {arrivalCell} out of bounds on map {arrivalMap.uniqueID}.");
                 return false;
             }
-            // 按"容纳扭曲"设计，重叠带保证 arrivalCell 对 **pawn** 可通行；载具另走 VF 口径的
-            // 三步管线（网格同步就绪化 → 整车矩形落点解析），见 SeamlessVehiclesCompat 类注释。
-            if (!arrivalCell.Walkable(arrivalMap))
+            var isVehicle = SeamlessVehiclesCompat.IsVehicle(pawn);
+            // 非载具与选点共用移动主体成本源（Flying/WaterCellCost 等）。载具不能先过普通 Pawn
+            // Walkable：水上载具的合法深水会被它误拒；其准入由下方 VF 整车矩形管线完整负责。
+            if (!isVehicle && !SeamlessPathCostField.CanEnterCell(arrivalMap, arrivalCell, pawn))
             {
-                Log.Warning($"[RimExodus] Seamless transfer rejected: arrival cell {arrivalCell} on map {arrivalMap.uniqueID} is not walkable (overlap band should guarantee walkability).");
+                Log.Warning($"[RimExodus] Seamless transfer rejected: arrival cell {arrivalCell} on map {arrivalMap.uniqueID} "
+                    + $"is not traversable for {pawn.LabelShort} (overlap band should guarantee traversability).");
                 return false;
             }
             var departureCell = pawn.Position;
             var rotation = pawn.Rotation;
             var associationSessions = captureAssociations ? SeamlessTransferAssociations.Capture(pawn) : null;
-            if (SeamlessVehiclesCompat.IsVehicle(pawn))
+            if (isVehicle)
             {
                 // ① 对图 VF 网格同步就绪化（Urgent，官方模式）——未就绪时一切 VF 判定都是错的
                 //   （Drivable 假阳性 / CanReach 恒 false，v1 五轮补丁的根因）。
