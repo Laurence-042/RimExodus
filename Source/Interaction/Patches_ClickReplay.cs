@@ -39,14 +39,14 @@ namespace RimExodus
             if (map == null || map.Disposed || Find.CurrentMap != map) return; // 只在 CurrentMap 语境下重放
             if (!SeamlessMapUtility.TryResolveMapPosition(clickPosition, map, out var targetMap, out var targetCell))
                 return; // 本图命中：全原生
-            if (!SeamlessCombatCoords.TryGetCombatLink(map, targetMap, out var link))
+            if (!SeamlessViewProjection.TryProject(targetMap, IntVec3.Zero, map, out var offset))
                 return; // 非活跃邻居（休眠/未连接）：原生（本图坐标评估，选项自会诚实禁用）
 
             if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] Click replay: {IntVec3.FromVector3(clickPosition)} on map {map.uniqueID} "
-                    + $"-> {targetCell} on map {targetMap.uniqueID} (offset {link.offset}).");
+                    + $"-> {targetCell} on map {targetMap.uniqueID} (offset {offset}).");
 
-            SeamlessReplayContext.Begin(map, targetMap, link.offset, targetCell);
+            SeamlessReplayContext.Begin(map, targetMap, offset, targetCell);
             clickPosition = targetCell.ToVector3Shifted();
             map = targetMap;
         }
@@ -225,7 +225,7 @@ namespace RimExodus
         public static bool Prefix(Pawn pawn, ref AcceptanceReport __result)
         {
             if (pawn?.Map == null || pawn.Map == Find.CurrentMap) return true; // 原生
-            if (!SeamlessCombatCoords.TryGetCombatLink(Find.CurrentMap, pawn.Map, out _))
+            if (!SeamlessViewProjection.TryProject(pawn.Map, IntVec3.Zero, Find.CurrentMap, out _))
                 return true; // 非活跃邻居：原生语义（false）
 
             if (pawn.Downed)

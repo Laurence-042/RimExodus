@@ -414,9 +414,8 @@ namespace RimExodus
             var camPos = Find.CameraDriver.MapPosition.ToVector3();
             var camSize = Find.CameraDriver.RootSize;
             Current.Game.CurrentMap = arrivalMap;
-            var offset = SeamlessCameraFocus.FindNeighborOffset(departureMap, arrivalMap);
-            var targetPos = offset.HasValue
-                ? camPos - offset.Value.ToVector3()
+            var targetPos = SeamlessViewProjection.TryProject(arrivalMap, IntVec3.Zero, departureMap, out var offset)
+                ? camPos - offset.ToVector3()
                 : new UnityEngine.Vector3(fallbackCell.x, 0f, fallbackCell.z);
             Find.CameraDriver.SetRootPosAndSize(targetPos, camSize);
         }

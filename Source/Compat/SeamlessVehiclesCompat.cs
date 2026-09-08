@@ -367,7 +367,7 @@ namespace RimExodus
                 }
 
                 if (targetMap == null) return true;
-                if (!SeamlessCombatCoords.TryGetCombatLink(pawn.Map, targetMap, out var link))
+                if (!SeamlessViewProjection.TryProject(targetMap, targetCell, pawn.Map, out _))
                 {
                     if (verbose)
                         Log.Message($"[RimExodus] VF compat: PawnGotoAction decline for {pawn.LabelShort}: no combat link "
@@ -382,8 +382,7 @@ namespace RimExodus
 
                 if (SeamlessCrossMapOrders.TryBridgeJob(pawn, targetMap, targetCell))
                 {
-                    FleckMaker.Static(targetCell.ToVector3Shifted() + Patches_CombatVisuals.OffsetVector(in link),
-                        pawn.Map, FleckDefOf.FeedbackGoto);
+                    FleckMaker.Static(targetCell, targetMap, FleckDefOf.FeedbackGoto);
                 }
                 return false;
             }

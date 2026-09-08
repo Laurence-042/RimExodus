@@ -91,7 +91,7 @@ namespace RimExodus
         {
             if (pawn?.Map == null) return true;
             if (!SeamlessCommandTargets.TryGet(pawn, out var ct) || ct.map == pawn.Map) return true;
-            if (!SeamlessCombatCoords.TryGetCombatLink(pawn.Map, ct.map, out var link)) return true;
+            if (!SeamlessViewProjection.TryProject(ct.map, gotoLoc, pawn.Map, out _)) return true;
 
             // 不可跨图下令的主体：吞掉（对齐原版"不可对其下令移动"，不给错误的本图同坐标 job）。
             if (!SeamlessBoundaryRules.IsCrossMapOrderable(pawn)) return false;
@@ -102,9 +102,8 @@ namespace RimExodus
             if (SeamlessCrossMapOrders.TryBridgeJob(pawn, ct.map, gotoLoc))
             {
                 // 对齐原生 PawnGotoAction 成功路径的下令反馈（DraftedMove.cs:119 FeedbackGoto）
-                // ——画在统一坐标（gotoLoc + offset）的本图上（与攻击的 FeedbackShoot 区分）。
-                FleckMaker.Static(gotoLoc.ToVector3Shifted() + Patches_CombatVisuals.OffsetVector(in link),
-                    pawn.Map, FleckDefOf.FeedbackGoto);
+                // ——反馈归目标图管理，复合视图绘制阶段统一平移（与攻击的 FeedbackShoot 区分）。
+                FleckMaker.Static(gotoLoc, ct.map, FleckDefOf.FeedbackGoto);
             }
             return false;
         }
@@ -137,11 +136,10 @@ namespace RimExodus
             foreach (var pawn in Find.Selector.SelectedPawns)
             {
                 if (!SeamlessCommandTargets.TryGet(pawn, out var ct) || ct.map == hostMap) continue;
-                if (!SeamlessCombatCoords.TryGetCombatLink(hostMap, ct.map, out var link)) continue;
+                if (!SeamlessViewProjection.TryProject(ct.map, mouseCell, hostMap, out var anchor)) continue;
 
                 // mouseCell 是邻图框架锚点 → 宿主系（hostLocal = targetLocal + offset）。
-                var anchor = mouseCell + link.offset;
-                if (!anchor.InBounds(hostMap)) continue;
+                // 复合视图坐标允许落在宿主地图矩形外；控制器只把它用作插值/绘制锚点。
                 StartField(__instance) = anchor;
                 EndField(__instance) = anchor;
                 return;
@@ -211,18 +209,16 @@ namespace RimExodus
 
                 IntVec3 drawCell;
                 if (SeamlessCommandTargets.TryGet(pawn, out var ct) && ct.map != hostMap
-                    && SeamlessCombatCoords.TryGetCombatLink(hostMap, ct.map, out var link))
+                    && SeamlessViewProjection.TryProject(ct.map, c, hostMap, out var projected))
                 {
                     if (c.Fogged(ct.map)) continue; // 迷雾按归属图（本地格）判
-                    drawCell = c + link.offset;
+                    drawCell = projected;
                 }
                 else
                 {
                     if (c.Fogged(pawn.Map)) continue;
                     drawCell = c;
                 }
-                if (!drawCell.InBounds(hostMap)) continue;
-
                 Vector3 drawLoc = drawCell.ToVector3ShiftedWithAltitude(num);
                 pawn.Drawer.renderer.RenderPawnAt(drawLoc, Rot4.South);
                 Vector3 pos = drawCell.ToVector3ShiftedWithAltitude(addedAltitude);
@@ -262,11 +258,10 @@ namespace RimExodus
                 if (!c.IsValid || pawn == null || !pawn.Spawned) continue;
                 var drawCell = c;
                 if (SeamlessCommandTargets.TryGet(pawn, out var ct) && ct.map != hostMap
-                    && SeamlessCombatCoords.TryGetCombatLink(hostMap, ct.map, out var link))
+                    && SeamlessViewProjection.TryProject(ct.map, c, hostMap, out var projected))
                 {
-                    drawCell = c + link.offset;
+                    drawCell = projected;
                 }
-                if (!drawCell.InBounds(hostMap)) continue;
                 Rect rect = drawCell.ToUIRect();
                 Vector2 pos = new Vector2(rect.center.x, rect.yMax + 5f);
                 GenMapUI.DrawPawnLabel(pawn, pos, 0.5f);

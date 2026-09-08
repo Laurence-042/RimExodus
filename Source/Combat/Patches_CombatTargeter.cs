@@ -97,38 +97,29 @@ namespace RimExodus
             var thing = __state.target.Thing;
             if (__state.verb == null) return;
             if (thing?.Map == null || thing.Map == Find.CurrentMap) return;
-            if (!SeamlessViewProjection.TryProjectToCurrent(thing.Map, thing.DrawPos, out var projected)) return;
-
-            FleckMaker.Static(projected, Find.CurrentMap, FleckDefOf.FeedbackShoot);
+            FleckMaker.Static(thing.DrawPos, thing.Map, FleckDefOf.FeedbackShoot);
         }
     }
 
     /// <summary>
-    /// Vanilla weapon hover highlighting consumes target.Thing in that Thing's local coordinates. Replace
-    /// only the DrawHighlight argument with a cell in the caster map's unified coordinate system; the real
-    /// Thing target retained by Targeter and the eventual order are untouched.
+    /// Vanilla weapon hover highlighting consumes target.Thing in that Thing's local coordinates although
+    /// GenDraw renders in the focused map's coordinate system. Reproduce that common drawing sink at the
+    /// projected TrueCenter; the real Thing target retained by Targeter and the eventual order are untouched.
     /// </summary>
-    [HarmonyPatch(typeof(Verb), nameof(Verb.DrawHighlight))]
-    public static class Patch_Verb_DrawHighlight_CrossMapTarget
+    [HarmonyPatch(typeof(GenDraw), nameof(GenDraw.DrawTargetHighlight))]
+    public static class Patch_GenDraw_DrawTargetHighlight_SeamlessView
     {
-        public static void Prefix(Verb __instance, ref LocalTargetInfo target)
+        public static bool Prefix(LocalTargetInfo targ)
         {
-            if (!(__instance is Verb_LaunchProjectile launchVerb) || !target.HasThing
-                || launchVerb.verbProps.IsMeleeAttack
-                || launchVerb.Projectile?.projectile?.flyOverhead != false)
-            {
-                return;
-            }
+            var thing = targ.Thing;
+            var viewMap = Find.CurrentMap;
+            if (thing?.Map == null || viewMap == null || thing.Map == viewMap) return true;
+            if (!SeamlessViewProjection.TryProject(thing.Map, thing.TrueCenter(), viewMap, out var projected)) return true;
 
-            var casterMap = __instance.Caster?.Map;
-            var thing = target.Thing;
-            if (casterMap == null || thing?.Map == null || thing.Map == casterMap
-                || !SeamlessCombatCoords.TryGetCombatLink(casterMap, thing.Map, out var link))
-            {
-                return;
-            }
-
-            target = new LocalTargetInfo(thing.Position + link.offset);
+            projected.y = AltitudeLayer.MapDataOverlay.AltitudeFor();
+            Graphics.DrawMesh(MeshPool.plane10, projected, thing.Rotation.AsQuat, GenDraw.CurTargetingMat, 0);
+            if (thing is Pawn || thing is Corpse) TargetHighlighter.Highlight(thing, arrow: false);
+            return false;
         }
     }
 

@@ -226,9 +226,8 @@ namespace RimExodus
             }
 
             if (focusThing?.Map == null || focusThing.Map == pawn.Map) return;
-            if (!SeamlessCombatCoords.TryGetCombatLink(pawn.Map, focusThing.Map, out var link)) return;
-
-            __instance.Face(focusThing.DrawPos + new Vector3(link.offset.x, 0f, link.offset.z));
+            if (!SeamlessViewProjection.TryProject(focusThing.Map, focusThing.DrawPos, pawn.Map, out var projected)) return;
+            __instance.Face(projected);
         }
     }
 }

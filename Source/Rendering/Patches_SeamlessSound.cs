@@ -1,4 +1,5 @@
 using HarmonyLib;
+using RimWorld.Planet;
 using Verse;
 using Verse.Sound;
 
@@ -15,19 +16,17 @@ namespace RimExodus
     {
         public static void Prefix(ref SoundInfo info)
         {
-            if (info.IsOnCamera) return;
+            if (info.IsOnCamera || !WorldRendererUtility.DrawingMap) return;
             var maker = info.Maker;
             var sourceMap = maker.Map;
-            if (sourceMap == null || sourceMap == Find.CurrentMap) return;
-            if (!SeamlessViewProjection.TryProjectVisibleToCurrent(sourceMap, maker.CenterVector3,
-                    out var projected))
-            {
-                return;
-            }
+            var viewMap = Find.CurrentMap;
+            if (sourceMap == null || sourceMap == viewMap
+                || !SeamlessViewProjection.TryProject(sourceMap, maker.CenterVector3, viewMap, out var projected)
+                || !Find.CameraDriver.CurrentViewRect.ExpandedBy(1).Contains(projected.ToIntVec3())) return;
 
             var original = info;
             var redirected = SoundInfo.InMap(
-                new TargetInfo(projected.ToIntVec3(), Find.CurrentMap), original.Maintenance);
+                new TargetInfo(projected.ToIntVec3(), viewMap), original.Maintenance);
             redirected.volumeFactor = original.volumeFactor;
             redirected.pitchFactor = original.pitchFactor;
             redirected.testPlay = original.testPlay;

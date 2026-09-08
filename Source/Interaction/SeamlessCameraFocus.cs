@@ -39,8 +39,7 @@ namespace RimExodus
             }
 
             // 找到 arrivalMap 相对 currentMap 的偏移（从 currentMap 的邻居表查）。
-            var offset = FindNeighborOffset(currentMap, arrivalMap);
-            if (!offset.HasValue)
+            if (!SeamlessViewProjection.TryProject(arrivalMap, IntVec3.Zero, currentMap, out var offset))
             {
                 if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Auto-focus skipped: arrival map {arrivalMap.uniqueID} is not a direct neighbor of current map {currentMap.uniqueID}.");
@@ -55,7 +54,7 @@ namespace RimExodus
 
             // 目标位置：同一世界位置在 arrivalMap 坐标系中的坐标 = camPos - offset。
             // （offset 是 arrivalMap 本地 → currentMap 坐标，故反向：currentMap → arrivalMap = 减去 offset）
-            var targetPos = camPos - offset.Value.ToVector3();
+            var targetPos = camPos - offset.ToVector3();
 
             // 切图（触发原生硬跳到 arrivalMap 的 rememberedCameraPos，覆盖位置+缩放）。
             Current.Game.CurrentMap = arrivalMap;
@@ -66,20 +65,7 @@ namespace RimExodus
 
             parent.autoFocused = true;
             if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
-                Log.Message($"[RimExodus] Auto-focused to map {arrivalMap.uniqueID}, camera offset by {-offset.Value}.");
-        }
-
-        /// <summary>在 currentMap 的邻居表中查找 neighborMap 的相对偏移（neighborMap 本地 → currentMap）。</summary>
-        internal static IntVec3? FindNeighborOffset(Map currentMap, Map neighborMap)
-        {
-            foreach (var info in SeamlessTileGraph.GetAllNeighbors(currentMap))
-            {
-                if (info.map == neighborMap)
-                {
-                    return info.offset;
-                }
-            }
-            return null;
+                Log.Message($"[RimExodus] Auto-focused to map {arrivalMap.uniqueID}, camera offset by {-offset}.");
         }
     }
 }

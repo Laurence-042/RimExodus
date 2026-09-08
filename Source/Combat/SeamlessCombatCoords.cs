@@ -45,15 +45,14 @@ namespace RimExodus
             if (!Enabled || host == null || target == null || host == target || host.Disposed || target.Disposed) return false;
 
             var targetTile = SeamlessTileRegistry.GetMapWorldTile(target);
-            if (targetTile < 0) return false;
-            if (!SeamlessTileGraph.TryGetNeighborLinkByWorldTile(host, targetTile, out var info)) return false;
+            if (targetTile < 0 || !SeamlessViewProjection.TryProject(target, IntVec3.Zero, host, out var offset)) return false;
 
             link = new CombatLink
             {
                 host = host,
-                target = info.map,
-                targetWorldTile = info.worldTile,
-                offset = info.offset
+                target = target,
+                targetWorldTile = targetTile,
+                offset = offset
             };
             return true;
         }

@@ -91,9 +91,8 @@ namespace RimExodus
                 return;
             }
 
-            // offset 语义：targetMap 本地 → currentMap（同 SeamlessCameraFocus.FindNeighborOffset）。
-            var offset = SeamlessCameraFocus.FindNeighborOffset(currentMap, targetMap);
-            if (!offset.HasValue)
+            // offset 语义：targetMap 本地 → currentMap。
+            if (!SeamlessViewProjection.TryProject(targetMap, IntVec3.Zero, currentMap, out var offset))
             {
                 // 不是直接邻居：保持原生聚焦行为，不覆盖。
                 return;
@@ -103,7 +102,7 @@ namespace RimExodus
             // 缩放必须记：SelectInternal 切图会触发 Notify_SwitchedMap 从新地图记忆值恢复缩放。
             preservedCamPos = Find.CameraDriver.MapPosition.ToVector3();
             preservedCamSize = Find.CameraDriver.RootSize;
-            crossMapOffset = offset.Value.ToVector3();
+            crossMapOffset = offset.ToVector3();
             hasCrossMapContext = true;
         }
 

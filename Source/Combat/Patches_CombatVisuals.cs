@@ -19,40 +19,6 @@ namespace RimExodus
     ///    消费端改参修正（**勿再走 transpiler**——Mono DMD 产出非法 IL，见该类注释）。
     /// 全部换算为统一坐标（DrawPos + offset，与弹道/渲染同系）。
     /// </summary>
-    public static class Patches_CombatVisuals
-    {
-        internal static Vector3 OffsetVector(in SeamlessCombatCoords.CombatLink link) =>
-            new Vector3(link.offset.x, 0f, link.offset.z);
-
-        /// <summary>
-        /// 跨图视觉位置公共重定向：来源图是 CurrentMap 的活跃邻居 → 由统一复合视图投影服务
-        /// 同时改写位置与 map；否则不动。
-        /// </summary>
-        internal static bool RedirectCrossMapPosition(ref Vector3 loc, ref Map map)
-        {
-            var hostMap = Find.CurrentMap;
-            if (map == null || map == hostMap) return false;
-            if (!SeamlessViewProjection.TryProjectToCurrent(map, loc, out var projected)) return false;
-            loc = projected;
-            map = hostMap;
-            return true;
-        }
-
-        internal static bool RedirectCrossMapPosition(ref IntVec3 cell, ref Map map)
-        {
-            var hostMap = Find.CurrentMap;
-            if (map == null || map == hostMap) return false;
-            if (!SeamlessViewProjection.TryProjectToCurrent(map, cell, out var projected)) return false;
-            cell = projected;
-            map = hostMap;
-            return true;
-        }
-
-        /// <summary>瞄准 mote 的目标点兼容层已移除（transpiler 方案在 Mono 下产出非法 IL，改用
-        /// Patch_MoteMaker_StaticMote_CrossMap + Patch_StanceWarmup_StanceTick_AimMotes 的
-        /// Prefix/Postfix 方案，见对应类注释）。</summary>
-    }
-
     [HarmonyPatch(typeof(Pawn_JobTracker), nameof(Pawn_JobTracker.DrawLinesBetweenTargets))]
     public static class Patch_Pawn_JobTracker_DrawLinesBetweenTargets
     {
@@ -65,7 +31,7 @@ namespace RimExodus
         {
             var pawn = ___pawn;
             if (pawn?.Map == null || pawn.Map == Find.CurrentMap) return true;
-            if (!SeamlessViewProjection.TryProjectToCurrent(pawn.Map, Vector3.zero, out var offsetV)) return true;
+            if (!SeamlessViewProjection.TryProject(pawn.Map, Vector3.zero, Find.CurrentMap, out var offsetV)) return true;
             var a = (pawn.pather.curPath != null
                 ? pawn.pather.Destination.CenterVector3
                 : pawn.Position.ToVector3Shifted()) + offsetV;
@@ -94,7 +60,7 @@ namespace RimExodus
             {
                 var thing = job.targetA.Thing;
                 if (thing?.Map != null && thing.Map != pawn.Map
-                    && SeamlessViewProjection.TryProjectToCurrent(thing.Map, thing.DrawPos, out var unified))
+                    && SeamlessViewProjection.TryProject(thing.Map, thing.DrawPos, Find.CurrentMap, out var unified))
                 {
                     var a = pawn.pather.curPath != null
                         ? pawn.pather.Destination.CenterVector3
@@ -107,41 +73,14 @@ namespace RimExodus
             // 移动语义不画目标框（与攻击样式区分；对齐原版移动 = 路径线 + fleck 无框）。
             if (SeamlessTransferGrants.TryGet(pawn, out var grant) && grant.Kind == SeamlessTransferGrants.GrantKind.Bridge
                 && grant.FinalDestMap != null && grant.FinalDestMap != pawn.Map
-                && SeamlessViewProjection.TryProjectToCurrent(grant.FinalDestMap,
-                    grant.FinalDestCell.ToVector3Shifted(), out var unifiedDest))
+                && SeamlessViewProjection.TryProject(grant.FinalDestMap,
+                    grant.FinalDestCell.ToVector3Shifted(), Find.CurrentMap, out var unifiedDest))
             {
                 var start = pawn.pather.curPath != null
                     ? pawn.pather.Destination.CenterVector3
                     : pawn.Position.ToVector3Shifted();
                 GenDraw.DrawLineBetween(start, unifiedDest, AltitudeLayer.Item.AltitudeFor());
             }
-        }
-    }
-
-    /// <summary>
-    /// 跨图 fleck 反馈公共重定向（2026-08 修复"跨图命令标记与原版不一致"）：原版下令反馈
-    /// （FeedbackShoot/FeedbackMelee 等）生成在目标自己的图上，而邻图 FleckSystem 不被本视图
-    /// 渲染 → 玩家看不到任何反馈。Prefix 在公共入口把"生成在活跃邻图上的 fleck"以统一坐标
-    /// （loc + offset）重生成本图——一个 patch 覆盖所有跨图 fleck（下令反馈、弹着、治疗等纯
-    /// 视觉效果全部跟随当前视图可见）。Static 有 Vector3/IntVec3 两个重载，分别声明。
-    /// </summary>
-    [HarmonyPatch(typeof(FleckMaker), nameof(FleckMaker.Static),
-        new[] { typeof(Vector3), typeof(Map), typeof(FleckDef), typeof(float) })]
-    public static class Patch_FleckMaker_StaticVec_CrossMap
-    {
-        public static void Prefix(ref Vector3 loc, ref Map map)
-        {
-            Patches_CombatVisuals.RedirectCrossMapPosition(ref loc, ref map);
-        }
-    }
-
-    [HarmonyPatch(typeof(FleckMaker), nameof(FleckMaker.Static),
-        new[] { typeof(IntVec3), typeof(Map), typeof(FleckDef), typeof(float) })]
-    public static class Patch_FleckMaker_StaticCell_CrossMap
-    {
-        public static void Prefix(ref IntVec3 cell, ref Map map)
-        {
-            Patches_CombatVisuals.RedirectCrossMapPosition(ref cell, ref map);
         }
     }
 
@@ -161,10 +100,10 @@ namespace RimExodus
             if (shooter?.Map == null || !target.HasThing) return;
             var thing = target.Thing;
             if (thing?.Map == null || thing.Map == shooter.Map) return;
-            if (!SeamlessCombatCoords.TryGetCombatLink(shooter.Map, thing.Map, out var link)) return;
-
-            var unifiedCell = thing.Position + link.offset;
-            if (!unifiedCell.InBounds(shooter.Map)) return;
+            if (!SeamlessViewProjection.TryProject(thing.Map, thing.Position, shooter.Map, out var unifiedCell)) return;
+            // DrawAimPie only consumes the cell as a direction vector. A valid point on the neighboring
+            // map may be outside the shooter's rectangular Map bounds while still being visible in the
+            // composite view; rejecting it here would diverge from target/path/aim-line rendering.
             target = new LocalTargetInfo(unifiedCell); // 原生 cell 分支用 (Cell - Position).AngleFlat 算 facing
         }
     }
@@ -177,21 +116,9 @@ namespace RimExodus
     /// 坐标）计算。**纯 Prefix/Postfix 方案（勿再对此链走 transpiler——2026-08 实测对
     /// InitEffects 的调用点替换在 Mono DMD 下产出非法 IL（InvalidProgramException，与历史瞄准角
     /// case 同款），PatchAll 整体抛异常 = mod 加载失败；CLR 验证器对此返回 OK，拦不住）：**
-    /// ① <see cref="Patch_MoteMaker_StaticMote_CrossMap"/>——mote 生成重定向（跨图活跃邻图 →
-    /// 统一坐标 + 本图，兼防目标本地格越界时 GenSpawn 崩溃）；② <see cref="Patch_StanceWarmup_StanceTick_AimMotes"/>
-    /// ——StanceTick Postfix 后修正三 mote 的 exactPosition/exactRotation/UpdateTargets（原方法
-    /// 先按本地坐标写一遍，Postfix 覆盖为统一坐标；DrawAimPie（选中才显示）由上方 patch 单独覆盖）。
+    /// mote 保留在射手图，StanceTick Postfix 只按射手图统一坐标修正三者；复合视图绘制邻图
+    /// mote 时在最终 DrawMote 出口统一叠加视图 offset。DrawAimPie（选中才显示）由上方 patch 单独覆盖。
     /// </summary>
-    [HarmonyPatch(typeof(MoteMaker), nameof(MoteMaker.MakeStaticMote),
-        new[] { typeof(Vector3), typeof(Map), typeof(ThingDef), typeof(float), typeof(bool), typeof(float) })]
-    public static class Patch_MoteMaker_StaticMote_CrossMap
-    {
-        public static void Prefix(ref Vector3 loc, ref Map map)
-        {
-            Patches_CombatVisuals.RedirectCrossMapPosition(ref loc, ref map);
-        }
-    }
-
     [HarmonyPatch(typeof(Stance_Warmup), nameof(Stance_Warmup.StanceTick))]
     public static class Patch_StanceWarmup_StanceTick_AimMotes
     {
@@ -218,12 +145,11 @@ namespace RimExodus
             if (caster?.Map == null || !focusTarg.HasThing) return;
             var thing = focusTarg.Thing;
             if (thing?.MapHeld == null || thing.MapHeld == caster.Map) return;
-            if (!SeamlessCombatCoords.TryGetCombatLink(caster.Map, thing.MapHeld, out var link)) return;
-
-            var unifiedCenter = thing.DrawPos + Patches_CombatVisuals.OffsetVector(in link);
-            var dir = unifiedCenter - caster.DrawPos;
+            if (!SeamlessViewProjection.TryProject(thing.MapHeld, thing.DrawPos, caster.Map, out var unifiedCenter)) return;
+            var casterCenter = caster.DrawPos;
+            var dir = unifiedCenter - casterCenter;
             dir.y = 0f;
-            var angle = (unifiedCenter - caster.DrawPos).AngleFlat();
+            var angle = dir.AngleFlat();
 
             var targetMote = AimTargetMoteRef(__instance);
             if (targetMote != null)
@@ -236,18 +162,14 @@ namespace RimExodus
             if (chargeMote != null && dir.sqrMagnitude > 0.001f)
             {
                 chargeMote.exactRotation = angle;
-                chargeMote.exactPosition = caster.Position.ToVector3Shifted() + dir.normalized * verb.verbProps.aimingChargeMoteOffset;
+                chargeMote.exactPosition = casterCenter + dir.normalized * verb.verbProps.aimingChargeMoteOffset;
             }
 
             if (AimLineMoteRef(__instance) is MoteDualAttached lineMote)
             {
-                // 原版 StanceTick L174-176 同式：目标端点换统一格。
-                var cell = unifiedCenter.ToIntVec3();
-                if (cell.InBounds(caster.Map))
-                {
-                    lineMote.UpdateTargets(caster, new TargetInfo(cell, caster.Map),
-                        Vector3.zero, unifiedCenter - cell.ToVector3Shifted());
-                }
+                var targetCell = unifiedCenter.ToIntVec3();
+                lineMote.UpdateTargets(caster, new TargetInfo(targetCell, caster.Map),
+                    Vector3.zero, unifiedCenter - targetCell.ToVector3Shifted());
             }
         }
     }
@@ -260,7 +182,7 @@ namespace RimExodus
         {
             if (!__instance.Found || __instance.NodesLeftCount <= 0) return false;
             if (pathingPawn?.Map == null || pathingPawn.Map == Find.CurrentMap) return true;
-            if (!SeamlessViewProjection.TryProjectToCurrent(pathingPawn.Map, Vector3.zero, out var offsetV)) return true;
+            if (!SeamlessViewProjection.TryProject(pathingPawn.Map, Vector3.zero, Find.CurrentMap, out var offsetV)) return true;
             float y = AltitudeLayer.Item.AltitudeFor();
             for (var i = 0; i < __instance.NodesLeftCount - 1; i++)
             {
@@ -303,11 +225,9 @@ namespace RimExodus
             if (busy == null || !busy.focusTarg.IsValid || !busy.focusTarg.HasThing) return true;
             var thing = busy.focusTarg.Thing;
             if (thing?.Map == null || thing.Map == pawn.Map) return true;
-            if (!SeamlessCombatCoords.TryGetCombatLink(pawn.Map, thing.Map, out var link)) return true;
-
-            var unified = thing.DrawPos + Patches_CombatVisuals.OffsetVector(in link);
+            if (!SeamlessViewProjection.TryProject(thing.Map, thing.DrawPos, pawn.Map, out var unified)) return true;
             var correctAngle = (unified - pawn.DrawPos).AngleFlat();
-            if (!SeamlessViewProjection.TryProjectToCurrent(pawn.Map, pawn.DrawPos, out var projectedPawn))
+            if (!SeamlessViewProjection.TryProject(pawn.Map, pawn.DrawPos, Find.CurrentMap, out var projectedPawn))
             {
                 return true;
             }

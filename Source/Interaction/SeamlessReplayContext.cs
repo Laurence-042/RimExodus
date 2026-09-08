@@ -52,11 +52,8 @@ namespace RimExodus
         /// </summary>
         public static IntVec3 PositionHeldForRevalidate(Thing thing)
         {
-            if (thing.MapHeld != null && thing.MapHeld != Find.CurrentMap
-                && SeamlessCombatCoords.TryGetCombatLink(Find.CurrentMap, thing.MapHeld, out var link))
-            {
-                return thing.PositionHeld + link.offset;
-            }
+            if (SeamlessViewProjection.TryProject(thing.MapHeld, thing.PositionHeld,
+                    Find.CurrentMap, out var projected)) return projected;
             return thing.PositionHeld;
         }
     }

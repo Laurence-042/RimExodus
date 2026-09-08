@@ -118,7 +118,8 @@ namespace RimExodus
                 CollectNeighborLayers(neighbor.map, neighbor.offset, neighbor.offset.ToVector3(), hostViewRect);
                 DrawNeighborPawns(neighbor.map, hostViewRect);
                 DrawNeighborProjectiles(neighbor.map, hostViewRect);
-                DrawNeighborRealtimeThings(neighbor.map, hostViewRect);
+                DrawNeighborRealtimeThings(neighbor.map, neighbor.offset.ToVector3(), hostViewRect);
+                DrawNeighborFlecks(neighbor.map, neighbor.offset.ToVector3());
             }
 
             if (drawCommands.Count == 0)
@@ -150,7 +151,7 @@ namespace RimExodus
             {
                 try
                 {
-                    if (!SeamlessViewProjection.TryProjectToCurrent(neighborMap, pawn.DrawPos, out var drawPos))
+                    if (!SeamlessViewProjection.TryProject(neighborMap, pawn.DrawPos, Find.CurrentMap, out var drawPos))
                     {
                         continue;
                     }
@@ -192,7 +193,7 @@ namespace RimExodus
                 if (thing.Destroyed) continue;
                 try
                 {
-                    if (!SeamlessViewProjection.TryProjectToCurrent(neighborMap, thing.DrawPos, out var drawPos))
+                    if (!SeamlessViewProjection.TryProject(neighborMap, thing.DrawPos, Find.CurrentMap, out var drawPos))
                     {
                         continue;
                     }
@@ -228,21 +229,22 @@ namespace RimExodus
         /// 已知边界：thing 的自定义 DrawAt 若读 Find.CurrentMap 全局态（罕见 mod 写法）会画错
         /// 位置——与 pawn 通道同级的既有风险面，try/catch 防崩。
         /// </summary>
-        private static void DrawNeighborRealtimeThings(Map neighborMap, CellRect hostViewRect)
+        private static void DrawNeighborRealtimeThings(Map neighborMap, Vector3 drawOffset, CellRect hostViewRect)
         {
             var drawThings = neighborMap.dynamicDrawManager.DrawThings;
             for (var i = 0; i < drawThings.Count; i++)
             {
                 var thing = drawThings[i];
                 if (thing == null || thing.Destroyed) continue;
-                if (thing.def.drawerType != DrawerType.RealtimeOnly || thing is Pawn || thing is Projectile)
+                if ((thing is not Mote && thing.def.drawerType != DrawerType.RealtimeOnly)
+                    || thing is Pawn || thing is Projectile)
                 {
                     continue;
                 }
 
                 try
                 {
-                    if (!SeamlessViewProjection.TryProjectToCurrent(neighborMap, thing.DrawPos, out var drawPos))
+                    if (!SeamlessViewProjection.TryProject(neighborMap, thing.DrawPos, Find.CurrentMap, out var drawPos))
                     {
                         continue;
                     }
@@ -259,12 +261,37 @@ namespace RimExodus
                         continue;
                     }
 
-                    thing.DrawNowAt(drawPos);
+                    if (thing is Mote)
+                    {
+                        using (SeamlessCompositeDrawContext.Push(drawOffset)) thing.DrawNowAt(thing.DrawPos);
+                    }
+                    else
+                    {
+                        thing.DrawNowAt(drawPos);
+                    }
                 }
                 catch (Exception ex)
                 {
                     Log.ErrorOnce($"[RimExodus] Failed to draw seamless neighbor realtime thing {thing}: {ex}", thing.thingIDNumber ^ 0x5eaf02);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Flecks remain owned by their source map so movement, collision, attachment and lifetime use
+        /// valid local cells. The neighbor manager is drawn a second time only for the composite view;
+        /// DrawBatch matrices receive the view offset through a tightly scoped draw context.
+        /// </summary>
+        private static void DrawNeighborFlecks(Map neighborMap, Vector3 drawOffset)
+        {
+            try
+            {
+                using (SeamlessCompositeDrawContext.Push(drawOffset)) neighborMap.flecks.FleckManagerDraw();
+            }
+            catch (Exception ex)
+            {
+                Log.ErrorOnce($"[RimExodus] Failed to draw seamless neighbor flecks for map {neighborMap.uniqueID}: {ex}",
+                    neighborMap.uniqueID ^ 0x5eaf03);
             }
         }
 

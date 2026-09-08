@@ -1,65 +1,59 @@
 using UnityEngine;
 using RimWorld;
-using RimWorld.Planet;
 using Verse;
 
 namespace RimExodus
 {
     /// <summary>
-    /// Single coordinate/view contract for content shown as part of the current seamless composite view.
-    /// A source-local point is either already on the focused map or translated from one active direct
-    /// neighbor. This deliberately does not depend on the cross-map combat setting: rendering and audible
-    /// spatial feedback remain properties of the seamless view itself.
+    /// Single coordinate contract between seamless maps. A source-local point is either already in the
+    /// destination map or translated from one active direct neighbor. Callers must explicitly choose the
+    /// destination coordinate system and apply any view-specific policy themselves.
     /// </summary>
     public static class SeamlessViewProjection
     {
-        public static bool TryProjectToCurrent(Map sourceMap, Vector3 sourceLocal, out Vector3 projected)
+        /// <summary>
+        /// Resolves the translation from source-local coordinates into a destination map's coordinates.
+        /// Only the same map or an active direct seamless neighbor is accepted.
+        /// </summary>
+        private static bool TryGetOffset(Map sourceMap, Map destinationMap, out IntVec3 offset)
         {
-            projected = sourceLocal;
-            var viewMap = Find.CurrentMap;
-            if (viewMap == null || sourceMap == null || sourceMap.Disposed || viewMap.Disposed
-                || !WorldRendererUtility.DrawingMap)
+            offset = IntVec3.Zero;
+            if (sourceMap == null || destinationMap == null || sourceMap.Disposed || destinationMap.Disposed)
             {
                 return false;
             }
 
-            if (sourceMap == viewMap)
+            if (sourceMap == destinationMap)
             {
                 return true;
             }
 
             var sourceTile = SeamlessTileRegistry.GetMapWorldTile(sourceMap);
             if (sourceTile < 0
-                || !SeamlessTileGraph.TryGetNeighborLinkByWorldTile(viewMap, sourceTile, out var link)
-                || link.map != sourceMap)
-            {
-                return false;
-            }
-
-            projected += new Vector3(link.offset.x, 0f, link.offset.z);
+                || !SeamlessTileGraph.TryGetNeighborLinkByWorldTile(destinationMap, sourceTile, out var link)
+                || link.map != sourceMap) return false;
+            offset = link.offset;
             return true;
         }
 
-        public static bool TryProjectToCurrent(Map sourceMap, IntVec3 sourceLocal, out IntVec3 projected)
+        public static bool TryProject(Map sourceMap, Vector3 sourceLocal, Map destinationMap, out Vector3 projected)
         {
-            if (TryProjectToCurrent(sourceMap, sourceLocal.ToVector3Shifted(), out var projectedVector))
+            projected = sourceLocal;
+            if (!TryGetOffset(sourceMap, destinationMap, out var offset)) return false;
+            projected += new Vector3(offset.x, 0f, offset.z);
+            return true;
+        }
+
+        public static bool TryProject(Map sourceMap, IntVec3 sourceLocal, Map destinationMap, out IntVec3 projected)
+        {
+            if (TryGetOffset(sourceMap, destinationMap, out var offset))
             {
-                projected = projectedVector.ToIntVec3();
+                projected = sourceLocal + offset;
                 return true;
             }
 
             projected = IntVec3.Invalid;
             return false;
-        }
-
-        public static bool TryProjectVisibleToCurrent(Map sourceMap, Vector3 sourceLocal, out Vector3 projected)
-        {
-            if (!TryProjectToCurrent(sourceMap, sourceLocal, out projected))
-            {
-                return false;
-            }
-
-            return Find.CameraDriver.CurrentViewRect.ExpandedBy(1).Contains(projected.ToIntVec3());
         }
     }
 }
