@@ -33,10 +33,10 @@ namespace RimExodus
         {
             line = new ShootLine(root, targ.Cell + link.offset);
 
-            if (!(verb is Verb_LaunchProjectile launchVerb)) return false; // 仅直射投射物；近战/灵能等跨图一律 false
-            if (verb.verbProps.IsMeleeAttack) return false;
-            var projDef = launchVerb.Projectile?.projectile;
-            if (projDef == null || projDef.flyOverhead) return false;
+            if (!SeamlessDirectFireSupport.IsSupportedVerb(verb))
+            {
+                return false;
+            }
 
             var caster = SeamlessCombatCoords.VerbCaster(verb);
             var hostMap = caster?.Map;
@@ -59,7 +59,10 @@ namespace RimExodus
                 var minRange = verb.verbProps.EffectiveMinRange(allowAdjacentShot: false);
                 var distSq = occupiedRectUnified.ClosestDistSquaredTo(root);
                 var range = verb.EffectiveRange;
-                if (distSq > range * range || distSq < minRange * minRange) return false;
+                if (distSq > range * range || distSq < minRange * minRange)
+                {
+                    return false;
+                }
             }
 
             if (!verb.verbProps.requireLineOfSight)
@@ -75,7 +78,7 @@ namespace RimExodus
                 TempSources.Add(root);
                 ShootLeanUtility.LeanShootingSourcesFromTo(root, occupiedRectUnified.ClosestCellTo(root), hostMap, TempSources);
             }
-            else
+            if (!verb.CasterIsPawn)
             {
                 TempSources.AddRange(caster.OccupiedRect());
             }

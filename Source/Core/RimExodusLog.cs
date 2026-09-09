@@ -29,6 +29,7 @@ namespace RimExodus
         Weather,
         Dormancy,
         Combat,
+        CombatExtended,
         Compat,
         Settlement,
         Core
@@ -56,6 +57,7 @@ namespace RimExodus
                 case RimExodusLogModule.Weather: return s.logWeather;
                 case RimExodusLogModule.Dormancy: return s.logDormancy;
                 case RimExodusLogModule.Combat: return s.logCombat;
+                case RimExodusLogModule.CombatExtended: return s.logCombatExtended;
                 case RimExodusLogModule.Compat: return s.logCompat;
                 case RimExodusLogModule.Settlement: return s.logSettlement;
                 case RimExodusLogModule.Core: return s.logCore;

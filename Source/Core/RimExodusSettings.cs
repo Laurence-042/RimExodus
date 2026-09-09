@@ -48,6 +48,9 @@ namespace RimExodus
         /// <summary>跨图战斗（索敌/射击/弹道交接）。</summary>
         public bool logCombat = false;
 
+        /// <summary>Combat Extended 独立诊断（仅弹丸发射/跨缝/命中离散事件）。</summary>
+        public bool logCombatExtended = false;
+
         /// <summary>兼容层（VF/PS/GL 详细日志；绑定确认/自检行常开不受控）。</summary>
         public bool logCompat = false;
 
@@ -268,6 +271,7 @@ namespace RimExodus
             Scribe_Values.Look(ref logWeather, "logWeather", false);
             Scribe_Values.Look(ref logDormancy, "logDormancy", false);
             Scribe_Values.Look(ref logCombat, "logCombat", false);
+            Scribe_Values.Look(ref logCombatExtended, "logCombatExtended", false);
             Scribe_Values.Look(ref logCompat, "logCompat", false);
             Scribe_Values.Look(ref logSettlement, "logSettlement", false);
             Scribe_Values.Look(ref logCore, "logCore", false);

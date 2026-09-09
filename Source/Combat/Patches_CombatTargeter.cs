@@ -8,6 +8,27 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
+    /// Right-click attack actions create their feedback fleck on the target's real map. Neighbor fleck
+    /// managers are intentionally not replayed by the composite renderer, so redirect only attack feedback
+    /// to the focused map at its projected position. Other flecks retain their source-map ownership.
+    /// </summary>
+    [HarmonyPatch(typeof(FleckMaker), nameof(FleckMaker.Static),
+        new[] { typeof(Vector3), typeof(Map), typeof(FleckDef), typeof(float) })]
+    public static class Patch_FleckMaker_Static_CrossMapAttackFeedback
+    {
+        public static void Prefix(ref Vector3 loc, ref Map map, FleckDef fleckDef)
+        {
+            var viewMap = Find.CurrentMap;
+            if (map == null || viewMap == null || map == viewMap
+                || (fleckDef != FleckDefOf.FeedbackShoot && fleckDef != FleckDefOf.FeedbackMelee)) return;
+            if (!SeamlessViewProjection.TryProject(map, loc, viewMap, out var projected)) return;
+
+            loc = projected;
+            map = viewMap;
+        }
+    }
+
+    /// <summary>
     /// Makes the vanilla weapon-gizmo Targeter resolve Things drawn from an active neighbor map.
     /// LocalTargetInfo has no Map for cell-only targets, so this deliberately handles Thing targets only;
     /// the Thing itself carries its real Map through ValidateTarget/CanHitTarget/OrderForceTarget.
@@ -19,8 +40,7 @@ namespace RimExodus
             ref IEnumerable<LocalTargetInfo> __result)
         {
             var verb = source?.GetVerb;
-            if (!(verb is Verb_LaunchProjectile launchVerb) || verb.verbProps.IsMeleeAttack
-                || launchVerb.Projectile?.projectile?.flyOverhead != false)
+            if (!SeamlessDirectFireSupport.IsSupportedVerb(verb))
             {
                 return true;
             }
@@ -81,9 +101,8 @@ namespace RimExodus
             out State __state)
         {
             __state = default;
-            if (!(___targetingSource?.GetVerb is Verb_LaunchProjectile launchVerb)
-                || launchVerb.verbProps.IsMeleeAttack
-                || launchVerb.Projectile?.projectile?.flyOverhead != false)
+            var launchVerb = ___targetingSource?.GetVerb;
+            if (!SeamlessDirectFireSupport.IsSupportedVerb(launchVerb))
             {
                 return;
             }
@@ -97,6 +116,7 @@ namespace RimExodus
             var thing = __state.target.Thing;
             if (__state.verb == null) return;
             if (thing?.Map == null || thing.Map == Find.CurrentMap) return;
+            // FleckMaker's shared cross-map feedback patch projects this onto the focused map.
             FleckMaker.Static(thing.DrawPos, thing.Map, FleckDefOf.FeedbackShoot);
         }
     }

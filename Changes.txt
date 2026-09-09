@@ -10,11 +10,14 @@ TODO（优先级从高到低）
 TODO (Priority Order)
 - （常驻）bug 修复
 (Ongoing) Bug fixes
--  优化跨图射击，这样结合0.1.10的邻接地图日常冻结+袭击时解冻机制，这将可以把跨图战斗变成常态，让玩家使用xml patch修改武器射程，实现真正的步枪射击距离
-  Optimize cross-map shooting. Combined with the mechanism introduced in v0.1.10—where adjacent maps are frozen during normal play but unfreeze during raids—this will allow cross-map combat to become a standard feature, enabling players to use XML patches to adjust weapon ranges and achieve realistic rifle engagement distances.
-- 当跨图射击以及可选的武器射程tweak完成后，这个mod就会脱离测试期，进入1.0.0，然后基本就不会有大功能变化了，只会进行一些相对合理且解决代价不大的兼容性、可靠性修复
-- 如果你想问我接下来去干啥。其实我有在开发一个游戏。这个mod实际上只是我在闲暇时测试一些新技术的实验性项目，但它远比我想得受欢迎，为了大家的热情我也为此投入了远超预期的额外时间，这导致游戏开发进度有些滞后了，所以我肯定得去补进度了。
-- 如果你实际上想问我之后还做不做rimworld的mod，我猜也许可能大概也许……会？说实话做rimworld mod有时候比玩rimworld本身还有意思，而且我也确实有些额外想法，比如基于逆重飞船做个类sos2的mod，使用这个mod中催熟的技术，通过同时渲染玩家和敌人舰船的地图，并移动敌人舰船地图的形式，做出类似The Last Starship的效果，避免抽象的单纯按抽象距离结算跨地图互轰（有人受此启发想实现的话尽管去做就行，毕竟还不知道猴年马月我那游戏才能搞定，而且就算搞定也大概率暴死，暴死之后就是继续当社畜，而社畜生活大家是知道的，到时候mod点子甚至都无法得到一个新建文件夹。所以放手去做，只是做之前麻烦和我说下，这样到时候我就不搞了，以免万一我有时间做了结果还撞车）。至于VE组的VGE chapter2，目前来看似乎不是为这个方向设计的，所以应该不必担心和VE组的撞车
+- 确认跨图射击是否还有进一步优化的空间，并加入可选的武器射程调整。配合 0.1.10 引入的“邻接地图平时冻结、遭遇袭击时自动解冻”机制，跨图战斗将有望成为日常玩法，并让步枪真正拥有符合其定位的交战距离
+  Explore whether cross-map shooting can be optimized further, and add an optional weapon-range adjustment. Together with the system introduced in 0.1.10—which keeps adjacent maps frozen during normal play and automatically unfreezes them during raids—this should make cross-map combat practical as a regular part of the game and allow rifles to engage at distances that better suit their intended role.
+- 完成跨图射击优化与可选的武器射程调整后，本 mod 将结束测试阶段并进入 1.0.0。此后原则上不再加入大型功能，后续更新将以范围合理、实现成本可控的兼容性与可靠性修复为主
+  Once the cross-map shooting improvements and optional weapon-range adjustment are complete, the mod will leave testing and reach version 1.0.0. After that, no major new features are planned; future updates will focus primarily on compatibility and reliability fixes with a reasonable scope and implementation cost.
+- 至于接下来要做什么：其实我一直在开发一款游戏。RimExodus 原本只是我利用业余时间测试新技术的实验性项目，却远比预想中更受欢迎。为了回应大家的热情，我在它上面投入了远超计划的时间，也因此耽搁了一些游戏开发进度。完成这里的工作后，我得先回去补一补进度了
+  As for what I will work on next: I have actually been developing a game. RimExodus began as an experimental side project for testing new technologies in my spare time, but it became far more popular than I expected. Responding to everyone's enthusiasm led me to invest much more time in it than planned, which put the game's development somewhat behind schedule. Once the work here is complete, I need to return to it and catch up.
+- 如果你真正想问的是以后还会不会做 RimWorld mod——我猜，也许，大概……会？说实话，制作 RimWorld mod 有时甚至比玩游戏本身更有意思，我也确实还有一些进一步利用RimExodus中催熟的跨地图机制的想法。不过别抱太大期望，毕竟知道我的游戏要到猴年马月才能完成；就算完成了，也大概率会暴死，然后我继续回去当社畜。社畜的生活大家都懂
+  If what you’re really asking is whether I’ll make more RimWorld mods in the future—well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, who knows when my own game will actually be finished—if it ever is. It’ll likely flop hard, and I’ll just go back to being a corporate drone. You know how that life goes.
 
 0.1.11
 - 修复：安装 Geological Landforms 时，某些河流地貌在新建游戏或生成新地图时可能因流路计算越界而中断生成，或在地块边界内提前结束而没有真正连到接缝
@@ -25,8 +28,8 @@ TODO (Priority Order)
   Fixed: while exploring the deep ocean, newly generated maps could become entirely sandy, show river-like bands of shallow water across the open sea, or remain fogged after sailing from the ocean toward the coast. Vanilla does not provide complete explorable ocean maps, so RimExodus now supplies deep-ocean terrain and basic weather and correctly reveals new maps from water-covered seams. If another mod provides its own ocean maps, the built-in ocean map support can be disabled in settings (takes effect after restarting and only affects newly generated maps). (Reported by @Harpuea.)
 - 改进：跨地块射击的子弹飞过边界后不再一段一段跳着移动；征召角色后也可以点击武器按钮，直接点选相邻地图上的目标开火并看到正确的悬停提示、瞄准指示和下令标记。画面中的相邻地图现在会正确显示角色手中的枪械，并播放视野内的枪声、爆炸声等短促声音
   Improved: bullets fired across map borders no longer move in visible jumps after crossing. Drafted characters can use their weapon button to directly target enemies on an adjacent map with the correct hover, aiming, and order indicators. Visible neighboring maps now show held weapons correctly, while nearby gunshots, explosions, and other one-shot sounds can be heard.
-- 修复：相邻地图的水面可能显示成方块网格，水波和水花也可能错位。邻图水面现在会向原版水体效果提供正确的深浅形状，同时不重复绘制水花等短暂效果
-  Fixed: water on neighboring maps could appear as a tiled grid, while ripples and splashes could be misplaced. Neighbor water now supplies the correct depth shape to the vanilla water effect without redrawing transient effects such as splashes.
+- 新增：适配 Combat Extended 的普通直射枪械、角色与自动/手动炮塔跨图射击。射程、视线、掩体、烟雾、光照、散布和弹道仍按 CE 规则计算，子弹越过接缝后在目标地图继续飞行和结算。迫击炮、手雷、瞬时射线、制导弹、CIWS 和世界炮击不在此适配范围
+  New: added cross-map fire compatibility for Combat Extended's ordinary direct-fire weapons, pawns, and automatic/manual turrets. Range, line of sight, cover, smoke, lighting, dispersion, and ballistics continue to follow CE rules, while projectiles crossing a seam continue flying and resolve on the destination map. Mortars, grenades, instant rays, guided projectiles, CIWS, and world shelling are outside this compatibility scope.
 - 修复：Vanilla Gravship Expanded 的高斯炮等远程火炮向其他世界地块开火时，炮弹可能卡在发射地图边缘，尤其是射击方向上已有相邻地图时。现在炮弹会正常离开发射地图并抵达目标（@Orizay 报告的问题）
   Fixed: long-range artillery such as the Gauss Cannon from Vanilla Gravship Expanded could become stuck at the edge of the firing map when targeting another world tile, especially when a neighboring map was loaded in that direction. Projectiles now leave the firing map and reach their target normally. (Reported by @Orizay.)
 - 修复：少数地图接缝会从旧数据反复复制并不存在的大片岩石，沙地也可能长出整条石带。新生成地图现在以相邻地图的实际现状为准；读取旧存档后需要的自然地形会自动重建。封存地图恢复时仍完整保留居住区，但外围自然环境可能与封存前略有不同（@月吟裔德格 报告的问题）

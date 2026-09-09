@@ -245,7 +245,7 @@ namespace RimExodus
                 var thing = drawThings[i];
                 if (thing == null || thing.Destroyed) continue;
                 if ((thing is not Mote && thing.def.drawerType != DrawerType.RealtimeOnly)
-                    || thing is Pawn || thing is Projectile)
+                    || thing is Pawn || thing is Projectile || SeamlessDirectFireSupport.IsExternalProjectile(thing))
                 {
                     continue;
                 }

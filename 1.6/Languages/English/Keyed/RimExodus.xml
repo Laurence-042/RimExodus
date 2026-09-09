@@ -100,6 +100,8 @@ Turn on only the module relevant to the problem you are investigating (or that a
   <RimExodus_SettingsLogDormancyTip>Detailed governor decisions beyond the always-on sleep/wake/delete heartbeat lines. Default: off.</RimExodus_SettingsLogDormancyTip>
   <RimExodus_SettingsLogCombatLabel>Cross-map combat log</RimExodus_SettingsLogCombatLabel>
   <RimExodus_SettingsLogCombatTip>Detailed logs for cross-map target search, line of sight and projectile handover. Default: off.</RimExodus_SettingsLogCombatTip>
+  <RimExodus_SettingsLogCombatExtendedLabel>Combat Extended diagnostics</RimExodus_SettingsLogCombatExtendedLabel>
+  <RimExodus_SettingsLogCombatExtendedTip>Logs only three discrete CE projectile events: launch, seam handoff, and final impact, correlated by projectile ID. Per-tick/per-frame sight, target search, and UI checks are not logged, preventing log flooding. Enable only while reproducing a CE trajectory issue, then send Player.log. Default: off.</RimExodus_SettingsLogCombatExtendedTip>
   <RimExodus_SettingsLogCompatLabel>Compatibility layer log</RimExodus_SettingsLogCompatLabel>
   <RimExodus_SettingsLogCompatTip>Detailed logs for the Vehicles Framework / Perspective Shift / Geological Landforms compatibility layers. Default: off.</RimExodus_SettingsLogCompatTip>
   <RimExodus_SettingsLogSettlementLabel>Settlement and trade log</RimExodus_SettingsLogSettlementLabel>

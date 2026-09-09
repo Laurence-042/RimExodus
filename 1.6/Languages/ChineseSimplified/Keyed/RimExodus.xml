@@ -100,6 +100,8 @@
   <RimExodus_SettingsLogDormancyTip>governor 决策的详细日志（入睡/唤醒/删除心跳行本就常开，不在此列）。默认：关。</RimExodus_SettingsLogDormancyTip>
   <RimExodus_SettingsLogCombatLabel>跨图战斗日志</RimExodus_SettingsLogCombatLabel>
   <RimExodus_SettingsLogCombatTip>跨图索敌、视线与弹道交接的详细日志。默认：关。</RimExodus_SettingsLogCombatTip>
+  <RimExodus_SettingsLogCombatExtendedLabel>Combat Extended 专项诊断</RimExodus_SettingsLogCombatExtendedLabel>
+  <RimExodus_SettingsLogCombatExtendedTip>仅记录 CE 弹丸发射、跨缝交接和最终命中三个离散事件，并用弹丸 ID 关联。不记录每 tick/每帧的射线、索敌或界面判定，避免日志洪泛。仅在复现 CE 弹道问题时开启，复现后请发送 Player.log。默认：关。</RimExodus_SettingsLogCombatExtendedTip>
   <RimExodus_SettingsLogCompatLabel>兼容层日志</RimExodus_SettingsLogCompatLabel>
   <RimExodus_SettingsLogCompatTip>Vehicles Framework / Perspective Shift / Geological Landforms 兼容层的详细日志。默认：关。</RimExodus_SettingsLogCompatTip>
   <RimExodus_SettingsLogSettlementLabel>据点与贸易日志</RimExodus_SettingsLogSettlementLabel>

@@ -44,7 +44,7 @@ namespace RimExodus
             var searcherThing = searcher?.Thing;
             if (searcherThing?.Map == null || searcherThing.Map.Disposed) return;
             var verb = searcher.CurrentEffectiveVerb;
-            if (!(verb is Verb_LaunchProjectile) || verb.verbProps.IsMeleeAttack) return; // 近战/灵能不做跨图索敌（近战走 S3 追击扫描过缝）
+            if (!SeamlessDirectFireSupport.IsSupportedVerb(verb)) return; // 近战/灵能/特殊弹道不做跨图索敌
             var caster = SeamlessCombatCoords.VerbCaster(verb);
             if (caster?.Map == null) return;
 

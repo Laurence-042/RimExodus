@@ -38,6 +38,13 @@ namespace RimExodus
         public static bool Prefix(Verb __instance, IntVec3 root, LocalTargetInfo targ,
             ref ShootLine resultingLine, bool ignoreRange, ref bool __result)
         {
+            // CE reroutes this virtual entry to TryFindCEShootLineFromTo.  Handling it here as well
+            // creates two competing range/LOS implementations and can even bypass CE's own firing
+            // state machine.  CE cross-map semantics have exactly one authority: the CE bottom hook.
+            if (SeamlessCombatExtendedCompat.IsCeVerb(__instance))
+            {
+                return true;
+            }
             if (!targ.HasThing || targ.Thing.Map == null) return true;
             var caster = SeamlessCombatCoords.VerbCaster(__instance);
             if (caster?.Map == null) return true;

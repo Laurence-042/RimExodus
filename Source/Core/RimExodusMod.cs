@@ -66,6 +66,11 @@ namespace RimExodus
             // GenerateMapPostfixReplay 复放机制提供，见 IncrementalMapGenerator.FinishGeneration）。
             SeamlessVEFCompat.Register(harmony);
 
+            // Combat Extended replaces both the firing verb and projectile implementation.  Its adapter is
+            // entirely reflection-bound so CE remains optional; individual signature drift only disables the
+            // affected CE hook and is reported without aborting RimExodus startup.
+            SeamlessCombatExtendedCompat.Register(harmony);
+
             // Giddy-Up 2 compatibility: mounted riders and animals are separate spawned pawns. Register a
             // generic transfer-association provider which moves the mount through the normal state-preserving
             // transfer path and asks Giddy-Up to rebuild its own relationship/job after arrival.
@@ -315,14 +320,14 @@ namespace RimExodus
                     listing.Label("RimExodus_SettingsLogModulesLabel".Translate(),
                         -1f, new TipSignal("RimExodus_SettingsLogModulesTip".Translate()));
                     var allLogsOn = s.logGeneration && s.logTransfer && s.logCaravanExit && s.logWeather &&
-                                    s.logDormancy && s.logCombat && s.logCompat && s.logSettlement && s.logCore;
+                                    s.logDormancy && s.logCombat && s.logCombatExtended && s.logCompat && s.logSettlement && s.logCore;
                     var tmpAll = allLogsOn;
                     listing.CheckboxLabeled("RimExodus_SettingsLogAllLabel".Translate(), ref tmpAll,
                         "RimExodus_SettingsLogAllTip".Translate());
                     if (tmpAll != allLogsOn)
                     {
                         s.logGeneration = s.logTransfer = s.logCaravanExit = s.logWeather = s.logDormancy =
-                            s.logCombat = s.logCompat = s.logSettlement = s.logCore = tmpAll;
+                            s.logCombat = s.logCombatExtended = s.logCompat = s.logSettlement = s.logCore = tmpAll;
                     }
                     CheckRow(listing, "RimExodus_SettingsLogGenerationLabel", "RimExodus_SettingsLogGenerationTip",
                         v => s.logGeneration = v, s.logGeneration);
@@ -336,6 +341,8 @@ namespace RimExodus
                         v => s.logDormancy = v, s.logDormancy);
                     CheckRow(listing, "RimExodus_SettingsLogCombatLabel", "RimExodus_SettingsLogCombatTip",
                         v => s.logCombat = v, s.logCombat);
+                    CheckRow(listing, "RimExodus_SettingsLogCombatExtendedLabel", "RimExodus_SettingsLogCombatExtendedTip",
+                        v => s.logCombatExtended = v, s.logCombatExtended);
                     CheckRow(listing, "RimExodus_SettingsLogCompatLabel", "RimExodus_SettingsLogCompatTip",
                         v => s.logCompat = v, s.logCompat);
                     CheckRow(listing, "RimExodus_SettingsLogSettlementLabel", "RimExodus_SettingsLogSettlementTip",
