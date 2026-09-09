@@ -30,8 +30,9 @@ namespace RimExodus
     /// 旧河残留 Soil+Riverbank、河谷留旧位）；v8 在 Named 函数层包装平移采样代理 → 离散 eff 场
     /// 在位移跳变处切割河（"水平/竖直切割"）、两端 target 不同时中段混合拧碎——离散场缺陷结构性
     /// 修不掉（详见 GLRiverWarp 类注释 v8 段）。v9 回到源头：patch PathTracer.Trace Prefix，
-    /// 把 Path 树的 Root 进场锚与出场 TraceParams.Target 钉到 <see cref="SeamlessPolygonGeometry.
-    /// SeamCrossingPoint"/> 对称哈希穿越点——河形与全部派生层由 GL 自己的 A* 连续寻路生成，
+    /// 把 Path 树的 Root 进场锚与叶段出场 TraceParams.Target 钉到 <see cref="SeamlessPolygonGeometry.
+    /// SeamCrossingPoint"/> 对称哈希穿越点所在的边法线（出场 Target 推到多边形外，防止 A*
+    /// 在边内提前结束）——河形与全部派生层由 GL 自己的 A* 连续寻路生成，
     /// 自动一致、旧河不生成、零离散。**GeneratePostTerrain Prefix/Postfix 保留**（void 还原 +
     /// SeamlessRiverCells 登记——Eval 此刻即新位置实况）。
     ///
@@ -223,16 +224,16 @@ namespace RimExodus
         // =====================================================================================
 
         /// <summary>
-        /// 河路本体拦截：trace 开始前把 Path 树的 Root 进场锚与出场 Target 钉到接缝哈希
+        /// 河路本体拦截：trace 开始前把 Path 树的 Root 进场锚与叶段出场 Target 钉到接缝哈希
         /// 穿越 <see cref="SeamlessPolygonGeometry.SeamCrossingPoint"/>——之后河形/全部派生
         /// grid/全部消费层（biome/岸/水/海拔/洞穴）由 GL 自己连续生成，自动一致。全部逻辑
         /// （门控/边带/钉位/日志）在 <see cref="GLRiverWarp"/>。
         /// </summary>
         internal static class Patch_PathTracerTrace
         {
-            internal static void Prefix(object path)
+            internal static void Prefix(object __instance, object path)
             {
-                GLRiverWarp.OnTracePrefix(path);
+                GLRiverWarp.OnTracePrefix(__instance, path);
             }
 
             /// <summary>量化诊断：实测缝线河带中心 vs 钉位 target 的逐边偏差（GLRiverWarp.OnTracePostfix）。</summary>

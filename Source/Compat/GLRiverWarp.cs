@@ -27,10 +27,18 @@ namespace RimExodus
     /// patch Trace Prefix（手动绑定，GL 在场；object 参数 + 反射遍历，零 emit 零接口实现）：
     /// ①Root 段钉位——锚（RelPosition）在某条 river-link 边的进场带内 → RelPosition += 边哈希
     /// target − 锚（进场口精确钉到两侧一致的 <see cref="SeamlessPolygonGeometry.SeamCrossingPoint"/>）；
-    /// ②Target 段钉位——段的 TraceParams.Target 在某条 river-link 边带内（带宽放宽到 60，覆盖
-    /// Confluence 支流 margin 0.2≈50 格的端点，拉到缝上 = v7 e5 SKIP 案的正解）→ Target = 边
-    /// 哈希 target。两端各自钉同一对哈希 target → 两侧缝上对齐（含混合管线）；中间河形由 GL
+    /// ②Target 段钉位——只处理 Path 树的叶段；叶段 TraceParams.Target 在某条 river-link 边带内
+    /// （带宽放宽到 60，覆盖
+    /// Confluence 支流 margin 0.2≈50 格的端点）→ 沿哈希 target 所在边法线推到六边形外。
+    /// A* 允许在 StepSize 半径内提前结束；如果 Target 正好放在缝线上，河心可在边内停下，
+    /// 即使再算 leaf marginHead 也不保证 MainGrid 真正跨过边线。外推距离 = StepSize +
+    /// 2·TraceInnerMargin + 1，确保河心伸出边界；沿边坐标仍是同一哈希 target，
+    /// 因此两侧缝上对齐（含混合管线）。中间河形由 GL
     /// 自己的 A* 连续寻路——无离散场、无切割、无混合平均。
+    ///
+    /// 只钉叶段是 TerrainGraph 的结构性约束：若把同一出场链上多个携带 Target 的中间段
+    /// 也压到同一缝点，父段结束与子段目标会重合；PathFinder 此时只返回起点一个节点，
+    /// PathTracer.TryTrace 却固定读第 2 个节点，导致 List 越界并中止整张地图生成。
     ///
     /// 【幂等性（天然）】重跑时锚已在 target → 增量 0：Path 实例复用安全；collision retry 在
     /// Trace 内部不重进 Prefix；唯一残余 = 复用树被 collision handler 调整后再钉会撤销调整
@@ -58,8 +66,10 @@ namespace RimExodus
         private static PropertyInfo _segmentsProp;        // Path.Segments (IReadOnlyList<Segment>)
         private static FieldInfo _relPositionField;       // Segment.RelPosition (Vector2d)
         private static PropertyInfo _parentIdsProp;       // Segment.ParentIds (IReadOnlyList<int>)
+        private static PropertyInfo _branchIdsProp;       // Segment.BranchIds (IReadOnlyList<int>)
         private static FieldInfo _traceParamsField;       // Segment.TraceParams (struct)
         private static FieldInfo _targetField;            // TraceParams.Target (Vector2d?)
+        private static FieldInfo _stepSizeField;          // TraceParams.StepSize (double)
         private static PropertyInfo _generatingTileProp;  // Landform.GeneratingTile (static)
         private static PropertyInfo _generatingMapSizeProp; // Landform.GeneratingMapSize (static IntVec2)
         private static PropertyInfo _isGeneratingPreviewProp; // MapPreview.MapPreviewAPI.IsGeneratingPreview
@@ -70,6 +80,7 @@ namespace RimExodus
         // ===== 量化诊断（Trace Postfix：实测缝线河带中心 vs 钉位 target 的偏差）=====
         private static FieldInfo _mainGridField;       // PathTracer._mainGrid (internal double[,])
         private static FieldInfo _gridMarginField;     // PathTracer.GridMargin (public readonly Vector2d)
+        private static FieldInfo _traceInnerMarginField; // PathTracer.TraceInnerMargin (public readonly double)
         private static bool _warnedCheckFailure;
 
         // ===== 边带缓存（单槽；生成串行）=====
@@ -92,7 +103,7 @@ namespace RimExodus
         /// PathTracer.Trace Prefix 入口（由 SeamlessGLRiverCompat.Patch_PathTracerTrace 转发）。
         /// 在 trace 开始前钉位 Path 树——之后河形/全部 grid/全部消费层自动一致。
         /// </summary>
-        internal static void OnTracePrefix(object path)
+        internal static void OnTracePrefix(object tracer, object path)
         {
             try
             {
@@ -109,7 +120,7 @@ namespace RimExodus
                 var edges = EnsureEdges(tileId, mapSize);
                 if (edges == null || edges.Count == 0) return; // 无 river-link 边：零介入
 
-                ShiftPathTree(path, edges, tileId);
+                ShiftPathTree(tracer, path, edges, tileId);
             }
             catch (Exception ex)
             {
@@ -123,7 +134,7 @@ namespace RimExodus
         }
 
         /// <summary>对一棵 Path 树做 Root/Target 钉位。天然幂等（重钉增量恒 0）。</summary>
-        private static void ShiftPathTree(object path, List<EdgeBand> edges, int tileId)
+        private static void ShiftPathTree(object tracer, object path, List<EdgeBand> edges, int tileId)
         {
             var segments = _segmentsProp.GetValue(path) as System.Collections.IEnumerable;
             if (segments == null) return;
@@ -169,7 +180,17 @@ namespace RimExodus
                     continue;
                 }
 
-                // 出场/支流端：段的 TraceParams.Target 钉位（struct 装箱读-改-写回）。
+                // 出场/支流端：只钉叶段的 Target。ExtendWithParams 可以让同一链上的
+                // 多个段保留 Target；全部钉到同一缝点会把相邻段压成零距离，触发
+                // TerrainGraph PathTracer 对单节点 A* 路径的 List 越界。
+                var branchIds = _branchIdsProp.GetValue(seg) as System.Collections.IEnumerable;
+                if (branchIds != null)
+                {
+                    var isLeaf = true;
+                    foreach (var _ in branchIds) { isLeaf = false; break; }
+                    if (!isLeaf) continue;
+                }
+
                 var tpBoxed = _traceParamsField.GetValue(seg);
                 if (tpBoxed == null) continue;
                 var targetBoxed = _targetField.GetValue(tpBoxed);
@@ -178,14 +199,19 @@ namespace RimExodus
                 var t = ReadVec2d(targetBoxed);
                 if (TryFindBand(edges, t, TargetBandDepth, out var tBand, out var td, out var tl))
                 {
-                    // 出场端钉到缝上 target 点（深度 0）——与进场端 lat-only 相反：Target 保留图外
-                    // 深度时河走向图外斜径目标、斜穿缝线远离 target lat（2026-09-04 实测 d=−57/+21
-                    // "完全歪了"）；钉到缝上的版本出场端 d 在 ±6 内（marginHead 过冲 + A* 接受
-                    // 半径的残余，可接受）。混合钉法定案：Root lat-only（ramp 在图外）+ Target 缝上。
-                    _targetField.SetValue(tpBoxed, MakeVec2d(tBand.Target.x, tBand.Target.y));
+                    // 出场端不能只放在缝线上：PathFinder 可在 StepSize 半径内提前接受，
+                    // 2026-09-09 实测 tile 20771 e1 因此 NO-CROSS。沿外法线外推，但不改
+                    // target lat；这样两图仍在同一哈希穿越点相交，且河带确实延伸出多边形。
+                    var stepSize = Mathf.Max(1f, (float)(double)_stepSizeField.GetValue(tpBoxed));
+                    var traceInnerMargin = tracer != null
+                        ? Mathf.Max(0f, (float)(double)_traceInnerMarginField.GetValue(tracer))
+                        : 3f;
+                    var outwardLead = stepSize + 2f * traceInnerMargin + 1f;
+                    var pinnedTarget = tBand.Target - tBand.Inward * outwardLead;
+                    _targetField.SetValue(tpBoxed, MakeVec2d(pinnedTarget.x, pinnedTarget.y));
                     _traceParamsField.SetValue(seg, tpBoxed);
                     pinnedTargets++;
-                    sb.Append($"tgt({t.x:F0},{t.y:F0})->e{tBand.EdgeIdx}t({tBand.Target.x:F0},{tBand.Target.y:F0});");
+                    sb.Append($"tgt({t.x:F0},{t.y:F0})->e{tBand.EdgeIdx}t({tBand.Target.x:F0},{tBand.Target.y:F0})out={outwardLead:F0};");
                 }
                 else if (diagEnabled)
                 {
@@ -435,8 +461,10 @@ namespace RimExodus
                 _segmentsProp = AccessTools.Property(pathType, "Segments");
                 _relPositionField = AccessTools.Field(segmentType, "RelPosition");
                 _parentIdsProp = AccessTools.Property(segmentType, "ParentIds");
+                _branchIdsProp = AccessTools.Property(segmentType, "BranchIds");
                 _traceParamsField = AccessTools.Field(segmentType, "TraceParams");
                 _targetField = AccessTools.Field(traceParamsType, "Target");
+                _stepSizeField = AccessTools.Field(traceParamsType, "StepSize");
                 _generatingTileProp = AccessTools.Property(landformType, "GeneratingTile");
                 _generatingMapSizeProp = AccessTools.Property(landformType, "GeneratingMapSize");
                 _isGeneratingPreviewProp = AccessTools.Property(previewApi, "IsGeneratingPreview");
@@ -444,9 +472,11 @@ namespace RimExodus
                 // 量化诊断（可选——解析失败只禁用 check，不禁用钉位）。
                 _mainGridField = AccessTools.Field(tracerType, "_mainGrid");
                 _gridMarginField = AccessTools.Field(tracerType, "GridMargin");
+                _traceInnerMarginField = AccessTools.Field(tracerType, "TraceInnerMargin");
 
-                if (_segmentsProp == null || _relPositionField == null || _parentIdsProp == null
-                    || _traceParamsField == null || _targetField == null || _generatingTileProp == null
+                if (_segmentsProp == null || _relPositionField == null || _parentIdsProp == null || _branchIdsProp == null
+                    || _traceParamsField == null || _targetField == null || _stepSizeField == null
+                    || _traceInnerMarginField == null || _generatingTileProp == null
                     || _generatingMapSizeProp == null || _isGeneratingPreviewProp == null || _vec2dCtor == null)
                 {
                     _disabled = true;
