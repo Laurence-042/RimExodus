@@ -23,6 +23,10 @@ namespace RimExodus
     public class SeamlessTileRenderer : MapComponent
     {
         private const string CommandBufferName = "RimExodus Seamless Neighbor Terrain";
+        private const string WaterDepthCommandBufferName = "RimExodus Seamless Neighbor Water Depth";
+
+        private static readonly Type watergenLayerType = AccessTools.TypeByName("Verse.SectionLayer_Watergen");
+        private static readonly int useWaterOffsetId = Shader.PropertyToID("_UseWaterOffset");
 
         private static readonly AccessTools.FieldRef<MapDrawer, Section[,]> sectionsRef =
             AccessTools.FieldRefAccess<MapDrawer, Section[,]>("sections");
@@ -37,6 +41,7 @@ namespace RimExodus
         /// 原版先例 SkyManager.cs:49 disableSkyLighting 群设置同款开关）。
         /// </summary>
         private static Material neighborGlowOnlyMat;
+        private static readonly Dictionary<Material, Material> stillWaterDepthMats = new Dictionary<Material, Material>();
 
         /// <summary>(0,0,0,0) 顶点色的单位 quad——顶点零值在 LightOverlay shader 里的语义
         /// 不是透传而是"按材质色染天色"（原版 MapDrawLayer_ExteriorLightingOverlay 同款手法，
@@ -50,6 +55,8 @@ namespace RimExodus
 
         private CommandBuffer commandBuffer;
         private Camera attachedCamera;
+        private CommandBuffer waterDepthCommandBuffer;
+        private Camera attachedWaterDepthCamera;
         private int nextSequence;
 
         private struct TerrainDrawCommand
@@ -95,12 +102,14 @@ namespace RimExodus
                 // Dispose 地图 mesh 的 DrawMesh（void 带冻结显示旧邻居画面）。
                 EnsureCommandBuffer();
                 commandBuffer.Clear();
+                waterDepthCommandBuffer?.Clear();
                 commandBuffer.ClearRenderTarget(true, true, Color.clear, 1f);
                 return;
             }
 
             EnsureCommandBuffer();
             commandBuffer.Clear();
+            waterDepthCommandBuffer?.Clear();
             drawCommands.Clear();
             nextSequence = 0;
 
@@ -119,7 +128,6 @@ namespace RimExodus
                 DrawNeighborPawns(neighbor.map, hostViewRect);
                 DrawNeighborProjectiles(neighbor.map, hostViewRect);
                 DrawNeighborRealtimeThings(neighbor.map, neighbor.offset.ToVector3(), hostViewRect);
-                DrawNeighborFlecks(neighbor.map, neighbor.offset.ToVector3());
             }
 
             if (drawCommands.Count == 0)
@@ -277,24 +285,6 @@ namespace RimExodus
             }
         }
 
-        /// <summary>
-        /// Flecks remain owned by their source map so movement, collision, attachment and lifetime use
-        /// valid local cells. The neighbor manager is drawn a second time only for the composite view;
-        /// DrawBatch matrices receive the view offset through a tightly scoped draw context.
-        /// </summary>
-        private static void DrawNeighborFlecks(Map neighborMap, Vector3 drawOffset)
-        {
-            try
-            {
-                using (SeamlessCompositeDrawContext.Push(drawOffset)) neighborMap.flecks.FleckManagerDraw();
-            }
-            catch (Exception ex)
-            {
-                Log.ErrorOnce($"[RimExodus] Failed to draw seamless neighbor flecks for map {neighborMap.uniqueID}: {ex}",
-                    neighborMap.uniqueID ^ 0x5eaf03);
-            }
-        }
-
         public override void MapComponentUpdate()
         {
             if (activeRenderer == this &&
@@ -312,7 +302,9 @@ namespace RimExodus
         private void EnsureCommandBuffer()
         {
             var camera = Find.Camera;
-            if (commandBuffer != null && attachedCamera == camera)
+            var waterDepthCamera = Current.SubcameraDriver?.GetSubcamera(SubcameraDefOf.WaterDepth);
+            if (commandBuffer != null && attachedCamera == camera &&
+                attachedWaterDepthCamera == waterDepthCamera)
             {
                 return;
             }
@@ -330,6 +322,16 @@ namespace RimExodus
             };
             attachedCamera = camera;
             attachedCamera.AddCommandBuffer(CameraEvent.BeforeForwardOpaque, commandBuffer);
+
+            if (waterDepthCamera != null)
+            {
+                waterDepthCommandBuffer = new CommandBuffer
+                {
+                    name = WaterDepthCommandBufferName
+                };
+                attachedWaterDepthCamera = waterDepthCamera;
+                attachedWaterDepthCamera.AddCommandBuffer(CameraEvent.BeforeForwardOpaque, waterDepthCommandBuffer);
+            }
             activeRenderer = this;
         }
 
@@ -343,6 +345,15 @@ namespace RimExodus
             commandBuffer?.Release();
             commandBuffer = null;
             attachedCamera = null;
+
+            if (attachedWaterDepthCamera != null && waterDepthCommandBuffer != null)
+            {
+                attachedWaterDepthCamera.RemoveCommandBuffer(CameraEvent.BeforeForwardOpaque, waterDepthCommandBuffer);
+            }
+
+            waterDepthCommandBuffer?.Release();
+            waterDepthCommandBuffer = null;
+            attachedWaterDepthCamera = null;
 
             if (activeRenderer == this)
             {
@@ -368,6 +379,11 @@ namespace RimExodus
             // 把宿主视区平移到邻居坐标系：邻居本地坐标 + offset = 宿主坐标，
             // 故邻居视区 = 宿主视区 - offset。ClipInsideMap 防越界误判。
             var neighborView = hostViewRect.MovedBy(-offsetInt).ClipInsideMap(neighborMap);
+            // CurrentViewRect 每帧首次读取后缓存，而相机可能在稍后继续移动。WaterDepth 若只按该
+            // 矩形提交，新露出的 RT 侧边会 Clamp 成纵向水波。深度层多留当前缩放的半屏余量；
+            // 相机单帧移动不可能跨过整个半屏，且仅多覆盖边缘少量 section，无额外缓存/回调。
+            var waterDepthView = hostViewRect.ExpandedBy(Mathf.CeilToInt(Find.CameraDriver.ZoomRootSize) + 1)
+                .MovedBy(-offsetInt).ClipInsideMap(neighborMap);
 
             var matrix = Matrix4x4.TRS(offsetVec, Quaternion.identity, Vector3.one);
 
@@ -383,7 +399,9 @@ namespace RimExodus
 
                     // section 粒度裁剪。Bounds 含 fog 几何范围（fog 用标准 cell 网格建几何，不膨胀），
                     // 一次判定覆盖 terrain/things/fog 三层。
-                    if (!neighborView.Overlaps(section.Bounds))
+                    var inColorView = neighborView.Overlaps(section.Bounds);
+                    var inWaterDepthView = waterDepthView.Overlaps(section.Bounds);
+                    if (!inColorView && !inWaterDepthView)
                     {
                         continue;
                     }
@@ -405,13 +423,18 @@ namespace RimExodus
                     // TryUpdate 留给 DrawSection 兜底的原生语义）。
                     if (section.dirtyFlags != 0)
                     {
-                        section.TryUpdate(neighborView);
+                        section.TryUpdate(waterDepthView);
                     }
 
-                    CollectLayer(section, matrix, typeof(SectionLayer_Terrain));
-                    CollectLayer(section, matrix, typeof(SectionLayer_ThingsGeneral));
-                    CollectLayer(section, matrix, typeof(SectionLayer_LightingOverlay), NeighborGlowOnlyMaterial);
-                    CollectLayer(section, matrix, typeof(SectionLayer_FogOfWar));
+                    if (inColorView)
+                    {
+                        CollectLayer(section, matrix, typeof(SectionLayer_Terrain));
+                        CollectLayer(section, matrix, typeof(SectionLayer_ThingsGeneral));
+                        CollectLayer(section, matrix, typeof(SectionLayer_LightingOverlay), NeighborGlowOnlyMaterial);
+                        CollectLayer(section, matrix, typeof(SectionLayer_FogOfWar));
+                    }
+
+                    if (inWaterDepthView) CollectNeighborWaterDepth(section, matrix);
                 }
             }
 
@@ -557,6 +580,41 @@ namespace RimExodus
                     });
                 }
             }
+        }
+
+        /// <summary>
+        /// TerrainWater 的主相机颜色 pass 必须与 WaterDepth 子相机里的同位置 Watergen 几何配对。
+        /// 邻图深度通过子相机 BeforeForwardOpaque buffer 先画，随后原版 CurrentMap Watergen 正常
+        /// opaque 绘制覆盖重叠区；复用原版相机与 RT，不创建每图水体目标。
+        /// </summary>
+        private void CollectNeighborWaterDepth(Section section, Matrix4x4 matrix)
+        {
+            if (waterDepthCommandBuffer == null || watergenLayerType == null) return;
+            var layers = layersRef(section);
+            if (layers == null) return;
+
+            foreach (var layer in layers)
+            {
+                if (layer.GetType() != watergenLayerType || !layer.Visible) continue;
+                foreach (var subMesh in layer.subMeshes)
+                {
+                    if (!subMesh.finalized || subMesh.disabled || subMesh.material == null) continue;
+                    waterDepthCommandBuffer.DrawMesh(subMesh.mesh, matrix,
+                        StillWaterDepthMaterial(subMesh.material));
+                }
+            }
+        }
+
+        /// <summary>邻图不复合各自河流 flow texture，故只在 Watergen pass 关闭流向偏移。</summary>
+        private static Material StillWaterDepthMaterial(Material material)
+        {
+            if (!material.HasProperty(useWaterOffsetId) || Mathf.Approximately(material.GetFloat(useWaterOffsetId), 0f))
+                return material;
+            if (stillWaterDepthMats.TryGetValue(material, out var cached)) return cached;
+            cached = new Material(material);
+            cached.SetFloat(useWaterOffsetId, 0f);
+            stillWaterDepthMats.Add(material, cached);
+            return cached;
         }
 
         private static int CompareDrawCommands(TerrainDrawCommand left, TerrainDrawCommand right)

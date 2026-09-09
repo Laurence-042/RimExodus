@@ -11,9 +11,7 @@ namespace RimExodus
     /// </summary>
     internal static class SeamlessCompositeDrawContext
     {
-        // Intentionally process-wide rather than thread-local: vanilla FleckSystemBase may build DrawBatch
-        // entries on ThreadPool workers, and FleckManagerDraw waits for those workers before this scope exits.
-        // Map/component drawing itself is sequential, so a tightly scoped additive stack is sufficient.
+        // Map/component drawing is sequential, so a tightly scoped additive stack is sufficient.
         private static Vector3 offset;
         private static int depth;
 
@@ -41,28 +39,6 @@ namespace RimExodus
                 offset -= drawOffset;
                 depth--;
             }
-        }
-    }
-
-    [HarmonyPatch(typeof(DrawBatch), nameof(DrawBatch.DrawMesh),
-        new[] { typeof(Mesh), typeof(Matrix4x4), typeof(Material), typeof(int), typeof(Color?), typeof(bool), typeof(DrawBatchPropertyBlock) })]
-    public static class Patch_DrawBatch_DrawMeshColored_SeamlessView
-    {
-        public static void Prefix(ref Matrix4x4 matrix)
-        {
-            if (SeamlessCompositeDrawContext.Active)
-                matrix = Matrix4x4.Translate(SeamlessCompositeDrawContext.Offset) * matrix;
-        }
-    }
-
-    [HarmonyPatch(typeof(DrawBatch), nameof(DrawBatch.DrawMesh),
-        new[] { typeof(Mesh), typeof(Matrix4x4), typeof(Material), typeof(int), typeof(bool) })]
-    public static class Patch_DrawBatch_DrawMesh_SeamlessView
-    {
-        public static void Prefix(ref Matrix4x4 matrix)
-        {
-            if (SeamlessCompositeDrawContext.Active)
-                matrix = Matrix4x4.Translate(SeamlessCompositeDrawContext.Offset) * matrix;
         }
     }
 
