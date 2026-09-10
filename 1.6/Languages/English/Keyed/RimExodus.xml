@@ -80,6 +80,30 @@ The map you are currently on and your home map are never deleted. Default: 3.</R
   <RimExodus_SettingsRaidOuterSpawnLabel>Walk-in raids arrive from the outer edge</RimExodus_SettingsRaidOuterSpawnLabel>
   <RimExodus_SettingsRaidOuterSpawnTip>Walking enemies (tribal or pirate raiders on foot, manhunter packs, ghouls, etc.) enter from a seam whose far side you have not seen (an unloaded or dormant map) instead of appearing at a border that faces a map you are already watching. Hostile walking raids may arrive on the outer edge of a neighboring map and march across the seam toward you. Drop pods, tunnels and other non-walking arrivals are unaffected. Default: ON.</RimExodus_SettingsRaidOuterSpawnTip>
 
+  <!-- Weapon range curve (2026-09, off by default): remap all ranged weapon ranges and the vanilla accuracy anchor distances through a player-configured piecewise-linear curve. -->
+  <RimExodus_SettingsRangeCurveLabel>Weapon range curve remap</RimExodus_SettingsRangeCurveLabel>
+  <RimExodus_SettingsRangeCurveTip>Stretches the range of ALL ranged weapons (vanilla and Combat Extended alike - enemies too) through a piecewise-linear curve configured in the editor. A weapon whose original range sits between two control points gets the matching in-between value (with the default curve, 32.5 becomes 65 - the midpoint between 45 and 85).\n\nThe first four control points are also the vanilla accuracy bands (Touch/Short/Medium/Long, originally 3/12/25/40 cells): moving them stretches weapon accuracy the same way, so a weapon is about as accurate at its new maximum range as it was at its old one. Stat tooltips that mention those band distances update to match. Ranges beyond the last point keep scaling by that point's ratio. Applies instantly and is fully reversible (original values are snapshotted at startup); Combat Extended's own hit-spread model adapts automatically.\n\nDefault: OFF. The default curve deliberately keeps short-range weapons close while spreading long-range ones further apart (classic vanilla set: shotgun 16 to 29, revolver 26 to 48, assault rifle 31 to 61, bolt-action 37 to 77, sniper 45 to 99) - the battlefield grows at long distances, but cover and room fights stay the same size.</RimExodus_SettingsRangeCurveTip>
+  <RimExodus_RangeCurveOpenEditor>Open range curve editor...</RimExodus_RangeCurveOpenEditor>
+  <RimExodus_RangeCurveDialogTitle>Weapon range curve</RimExodus_RangeCurveDialogTitle>
+  <RimExodus_RangeCurveIntro>Map the five fixed control points on the left (the four vanilla accuracy bands plus an upper bound) to new values on the right. Weapon ranges between two points are interpolated linearly; ranges beyond the last point scale by its ratio. The four accuracy bands move with the curve, so accuracy profiles stretch together with range.</RimExodus_RangeCurveIntro>
+  <RimExodus_RangeCurveColumnOriginal>Original range</RimExodus_RangeCurveColumnOriginal>
+  <RimExodus_RangeCurveColumnNew>New range</RimExodus_RangeCurveColumnNew>
+  <RimExodus_RangeCurveRowTouch>AccuracyTouch (3)</RimExodus_RangeCurveRowTouch>
+  <RimExodus_RangeCurveRowShort>AccuracyShort (12)</RimExodus_RangeCurveRowShort>
+  <RimExodus_RangeCurveRowMedium>AccuracyMedium (25)</RimExodus_RangeCurveRowMedium>
+  <RimExodus_RangeCurveRowLong>AccuracyLong (40)</RimExodus_RangeCurveRowLong>
+  <RimExodus_RangeCurveRowFar>Upper bound (60)</RimExodus_RangeCurveRowFar>
+  <RimExodus_RangeCurveRowTip>The left value is fixed (a vanilla constant); edit the value on the right. All five new values must be positive and strictly increasing.</RimExodus_RangeCurveRowTip>
+  <RimExodus_RangeCurveInvalid>Values must be positive and strictly increasing. Your changes are saved but NOT applied.</RimExodus_RangeCurveInvalid>
+  <RimExodus_RangeCurvePreview>Curve preview (grey = unchanged, green = current curve)</RimExodus_RangeCurvePreview>
+  <RimExodus_RangeCurveProbeLabel>Probe an original range:</RimExodus_RangeCurveProbeLabel>
+  <RimExodus_RangeCurveProbeResult>{0} maps to {1}</RimExodus_RangeCurveProbeResult>
+  <RimExodus_RangeCurveResetDefaults>Reset to defaults (5 / 22 / 45 / 85 / 140)</RimExodus_RangeCurveResetDefaults>
+  <RimExodus_RangeCurveNotEnabledNote>The toggle in Mod settings is OFF: values are saved but have no effect.</RimExodus_RangeCurveNotEnabledNote>
+  <RimExodus_RangeCurveAppliedNote>Applied: ranges of {0} ranged weapon/turret definitions remapped; changes take effect immediately.</RimExodus_RangeCurveAppliedNote>
+  <RimExodus_RangeCurveAxisNew>Vertical: new range</RimExodus_RangeCurveAxisNew>
+  <RimExodus_RangeCurveAxisOriginal>Horizontal: original range</RimExodus_RangeCurveAxisOriginal>
+
   <RimExodus_SettingsNoiseLabel>Seam override noise amplitude: {0}</RimExodus_SettingsNoiseLabel>
   <RimExodus_SettingsNoiseTip>How strongly terrain blending at the seam between two maps is randomized (0 = perfectly straight blending, higher = more natural-looking irregular borders). Default: 0.15.</RimExodus_SettingsNoiseTip>
   <RimExodus_SettingsLogModulesLabel>Diagnostic logs by module</RimExodus_SettingsLogModulesLabel>

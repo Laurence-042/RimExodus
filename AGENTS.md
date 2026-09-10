@@ -132,6 +132,7 @@
 - 弹丸在 `Projectile.TickInterval` Prefix 于越缝前迁移 Map，保持 origin/destination 平移和剩余飞行状态；交接后命中与爆炸交回原版目标图处理。
 - `SeamlessVirtualTeleporter` 的评估窗口必须直写并恢复 `mapIndexOrState` 与 `positionInt`，禁止用 `Position` setter 触发两图网格簿记。
 - lord 是 map-anchored 状态，默认跨图后不续；只有与地图无关且已明确支持的行为在 `TryContinueLordOnArrival` 集中重建/合流。mental state 是 pawn-local，不要清理。
+- 武器射程映射曲线（默认关）：def 变异唯一入口是 `SeamlessRangeCurve`——启动长事件收尾快照原始射程，之后总是从原件重建式应用（幂等），关闭即还原；禁止增量二改 `range` 或绕开该入口散写。精度锚点距离的重映射只允许经 `Patches_RangeCurveAccuracy` 的两个 Prefix（`GetHitChanceFactor`/`HitFactorFromShooter` 入口逆映射），不得在调用点克隆原版插值公式或第二套映射；CE 不消费原版锚点，勿为其添加精度映射。两族精度 StatDef（武器 `Accuracy*` 与射手 `ShootingAccuracyFactor_*`）描述中的锚点距离文案同样只在 `SeamlessRangeCurve` 内快照-替换-还原——只替换独立数字 token（前后非数字），本地化措辞不动，勿在其他位置散改描述。
 
 ## 10. 原生 POI、派系基地与影子远行队
 
@@ -171,7 +172,7 @@
 - 能用 Prefix/Postfix、ref 改参或收尾字段修正完成的功能，不写 transpiler。必须写 transpiler 时，先对真实游戏 DLL 解码确认 IL；原地 mutate `CodeInstruction`，不要替换对象导致 labels 丢失。CLR 验证器无法发现全部 Mono DMD 非法 IL，游戏启动日志才是最终依据。
 - Harmony 按参数名绑定；不确定时使用已核实的真实签名或位置参数。手动绑定的重载必须显式参数类型消歧。
 - 分模块日志使用 `RimExodusLog` 与 `RimExodusLogModule`。新诊断消息走对应模块；Warn/Error 不受开关控制。低频生命周期与显式 Dev 动作可常开，热路径和周期细节必须门控。旧 `verboseLogging` 只保留存档兼容，不新增消费点。
-- 离线 PatchAll 验证器位于 `C:\Users\Laure\.zcode\tmp\rimptest\`。新增或修改 Harmony patch 后运行它；当前记录基线（2026-09-09）为 `BOUND OK 109 / FAILED 16`，16 项是已确认的 CLR 伪迹（新增 `DrawTargetHighlightWithLayer` 与既有 `GenDraw` 绘制 patch 同为 `SecurityException: ECall`）。基线变化时只更新当前数字与伪迹清单所在注释，不保留数字演进流水账。
+- 离线 PatchAll 验证器位于 `C:\Users\Laure\.zcode\tmp\rimptest\`。新增或修改 Harmony patch 后运行它；当前记录基线（2026-09-10）为 `BOUND OK 111 / FAILED 16`，16 项是已确认的 CLR 伪迹（`DrawTargetHighlightWithLayer` 与既有 `GenDraw` 绘制 patch 同为 `SecurityException: ECall`）。基线变化时只更新当前数字与伪迹清单所在注释，不保留数字演进流水账。
 - 最终确认必须包含游戏日志中的 Mod 实例化行与 `GetPatchedMethods` 报告。测试本地构建前先确认游戏实际加载的是刚编译 DLL，而不是 Workshop 旧版本。
 
 ## 14. 存档与卸载

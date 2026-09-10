@@ -30,6 +30,12 @@ namespace RimExodus
             // 锁存内置补全；设置中途切换只写下次启动值，避免同一会话半生效。
             SeamlessOceanMapSupport.Initialize(Settings.oceanMapSupportEnabled);
 
+            // 武器射程映射曲线（2026-09，默认关）：延迟到长事件收尾快照全部远程 verb 的原始射程
+            // 并按设置应用——此时全部 mod Def（含 CE 经 XML PatchOperation 换装的 VerbPropertiesCE，
+            // 继承同一 range 字段）已稳定，早于任何玩家地图生成；CE 的运行时注入不改 range，
+            // 先后无冲突。与 Ocean 不同处：快照支持开关/改值即时生效与还原，无需重启。
+            LongEventHandler.ExecuteWhenFinished(SeamlessRangeCurve.Initialize);
+
             var harmony = new Harmony("RimExodus.SeamlessWorld");
             harmony.PatchAll();
 
@@ -308,6 +314,14 @@ namespace RimExodus
                     // 袭击外缘生成（2026-09）：步行袭击从外侧（对侧未被看见的）接缝进场。
                     CheckRow(listing, "RimExodus_SettingsRaidOuterSpawnLabel", "RimExodus_SettingsRaidOuterSpawnTip",
                         v => s.raidOuterSpawnEnabled = v, s.raidOuterSpawnEnabled);
+                    // 武器射程映射曲线（2026-09，默认关）：切换即时应用/还原（启动快照支撑）。
+                    CheckRow(listing, "RimExodus_SettingsRangeCurveLabel", "RimExodus_SettingsRangeCurveTip",
+                        v => { s.weaponRangeCurveEnabled = v; SeamlessRangeCurve.SetEnabled(v); },
+                        s.weaponRangeCurveEnabled);
+                    if (listing.ButtonText("RimExodus_RangeCurveOpenEditor".Translate()))
+                    {
+                        Find.WindowStack.Add(new RangeCurveEditorDialog());
+                    }
                     break;
 
                 case SettingsTab.Advanced:

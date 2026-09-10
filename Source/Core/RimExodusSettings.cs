@@ -220,6 +220,32 @@ namespace RimExodus
         /// </summary>
         public bool raidOuterSpawnEnabled = true;
 
+        // ===== 武器射程映射曲线（2026-09，默认关；语义唯一出处 = SeamlessRangeCurve） =====
+
+        /// <summary>
+        /// 武器射程映射总开关：开启后按下方五个控制点把全部远程武器（含 CE）的 verb 射程按
+        /// 分段线性曲线整体拉伸，原版精度锚点距离（3/12/25/40）同曲线重映射。启动时快照原始
+        /// 射程，开关/改值即时生效、关闭即还原。见 <see cref="SeamlessRangeCurve"/>。
+        /// </summary>
+        public bool weaponRangeCurveEnabled = false;
+
+        /// <summary>曲线控制点 1/5：原版 AccuracyTouch 锚点距离（3）映射到的值。</summary>
+        public float weaponRangeCurveTouch = 5f;
+
+        /// <summary>曲线控制点 2/5：原版 AccuracyShort 锚点距离（12）映射到的值。</summary>
+        public float weaponRangeCurveShort = 22f;
+
+        /// <summary>曲线控制点 3/5：原版 AccuracyMedium 锚点距离（25）映射到的值。</summary>
+        public float weaponRangeCurveMedium = 45f;
+
+        /// <summary>曲线控制点 4/5：原版 AccuracyLong 锚点距离（40）映射到的值。</summary>
+        public float weaponRangeCurveLong = 85f;
+
+        /// <summary>曲线控制点 5/5：上界锚点（60）映射到的值；超过 60 的射程按此点比例连续缩放。
+        /// 默认曲线 5/22/45/85/140 压制短射程武器的增长、放大长射程武器的射程差异
+        ///（环境尺度不随无缝世界放大，只有远距离交战包络变大）。</summary>
+        public float weaponRangeCurveFar = 140f;
+
         /// <summary>
         /// 接缝带显示与撤离开关（2026-08，默认 true）。false = 沉浸模式（拍视频等）：
         /// 隐藏浅绿撤离带与接缝中心划线，并禁用一切经接缝带的原生离场成远行队（征召踩带、
@@ -291,6 +317,12 @@ namespace RimExodus
             Scribe_Values.Look(ref throttleSeamFastRadius, "throttleSeamFastRadius", 15);
             Scribe_Values.Look(ref crossMapCombatEnabled, "crossMapCombatEnabled", true);
             Scribe_Values.Look(ref raidOuterSpawnEnabled, "raidOuterSpawnEnabled", true);
+            Scribe_Values.Look(ref weaponRangeCurveEnabled, "weaponRangeCurveEnabled", false);
+            Scribe_Values.Look(ref weaponRangeCurveTouch, "weaponRangeCurveTouch", 5f);
+            Scribe_Values.Look(ref weaponRangeCurveShort, "weaponRangeCurveShort", 22f);
+            Scribe_Values.Look(ref weaponRangeCurveMedium, "weaponRangeCurveMedium", 45f);
+            Scribe_Values.Look(ref weaponRangeCurveLong, "weaponRangeCurveLong", 85f);
+            Scribe_Values.Look(ref weaponRangeCurveFar, "weaponRangeCurveFar", 140f);
             Scribe_Values.Look(ref seamExitBandEnabled, "seamExitBandEnabled", true);
             Scribe_Values.Look(ref hideEmptyColonistBarGroups, "hideEmptyColonistBarGroups", false);
             Scribe_Values.Look(ref incrementalGenerationEnabled, "incrementalGenerationEnabled", true);
