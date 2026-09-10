@@ -66,8 +66,19 @@ namespace RimExodus
             if (!SeamlessCombatCoords.Enabled || __instance.Map == null) return;
 
             var anchor = intendedTarget.HasThing ? intendedTarget.Thing : (usedTarget.HasThing ? usedTarget.Thing : null);
-            if (anchor?.Map == null || anchor.Map == __instance.Map) return;
-            if (!SeamlessCombatCoords.TryGetCombatLink(__instance.Map, anchor.Map, out var link)) return;
+            SeamlessCombatCoords.CombatLink link;
+            IntVec3 anchorLocal;
+            if (anchor != null)
+            {
+                if (anchor.Map == null || anchor.Map == __instance.Map
+                    || !SeamlessCombatCoords.TryGetCombatLink(__instance.Map, anchor.Map, out link)) return;
+                anchorLocal = anchor.Position;
+            }
+            else
+            {
+                if (!SeamlessCrossMapCellTarget.TryResolveCurrent(intendedTarget, out link, out _)) return;
+                anchorLocal = intendedTarget.Cell;
+            }
 
             // Vanilla drops off-map projectiles to a 15-tick update interval. Since an active neighbor is
             // part of the same visible tactical scene, keep this projectile at one-tick resolution for its
@@ -76,8 +87,8 @@ namespace RimExodus
 
             var dest = (Vector3)Patches_Projectile.DestinationField.GetValue(__instance);
             var usedCell = usedTarget.Cell;
-            var anchorUnified = anchor.Position + link.offset;
-            if (usedCell.DistanceToSquared(anchor.Position) <= usedCell.DistanceToSquared(anchorUnified))
+            var anchorUnified = anchorLocal + link.offset;
+            if (usedCell.DistanceToSquared(anchorLocal) <= usedCell.DistanceToSquared(anchorUnified))
             {
                 // 目标图本地坐标 → 统一坐标。
                 dest.x += link.offset.x;
@@ -87,7 +98,7 @@ namespace RimExodus
             // clamp 仅兜底"野 miss 散布推出两张图"的落点（原版出界自毁会静默吞掉）；
             // 合法深目标（2026-08 门限放宽后统一格可越宿主方形）不收——缝交接（TickInterval
             // Prefix）会在跨缝时把 destination 平移回目标图本地坐标系，落点在目标图界内原生有效。
-            var targetSize = anchor.Map.Size;
+            var targetSize = link.target.Size;
             var localOnTarget = dest - new Vector3(link.offset.x, 0f, link.offset.z);
             if (localOnTarget.x < 0.5f || localOnTarget.x > targetSize.x - 0.5f
                 || localOnTarget.z < 0.5f || localOnTarget.z > targetSize.z - 0.5f)
@@ -187,13 +198,13 @@ namespace RimExodus
                 return; // owner 解析与邻居表不一致（防御）：不动，交原版出界自毁兜底
             }
 
+            var spawnCell = crossCell - info.offset;
+            if (!spawnCell.InBounds(ownerMap)) return; // 防御必须先于字段平移，失败时保持原图状态完整。
+
             // 同 offset 平移（模长不变 → 飞行进度精确保持），当前精确位置连续无跳变。
             var offsetV = new Vector3(info.offset.x, 0f, info.offset.z);
             Patches_Projectile.OriginField.SetValue(__instance, origin - offsetV);
             Patches_Projectile.DestinationField.SetValue(__instance, dest - offsetV);
-
-            var spawnCell = crossCell - info.offset;
-            if (!spawnCell.InBounds(ownerMap)) return; // 防御（TryGetOwnerNeighbor 已保证，双保险不动状态）
 
             __instance.DeSpawn();
             GenSpawn.Spawn(__instance, spawnCell, ownerMap);

@@ -68,8 +68,6 @@ namespace RimExodus
             IAttackTarget best = null;
             var bestDistSq = float.MaxValue;
             var targetInfo = new LocalTargetInfo();
-            int poolTotal = 0, rejectDist = 0, rejectHostile = 0, rejectHitLine = 0;
-            var nearestRejectedDistSq = float.MaxValue;
             for (var n = 0; n < neighbors.Count; n++)
             {
                 var neighbor = neighbors[n];
@@ -81,24 +79,20 @@ namespace RimExodus
                     var t = pool[i];
                     var thing = t.Thing;
                     if (thing == searcherThing || thing == null || !thing.Spawned || thing.Destroyed) continue;
-                    poolTotal++;
-
                     var unified = thing.Position + link.offset;
                     var distSq = searcherPos.DistanceToSquared(unified);
                     // 距离口径 = 原版 caller maxDist（接战半径 65，2026-08 勘误：原版获取不查武器射程——
                     // 射程属于 CastPositionFinder 抵近层；武器射程过滤曾把 42-65 接战圈提前拒掉）。
                     if (distSq < minDistSq || distSq > maxDistSq)
                     {
-                        rejectDist++;
-                        if (distSq < nearestRejectedDistSq) nearestRejectedDistSq = distSq;
                         continue;
                     }
-                    if (hasLocus && unified.DistanceToSquared(locus) > maxLocusDistSq) { rejectDist++; continue; }
-                    if (!searcherThing.HostileTo(thing)) { rejectHostile++; continue; }
-                    if (validator != null && !validator(thing)) { rejectHostile++; continue; }
-                    if (needThreat && t.ThreatDisabled(searcher)) { rejectHostile++; continue; }
-                    if (needActiveThreat && !GenHostility.IsActiveThreatTo(t, searcherThing.Faction)) { rejectHostile++; continue; }
-                    if ((flags & TargetScanFlags.NeedNonBurning) != TargetScanFlags.None && thing.IsBurning()) { rejectHostile++; continue; }
+                    if (hasLocus && unified.DistanceToSquared(locus) > maxLocusDistSq) continue;
+                    if (!searcherThing.HostileTo(thing)) continue;
+                    if (validator != null && !validator(thing)) continue;
+                    if (needThreat && t.ThreatDisabled(searcher)) continue;
+                    if (needActiveThreat && !GenHostility.IsActiveThreatTo(t, searcherThing.Faction)) continue;
+                    if ((flags & TargetScanFlags.NeedNonBurning) != TargetScanFlags.None && thing.IsBurning()) continue;
                     // 跨图候选不做 fog 过滤（2026-08 实测修正）：邻图接缝带多数仍在雾中（揭雾只绕
                     // 本图中心），而 SeamlessTileRenderer.DrawNeighborPawns 无条件把邻图 pawn 画给
                     // 玩家——可见性口径跟渲染走，看得见就打得着；原版 fog 门只对玩家阵营搜索者，
@@ -106,7 +100,7 @@ namespace RimExodus
 
                     // "当前可射击"门控（跨图射击线 = 射程 + 分段 LOS + 统一格界内）。
                     targetInfo = new LocalTargetInfo(thing);
-                    if (!verb.TryFindShootLineFromTo(searcherPos, targetInfo, out _)) { rejectHitLine++; continue; }
+                    if (!verb.TryFindShootLineFromTo(searcherPos, targetInfo, out _)) continue;
 
                     if (distSq < bestDistSq)
                     {
@@ -119,15 +113,6 @@ namespace RimExodus
             if (best != null)
             {
                 __result = best;
-                if (RimExodusLog.Enabled(RimExodusLogModule.Combat))
-                    Log.Message($"[RimExodus] Cross-map target acquired: {searcherThing.LabelShort} -> {best.Thing.LabelShort} "
-                        + $"(unified dist {Mathf.Sqrt(bestDistSq):F0}).");
-            }
-            else if ((RimExodusLog.Enabled(RimExodusLogModule.Combat)) && poolTotal > 0)
-            {
-                var nearest = nearestRejectedDistSq < float.MaxValue ? $" nearestRejectedDist={Mathf.Sqrt(nearestRejectedDistSq):F0}" : "";
-                Log.Message($"[RimExodus] Cross-map scan: {searcherThing.LabelShort} saw {poolTotal} neighbor candidates, "
-                    + $"rejected dist={rejectDist}{nearest} hostile={rejectHostile} hitline={rejectHitLine}.");
             }
         }
     }

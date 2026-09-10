@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using HarmonyLib;
 using RimWorld;
@@ -14,10 +15,10 @@ using Verse.AI;
 namespace RimExodus
 {
     /// <summary>
-    /// Reflection-only Combat Extended direct-fire adapter.  No CE type occurs in a signature in this
+    /// Reflection-only Combat Extended projectile adapter.  No CE type occurs in a signature in this
     /// assembly, so removing CE never creates a loader dependency.  Same-map calls always run CE unchanged.
     /// </summary>
-    public static class SeamlessCombatExtendedCompat
+    public static partial class SeamlessCombatExtendedCompat
     {
         private const string PackageId = "CETeam.CombatExtended";
 
@@ -27,10 +28,9 @@ namespace RimExodus
         private static Type guidedWorkerType;
         private static PropertyInfo projectileProperty;
         private static PropertyInfo trajectoryWorkerProperty;
-        private static PropertyInfo guidedProjectileProperty;
         private static PropertyInfo exactPositionProperty;
+        private static FieldInfo exactPositionField;
         private static FieldInfo isInstantField;
-        private static FieldInfo trajectoryWorkerField;
         private static FieldInfo originField;
         private static FieldInfo originIv3Field;
         private static FieldInfo destinationField;
@@ -41,7 +41,13 @@ namespace RimExodus
         private static FieldInfo minCollisionDistanceField;
         private static FieldInfo intendedTargetField;
         private static FieldInfo globalTargetField;
-        private static FieldInfo homingAccelerationField;
+        private static FieldInfo landedField;
+        private static FieldInfo launcherField;
+        private static FieldInfo equipmentField;
+        private static FieldInfo equipmentDefField;
+        private static FieldInfo shotAngleField;
+        private static FieldInfo shotHeightField;
+        private static FieldInfo shotRotationField;
         private static MethodInfo getLightingTrackerMethod;
         private static MethodInfo getGlowForCellMethod;
         private static MethodInfo getLightingShiftMethod;
@@ -49,10 +55,54 @@ namespace RimExodus
         private static MethodInfo highestCoverMethod;
         private static MethodInfo getBoundsMethod;
         private static PropertyInfo shotHeightProperty;
+        private static PropertyInfo shotSpeedProperty;
+        private static PropertyInfo gravityPerHeightProperty;
         private static PropertyInfo shooterPawnProperty;
+        private static PropertyInfo verbPropsCeProperty;
+        private static FieldInfo indirectFirePenaltyField;
         private static MethodInfo canHitReportMethod;
+        private static MethodInfo trajectoryShotAngleMethod;
+        private static MethodInfo trajectoryShotRotationMethod;
+        private static MethodInfo rayCastSuppressionMethod;
+        private static MethodInfo laserSpawnBeamMethod;
+        private static MethodInfo laserImpactMethod;
+        private static FieldInfo laserDamageModifierField;
+        private static FieldInfo damageFalloffField;
+        private static Type laserGunDefType;
+        private static FieldInfo laserBarrelLengthField;
+        private static Type laserBeamType;
+        private static Type ciwsBaseType;
+        private static Type ciwsProjectileVerbType;
+        private static Type ciwsSkyfallerVerbType;
+        private static Type ciwsCompSkyfallerVerbType;
+        private static Type ciwsCompSkyfallerTargetType;
+        private static Type ciwsProjectileType;
+        private static Type ciwsTrackerType;
+        private static FieldInfo ciwsTurretsField;
+        private static FieldInfo turretCurrentTargetField;
+        private static PropertyInfo ciwsActiveProperty;
+        private static PropertyInfo ciwsPropsProperty;
+        private static PropertyInfo ciwsTurretProperty;
+        private static PropertyInfo turretCurrentTargetProperty;
+        private static FieldInfo grenadeDirectField;
+        private static PropertyInfo ciwsIgnoredProperty;
+        private static PropertyInfo ciwsTurretIgnoredProperty;
+        private static MethodInfo ciwsInterceptableMethod;
+        private static readonly Dictionary<Type, MethodInfo> CiwsShootLineMethods = new Dictionary<Type, MethodInfo>();
+        private static readonly Dictionary<Type, MethodInfo> CiwsFriendlyMethods = new Dictionary<Type, MethodInfo>();
+        private static readonly Dictionary<Type, Dictionary<string, FieldInfo>> ReflectedFields =
+            new Dictionary<Type, Dictionary<string, FieldInfo>>();
         private static bool initialized;
         private static long debugSequence;
+
+        private sealed class ProjectileTargetState
+        {
+            public Map targetMap;
+            public IntVec3 targetLocal;
+        }
+
+        private static readonly ConditionalWeakTable<Thing, ProjectileTargetState> ProjectileTargets =
+            new ConditionalWeakTable<Thing, ProjectileTargetState>();
 
         internal static bool DebugEnabled => RimExodusMod.Settings?.logCombatExtended ?? false;
 
@@ -67,9 +117,6 @@ namespace RimExodus
 
         private static readonly HashSet<string> ExcludedVerbNames = new HashSet<string>
         {
-            "CombatExtended.Verb_ThrowGrenade",
-            "CombatExtended.Verb_ShootMortarCE",
-            "CombatExtended.VerbCIWS",
             "CombatExtended.Verb_MarkForArtillery"
         };
 
@@ -83,16 +130,14 @@ namespace RimExodus
                 projectilePropsType = AccessTools.TypeByName("CombatExtended.ProjectilePropertiesCE");
                 guidedWorkerType = AccessTools.TypeByName("CombatExtended.BaseTrajectoryWorker");
                 if (verbType == null || projectileType == null || projectilePropsType == null)
-                    throw new MissingMemberException("CE core direct-fire types were not found");
+                    throw new MissingMemberException("CE core projectile types were not found");
 
                 projectileProperty = AccessTools.Property(verbType, "Projectile");
                 trajectoryWorkerProperty = AccessTools.Property(projectilePropsType, "TrajectoryWorker");
                 isInstantField = AccessTools.Field(projectilePropsType, "isInstant");
-                trajectoryWorkerField = AccessTools.Field(projectilePropsType, "trajectoryWorker");
-                guidedProjectileProperty = AccessTools.Property(
-                    guidedWorkerType, "GuidedProjectile");
 
                 exactPositionProperty = AccessTools.Property(projectileType, "ExactPosition");
+                exactPositionField = AccessTools.Field(projectileType, "exactPosition");
                 originField = AccessTools.Field(projectileType, "origin");
                 originIv3Field = AccessTools.Field(projectileType, "OriginIV3");
                 destinationField = AccessTools.Field(projectileType, "Destination");
@@ -103,7 +148,13 @@ namespace RimExodus
                 minCollisionDistanceField = AccessTools.Field(projectileType, "minCollisionDistance");
                 intendedTargetField = AccessTools.Field(projectileType, "intendedTarget");
                 globalTargetField = AccessTools.Field(projectileType, "globalTargetInfo");
-                homingAccelerationField = AccessTools.Field(projectileType, "homingAcceleration");
+                landedField = AccessTools.Field(projectileType, "landed");
+                launcherField = AccessTools.Field(projectileType, "launcher");
+                equipmentField = AccessTools.Field(projectileType, "equipment");
+                equipmentDefField = AccessTools.Field(projectileType, "equipmentDef");
+                shotAngleField = AccessTools.Field(projectileType, "shotAngle");
+                shotHeightField = AccessTools.Field(projectileType, "shotHeight");
+                shotRotationField = AccessTools.Field(projectileType, "shotRotation");
 
                 var ceUtility = AccessTools.TypeByName("CombatExtended.CE_Utility");
                 var lightingTracker = AccessTools.TypeByName("CombatExtended.LightingTracker");
@@ -115,7 +166,27 @@ namespace RimExodus
                     "PointsOnLineOfSight", new[] { typeof(Vector3), typeof(Vector3) });
                 highestCoverMethod = AccessTools.Method(lightingTracker, "HighestCoverAt", new[] { typeof(IntVec3) });
                 shotHeightProperty = AccessTools.Property(verbType, "ShotHeight");
+                shotSpeedProperty = AccessTools.Property(verbType, "ShotSpeed");
+                gravityPerHeightProperty = AccessTools.Property(projectilePropsType, "GravityPerHeight");
                 shooterPawnProperty = AccessTools.Property(verbType, "ShooterPawn");
+                verbPropsCeProperty = AccessTools.Property(verbType, "VerbPropsCE");
+                indirectFirePenaltyField = AccessTools.Field(
+                    AccessTools.TypeByName("CombatExtended.VerbPropertiesCE"), "indirectFirePenalty");
+                trajectoryShotAngleMethod = AccessTools.Method(guidedWorkerType, "ShotAngle",
+                    new[] { projectilePropsType, typeof(Vector3), typeof(Vector3), typeof(float?) });
+                trajectoryShotRotationMethod = AccessTools.Method(guidedWorkerType, "ShotRotation",
+                    new[] { projectilePropsType, typeof(Vector3), typeof(Vector3) });
+                rayCastSuppressionMethod = AccessTools.Method(projectileType, "RayCastSuppression",
+                    new[] { typeof(IntVec3), typeof(IntVec3), typeof(Map) });
+                laserBeamType = AccessTools.TypeByName("CombatExtended.Lasers.LaserBeamCE");
+                laserSpawnBeamMethod = AccessTools.Method(laserBeamType, "SpawnBeam",
+                    new[] { typeof(Vector3), typeof(Vector3) });
+                laserImpactMethod = AccessTools.Method(laserBeamType, "Impact",
+                    new[] { typeof(Thing), typeof(Vector3) });
+                laserDamageModifierField = AccessTools.Field(laserBeamType, "DamageModifier");
+                damageFalloffField = AccessTools.Field(projectilePropsType, "damageFalloff");
+                laserGunDefType = AccessTools.TypeByName("CombatExtended.Lasers.LaserGunDef");
+                laserBarrelLengthField = AccessTools.Field(laserGunDefType, "barrelLength");
 
                 Require(projectileProperty, "Verb_LaunchProjectileCE.Projectile");
                 Require(exactPositionProperty, "ProjectileCE.ExactPosition");
@@ -129,19 +200,50 @@ namespace RimExodus
                 var canHit = AccessTools.Method(verbType, "CanHitTargetFrom",
                     new[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(string).MakeByRefType() });
                 canHitReportMethod = canHit;
-                var moveForward = AccessTools.Method(projectileType, "MoveForward");
+                var moveForward = AccessTools.Method(projectileType, "MoveForward", Type.EmptyTypes);
                 var launch = AccessTools.Method(projectileType, "Launch",
                     new[] { typeof(Thing), typeof(Vector2), typeof(float), typeof(float), typeof(float), typeof(float), typeof(Thing), typeof(float) });
                 var launchCore = AccessTools.Method(projectileType, "Launch",
                     new[] { typeof(Thing), typeof(Vector2), typeof(Thing) });
                 var impact = AccessTools.Method(projectileType, "Impact", new[] { typeof(Thing) });
+                var throwMethod = AccessTools.Method(projectileType, "Throw",
+                    new[] { typeof(Thing), typeof(Vector3), typeof(Vector3), typeof(Thing) });
+                var rayCastMethod = AccessTools.Method(projectileType, "RayCast",
+                    new[] { typeof(Thing), typeof(VerbProperties), typeof(Vector2), typeof(float), typeof(float),
+                        typeof(float), typeof(float), typeof(float), typeof(float), typeof(Thing), typeof(bool) });
+                ciwsProjectileType = AccessTools.TypeByName("CombatExtended.ProjectileCE_CIWS");
+                var ciwsCollision = AccessTools.Method(ciwsProjectileType, "CanCollideWith",
+                    new[] { typeof(Thing), typeof(float).MakeByRefType() });
+                var ballisticWorkerType = AccessTools.TypeByName("CombatExtended.BallisticsTrajectoryWorker");
                 var fireArcType = AccessTools.TypeByName("CombatExtended.CompFireArc");
                 var turretType = AccessTools.TypeByName("CombatExtended.Building_TurretGunCE");
                 var nonSnapFinder = AccessTools.TypeByName("CombatExtended.NonSnapAttackTargetFinder");
+                var grenadeType = AccessTools.TypeByName("CombatExtended.Verb_ThrowGrenade");
+                var mortarType = AccessTools.TypeByName("CombatExtended.Verb_ShootMortarCE");
+                var tacticalManagerType = AccessTools.TypeByName("CombatExtended.CompTacticalManager");
+                ciwsBaseType = AccessTools.TypeByName("CombatExtended.VerbCIWS");
+                ciwsProjectileVerbType = AccessTools.TypeByName("CombatExtended.VerbCIWSProjectile");
+                ciwsSkyfallerVerbType = AccessTools.TypeByName("CombatExtended.VerbCIWSSkyfaller");
+                ciwsCompSkyfallerVerbType = AccessTools.TypeByName("CombatExtended.VerbCIWS_CompSkyfaller");
+                ciwsCompSkyfallerTargetType = AccessTools.TypeByName("CombatExtended.CompCIWSTarget_Skyfaller");
+                ciwsTrackerType = AccessTools.TypeByName("CombatExtended.TurretTracker");
+                ciwsTurretsField = AccessTools.Field(ciwsTrackerType, "CIWS");
+                turretCurrentTargetField = AccessTools.Field(turretType, "currentTargetInt");
+                turretCurrentTargetProperty = AccessTools.Property(turretType, "CurrentTarget");
+                grenadeDirectField = AccessTools.Field(grenadeType, "_direct");
+                ciwsActiveProperty = AccessTools.Property(ciwsBaseType, "Active");
+                ciwsPropsProperty = AccessTools.Property(ciwsBaseType, "Props");
+                ciwsTurretProperty = AccessTools.Property(ciwsBaseType, "Turret");
+                var ciwsPropsType = AccessTools.TypeByName("CombatExtended.VerbProperties_CIWS");
+                ciwsIgnoredProperty = AccessTools.Property(ciwsPropsType, "Ignored");
+                ciwsInterceptableMethod = AccessTools.Method(ciwsPropsType, "Interceptable", new[] { typeof(ThingDef) });
+                ciwsTurretIgnoredProperty = AccessTools.Property(
+                    AccessTools.TypeByName("CombatExtended.Building_CIWS_CE"), "IgnoredDefsSettings");
 
                 initialized = true;
                 TryPatch(harmony, shootLine, prefix: nameof(TryFindShootLinePrefix));
-                TryPatch(harmony, reportMethod, prefix: nameof(ShiftReportPrefix), postfix: nameof(ShiftReportPostfix));
+                TryPatch(harmony, reportMethod, prefix: nameof(ShiftReportPrefix), postfix: nameof(ShiftReportPostfix),
+                    finalizer: nameof(ShiftReportFinalizer));
                 TryPatch(harmony, canHit, postfix: nameof(CanHitPostfix));
                 var shootVerbType = AccessTools.TypeByName("CombatExtended.Verb_ShootCE");
                 TryPatch(harmony, AccessTools.Method(shootVerbType, "CanHitTargetFrom",
@@ -150,16 +252,52 @@ namespace RimExodus
                 TryPatch(harmony, launch, postfix: nameof(LaunchPostfix));
                 TryPatch(harmony, launchCore, postfix: nameof(LaunchCorePostfix));
                 TryPatch(harmony, impact, prefix: nameof(ImpactPrefix));
+                TryPatch(harmony, throwMethod, postfix: nameof(ThrowPostfix));
+                TryPatch(harmony, rayCastMethod, prefix: nameof(RayCastPrefix));
+                TryPatch(harmony, ciwsCollision, prefix: nameof(CiwsProjectileCollisionPrefix),
+                    postfix: nameof(CiwsShootLinePostfix), finalizer: nameof(CiwsEvaluationFinalizer));
+                TryPatch(harmony, AccessTools.Method(ballisticWorkerType, "MoveForward",
+                    new[] { projectileType }), prefix: nameof(GuidedTargetPrefix), postfix: nameof(GuidedTargetPostfix),
+                    finalizer: nameof(GuidedTargetFinalizer));
+                TryPatch(harmony, AccessTools.Method(verbType, "TryCastShot", Type.EmptyTypes),
+                    prefix: nameof(CeTryCastPrefix), finalizer: nameof(CeTryCastFinalizer));
+                TryPatch(harmony, AccessTools.Method(grenadeType, "TryCastShot", Type.EmptyTypes),
+                    prefix: nameof(CeTryCastPrefix), finalizer: nameof(CeTryCastFinalizer));
+                TryPatch(harmony, AccessTools.Method(grenadeType, "FindAngle",
+                    new[] { typeof(LocalTargetInfo), typeof(float).MakeByRefType(), typeof(bool).MakeByRefType(),
+                        typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(int).MakeByRefType() }),
+                    prefix: nameof(GrenadeFindAnglePrefix));
+                TryPatch(harmony, AccessTools.Method(grenadeType, "TryFindCEShootLineFromTo",
+                    new[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(ShootLine).MakeByRefType(),
+                        typeof(Vector3).MakeByRefType() }),
+                    postfix: nameof(GrenadeShootLinePostfix));
+                TryPatch(harmony, AccessTools.Method(grenadeType, "DrawHighlight",
+                    new[] { typeof(LocalTargetInfo) }), prefix: nameof(CellHighlightPrefix));
+                TryPatch(harmony, AccessTools.Method(mortarType, "ShiftVecReportFor",
+                    new[] { typeof(LocalTargetInfo), typeof(IntVec3) }), postfix: nameof(MortarReportPostfix));
+                TryPatch(harmony, AccessTools.Method(tacticalManagerType, nameof(ThingComp.CompTickRare), Type.EmptyTypes),
+                    prefix: nameof(TacticalManagerTickRarePrefix));
+                var abilityLaunch = AccessTools.Method(ceUtility, "LaunchProjectileCE",
+                    new[] { typeof(ThingDef), typeof(Vector2), typeof(LocalTargetInfo), typeof(Thing),
+                        typeof(float), typeof(float), typeof(float), typeof(float) });
+                TryPatch(harmony, abilityLaunch, prefix: nameof(AbilityLaunchPrefix));
+                var vehicleAbilityLaunch = AccessTools.Method(ceUtility, "LaunchProjectileCE",
+                    new[] { typeof(ThingDef), typeof(ThingDef), typeof(Def), typeof(Vector2),
+                        typeof(LocalTargetInfo), typeof(Pawn), typeof(float), typeof(float), typeof(float), typeof(float) });
+                TryPatch(harmony, vehicleAbilityLaunch, prefix: nameof(VehicleAbilityLaunchPrefix));
                 // Building_TurretGunCE's static constructor creates Unity materials.  Mod constructors run
                 // inside the asynchronous play-data long event; asking Harmony/Mono to compile a turret
                 // detour here initializes that type on the worker thread and Unity rejects the resource load.
                 // Resolve metadata now, but compile all turret-related detours at the long-event main-thread
                 // completion point.
-                LongEventHandler.ExecuteWhenFinished(() => RegisterTurretHooks(
-                    harmony, fireArcType, turretType, nonSnapFinder));
+                LongEventHandler.ExecuteWhenFinished(() =>
+                {
+                    RegisterTurretHooks(harmony, fireArcType, turretType, nonSnapFinder);
+                    RegisterCiwsHooks(harmony);
+                });
 
                 var mod = LoadedModManager.RunningModsListForReading.Find(m => m.PackageIdPlayerFacing == PackageId);
-                Log.Message($"[RimExodus] Combat Extended compat: bound direct-fire hooks (CE {mod?.ModMetaData?.ModVersion ?? "unknown"}).");
+                Log.Message($"[RimExodus] Combat Extended compat: bound projectile hooks (CE {mod?.ModMetaData?.ModVersion ?? "unknown"}).");
             }
             catch (Exception ex)
             {
@@ -171,14 +309,42 @@ namespace RimExodus
         private static void RegisterTurretHooks(Harmony harmony, Type fireArcType, Type turretType, Type nonSnapFinder)
         {
             TryPatch(harmony, AccessTools.Method(fireArcType, "WithinFireArc", new[] { typeof(LocalTargetInfo) }),
-                prefix: nameof(FireArcPrefix), postfix: nameof(TargetTeleportPostfix));
+                prefix: nameof(FireArcPrefix), postfix: nameof(TargetTeleportPostfix),
+                finalizer: nameof(TargetTeleportFinalizer));
             TryPatch(harmony, AccessTools.PropertyGetter(turretType, "DeltaAngle"),
-                prefix: nameof(TurretTargetPrefix), postfix: nameof(TargetTeleportPostfix));
+                prefix: nameof(TurretTargetPrefix), postfix: nameof(TargetTeleportPostfix),
+                finalizer: nameof(TargetTeleportFinalizer));
             TryPatch(harmony, AccessTools.Method(turretType, "OrderAttack", new[] { typeof(LocalTargetInfo) }),
-                prefix: nameof(TurretOrderPrefix), postfix: nameof(TargetTeleportPostfix));
+                prefix: nameof(TurretOrderPrefix), postfix: nameof(TargetTeleportPostfix),
+                finalizer: nameof(TargetTeleportFinalizer));
             TryPatch(harmony, AccessTools.Method(nonSnapFinder, "BestAttackTarget"),
                 postfix: nameof(NonSnapBestAttackTargetPostfix));
             Log.Message("[RimExodus] Combat Extended compat: main-thread turret hook registration finished.");
+        }
+
+        private static void RegisterCiwsHooks(Harmony harmony)
+        {
+            var patchedLines = new HashSet<MethodBase>();
+            var patchedFinders = new HashSet<MethodBase>();
+            foreach (var type in new[] { ciwsProjectileVerbType, ciwsSkyfallerVerbType, ciwsCompSkyfallerVerbType })
+            {
+                if (type == null) continue;
+                CiwsFriendlyMethods[type] = type.GetMethods(AccessTools.all)
+                    .FirstOrDefault(m => m.Name == "IsFriendlyTo" && m.GetParameters().Length == 1);
+                var line = AccessTools.Method(type, "TryFindCEShootLineFromTo",
+                    new[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(ShootLine).MakeByRefType(), typeof(Vector3).MakeByRefType() });
+                if (line != null)
+                {
+                    CiwsShootLineMethods[type] = line;
+                    if (patchedLines.Add(line))
+                        TryPatch(harmony, line, prefix: nameof(CiwsShootLinePrefix), postfix: nameof(CiwsShootLinePostfix),
+                            finalizer: nameof(CiwsEvaluationFinalizer));
+                }
+                var finder = AccessTools.Method(type, "TryFindNewTarget",
+                    new[] { typeof(LocalTargetInfo).MakeByRefType() });
+                if (finder != null && patchedFinders.Add(finder))
+                    TryPatch(harmony, finder, postfix: nameof(CiwsFindTargetPostfix));
+            }
         }
 
         public static bool IsSupportedVerb(Verb verb)
@@ -191,16 +357,11 @@ namespace RimExodus
             {
                 var projectileDef = projectileProperty.GetValue(verb, null) as ThingDef;
                 var props = projectileDef?.projectile;
-                if (props == null || props.flyOverhead || !projectilePropsType.IsInstanceOfType(props))
+                if (props == null || !projectilePropsType.IsInstanceOfType(props))
                 {
                     return false;
                 }
-                if ((bool)isInstantField.GetValue(props))
-                {
-                    return false;
-                }
-                var worker = trajectoryWorkerProperty?.GetValue(props, null);
-                return worker == null || guidedProjectileProperty == null || !(bool)guidedProjectileProperty.GetValue(worker, null);
+                return true;
             }
             catch
             {
@@ -210,29 +371,46 @@ namespace RimExodus
 
         public static bool IsProjectile(Thing thing) => initialized && thing != null && projectileType.IsInstanceOfType(thing);
 
+        /// <summary>
+        /// Corpse.TickRare deliberately ticks its inner Pawn. CE's tactical manager checks
+        /// CompSuppressable.IsHunkering before it checks SelPawn.Spawned, so a pawn that died while
+        /// suppressed/hunkering can enter live-pawn job repair with corpse state and throw. A corpse
+        /// can never receive a tactical job; stop at the common comp boundary instead of special-casing
+        /// individual weapons, projectiles, or corpse callers.
+        /// </summary>
+        public static bool TacticalManagerTickRarePrefix(ThingComp __instance)
+        {
+            return !(__instance?.parent is Pawn pawn) || (pawn.Spawned && !pawn.Dead);
+        }
+
         private static void Require(MemberInfo member, string name)
         {
             if (member == null) throw new MissingMemberException(name);
         }
 
-        private static void Patch(Harmony harmony, MethodBase target, string prefix = null, string postfix = null)
+        private static void Patch(Harmony harmony, MethodBase target, string prefix = null, string postfix = null,
+            string finalizer = null)
         {
             if (target == null) throw new MissingMethodException("CE target method not found");
             var pre = prefix == null ? null : new HarmonyMethod(AccessTools.Method(typeof(SeamlessCombatExtendedCompat), prefix)) { priority = Priority.First };
             var post = postfix == null ? null : new HarmonyMethod(AccessTools.Method(typeof(SeamlessCombatExtendedCompat), postfix)) { priority = Priority.Last };
-            harmony.Patch(target, pre, post);
+            var final = finalizer == null ? null : new HarmonyMethod(AccessTools.Method(typeof(SeamlessCombatExtendedCompat), finalizer)) { priority = Priority.Last };
+            harmony.Patch(target, pre, post, null, final);
             var info = Harmony.GetPatchInfo(target);
-            var bound = info != null && ((pre != null && info.Prefixes.Any(p => p.owner == harmony.Id))
-                || (post != null && info.Postfixes.Any(p => p.owner == harmony.Id)));
+            var bound = info != null
+                && (pre == null || info.Prefixes.Any(p => p.owner == harmony.Id && p.PatchMethod == pre.method))
+                && (post == null || info.Postfixes.Any(p => p.owner == harmony.Id && p.PatchMethod == post.method))
+                && (final == null || info.Finalizers.Any(p => p.owner == harmony.Id && p.PatchMethod == final.method));
             if (!bound) throw new InvalidOperationException($"Harmony did not register CE hook {target.DeclaringType?.FullName}::{target.Name}");
             Log.Message($"[RimExodus] Combat Extended compat: bound {target.DeclaringType?.FullName}::{target.Name}.");
         }
 
-        private static bool TryPatch(Harmony harmony, MethodBase target, string prefix = null, string postfix = null)
+        private static bool TryPatch(Harmony harmony, MethodBase target, string prefix = null, string postfix = null,
+            string finalizer = null)
         {
             try
             {
-                Patch(harmony, target, prefix, postfix);
+                Patch(harmony, target, prefix, postfix, finalizer);
                 return true;
             }
             catch (Exception ex)
@@ -242,477 +420,30 @@ namespace RimExodus
             }
         }
 
-        public static bool TryFindShootLinePrefix(object __instance, IntVec3 root, LocalTargetInfo targ,
-            ref ShootLine resultingLine, ref Vector3 targetPos, ref bool __result)
-        {
-            var verb = __instance as Verb;
-            var caster = SeamlessCombatCoords.VerbCaster(verb);
-            var target = targ.Thing;
-            if (!IsSupportedVerb(verb) || caster?.Map == null || target?.Map == null || target.Map == caster.Map) return true;
-            if (!SeamlessCombatCoords.TryGetCombatLink(caster.Map, target.Map, out var link)) return true;
-
-            __result = SeamlessCrossMapSight.TryFindShootLine(verb, root, targ, in link, false, out resultingLine);
-            if (__result)
-            {
-                if (!CanPassCeVerticalCover(__instance, caster, target, resultingLine, in link)) __result = false;
-            }
-            targetPos = target.TrueCenter() + new Vector3(link.offset.x, 0f, link.offset.z);
-            if (__result) SeamlessCombatCoords.MarkCrossMapCast(verb, target.Map);
-            return false;
-        }
-
-        private static bool CanPassCeVerticalCover(object ceVerb, Thing caster, Thing target, ShootLine line,
-            in SeamlessCombatCoords.CombatLink link)
-        {
-            if (cePointsMethod == null || highestCoverMethod == null || getLightingTrackerMethod == null
-                || getBoundsMethod == null || shotHeightProperty == null) return true;
-            try
-            {
-                var source = line.Source.ToVector3Shifted();
-                source.y = (float)shotHeightProperty.GetValue(ceVerb, null);
-                var targetBounds = (Bounds)getBoundsMethod.Invoke(null, new object[] { target });
-                var destination = targetBounds.center + new Vector3(link.offset.x, 0f, link.offset.z);
-                destination.y = targetBounds.max.y;
-                var ray = new Ray(source, destination - source);
-                var shooterPawn = shooterPawnProperty?.GetValue(ceVerb, null) as Pawn;
-                // GenSightCE uses integer casts internally and can stall forever when either endpoint
-                // is negative.  Unified neighbor coordinates legitimately can be negative. Translation
-                // preserves the exact ray geometry while keeping CE's iterator in its valid domain.
-                var shiftX = Mathf.Max(0, 2 - Mathf.FloorToInt(Mathf.Min(source.x, destination.x)));
-                var shiftZ = Mathf.Max(0, 2 - Mathf.FloorToInt(Mathf.Min(source.z, destination.z)));
-                var coordinateShift = new Vector3(shiftX, 0f, shiftZ);
-                var cellShift = new IntVec3(shiftX, 0, shiftZ);
-                var points = (IEnumerable)cePointsMethod.Invoke(null,
-                    new object[] { source + coordinateShift, destination + coordinateShift });
-                var visited = 0;
-                var maxExpected = (Mathf.CeilToInt(Mathf.Abs(destination.x - source.x))
-                    + Mathf.CeilToInt(Mathf.Abs(destination.z - source.z)) + 8) * 3;
-                foreach (var value in points)
-                {
-                    visited++;
-                    if (visited > maxExpected)
-                    {
-                        Log.WarningOnce($"[RimExodus] CE vertical-cover iterator exceeded its finite bound "
-                            + $"({maxExpected}); falling back to routed LOS for this shot.", 0x43455204);
-                        return true;
-                    }
-                    var unified = (IntVec3)value - cellShift;
-                    if (unified == line.Source || unified == line.Dest) continue;
-                    if (!TryResolveCell(link.host, unified, out var map, out var local)) continue;
-                    var tracker = getLightingTrackerMethod.Invoke(null, new object[] { map });
-                    if (tracker == null || (float)highestCoverMethod.Invoke(tracker, new object[] { local }) < source.y) continue;
-                    var cover = local.GetFirstPawn(map) ?? local.GetCover(map);
-                    if (cover == null || cover == caster || cover == target || cover == shooterPawn || cover is Plant) continue;
-                    if (cover is Pawn pawn && pawn.HostileTo(caster)) continue;
-                    if (cover is Pawn ally && !ally.Downed && ally.Faction != null && shooterPawn?.Faction != null
-                        && (ally.Faction == shooterPawn.Faction || shooterPawn.Faction.RelationKindWith(ally.Faction) == FactionRelationKind.Ally)
-                        && !ally.AdjacentTo8WayOrInside(caster))
-                    {
-                        return false;
-                    }
-                    var bounds = (Bounds)getBoundsMethod.Invoke(null, new object[] { cover });
-                    if (map != link.host) bounds.center += new Vector3(link.offset.x, 0f, link.offset.z);
-                    if (cover.def.Fillage == FillCategory.Full || bounds.IntersectRay(ray))
-                    {
-                        return false;
-                    }
-                }
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Log.ErrorOnce($"[RimExodus] CE routed vertical-cover check failed open: {ex}", 0x43455203);
-                return true;
-            }
-        }
-
-        public sealed class ShiftReportState
-        {
-            public SeamlessVirtualTeleporter teleporter;
-            public SeamlessCombatCoords.CombatLink link;
-            public Thing caster;
-            public Thing target;
-            public IntVec3 targetUnified;
-            public bool active;
-        }
-
-        public static void ShiftReportPrefix(object __instance, LocalTargetInfo target, ref IntVec3 targetCell,
-            out ShiftReportState __state)
-        {
-            __state = null;
-            var verb = __instance as Verb;
-            var caster = SeamlessCombatCoords.VerbCaster(verb);
-            var targetThing = target.Thing;
-            if (!IsSupportedVerb(verb) || caster?.Map == null || targetThing?.Map == null || targetThing.Map == caster.Map) return;
-            if (!SeamlessCombatCoords.TryGetCombatLink(caster.Map, targetThing.Map, out var link)) return;
-
-            // TryCastShot passes the unified targetPos returned by our CE shoot-line hook, while UI report
-            // callers pass target.Cell in the target map's local coordinates.  Accept both without ever
-            // adding the seam offset twice.
-            var anchorUnified = targetThing.Position + link.offset;
-            var alreadyUnified = targetCell.DistanceToSquared(anchorUnified) < targetCell.DistanceToSquared(targetThing.Position);
-            var unified = alreadyUnified ? targetCell : targetCell + link.offset;
-            // CE's report builder dereferences target.Cell against caster.Map.  Give it a side-effect-free
-            // evaluation view, then replace the environmental fields with routed samples in the postfix.
-            var evaluationCell = unified;
-            evaluationCell.x = Mathf.Clamp(evaluationCell.x, 0, caster.Map.Size.x - 1);
-            evaluationCell.z = Mathf.Clamp(evaluationCell.z, 0, caster.Map.Size.z - 1);
-            __state = new ShiftReportState
-            {
-                link = link,
-                caster = caster,
-                target = targetThing,
-                targetUnified = unified,
-                teleporter = new SeamlessVirtualTeleporter(targetThing, caster.Map, evaluationCell),
-                active = true
-            };
-            targetCell = evaluationCell;
-        }
-
-        public static void ShiftReportPostfix(object __result, ShiftReportState __state)
-        {
-            if (__state == null || !__state.active) return;
-            __state.teleporter.Dispose();
-            if (__result == null) return;
-            try
-            {
-                var unifiedTarget = __state.targetUnified;
-                SetField(__result, "shotDist", (unifiedTarget - __state.caster.Position).LengthHorizontal);
-                SampleEnvironment(__result, __state.caster, __state.target, unifiedTarget, in __state.link);
-            }
-            catch (Exception ex)
-            {
-                Log.ErrorOnce($"[RimExodus] CE cross-map ShiftVecReport correction failed: {ex}", 0x43455201);
-            }
-        }
-
-        public static void CanHitPostfix(object __instance, IntVec3 root, LocalTargetInfo targ,
-            ref string report, ref bool __result)
-        {
-            var verb = __instance as Verb;
-            var caster = SeamlessCombatCoords.VerbCaster(verb);
-            var target = targ.Thing;
-            if (!IsSupportedVerb(verb) || caster?.Map == null || target?.Map == null || target.Map == caster.Map) return;
-            if (!SeamlessCombatCoords.TryGetCombatLink(caster.Map, target.Map, out var link)) return;
-
-            var rect = target.OccupiedRect().MovedBy(link.offset.ToIntVec2);
-            var distSq = rect.ClosestDistSquaredTo(root);
-            var min = verb.verbProps.EffectiveMinRange(false);
-            if (distSq > verb.EffectiveRange * verb.EffectiveRange)
-            {
-                __result = false;
-                report = "CE_BlockedMaxRange".Translate();
-            }
-            else if (distSq < min * min)
-            {
-                __result = false;
-                report = "CE_BlockedMinRange".Translate();
-            }
-            else if (!__result)
-            {
-                report = "CE_NoLoS".Translate();
-            }
-        }
-
-        public static bool ShootCeCanHitPrefix(object __instance, IntVec3 root, LocalTargetInfo targ, ref bool __result)
-        {
-            var verb = __instance as Verb;
-            var caster = SeamlessCombatCoords.VerbCaster(verb);
-            var target = targ.Thing;
-            if (!IsSupportedVerb(verb) || caster?.Map == null || target?.Map == null || target.Map == caster.Map) return true;
-            if (!SeamlessCombatCoords.TryGetCombatLink(caster.Map, target.Map, out var link)) return true;
-            try
-            {
-                var shooter = shooterPawnProperty?.GetValue(__instance, null) as Pawn;
-                // Sighted shooters already reach the patched three-argument CE base method through CE's
-                // original override.  Do not reflectively re-enter that path from the ordinary float-menu
-                // hot loop; this prefix exists solely to replace Verb_ShootCE's blind-shooter local-coordinate
-                // precheck.
-                if (shooter == null || shooter.health.capacities.CapableOf(PawnCapacityDefOf.Sight))
-                {
-                    return true;
-                }
-                if (!shooter.health.capacities.CapableOf(PawnCapacityDefOf.Hearing))
-                {
-                    __result = false;
-                    return false;
-                }
-                var distance = (target.Position + link.offset - root).LengthHorizontal;
-                if (distance >= 5f && getLightingTrackerMethod != null && getGlowForCellMethod != null)
-                {
-                    var tracker = getLightingTrackerMethod.Invoke(null, new object[] { target.Map });
-                    var glow = tracker == null ? 0f : (float)getGlowForCellMethod.Invoke(tracker, new object[] { target.Position });
-                    if (glow / distance < 0.1f)
-                    {
-                        __result = false;
-                        return false;
-                    }
-                }
-                var args = new object[] { root, targ, null };
-                __result = (bool)canHitReportMethod.Invoke(__instance, args);
-                return false;
-            }
-            catch (Exception ex)
-            {
-                Log.ErrorOnce($"[RimExodus] CE blind-shooter cross-map check failed open: {ex}", 0x43455204);
-                return true;
-            }
-        }
-
-        private static void SampleEnvironment(object report, Thing caster, Thing target, IntVec3 targetUnified,
-            in SeamlessCombatCoords.CombatLink link)
-        {
-            float smoke = 0f;
-            bool roofed = false;
-            Thing highestCover = null;
-            float highestCoverHeight = -1f;
-            var cells = new List<IntVec3>(GenSight.PointsOnLineOfSight(targetUnified, caster.Position));
-            var end = cells.Count / 2;
-            for (var i = 0; i < end; i++)
-            {
-                var unified = cells[i];
-                if (!TryResolveCell(link.host, unified, out var map, out var local)) continue;
-                if (unified.AdjacentTo8Way(caster.Position)) continue;
-                if (local.AnyGas(map, GasType.BlindSmoke)) smoke += GasUtility.BlindingGasAccuracyPenalty;
-                roofed |= map.roofGrid.RoofAt(local) != null;
-                var cover = local.GetFirstPawn(map) ?? local.GetCover(map);
-                // Match CE's GetHighestCoverAndSmokeForTarget exactly here.  Full-fill blockers and
-                // plants can still intercept the projectile, but CE deliberately does not use them to
-                // raise the selected aim height.  Treating a tree as report.cover can lift the aim point
-                // above a pawn and creates a large, cross-map-only accuracy penalty.
-                if (cover == null || cover == caster || cover == target
-                    || cover.def.Fillage != FillCategory.Partial || cover is Plant
-                    || cover is Building_TrapExplosive)
-                {
-                    continue;
-                }
-                var coverHeight = getBoundsMethod != null
-                    ? ((Bounds)getBoundsMethod.Invoke(null, new object[] { cover })).max.y
-                    : cover.def.fillPercent;
-                if (coverHeight > highestCoverHeight)
-                {
-                    highestCover = cover;
-                    highestCoverHeight = coverHeight;
-                }
-            }
-            SetField(report, "cover", highestCover);
-            SetField(report, "smokeDensity", smoke);
-            SetField(report, "roofed", roofed);
-
-            if (getLightingTrackerMethod == null || getGlowForCellMethod == null || getLightingShiftMethod == null) return;
-            var sourceTracker = getLightingTrackerMethod.Invoke(null, new object[] { link.host });
-            var targetTracker = getLightingTrackerMethod.Invoke(null, new object[] { link.target });
-            if (sourceTracker == null || targetTracker == null) return;
-            var sourceGlow = (float)getGlowForCellMethod.Invoke(sourceTracker, new object[] { caster.Position });
-            var targetGlow = (float)getGlowForCellMethod.Invoke(targetTracker, new object[] { target.Position });
-            var combined = sourceGlow > 0.5f ? Mathf.Max(targetGlow, sourceGlow / 2f) : targetGlow;
-            SetField(report, "lightingShift", (float)getLightingShiftMethod.Invoke(null, new object[] { caster, combined }));
-        }
-
-        private static bool TryResolveCell(Map host, IntVec3 unified, out Map map, out IntVec3 local)
-        {
-            if (SeamlessTileRegistry.TryGetOwnerNeighbor(host, unified, out map, out local)) return true;
-            map = host;
-            local = unified;
-            return unified.InBounds(host);
-        }
-
-        public sealed class TargetTeleportState
-        {
-            public SeamlessVirtualTeleporter teleporter;
-        }
-
-        public static void FireArcPrefix(ThingComp __instance, LocalTargetInfo tgt, out TargetTeleportState __state)
-        {
-            __state = TryTeleportTarget(__instance?.parent, tgt);
-        }
-
-        public static void TurretTargetPrefix(object __instance, out TargetTeleportState __state)
-        {
-            __state = null;
-            var turret = __instance as Thing;
-            if (turret == null) return;
-            var current = (LocalTargetInfo)AccessTools.Property(__instance.GetType(), "CurrentTarget").GetValue(__instance, null);
-            __state = TryTeleportTarget(turret, current);
-        }
-
-        public static void TurretOrderPrefix(object __instance, LocalTargetInfo targ, out TargetTeleportState __state)
-        {
-            __state = TryTeleportTarget(__instance as Thing, targ);
-        }
-
-        public static void TargetTeleportPostfix(TargetTeleportState __state)
-        {
-            __state?.teleporter.Dispose();
-        }
-
-        private static TargetTeleportState TryTeleportTarget(Thing caster, LocalTargetInfo target)
-        {
-            var thing = target.Thing;
-            if (caster?.Map == null || thing?.Map == null || caster.Map == thing.Map) return null;
-            if (!SeamlessCombatCoords.TryGetCombatLink(caster.Map, thing.Map, out var link)) return null;
-            var unified = thing.Position + link.offset;
-            if (!unified.InBounds(caster.Map)) return null;
-            return new TargetTeleportState { teleporter = new SeamlessVirtualTeleporter(thing, caster.Map, unified) };
-        }
-
-        public static void NonSnapBestAttackTargetPostfix(IAttackTargetSearcher searcher, TargetScanFlags flags,
-            Predicate<Thing> validator, float minDist, float maxDist, ref IAttackTarget __result)
-        {
-            if (__result != null || !initialized) return;
-            var searcherThing = searcher?.Thing;
-            var verb = searcher?.CurrentEffectiveVerb;
-            if (searcherThing?.Map == null || !IsSupportedVerb(verb)) return;
-
-            var neighbors = Patches_CombatTargetSearch.TempNeighbors;
-            neighbors.Clear();
-            SeamlessTileGraph.PopulateNeighbors(searcherThing.Map, neighbors);
-            var minSq = minDist * minDist;
-            var maxSq = maxDist * maxDist;
-            IAttackTarget best = null;
-            var bestSq = float.MaxValue;
-            for (var n = 0; n < neighbors.Count; n++)
-            {
-                var neighbor = neighbors[n];
-                if (!SeamlessCombatCoords.TryGetCombatLink(searcherThing.Map, neighbor.map, out var link)) continue;
-                var pool = neighbor.map.attackTargetsCache.GetPotentialTargetsFor(searcher);
-                for (var i = 0; i < pool.Count; i++)
-                {
-                    var candidate = pool[i];
-                    var thing = candidate?.Thing;
-                    if (thing == null || !thing.Spawned || thing.Destroyed || thing == searcherThing) continue;
-                    var distSq = searcherThing.Position.DistanceToSquared(thing.Position + link.offset);
-                    if (distSq < minSq || distSq > maxSq || distSq >= bestSq) continue;
-                    if (!searcherThing.HostileTo(thing) || (validator != null && !validator(thing))) continue;
-                    if ((flags & TargetScanFlags.NeedThreat) != 0 && candidate.ThreatDisabled(searcher)) continue;
-                    if ((flags & TargetScanFlags.NeedActiveThreat) != 0 && !GenHostility.IsActiveThreatTo(candidate, searcherThing.Faction)) continue;
-                    if (!verb.CanHitTarget(thing)) continue;
-                    best = candidate;
-                    bestSq = distSq;
-                }
-            }
-            if (best != null) __result = best;
-        }
-
         private static void SetField(object instance, string name, object value)
         {
-            AccessTools.Field(instance.GetType(), name)?.SetValue(instance, value);
+            CachedField(instance.GetType(), name)?.SetValue(instance, value);
         }
 
-        public static void LaunchCorePostfix(object __instance, Thing launcher, Vector2 origin)
+        /// <summary>
+        /// Compatibility report types are known only after CE is loaded. Cache their fields on first
+        /// encounter so burst fire and mortar reports never repeat Harmony reflection discovery.
+        /// </summary>
+        private static FieldInfo CachedField(Type type, string name)
         {
-            if (!DebugEnabled) return;
-            var projectile = __instance as Thing;
-            if (!IsProjectile(projectile)) return;
-
-            var target = intendedTargetField?.GetValue(__instance) is LocalTargetInfo info ? info : LocalTargetInfo.Invalid;
-            var destination = destinationField?.GetValue(__instance);
-            var aimDiagnostic = string.Empty;
-            if (destination is Vector2 destinationVec && projectile.Map != null && target.Thing?.Map != null
-                && target.Thing.Map != projectile.Map
-                && SeamlessCombatCoords.TryGetCombatLink(projectile.Map, target.Thing.Map, out var link))
+            lock (ReflectedFields)
             {
-                var targetCenter = target.Thing.TrueCenter() + new Vector3(link.offset.x, 0f, link.offset.z);
-                var intendedVector = new Vector2(targetCenter.x - origin.x, targetCenter.z - origin.y);
-                var launchedVector = destinationVec - origin;
-                var angularError = intendedVector.sqrMagnitude > 0.0001f && launchedVector.sqrMagnitude > 0.0001f
-                    ? Vector2.Angle(intendedVector, launchedVector)
-                    : 0f;
-                aimDiagnostic = $" unifiedTarget=({targetCenter.x:F2}, {targetCenter.z:F2})"
-                    + $" aimDist={intendedVector.magnitude:F2} angularErrorDeg={angularError:F3}";
-            }
-            DebugLog($"ProjectileCE.LaunchCore id={projectile.thingIDNumber} type={projectile.GetType().FullName} "
-                + $"def={projectile.def?.defName ?? "null"} map={projectile.Map?.uniqueID.ToString() ?? "null"} "
-                + $"launcher={launcher?.LabelShort ?? "null"} origin={origin} destination={destination?.ToString() ?? "null"} "
-                + $"targetThing={target.Thing?.LabelShort ?? "null"} targetMap={target.Thing?.Map?.uniqueID.ToString() ?? "null"} "
-                + $"targetCell={target.Cell}{aimDiagnostic}");
-        }
-
-        public static void LaunchPostfix(object __instance)
-        {
-            var thing = __instance as Thing;
-            if (!IsProjectile(thing) || thing.Map == null || !IsSupportedProjectileInstance(__instance)) return;
-            var target = (LocalTargetInfo)intendedTargetField.GetValue(__instance);
-            if (!target.HasThing || target.Thing.Map == null || target.Thing.Map == thing.Map) return;
-            if (!SeamlessCombatCoords.TryGetCombatLink(thing.Map, target.Thing.Map, out var link)) return;
-            var distance = (target.Cell + link.offset - thing.Position).LengthHorizontal;
-            minCollisionDistanceField.SetValue(__instance, distance <= 7.5f ? Mathf.Min(1.5f, distance * 0.75f) : distance * 0.2f);
-        }
-
-        public static void ImpactPrefix(object __instance, Thing hitThing)
-        {
-            if (!DebugEnabled) return;
-            var projectile = __instance as Thing;
-            if (!IsProjectile(projectile)) return;
-            var intended = intendedTargetField?.GetValue(__instance) is LocalTargetInfo info ? info.Thing : null;
-            var exact = exactPositionProperty?.GetValue(__instance, null);
-            DebugLog($"ProjectileCE.Impact id={projectile.thingIDNumber} type={projectile.GetType().FullName} "
-                + $"projectile={projectile.LabelShort} map={projectile.Map?.uniqueID.ToString() ?? "null"} "
-                + $"exact={exact?.ToString() ?? "null"} hit={hitThing?.LabelShort ?? "ground/null"} "
-                + $"hitCell={hitThing?.Position.ToString() ?? "null"} intended={intended?.LabelShort ?? "null"} "
-                + $"intendedMap={intended?.Map?.uniqueID.ToString() ?? "null"} intendedCell={intended?.Position.ToString() ?? "null"}");
-        }
-
-        public static void MoveForwardPostfix(object __instance, ref Vector3 __result)
-        {
-            var thing = __instance as Thing;
-            if (!IsProjectile(thing) || thing.Destroyed || !thing.Spawned || !IsSupportedProjectileInstance(__instance)) return;
-            var map = thing.Map;
-            if (map == null || !SeamlessCombatCoords.HasActiveSeamNeighbors(map)) return;
-            if (!SeamlessTileRegistry.TryGetOwnerNeighbor(map, __result.ToIntVec3(), out var ownerMap, out var ownerLocal)) return;
-            if (ownerMap == null || !ownerLocal.InBounds(ownerMap)) return;
-            var tile = SeamlessTileRegistry.GetMapWorldTile(ownerMap);
-            if (!SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, tile, out var info)) return;
-
-            try
-            {
-                var dx = info.offset.x;
-                var dz = info.offset.z;
-                var offset3 = new Vector3(dx, 0f, dz);
-                var origin = (Vector2)originField.GetValue(__instance);
-                originField.SetValue(__instance, new Vector2(origin.x - dx, origin.y - dz));
-                originIv3Field.SetValue(__instance, (IntVec3)originIv3Field.GetValue(__instance) - info.offset);
-                var destination = (Vector2)destinationField.GetValue(__instance);
-                destinationField.SetValue(__instance, new Vector2(destination.x - dx, destination.y - dz));
-                lastPosField.SetValue(__instance, (Vector3)lastPosField.GetValue(__instance) - offset3);
-                var exact = (Vector3)exactPositionProperty.GetValue(__instance, null) - offset3;
-                __result -= offset3;
-
-                if (predictedField.GetValue(__instance) is IList predicted)
+                if (!ReflectedFields.TryGetValue(type, out var fields))
                 {
-                    for (var i = 0; i < predicted.Count; i++) predicted[i] = (Vector3)predicted[i] - offset3;
+                    fields = new Dictionary<string, FieldInfo>();
+                    ReflectedFields[type] = fields;
                 }
-                dangerTrackerField?.SetValue(__instance, null);
-                lastShotLineField?.SetValue(__instance, -1);
-
-                thing.DeSpawn();
-                exactPositionProperty.SetValue(__instance, exact, null);
-                GenSpawn.Spawn(thing, __result.ToIntVec3(), ownerMap);
-                if (DebugEnabled) DebugLog($"ProjectileCE.Handoff id={thing.thingIDNumber} type={thing.GetType().FullName} "
-                    + $"map={map.uniqueID}->{ownerMap.uniqueID} next={__result} local={ownerLocal}");
-            }
-            catch (Exception ex)
-            {
-                Log.ErrorOnce($"[RimExodus] CE projectile seam handoff failed: {ex}", 0x43455202);
-            }
-        }
-
-        private static bool IsSupportedProjectileInstance(object projectile)
-        {
-            try
-            {
-                var thing = (Thing)projectile;
-                var props = thing.def?.projectile;
-                if (props == null || props.flyOverhead || !projectilePropsType.IsInstanceOfType(props)) return false;
-                if ((bool)isInstantField.GetValue(props)) return false;
-                if (homingAccelerationField != null && (float)homingAccelerationField.GetValue(projectile) > 0f) return false;
-                if (globalTargetField != null && ((GlobalTargetInfo)globalTargetField.GetValue(projectile)).IsValid) return false;
-                var worker = trajectoryWorkerProperty?.GetValue(props, null);
-                return worker == null || guidedProjectileProperty == null || !(bool)guidedProjectileProperty.GetValue(worker, null);
-            }
-            catch
-            {
-                return false;
+                if (!fields.TryGetValue(name, out var field))
+                {
+                    field = AccessTools.Field(type, name);
+                    fields[name] = field;
+                }
+                return field;
             }
         }
     }

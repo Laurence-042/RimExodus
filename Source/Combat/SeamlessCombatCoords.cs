@@ -107,8 +107,6 @@ namespace RimExodus
                 && CrossMapCastTargets.TryGetValue(verb, out var marked) && marked == tMap
                 && TryGetCombatLink(cMap, tMap, out _))
             {
-                if (RimExodusLog.Enabled(RimExodusLogModule.Combat))
-                    Log.Message($"[RimExodus] Cross-map shot admitted: {VerbCaster(verb).LabelShort} -> {verb.CurrentTarget.Thing.LabelShort}.");
                 return cMap;
             }
             return tMap;

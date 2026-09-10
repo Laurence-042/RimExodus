@@ -14,7 +14,12 @@ namespace RimExodus
         {
             if (verb == null || verb.verbProps == null || verb.verbProps.IsMeleeAttack) return false;
             if (verb is Verb_LaunchProjectile vanilla)
-                return vanilla.Projectile?.projectile?.flyOverhead == false;
+                return vanilla.Projectile?.projectile != null;
+            if (verb is Verb_CastAbility abilityVerb)
+            {
+                var launch = abilityVerb.Ability?.CompOfType<CompAbilityEffect_LaunchProjectile>();
+                if (launch?.Props?.projectileDef != null) return true;
+            }
             return SeamlessCombatExtendedCompat.IsSupportedVerb(verb);
         }
 

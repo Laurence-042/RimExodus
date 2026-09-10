@@ -24,7 +24,7 @@ namespace RimExodus
         /// Dest = 目标统一格（邻图本地 + offset）。消费方：HitReportFor 的气体扫描（统一点）、
         /// TryCastShot 弹丸落点（Launch Postfix 统一平移）、瞄准/爆炸预览绘制
         /// （本图 void 区 = 邻图投射区，统一坐标视觉正确）。
-        /// 门限：仅直射投射物 verb；近战/灵能/flyOverhead（迫击炮类）一律不可跨图；
+        /// 门限：仅已登记 projectile 能力的 verb（直射、迫击炮与发射型 Ability）；近战/非发射灵能不可跨图；
         /// root（射手格）须在宿主方形内；目标统一格无方形限制（2026-08 放宽，逐格阻挡按
         /// 多边形归属路由，角部越界格透明——"看得见就打得着"）。
         /// </summary>

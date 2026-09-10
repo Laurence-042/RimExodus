@@ -32,7 +32,7 @@ namespace RimExodus
     {
         /// <summary>
         /// 跨图分支接管：目标 Thing 在另一张互为活跃邻居的图上时，射击线在统一坐标
-        /// （宿主=射手图）上计算；否则完全放行原版。近战/flyOverhead 等不支持的 verb
+        /// （宿主=射手图）上计算；否则完全放行原版。不具备 projectile 能力的 verb
         /// 在 <see cref="SeamlessCrossMapSight.TryFindShootLine"/> 内拒绝（与原版 false 等价）。
         /// </summary>
         public static bool Prefix(Verb __instance, IntVec3 root, LocalTargetInfo targ,
@@ -45,15 +45,22 @@ namespace RimExodus
             {
                 return true;
             }
-            if (!targ.HasThing || targ.Thing.Map == null) return true;
             var caster = SeamlessCombatCoords.VerbCaster(__instance);
             if (caster?.Map == null) return true;
-            if (targ.Thing.Map == caster.Map) return true; // 同图：原版
-            if (!SeamlessCombatCoords.TryGetCombatLink(caster.Map, targ.Thing.Map, out var link)) return true; // 非活跃邻居：原版语义（false）
+            SeamlessCombatCoords.CombatLink link;
+            if (targ.HasThing)
+            {
+                if (targ.Thing.Map == null || targ.Thing.Map == caster.Map) return true; // 同图：原版
+                if (!SeamlessCombatCoords.TryGetCombatLink(caster.Map, targ.Thing.Map, out link)) return true;
+            }
+            else if (!SeamlessCrossMapCellTarget.TryResolve(__instance, targ, out link, out _))
+            {
+                return true;
+            }
 
             // 登记跨图施法上下文（TryCastShot 的门在其后才跑到）：仅直射投射物 verb，
             // 近战/灵能等不放行（它们跨图本就 false，登记了也无消费者）。
-            if (__instance is Verb_LaunchProjectile && !__instance.verbProps.IsMeleeAttack)
+            if (targ.HasThing && __instance is Verb_LaunchProjectile && !__instance.verbProps.IsMeleeAttack)
             {
                 SeamlessCombatCoords.MarkCrossMapCast(__instance, targ.Thing.Map);
             }
@@ -66,6 +73,17 @@ namespace RimExodus
     [HarmonyPatch(typeof(Verb_LaunchProjectile), "TryCastShot")]
     public static class Patch_Verb_LaunchProjectile_TryCastShot
     {
+        public static void Prefix(Verb_LaunchProjectile __instance, out Verb __state)
+        {
+            __state = SeamlessCrossMapCellTarget.BeginFiring(__instance);
+        }
+
+        public static System.Exception Finalizer(System.Exception __exception, Verb __state)
+        {
+            SeamlessCrossMapCellTarget.EndFiring(__state);
+            return __exception;
+        }
+
         /// <summary>
         /// 原版开头：if (currentTarget.HasThing &amp;&amp; currentTarget.Thing.Map != caster.Map) return false;
         /// 真实 IL（1.6.4871 实测解码）：[ldarg.0][ldflda currentTarget][call LocalTargetInfo::get_Thing]
@@ -108,6 +126,21 @@ namespace RimExodus
         }
     }
 
+    [HarmonyPatch(typeof(Verb_CastAbility), "TryCastShot")]
+    public static class Patch_Verb_CastAbility_TryCastShot_CrossMapProjectileContext
+    {
+        public static void Prefix(Verb_CastAbility __instance, out Verb __state)
+        {
+            __state = SeamlessCrossMapCellTarget.BeginFiring(__instance);
+        }
+
+        public static System.Exception Finalizer(System.Exception __exception, Verb __state)
+        {
+            SeamlessCrossMapCellTarget.EndFiring(__state);
+            return __exception;
+        }
+    }
+
     [HarmonyPatch(typeof(ShotReport), nameof(ShotReport.HitReportFor))]
     public static class Patch_ShotReport_HitReportFor
     {
@@ -117,6 +150,26 @@ namespace RimExodus
         private static readonly FieldInfo CoversOverallField = AccessTools.Field(typeof(ShotReport), "coversOverallBlockChance");
         private static readonly FieldInfo FactorShooterField = AccessTools.Field(typeof(ShotReport), "factorFromShooterAndDist");
         private static readonly FieldInfo FactorEquipmentField = AccessTools.Field(typeof(ShotReport), "factorFromEquipment");
+        private static readonly FieldInfo FactorWeatherField = AccessTools.Field(typeof(ShotReport), "factorFromWeather");
+        private static readonly FieldInfo FactorGasField = AccessTools.Field(typeof(ShotReport), "factorFromCoveringGas");
+        private static readonly FieldInfo ShootLineField = AccessTools.Field(typeof(ShotReport), "shootLine");
+
+        public sealed class State
+        {
+            public SeamlessVirtualTeleporter teleporter;
+            public SeamlessCombatCoords.CombatLink link;
+            public LocalTargetInfo originalTarget;
+            public IntVec3 unified;
+            public bool active;
+            public bool restored;
+        }
+
+        private static void Restore(State state)
+        {
+            if (state == null || state.restored) return;
+            state.teleporter.Dispose();
+            state.restored = true;
+        }
 
         /// <summary>
         /// 坐标系正修（2026-08，替代已删除的 GasUtility 越界守卫——守卫是兜底，违反"不搞兜底"铁律）：
@@ -125,20 +178,40 @@ namespace RimExodus
         /// （气体/掩体/距离）全程目标图系自洽；Postfix 6 字段精确写回保留（覆盖 clamp 近似的
         /// 深目标场景）。clamp 后段内气体为目标图侧近似，精度项全部被 Postfix 覆盖。
         /// </summary>
-        public static void Prefix(Thing caster, Verb verb, LocalTargetInfo target,
-            out SeamlessVirtualTeleporter __state)
+        public static void Prefix(Thing caster, Verb verb, ref LocalTargetInfo target, out State __state)
         {
-            __state = default;
+            __state = null;
             if (!SeamlessCombatCoords.Enabled) return;
-            if (!target.HasThing || caster == null || caster.Map == null) return;
-            var targetMap = target.Thing.Map;
-            if (targetMap == null || targetMap == caster.Map) return;
-            if (!SeamlessCombatCoords.TryGetCombatLink(caster.Map, targetMap, out var link)) return;
+            if (caster == null || caster.Map == null) return;
 
-            var local = caster.Position - link.offset;
-            local.x = Mathf.Clamp(local.x, 0, targetMap.Size.x - 1);
-            local.z = Mathf.Clamp(local.z, 0, targetMap.Size.z - 1);
-            __state = new SeamlessVirtualTeleporter(caster, targetMap, local);
+            SeamlessCombatCoords.CombatLink link;
+            IntVec3 unified;
+            if (target.HasThing)
+            {
+                var targetMap = target.Thing.Map;
+                if (targetMap == null || targetMap == caster.Map
+                    || !SeamlessCombatCoords.TryGetCombatLink(caster.Map, targetMap, out link)) return;
+                unified = target.Cell + link.offset;
+                var local = caster.Position - link.offset;
+                local.x = Mathf.Clamp(local.x, 0, targetMap.Size.x - 1);
+                local.z = Mathf.Clamp(local.z, 0, targetMap.Size.z - 1);
+                __state = new State
+                {
+                    teleporter = new SeamlessVirtualTeleporter(caster, targetMap, local),
+                    link = link,
+                    originalTarget = target,
+                    unified = unified,
+                    active = true
+                };
+                return;
+            }
+
+            if (!SeamlessCrossMapCellTarget.TryResolve(verb, target, out link, out unified)) return;
+            __state = new State { link = link, originalTarget = target, unified = unified, active = true };
+            var evaluation = unified;
+            evaluation.x = Mathf.Clamp(evaluation.x, 0, caster.Map.Size.x - 1);
+            evaluation.z = Mathf.Clamp(evaluation.z, 0, caster.Map.Size.z - 1);
+            target = new LocalTargetInfo(evaluation);
         }
 
         /// <summary>
@@ -148,32 +221,74 @@ namespace RimExodus
         /// 先 Dispose 恢复 caster 真实图/坐标，判定守卫才读到真实归属。
         /// </summary>
         public static void Postfix(Thing caster, Verb verb, LocalTargetInfo target,
-            SeamlessVirtualTeleporter __state, ref ShotReport __result)
+            State __state, ref ShotReport __result)
         {
-            __state.Dispose();
-            if (!target.HasThing || caster == null || caster.Map == null) return;
-            var targetMap = target.Thing.Map;
-            if (targetMap == null || targetMap == caster.Map) return;
-            if (!SeamlessCombatCoords.TryGetCombatLink(caster.Map, targetMap, out var link)) return;
+            if (__state == null || !__state.active) return;
+            Restore(__state);
+            if (caster == null || caster.Map == null) return;
+            var link = __state.link;
+            var originalTarget = __state.originalTarget;
+            var distance = (__state.unified - caster.Position).LengthHorizontal;
 
-            var targetUnified = target.Cell + link.offset;
-            var distance = (targetUnified - caster.Position).LengthHorizontal;
-
-            var shooterOnTargetMap = caster.Position - link.offset;
-            var covers = CoverUtility.CalculateCoverGiverSet(target, shooterOnTargetMap, targetMap);
-            var blockChance = CoverUtility.CalculateOverallBlockChance(target, shooterOnTargetMap, targetMap);
+            var covers = new List<CoverInfo>();
+            var blockChance = 0f;
+            if (originalTarget.HasThing)
+            {
+                var shooterOnTargetMap = caster.Position - link.offset;
+                covers = CoverUtility.CalculateCoverGiverSet(originalTarget, shooterOnTargetMap, link.target);
+                blockChance = CoverUtility.CalculateOverallBlockChance(originalTarget, shooterOnTargetMap, link.target);
+            }
 
             var factorShooter = verb.verbProps.canGoWild
                 ? ShotReport.HitFactorFromShooter(caster, distance)
                 : 1f;
             var factorEquipment = verb.verbProps.GetHitChanceFactor(verb.EquipmentSource, distance);
 
+            var factorGas = 1f;
+            var shootLine = new ShootLine(IntVec3.Invalid, IntVec3.Invalid);
+            if (SeamlessCrossMapSight.TryFindShootLine(verb, caster.Position, originalTarget,
+                    in link, false, out shootLine))
+            {
+                foreach (var unifiedCell in shootLine.Points())
+                {
+                    Map sampleMap;
+                    IntVec3 local;
+                    if (SeamlessTileRegistry.TryGetOwnerNeighbor(link.host, unifiedCell, out sampleMap, out local))
+                    {
+                        if (local.AnyGas(sampleMap, GasType.BlindSmoke)) { factorGas = 0.7f; break; }
+                    }
+                    else if (unifiedCell.InBounds(link.host)
+                        && unifiedCell.AnyGas(link.host, GasType.BlindSmoke))
+                    {
+                        factorGas = 0.7f;
+                        break;
+                    }
+                }
+            }
+            var ignoreMaluses = verb.EquipmentSource != null
+                && verb.EquipmentSource.TryGetComp(out CompUniqueWeapon unique) && unique.IgnoreAccuracyMaluses;
+            var targetRoofed = originalTarget.Cell.InBounds(link.target)
+                && originalTarget.Cell.Roofed(link.target);
+            var factorWeather = !ignoreMaluses && (!caster.Position.Roofed(link.host) || !targetRoofed)
+                ? link.host.weatherManager.CurWeatherAccuracyMultiplier
+                : 1f;
+
             DistanceField.SetValueDirect(__makeref(__result), distance);
-            TargetField.SetValueDirect(__makeref(__result), target.ToTargetInfo(targetMap));
+            TargetField.SetValueDirect(__makeref(__result), originalTarget.ToTargetInfo(link.target));
             CoversField.SetValueDirect(__makeref(__result), covers);
             CoversOverallField.SetValueDirect(__makeref(__result), blockChance);
             FactorShooterField.SetValueDirect(__makeref(__result), factorShooter);
             FactorEquipmentField.SetValueDirect(__makeref(__result), factorEquipment);
+            FactorGasField.SetValueDirect(__makeref(__result), factorGas);
+            FactorWeatherField.SetValueDirect(__makeref(__result), factorWeather);
+            ShootLineField.SetValueDirect(__makeref(__result), shootLine);
+        }
+
+        /// <summary>The virtual caster placement must not survive an exception in the report builder.</summary>
+        public static System.Exception Finalizer(System.Exception __exception, State __state)
+        {
+            Restore(__state);
+            return __exception;
         }
     }
 
@@ -200,7 +315,7 @@ namespace RimExodus
     /// <summary>
     /// 跨图朝向修正（2026-08 修复"射击时面朝方向不对"）：原版 Pawn_RotationTracker.UpdateRotation
     /// 对瞄准姿态（Stance_Busy.focusTarg）与 Job 面向（curDriver.rotateToFace 目标）直接用
-    /// focusTarg.Thing.DrawPos——那是目标在自己图上的本地坐标，pawn 会朝本图同数字坐标方向看。
+    /// focusTarg 的 Thing/Cell 本地坐标——跨图时 pawn 会朝本图同数字坐标方向看。
     /// 焦点目标在对端活跃邻居图时改朝统一坐标（DrawPos + offset，与弹道/渲染同一坐标系）。
     /// </summary>
     [HarmonyPatch(typeof(Pawn_RotationTracker), "UpdateRotation")]
@@ -214,27 +329,22 @@ namespace RimExodus
             var pawn = ___pawn;
             if (pawn?.Map == null) return;
 
-            Thing focusThing = null;
+            var focus = LocalTargetInfo.Invalid;
+            Verb verb = null;
             var busy = pawn.stances?.curStance as Stance_Busy;
             if (busy != null)
             {
-                if (busy.focusTarg.IsValid && busy.focusTarg.HasThing)
-                {
-                    focusThing = busy.focusTarg.Thing;
-                }
+                if (busy.focusTarg.IsValid) focus = busy.focusTarg;
+                verb = busy.verb;
             }
             else if (pawn.jobs?.curJob != null && pawn.jobs.curDriver != null)
             {
-                var focus = pawn.CurJob.GetTarget(RotateToFaceRef(pawn.jobs.curDriver));
-                if (focus.HasThing)
-                {
-                    focusThing = focus.Thing;
-                }
+                focus = pawn.CurJob.GetTarget(RotateToFaceRef(pawn.jobs.curDriver));
+                verb = pawn.CurrentEffectiveVerb;
             }
 
-            if (focusThing?.Map == null || focusThing.Map == pawn.Map) return;
-            if (!SeamlessViewProjection.TryProject(focusThing.Map, focusThing.DrawPos, pawn.Map, out var projected)) return;
-            __instance.Face(projected);
+            if (SeamlessCrossMapCellTarget.TryGetUnifiedTarget(pawn, verb, focus, out var unified))
+                __instance.Face(unified);
         }
     }
 }

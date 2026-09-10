@@ -29,9 +29,9 @@ namespace RimExodus
     }
 
     /// <summary>
-    /// Makes the vanilla weapon-gizmo Targeter resolve Things drawn from an active neighbor map.
-    /// LocalTargetInfo has no Map for cell-only targets, so this deliberately handles Thing targets only;
-    /// the Thing itself carries its real Map through ValidateTarget/CanHitTarget/OrderForceTarget.
+    /// Makes the shared weapon/ability Targeter resolve Things and cell-only targets drawn from an active
+    /// neighbor map. Cell targets retain their otherwise missing Map identity in
+    /// <see cref="SeamlessCrossMapCellTarget"/>.
     /// </summary>
     [HarmonyPatch(typeof(GenUI), nameof(GenUI.TargetsAtMouse))]
     public static class Patch_GenUI_TargetsAtMouse_CrossMapCombat
@@ -47,13 +47,25 @@ namespace RimExodus
 
             var hostMap = Find.CurrentMap;
             var mouseMapPosition = UI.MouseMapPosition();
-            if (hostMap == null
-                || !SeamlessMapUtility.TryResolveMapPosition(mouseMapPosition, hostMap,
+            if (hostMap == null) return true;
+            if (!SeamlessMapUtility.TryResolveMapPosition(mouseMapPosition, hostMap,
                     out var targetMap, out var targetLocalCell)
-                || targetMap == null || targetMap == hostMap)
+                || targetMap == null)
             {
+                SeamlessCrossMapCellTarget.Clear(verb, source.Caster);
                 return true;
             }
+
+            var caster = source.Caster;
+            var casterMap = caster?.Map ?? hostMap;
+            if (targetMap == casterMap)
+                SeamlessCrossMapCellTarget.Clear(verb, caster);
+            else
+                SeamlessCrossMapCellTarget.Register(verb, caster, casterMap, targetMap, targetLocalCell);
+
+            // The mouse is on the focused map, so vanilla can enumerate it correctly. We only needed
+            // to retain Map identity above when the selected caster itself belongs to a neighbor map.
+            if (targetMap == hostMap) return true;
 
             // Preserve the sub-cell mouse offset so pawn wide-click and item ordering match vanilla.
             var hostCell = IntVec3.FromVector3(mouseMapPosition);
@@ -63,7 +75,6 @@ namespace RimExodus
                 localMousePosition, 0.8f, clickParams, targetMap, localMousePosition, source);
 
             var targets = new List<LocalTargetInfo>(things.Count);
-            var caster = source.Caster;
             for (var i = 0; i < things.Count; i++)
             {
                 var thing = things[i];
@@ -74,7 +85,11 @@ namespace RimExodus
                 }
             }
 
-            // Do not synthesize a cell target: LocalTargetInfo(cell) cannot retain the neighbor Map.
+            if (!thingsOnly)
+            {
+                var cellTarget = new LocalTargetInfo(targetLocalCell);
+                if (clickParams.CanTarget(new TargetInfo(targetLocalCell, targetMap))) targets.Add(cellTarget);
+            }
             __result = targets;
             return false;
         }
@@ -115,6 +130,12 @@ namespace RimExodus
         {
             var thing = __state.target.Thing;
             if (__state.verb == null) return;
+            if (thing == null && SeamlessCrossMapCellTarget.TryResolve(__state.verb, __state.target,
+                    out var cellLink, out _))
+            {
+                FleckMaker.Static(__state.target.Cell.ToVector3Shifted(), cellLink.target, FleckDefOf.FeedbackShoot);
+                return;
+            }
             if (thing?.Map == null || thing.Map == Find.CurrentMap) return;
             // FleckMaker's shared cross-map feedback patch projects this onto the focused map.
             FleckMaker.Static(thing.DrawPos, thing.Map, FleckDefOf.FeedbackShoot);
@@ -129,17 +150,62 @@ namespace RimExodus
     [HarmonyPatch(typeof(GenDraw), nameof(GenDraw.DrawTargetHighlight))]
     public static class Patch_GenDraw_DrawTargetHighlight_SeamlessView
     {
+        private static readonly FieldInfo TargetingSourceField =
+            AccessTools.Field(typeof(Targeter), "targetingSource");
+
         public static bool Prefix(LocalTargetInfo targ)
         {
             var thing = targ.Thing;
             var viewMap = Find.CurrentMap;
-            if (thing?.Map == null || viewMap == null || thing.Map == viewMap) return true;
+            if (thing == null)
+            {
+                var source = TargetingSourceField?.GetValue(Find.Targeter) as ITargetingSource;
+                if (!SeamlessCrossMapCellTarget.TryResolve(source?.GetVerb, targ, out _, out var unified)) return true;
+                Graphics.DrawMesh(MeshPool.plane10, unified.ToVector3ShiftedWithAltitude(AltitudeLayer.Building),
+                    Quaternion.identity, GenDraw.CurTargetingMat, 0);
+                return false;
+            }
+            if (thing.Map == null || viewMap == null || thing.Map == viewMap) return true;
             if (!SeamlessViewProjection.TryProject(thing.Map, thing.TrueCenter(), viewMap, out var projected)) return true;
 
             projected.y = AltitudeLayer.MapDataOverlay.AltitudeFor();
             Graphics.DrawMesh(MeshPool.plane10, projected, thing.Rotation.AsQuat, GenDraw.CurTargetingMat, 0);
             if (thing is Pawn || thing is Corpse) TargetHighlighter.Highlight(thing, arrow: false);
             return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(GenDraw), nameof(GenDraw.DrawTargetHighlightWithLayer),
+        new[] { typeof(Vector3), typeof(AltitudeLayer) })]
+    public static class Patch_GenDraw_DrawTargetHighlightWithLayer_CrossMapCell
+    {
+        private static readonly FieldInfo TargetingSourceField =
+            AccessTools.Field(typeof(Targeter), "targetingSource");
+
+        public static void Prefix(ref Vector3 c)
+        {
+            var source = TargetingSourceField?.GetValue(Find.Targeter) as ITargetingSource;
+            var local = IntVec3.FromVector3(c);
+            if (SeamlessCrossMapCellTarget.TryResolve(source?.GetVerb, new LocalTargetInfo(local),
+                    out _, out var unified))
+            {
+                var offset = c - local.ToVector3Shifted();
+                c = unified.ToVector3Shifted() + offset;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Ability highlights render both a target marker and (optionally) an effect-radius ring. Passing the
+    /// unified cell at this visual boundary fixes both without changing the stored cast target.
+    /// </summary>
+    [HarmonyPatch(typeof(Verb_CastAbility), nameof(Verb_CastAbility.DrawHighlight))]
+    public static class Patch_Verb_CastAbility_DrawHighlight_CrossMapCell
+    {
+        public static void Prefix(Verb_CastAbility __instance, ref LocalTargetInfo target)
+        {
+            if (!target.HasThing && SeamlessCrossMapCellTarget.TryResolve(__instance, target,
+                    out _, out var unified)) target = new LocalTargetInfo(unified);
         }
     }
 

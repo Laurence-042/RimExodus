@@ -128,7 +128,7 @@
 - 跨图寻路只支持单跳。桥点选择使用双侧代价场；普通 Pawn 与 VF 载具必须使用各自的路径成本源和准入规则。
 - 外部 Mod 若用多个 spawned Pawn 表示一个移动主体，使用 `SeamlessTransferAssociations` provider 扩展；关联 Pawn 复用 `TryTransferPawnInternal(captureAssociations:false)`，不要在核心硬编码外部字段。Giddy-Up 恢复骑乘前必须结束旧图的 Mounted job，再调用其即时 GoMount。
 - NPC 撤离目标是传送点时，`JobDriver_Goto.TryExitMap` 在到达 spot 前推迟原生离场；对端活跃则跨图续链，对端未加载/休眠则在缝线上交还原生离场。不要按 lord 类型拆分这条共同链。
-- 跨图战斗只覆盖直射 projectile，不覆盖 flyOverhead/迫击炮 AoE 跨缝。坐标、LOS、射程和弹道以射手图统一坐标计算，逐格阻挡按归属图路由；休眠邻图不可参与战斗。
+- 跨图战斗覆盖原版/CE 的移动 projectile（含 flyOverhead）、CE instant RayCast 与纯格目标。坐标、LOS、射程和弹道以射手图统一坐标计算，逐格阻挡按归属图路由；爆炸 AoE 只在实际落点图原生结算，休眠邻图不可参与战斗。
 - 弹丸在 `Projectile.TickInterval` Prefix 于越缝前迁移 Map，保持 origin/destination 平移和剩余飞行状态；交接后命中与爆炸交回原版目标图处理。
 - `SeamlessVirtualTeleporter` 的评估窗口必须直写并恢复 `mapIndexOrState` 与 `positionInt`，禁止用 `Position` setter 触发两图网格簿记。
 - lord 是 map-anchored 状态，默认跨图后不续；只有与地图无关且已明确支持的行为在 `TryContinueLordOnArrival` 集中重建/合流。mental state 是 pawn-local，不要清理。
@@ -162,7 +162,7 @@
 - Vehicle Framework：跨图前先同步就绪化目标图 VehiclePathGrid，再用整车矩形与载具自己的成本源判断落点。不得用普通 Pawn 的 Walkable 或 thingGrid Standable 预筛深水/植被。
 - Perspective Shift：WASD 绕过 job/pather，预加载和踩点需兼容钩子；传送方向以输入与邻接 `offsetDir` 的正点积门控，跨图后切 CurrentMap 并保留缩放。PS 与 VF 同装时驾驶路径走独立 vehicle movement 钩子。
 - VGE 世界炮击弹丸在离开发射图时交还 VGE 原生方形边界流程；抵达目标图后 `targetTile` 无效的落地弹丸仍走普通 RimExodus 直射逻辑。
-- Combat Extended：保持单 DLL 软反射；同图始终交还 CE。CE verb 必须跳过通用 `Verb.TryFindShootLineFromTo` 接管，以 CE 自身 `TryFindCEShootLineFromTo` 底层钩子为跨图射程/LOS 唯一事实源；CE 浮点射线在可能为负的统一坐标上须先整体平移到非负域再枚举。`ProjectileCE.MoveForward` 后、越界/碰撞前迁移并平移全部位置状态；instant、flyOverhead、guided/homing、CIWS 和世界炮击不得误纳入。`Building_TurretGunCE` 静态构造器会加载 Unity 材质，炮塔 detour 必须延迟到 long event 主线程收尾注册。完整支持矩阵见 `doc/CombatExtended跨图射击适配.md`。
+- Combat Extended：保持单 DLL 软反射；同图始终交还 CE。CE verb 必须跳过通用 `Verb.TryFindShootLineFromTo` 接管，以 CE 自身 `TryFindCEShootLineFromTo` 底层钩子为跨图射程/LOS 唯一事实源；CE 浮点射线在可能为负的统一坐标上须先整体平移到非负域再枚举。纯格目标的真实 Map 只由 `SeamlessCrossMapCellTarget` 侧表承载，不注入假 Thing。移动 `ProjectileCE`（含 flyOverhead/guided/CIWS）在 `MoveForward` 后、越界/碰撞前迁移并平移全部位置状态；制导只在基础 worker 读目标时投影坐标，不复制导引算法。instant 在 `ProjectileCE.RayCast` 逐格路由并交还 CE Impact；Ability 在 `CE_Utility.LaunchProjectileCE` 公共入口修正角度。`globalTargetInfo` 有效的世界炮击不得误纳入。`Building_TurretGunCE` 静态构造器会加载 Unity 材质，炮塔 detour 必须延迟到 long event 主线程收尾注册。完整支持矩阵见 `doc/CombatExtended跨图射击适配.md`。
 
 具体兼容实现和版本状态以 `README.md` 与 `Source/Compat/` 代码注释为准，不在本文件保留逐轮调试记录。
 
@@ -171,7 +171,7 @@
 - 能用 Prefix/Postfix、ref 改参或收尾字段修正完成的功能，不写 transpiler。必须写 transpiler 时，先对真实游戏 DLL 解码确认 IL；原地 mutate `CodeInstruction`，不要替换对象导致 labels 丢失。CLR 验证器无法发现全部 Mono DMD 非法 IL，游戏启动日志才是最终依据。
 - Harmony 按参数名绑定；不确定时使用已核实的真实签名或位置参数。手动绑定的重载必须显式参数类型消歧。
 - 分模块日志使用 `RimExodusLog` 与 `RimExodusLogModule`。新诊断消息走对应模块；Warn/Error 不受开关控制。低频生命周期与显式 Dev 动作可常开，热路径和周期细节必须门控。旧 `verboseLogging` 只保留存档兼容，不新增消费点。
-- 离线 PatchAll 验证器位于 `C:\Users\Laure\.zcode\tmp\rimptest\`。新增或修改 Harmony patch 后运行它；当前记录基线（2026-09-09）为 `BOUND OK 107 / FAILED 15`，15 项是已确认的 CLR 伪迹。基线变化时只更新当前数字与伪迹清单所在注释，不保留数字演进流水账。
+- 离线 PatchAll 验证器位于 `C:\Users\Laure\.zcode\tmp\rimptest\`。新增或修改 Harmony patch 后运行它；当前记录基线（2026-09-09）为 `BOUND OK 109 / FAILED 16`，16 项是已确认的 CLR 伪迹（新增 `DrawTargetHighlightWithLayer` 与既有 `GenDraw` 绘制 patch 同为 `SecurityException: ECall`）。基线变化时只更新当前数字与伪迹清单所在注释，不保留数字演进流水账。
 - 最终确认必须包含游戏日志中的 Mod 实例化行与 `GetPatchedMethods` 报告。测试本地构建前先确认游戏实际加载的是刚编译 DLL，而不是 Workshop 旧版本。
 
 ## 14. 存档与卸载

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using RimWorld;
@@ -9,7 +10,8 @@ namespace RimExodus
 {
     /// <summary>
     /// 跨图战斗视觉层 patch（阶段5，2026-08）：攻击连线 / 行走路线 / 枪口瞄准角。
-    /// 三者共同根因：视觉消费者直接读跨图目标的本地坐标（或被同图守卫跳过）。
+    /// 三者共同根因：视觉消费者直接读跨图目标的本地坐标（或被同图守卫跳过）。Thing 目标
+    /// 从自身恢复 Map；手雷/迫击炮等纯格目标统一从 SeamlessCrossMapCellTarget 恢复 Map。
     /// ① <see cref="Patch_Pawn_JobTracker_DrawLinesBetweenTargets"/>——原版 1020 行
     ///    "targetA.Thing.Map == pawn.Map" 守卫使跨图攻击目标**完全不画线**（对侧攻击标记）；
     ///    邻图 pawn 被选中时按其本图坐标画线（当前视图错位）。
@@ -22,15 +24,56 @@ namespace RimExodus
     [HarmonyPatch(typeof(Pawn_JobTracker), nameof(Pawn_JobTracker.DrawLinesBetweenTargets))]
     public static class Patch_Pawn_JobTracker_DrawLinesBetweenTargets
     {
+        public sealed class State
+        {
+            public Job job;
+            public LocalTargetInfo originalTarget;
+            public bool replacedCellTarget;
+            public bool restored;
+        }
+
+        private static void Restore(State state)
+        {
+            if (state == null || state.restored) return;
+            if (state.replacedCellTarget && state.job != null)
+                state.job.targetA = state.originalTarget;
+            state.restored = true;
+        }
+
         /// <summary>
         /// 场景 A（邻图 pawn 被选中）：原版按其本图坐标画线，在当前视图是错位线——Prefix 接管，
         /// 起点与目标全部 +offset 重画（简化克隆：curJob.targetA）。
         /// 场景 B（本图 pawn、目标在邻图）由 Postfix 补画（见下）。
         /// </summary>
-        public static bool Prefix(Pawn_JobTracker __instance, Pawn ___pawn)
+        public static bool Prefix(Pawn_JobTracker __instance, Pawn ___pawn, out State __state)
         {
+            __state = null;
             var pawn = ___pawn;
-            if (pawn?.Map == null || pawn.Map == Find.CurrentMap) return true;
+            if (pawn?.Map == null) return true;
+
+            // Cell-only targets carry no Map in LocalTargetInfo. For a pawn on the focused map vanilla
+            // therefore draws targetA as though it belonged to that map. Temporarily substitute the
+            // unified cell while the vanilla routine draws its current target, then
+            // restore the real job target in Postfix. Thing targets keep the vanilla Map guard and are
+            // supplemented below, because replacing a Thing with a cell would lose its exact DrawPos.
+            if (pawn.Map == Find.CurrentMap)
+            {
+                var currentJob = __instance.curJob;
+                if (currentJob?.targetA.IsValid == true && !currentJob.targetA.HasThing
+                    && SeamlessCrossMapCellTarget.TryGetUnifiedTarget(pawn, pawn.CurrentEffectiveVerb,
+                        currentJob.targetA, out var unified))
+                {
+                    __state = new State
+                    {
+                        job = currentJob,
+                        originalTarget = currentJob.targetA,
+                        replacedCellTarget = true
+                    };
+                    currentJob.targetA = new LocalTargetInfo(unified.ToIntVec3());
+                }
+                return true;
+            }
+
             if (!SeamlessViewProjection.TryProject(pawn.Map, Vector3.zero, Find.CurrentMap, out var offsetV)) return true;
             var a = (pawn.pather.curPath != null
                 ? pawn.pather.Destination.CenterVector3
@@ -38,7 +81,10 @@ namespace RimExodus
             var job = __instance.curJob;
             if (job?.targetA.IsValid == true)
             {
-                GenDraw.DrawLineBetween(a, job.targetA.CenterVector3 + offsetV, AltitudeLayer.Item.AltitudeFor());
+                var target = job.targetA.CenterVector3;
+                if (SeamlessCrossMapCellTarget.TryGetUnifiedTarget(pawn, pawn.CurrentEffectiveVerb,
+                        job.targetA, out var unified)) target = unified;
+                GenDraw.DrawLineBetween(a, target + offsetV, AltitudeLayer.Item.AltitudeFor());
             }
             return false; // 原版画线在其本图坐标系，当前视图下错位，不采用
         }
@@ -50,23 +96,22 @@ namespace RimExodus
         /// 从不画持续目标标记（CurTargetingColor 红色脉冲材质仅瞄准 UI 期使用；曾对跨图攻击持续画
         /// DrawTargetHighlightWithLayer 造成"指示线末端红色闪烁圆圈"的非原版表现，已删，勿回退）。
         /// </summary>
-        public static void Postfix(Pawn ___pawn)
+        public static void Postfix(Pawn ___pawn, State __state)
         {
+            Restore(__state);
+
             var pawn = ___pawn;
             if (pawn?.Map == null || pawn.Map != Find.CurrentMap) return;
 
             var job = pawn.CurJob;
-            if (job != null && job.targetA.IsValid && job.targetA.HasThing)
+            if ((__state == null || !__state.replacedCellTarget) && job != null && job.targetA.IsValid
+                && SeamlessCrossMapCellTarget.TryGetUnifiedTarget(pawn, pawn.CurrentEffectiveVerb,
+                    job.targetA, out var unified))
             {
-                var thing = job.targetA.Thing;
-                if (thing?.Map != null && thing.Map != pawn.Map
-                    && SeamlessViewProjection.TryProject(thing.Map, thing.DrawPos, Find.CurrentMap, out var unified))
-                {
-                    var a = pawn.pather.curPath != null
-                        ? pawn.pather.Destination.CenterVector3
-                        : pawn.Position.ToVector3Shifted();
-                    GenDraw.DrawLineBetween(a, unified, AltitudeLayer.Item.AltitudeFor());
-                }
+                var a = pawn.pather.curPath != null
+                    ? pawn.pather.Destination.CenterVector3
+                    : pawn.Position.ToVector3Shifted();
+                GenDraw.DrawLineBetween(a, unified, AltitudeLayer.Item.AltitudeFor());
             }
 
             // 桥接行走的最终目的地延伸段：TransitGoto 只画到本图 spot，玩家看不到缝对面的终点。
@@ -82,12 +127,19 @@ namespace RimExodus
                 GenDraw.DrawLineBetween(start, unifiedDest, AltitudeLayer.Item.AltitudeFor());
             }
         }
+
+        /// <summary>Job is persistent state; restore it even when vanilla or another patch throws.</summary>
+        public static Exception Finalizer(Exception __exception, State __state)
+        {
+            Restore(__state);
+            return __exception;
+        }
     }
 
     /// <summary>
     /// 跨图瞄准进度指示器（2026-08 修复"瞄准 pie 角度不对"）：原版 GenDraw.DrawAimPie 用
-    /// target.Thing.DrawPos（目标图本地坐标）求 facing——身体朝向/枪口角两 patch 已修，pie 是
-    /// 同一坐标源的第三个消费者。Prefix 把跨图 thing 目标 **ref 替换为统一坐标的 cell 型
+    /// target.Thing.DrawPos 或 target.Cell（目标图本地坐标）求 facing——身体朝向/枪口角两 patch 已修，pie 是
+    /// 同一坐标源的第三个消费者。Prefix 把跨图目标 **ref 替换为统一坐标的 cell 型
     /// target** 后放行原方法（原版 `target.Thing == null` 分支用 Cell 差值算角，原生完成绘制，
     /// 零克隆零跨方法调用）；顺带覆盖 Building_TurretGun 选中时的跨图 pie。原版门槛（仅选中
     /// 显示、drawAimPie 旗标）在上游不动。
@@ -97,14 +149,12 @@ namespace RimExodus
     {
         public static void Prefix(Thing shooter, ref LocalTargetInfo target)
         {
-            if (shooter?.Map == null || !target.HasThing) return;
-            var thing = target.Thing;
-            if (thing?.Map == null || thing.Map == shooter.Map) return;
-            if (!SeamlessViewProjection.TryProject(thing.Map, thing.Position, shooter.Map, out var unifiedCell)) return;
+            var verb = (shooter as IAttackTargetSearcher)?.CurrentEffectiveVerb;
+            if (!SeamlessCrossMapCellTarget.TryGetUnifiedTarget(shooter, verb, target, out var unified)) return;
             // DrawAimPie only consumes the cell as a direction vector. A valid point on the neighboring
             // map may be outside the shooter's rectangular Map bounds while still being visible in the
             // composite view; rejecting it here would diverge from target/path/aim-line rendering.
-            target = new LocalTargetInfo(unifiedCell); // 原生 cell 分支用 (Cell - Position).AngleFlat 算 facing
+            target = new LocalTargetInfo(unified.ToIntVec3()); // 原生 cell 分支用 (Cell - Position).AngleFlat 算 facing
         }
     }
 
@@ -112,7 +162,7 @@ namespace RimExodus
     /// 跨图瞄准 mote 指示器（2026-08 修复"瞄准进度指示器方向不对"的第二类消费者）：
     /// <c>Stance_Warmup</c> 的瞄准三 mote——aimChargeMote（射手脚下随瞄准方向旋转的进度环，
     /// **玩家所见"瞄准进度指示器"的主体**）、aimTargetMote（目标标记，位置+朝向）、
-    /// aimLineMote（瞄准线终点）——位置/方向全部经 <c>focusTarg.CenterVector3</c>（目标图本地
+    /// aimLineMote（瞄准线终点）——位置/方向全部经 <c>focusTarg.CenterVector3</c>（Thing 或纯格的目标图本地
     /// 坐标）计算。**纯 Prefix/Postfix 方案（勿再对此链走 transpiler——2026-08 实测对
     /// InitEffects 的调用点替换在 Mono DMD 下产出非法 IL（InvalidProgramException，与历史瞄准角
     /// case 同款），PatchAll 整体抛异常 = mod 加载失败；CLR 验证器对此返回 OK，拦不住）：**
@@ -142,10 +192,8 @@ namespace RimExodus
             var verb = VerbRef(__instance);
             var caster = verb?.Caster;
             var focusTarg = FocusTargRef(__instance);
-            if (caster?.Map == null || !focusTarg.HasThing) return;
-            var thing = focusTarg.Thing;
-            if (thing?.MapHeld == null || thing.MapHeld == caster.Map) return;
-            if (!SeamlessViewProjection.TryProject(thing.MapHeld, thing.DrawPos, caster.Map, out var unifiedCenter)) return;
+            if (!SeamlessCrossMapCellTarget.TryGetUnifiedTarget(caster, verb, focusTarg,
+                    out var unifiedCenter)) return;
             var casterCenter = caster.DrawPos;
             var dir = unifiedCenter - casterCenter;
             dir.y = 0f;
@@ -206,7 +254,7 @@ namespace RimExodus
 
     /// <summary>
     /// 跨图瞄准角（2026-08 修复"枪的朝向和角度不对"）：原版 DrawEquipmentAndApparelExtras 用
-    /// focusTarg.Thing.DrawPos（目标图本地坐标）求 AngleFlat 并按它旋转武器贴身偏移。
+    /// focusTarg.Thing.DrawPos / focusTarg.Cell（目标图本地坐标）求 AngleFlat 并按它旋转武器贴身偏移。
     /// 在消费端 <see cref="PawnRenderUtility.DrawEquipmentAiming"/> 用 **ref 改参**修正后放行原方法
     /// （mesh/后坐力/材质零克隆）。**勿再为此走 transpiler**：曾对其取值链做指令对替换，Mono DMD
     /// 下持续产出 InvalidProgramException（call 0x00000037——分支标签保留的原地改写也复现），
@@ -222,10 +270,9 @@ namespace RimExodus
             if (pawn?.Map == null) return true;
 
             var busy = pawn.stances?.curStance as Stance_Busy;
-            if (busy == null || !busy.focusTarg.IsValid || !busy.focusTarg.HasThing) return true;
-            var thing = busy.focusTarg.Thing;
-            if (thing?.Map == null || thing.Map == pawn.Map) return true;
-            if (!SeamlessViewProjection.TryProject(thing.Map, thing.DrawPos, pawn.Map, out var unified)) return true;
+            if (busy == null || !busy.focusTarg.IsValid
+                || !SeamlessCrossMapCellTarget.TryGetUnifiedTarget(pawn, busy.verb,
+                    busy.focusTarg, out var unified)) return true;
             var correctAngle = (unified - pawn.DrawPos).AngleFlat();
             if (!SeamlessViewProjection.TryProject(pawn.Map, pawn.DrawPos, Find.CurrentMap, out var projectedPawn))
             {

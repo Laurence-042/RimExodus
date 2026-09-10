@@ -8,7 +8,9 @@ namespace RimExodus
     /// 评估期虚拟传送（VMF VirtualTeleporter 同构）：直写 <c>Thing.mapIndexOrState</c>（private
     /// sbyte，编码 = Find.Maps 索引，-1 未生成）与 <c>positionInt</c>（Position 属性的后备字段），
     /// 让"完全原版"的评估函数认为 pawn 站在目标图/目标格上运行；Dispose 恢复。短窗口括号用法
-    /// （Prefix 进 / Postfix 还原），不触发 spawn/despawn 副作用，网格不更新（窗口内只做只读评估）。
+    /// （Prefix 进 / Postfix 在正常路径尽早还原，并由 Finalizer 覆盖异常路径），不触发
+    /// spawn/despawn 副作用，网格不更新（窗口内只做只读评估）。任何新调用点都必须提供
+    /// 异常安全的恢复路径；只配 Prefix/Postfix 会在原方法抛错时把 Thing 永久留在假图/假格。
     ///
     /// **Position 必须直写后备字段、绝不能走 <c>thing.Position = ...</c> 属性赋值（2026-08 修复，
     /// "Exception in BreadthFirstTraverse ... ThingFromRegionListerReachable NRE" 的根因，勿回退）**：
