@@ -1,37 +1,32 @@
-虽然我很想大言不惭地说这些我都会做，但我对自己的能力有一个相对精准的认识，并深刻理解有些机制在调研前根本无法知道其水有多深。所以我只能说尽力而为。
+本 mod 已结束测试阶段并进入 1.0.0。此后原则上不再加入大型功能，后续更新将以范围合理、实现成本可控的兼容性与可靠性修复为主
+This mod has left testing and reached version 1.0.0. From here on, no major new features are planned; future updates will focus on compatibility and reliability fixes with a reasonable scope and implementation cost.
 
-Although I would like to boldly claim that I can implement all of these features, I have a relatively accurate understanding of my own abilities, and I deeply understand that some mechanics are impossible to fully evaluate before proper research. Therefore, all I can say is that I will do my best.
+至于接下来我会去做什么：
+As for what I will work on next: 
 
-如果你有什么建议，也欢迎在这里分享（虽然受限于我的能力和精力，不一定都能做）
+其实我一直在开发一款游戏。RimExodus 原本只是我利用业余时间测试新技术的实验性项目，却远比预想中更受欢迎。为了回应大家的热情，我在它上面投入了远超计划的时间，也因此耽搁了一些游戏开发进度。完成这里的工作后，我得先回去补一补进度了
+I have actually been developing a game. RimExodus began as an experimental side project for testing new technologies in my spare time, but it became far more popular than I expected. Responding to everyone's enthusiasm led me to invest much more time in it than planned, which put the game's development somewhat behind schedule. Once the work here is complete, I need to return to it and catch up.
 
-If you have any suggestions, feel free to share them here (though, due to limitations in my time and ability, I may not be able to implement all of them).
 
-TODO（优先级从高到低）
-TODO (Priority Order)
-- （常驻）bug 修复
-(Ongoing) Bug fixes
-- 确认跨图射击是否还有进一步优化的空间，并加入可选的武器射程调整。配合 0.1.10 引入的“邻接地图平时冻结、遭遇袭击时自动解冻”机制，跨图战斗将有望成为日常玩法，并让步枪真正拥有符合其定位的交战距离
-  Explore whether cross-map shooting can be optimized further, and add an optional weapon-range adjustment. Together with the system introduced in 0.1.10—which keeps adjacent maps frozen during normal play and automatically unfreezes them during raids—this should make cross-map combat practical as a regular part of the game and allow rifles to engage at distances that better suit their intended role.
-- 完成跨图射击优化与可选的武器射程调整后，本 mod 将结束测试阶段并进入 1.0.0。此后原则上不再加入大型功能，后续更新将以范围合理、实现成本可控的兼容性与可靠性修复为主
-  Once the cross-map shooting improvements and optional weapon-range adjustment are complete, the mod will leave testing and reach version 1.0.0. After that, no major new features are planned; future updates will focus primarily on compatibility and reliability fixes with a reasonable scope and implementation cost.
-- 至于接下来要做什么：其实我一直在开发一款游戏。RimExodus 原本只是我利用业余时间测试新技术的实验性项目，却远比预想中更受欢迎。为了回应大家的热情，我在它上面投入了远超计划的时间，也因此耽搁了一些游戏开发进度。完成这里的工作后，我得先回去补一补进度了
-  As for what I will work on next: I have actually been developing a game. RimExodus began as an experimental side project for testing new technologies in my spare time, but it became far more popular than I expected. Responding to everyone's enthusiasm led me to invest much more time in it than planned, which put the game's development somewhat behind schedule. Once the work here is complete, I need to return to it and catch up.
-- 如果你真正想问的是以后还会不会做 RimWorld mod——我猜，也许，大概……会？说实话，制作 RimWorld mod 有时甚至比玩游戏本身更有意思，我也确实还有一些进一步利用RimExodus中催熟的跨地图机制的想法。不过别抱太大期望，毕竟知道我的游戏要到猴年马月才能完成；就算完成了，也大概率会暴死，然后我继续回去当社畜。社畜的生活大家都懂
-  If what you’re really asking is whether I’ll make more RimWorld mods in the future—well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, who knows when my own game will actually be finished—if it ever is. It’ll likely flop hard, and I’ll just go back to being a corporate drone. You know how that life goes.
+如果你真正想问的是以后还会不会做 RimWorld mod：
+If what you’re really asking is whether I’ll make more RimWorld mods in the future：
 
-0.1.11
-- 新增：敌对步行袭击现在可以从相邻地图的外侧边缘进场，再行军穿过地块边界向你进攻——普通突击、工兵/破墙、先集结再进攻与人类炮击围攻（迫击炮从邻图跨缝轰击你）都在此列，发狂动物、食尸鬼、蹒跚怪与奇美拉也会从邻图袭来。mod 添加的袭击事件默认同样从邻图进场（无法识别的进攻策略会简化为普通突击），不希望某个事件这样，可在设置的"袭击类型"列表里把它改回本图生成；设置说明同时明确了"步行袭击"的范围以及空投、机械体围攻/灵能仪式围攻不参与的原因
-  New: hostile walking raids may now arrive on the outer edge of a neighboring map and then march across the world-tile border to attack you — plain assaults, sappers/breachers, stage-then-attack, and human artillery sieges (their mortars shell you across the seam from the neighboring map) are all included, and manhunter animals, ghouls, shamblers, and chimeras also arrive from neighboring maps. Mod-added raid incidents default to arriving from a neighboring map as well (unrecognized strategies are simplified to a plain assault); if you don't want that for a specific incident, switch it back to local spawning in the settings' incident-type list. The settings tooltip now also explains exactly what counts as a "walking raid" and why drop pods and camp-building sieges (mechanoid / psychic ritual) are not part of it.
+我猜，也许，大概……会？说实话，制作 RimWorld mod 有时甚至比玩游戏本身更有意思，我也确实还有一些进一步利用RimExodus中催熟的跨地图机制的想法。不过别抱太大期望，毕竟我得先把重点放回我的游戏开发；就算开发完成了，也大概率会暴死，然后我继续回去当社畜。社畜的生活大家都懂
+well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, I need to refocus on my own game development first. Even if it does get finished, it'll likely flop hard, and I'll just go back to being a corporate drone. Everyone knows how that life goes.
+
+
+1.0.0
+- 改进：从邻图外缘进场的步行袭击（0.1.10 引入）覆盖面扩大——工兵/破墙、先集结再进攻与人类炮击围攻（迫击炮从邻图跨缝轰击你）现在也会从邻图进场，此前只会从本图边缘约束进场的发狂动物与食尸鬼改为真正从邻图袭来，蹒跚怪的突击与集群事件、奇美拉袭击同样如此。mod 添加的袭击事件默认同样从邻图进场（无法识别的进攻策略会简化为普通突击），不希望某个事件这样，可在设置的"袭击类型"列表里把它改回本图生成；设置说明同时明确了"步行袭击"的范围以及空投、机械体围攻/灵能仪式围攻不参与的原因
+  Improved: walking raids arriving from a neighboring map's outer edge (introduced in 0.1.10) now cover far more ground — sappers/breachers, stage-then-attack, and human artillery sieges (their mortars shell you across the seam from the neighboring map) now also arrive and set up on a neighboring map; manhunter animals and ghouls, previously only constrained to spawn at an unseen edge of your own map, now truly arrive from a neighboring map, as do shambler assaults and swarms and chimera attacks. Mod-added raid incidents default to arriving from a neighboring map too (unrecognized strategies are simplified to a plain assault); if you don't want that for a specific incident, switch it back to local spawning in the settings' incident-type list. The settings tooltip now also explains exactly what counts as a "walking raid" and why drop pods, mechanoid sieges, and psychic ritual sieges are not part of it.
 - 新增：近战敌人可以跨图索敌——发狂动物、蹒跚怪、食尸鬼、奇美拉与近战袭击者会锁定相邻地图上的目标，穿过接缝走过去攻击，不再对缝对面的敌人视而不见
   New: melee enemies can now acquire targets across maps — manhunter animals, shamblers, ghouls, chimeras, and melee raiders lock onto targets on the neighboring map, cross the seam, and fight, instead of ignoring enemies just across the border.
-- 修复：奇美拉与发狂动物等异常生物跨过地块接缝后会停止行动并原地消失——它们未被正确编入进攻队伍，会被当成迷途者直接离场
-  Fixed: chimeras and other Anomaly creatures stopped acting and vanished on the spot after crossing a world-tile seam — they weren't being assigned to an attacking group after the crossing and were treated as strays that simply left the map.
 - 修复：敌人刚传送到接缝上就被跨图下令移动时，可能触发报错并使其卡死无法行动
   Fixed: enemies ordered to move across the map right after teleporting onto a seam could trigger an error and become stuck, unable to act.
-- 改进：世界地图上标记"会被封存保留"的中心白点已移除——封存地块本身的青绿色足以区分，白点并无必要
-  Improved: removed the center white dot that marked tiles to be preserved on the world map — the teal color of archived tiles is distinctive enough on its own.
 - 新增：设置"跨图战斗"页新增可选的武器射程曲线映射（默认关闭）。开启后按可自定义的分段曲线整体拉伸全部远程武器的射程（原版与 Combat Extended 通用，敌我同规则），武器精度档位距离随曲线一同拉伸——武器在新最大射程上的命中表现与原来在旧射程上相当，属性提示中的档位距离文案也会同步更新。默认曲线刻意压制短射程武器的增长、拉大长射程武器之间的差异（霰弹 16→29、左轮 26→48、突击步枪 31→61、栓动步枪 37→77、狙击步枪 45→99）。自带曲线编辑器（可调值、曲线预览、试算），改动即时生效、关闭后完全还原
   New: an optional weapon range curve remap in the "Cross-map combat" settings tab (off by default). When enabled, all ranged weapons' ranges (vanilla and Combat Extended alike, same rules for both sides) are stretched along a customizable piecewise curve, and accuracy band distances stretch with it - each weapon is about as accurate at its new maximum range as it was at its old one, and stat tooltips update to match. The default curve deliberately keeps short-range weapons close while spreading long-range ones further apart (shotgun 16 to 29, revolver 26 to 48, assault rifle 31 to 61, bolt-action 37 to 77, sniper rifle 45 to 99). Includes a curve editor with live preview and a range probe; changes apply instantly and revert completely when disabled.
+
+
+0.1.11
 - 修复：安装 Geological Landforms 时，某些河流地貌在新建游戏或生成新地图时可能因流路计算越界而中断生成，或在地块边界内提前结束而没有真正连到接缝
   Fixed: with Geological Landforms installed, some river landforms could abort new-game or new-map generation due to an out-of-range flow-path error, or stop inside the tile boundary without actually reaching the seam.
 - 修复：Vanilla Vehicles Expanded 的摩托艇明明可以在深海航行，却无法跨越由深海连接的地图接缝。跨图移动现在会按照载具或角色自身的实际通行能力选择路线并检查落点，飞行中的动物也不再按普通人类的水面移动规则计算（@Harpuea 报告的问题）
