@@ -4,7 +4,7 @@ Say goodbye to the disjointed "exit map → world map → reload" travel loop. R
 
 [img]https://raw.githubusercontent.com/Laurence-042/RimExodus/main/doc/img/demo.gif[/img]
 
-[b]⚠ In development; deep map-system changes — bugs may still pop up in odd places. The save format is now basically stable, and problem reports are welcome. Before uninstalling, run "Restore vanilla compatibility" in settings and save; the first mod-free load shows harmless one-time red errors, gone after one more save. But map-generation-related limits remain — see the "About uninstalling" post.[/b]
+[b]⚠ Before uninstalling, run "Restore vanilla compatibility" in settings and save; the first mod-free load shows harmless one-time red errors, gone after one more save. But map-generation-related limits remain — see the "About uninstalling" post.[/b]
 
 [h1]What It Does[/h1]
 
@@ -48,7 +48,7 @@ Trading with a settlement trader
 
 In theory, anything that doesn't modify base maps (the per-tile maps on the planet view) works.
 
-[b]Combat Extended cross-map combat is adapted[/b]: ordinary firearms, grenades, mortars, instant rays, guided projectiles, CIWS, suppression fire, and ability-launched projectiles can all engage targets on adjacent maps, while pawns and automatic/manual turrets acquire cross-map targets; range, line of sight, cover, smoke, lighting, dispersion, and ballistics still follow CE rules on the actual maps. Same-map combat goes entirely through CE's native logic, and CE world shelling keeps its original flow.
+[b]cross-map combat is adapted for Combat Extended[/b]: ordinary firearms, grenades, mortars, instant rays, guided projectiles, CIWS, suppression fire, and ability-launched projectiles can all engage targets on adjacent maps, while pawns and automatic/manual turrets acquire cross-map targets; range, line of sight, cover, smoke, lighting, dispersion, and ballistics still follow CE rules on the actual maps. Same-map combat goes entirely through CE's native logic, and CE world shelling keeps its original flow.
 
 For details, see the "Compatibility Details" post in the discussions.
 
