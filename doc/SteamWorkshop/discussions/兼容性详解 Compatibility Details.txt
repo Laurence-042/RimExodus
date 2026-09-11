@@ -14,10 +14,10 @@ Adds extra map generation steps to cut maps into hexagons (pentagons on the 12 p
 2. Patch 了一些射击行为（投掷手榴弹也包含在内），允许跨地图射击（可关闭，关闭后不会有跨图战斗）。
 Patches certain shooting behaviors (including thrown grenades) to allow firing across maps. (Can be disabled; when disabled, there is no cross-map combat.)
 
-3. 创建了新的地图生成器管线：生成没有 POI 的地图（普通地块——势力据点、机械师遗迹、强盗营地、空气污染器据点等以及一切使用据点机制的 Mod 内容不在此列）时使用分帧地图生成，避免地图生成期间卡死无法操作（可关闭，关闭后所有地图都走原版地图生成器管线）。
-Creates a new map generation pipeline: maps without POIs (plain tiles — faction settlements, ancient mechanic complexes, bandit camps, pollux sites, and any mod-added content using the settlement/POI mechanism are not included) are generated frame-by-frame, so the game stays responsive during generation. (Can be disabled; when disabled, all maps use the vanilla generation pipeline.)
+3. 创建了新的地图生成器管线：生成没有 POI 的地图（普通地块——派系基地、机械师遗迹、强盗营地、污染源地点等以及一切使用地点（site）机制的 Mod 内容不在此列）时使用分帧地图生成，避免地图生成期间卡死无法操作（可关闭，关闭后所有地图都走原版地图生成器管线）。
+Creates a new map generation pipeline: maps without POIs (plain tiles — faction settlements, ancient mechanic complexes, bandit camps, pollution sites, and any mod-added content using the site/POI mechanism are not included) are generated frame-by-frame, so the game stays responsive during generation. (Can be disabled; when disabled, all maps use the vanilla generation pipeline.)
 
-4. 在 pawn 所在地图格上生成一个隐形的、不会被袭击的、与 pawn 对应的影子远行队，用来在据点中与贸易商交互时提供完整远行队上下文。
+4. 在 pawn 所在地图格上生成一个隐形的、不会被袭击的、与 pawn 对应的影子远行队，用来在派系基地中与贸易商交互时提供完整远行队上下文。
 Spawns an invisible, raid-immune "shadow caravan" matching your pawns on their current tile, providing full caravan context when interacting with traders at settlements.
 
 本 Mod 做无缝的机制本质上是使用类似 Vehicle Map Framework 的技术，在当前地图周围渲染可以互动的邻居地块的地图，并允许 pawn 在接缝上通过隐形的传送点互相传送。
@@ -30,11 +30,14 @@ From these modifications you can roughly judge compatibility with any given mod.
 做了额外适配后兼容 / Compatible After Extra Adaptation
 ----------------------------------------------------------
 
+Combat Extended：CE 的战斗行为与原版不走同一条路，跨图射击需要单独适配，现已完成——普通枪械、手雷、迫击炮、瞬发射线、制导弹、CIWS、压制射击与能力发射路径均可攻击相邻地图，角色与自动/手动炮塔会跨图索敌；射程、视线、掩体、烟雾、光照、散布、弹道、碰撞与爆炸仍按 CE 规则在真实地图上计算。同一张地图内的战斗完全走 CE 原生逻辑；CE 世界炮击继续使用其原生流程。
+Combat Extended: CE's combat follows a different code path from vanilla, so cross-map shooting needed a dedicated adaptation — now done. Ordinary firearms, grenades, mortars, instant rays, guided projectiles, CIWS, suppression fire, and ability-launched projectiles can engage targets on adjacent maps, while pawns and automatic/manual turrets acquire cross-map targets. Range, line of sight, cover, smoke, lighting, dispersion, ballistics, collision, and explosions still use CE rules on the actual maps. Combat within a single map goes entirely through CE's native logic; CE world shelling keeps its original flow.
+
 Vanilla Landmarks Expanded：除了改地图大小的地标外，其他地标都正常走 Odyssey 提供的机制，应该都适配。
 Except for landmarks that change map size, all landmarks use the mechanism provided by Odyssey and should be compatible.
 
-Geological Landforms：它虽然用正常的地图生成步骤生成地图，但额外 patch 了原版地图生成器管线，所以最初不兼容。考虑到用户较多、体验确实好，做了额外适配。但仍然可能有些地形表现不符合预期，或者连续性有些许问题。
-Geological Landforms: it generates maps through normal generation steps, but additionally patches the vanilla map generation pipeline, so it was initially incompatible. Given its large user base and the real improvement it brings, extra adaptation was done. Still, some terrain may occasionally not look as expected, or continuity may have minor issues.
+Geological Landforms：它虽然用正常的地图生成步骤生成地图，但额外 patch 了原版地图生成器管线，所以最初不兼容。考虑到用户较多、体验确实好，做了额外适配，河流地貌也已适配——河流会跨过地块边界连续流动，不再需要在 GL 设置里手动关闭。已知边界：合流（River Confluence）/ 河源（River Source）类地貌的河道起点与下游端的接缝处可能残留小幅错位。适配只对新生成的地图生效；旧档里已生成过的地图不变。
+Geological Landforms: it generates maps through normal generation steps but additionally patches the vanilla map generation pipeline, so it was initially incompatible. Given its large user base and the real improvement it brings, extra adaptation was done — river landforms included: rivers now flow continuously across tile borders and no longer need to be disabled manually in GL's settings. Known edge: river confluence / river source landforms may still show slight misalignment at the seam near their upstream/downstream ends. The adaptation only affects newly generated maps; already-generated maps in old saves are unaffected.
 
 MapPreview：本来就需要添加额外地图生成步骤的 Mod 主动适配，本 Mod 已正常适配。
 This mod requires active adaptation from mods that add extra gen steps; RimExodus has adapted to it.
@@ -45,14 +48,23 @@ Multi-cell vehicle pathing differs from single-cell pawn pathing, so cross-map m
 Perspective Shift：其主控 pawn 的移动不是原生的移动命令，需要额外适配其移动方式。
 Its player-controlled pawn doesn't use vanilla move commands, so its movement needed extra adaptation.
 
+Giddy-Up 2 - Continued：骑乘状态与跨图传送是两套独立机制，骑手跨缝时需要额外适配。现在坐骑会随骑手一同过缝，并由 Giddy-Up 自己的即时骑乘逻辑在落地图重建骑乘关系。
+Mounted pawns and cross-map transfer are separate mechanisms, so riders crossing a seam needed extra adaptation. Mounts now cross together with their riders, and Giddy-Up's own instant-mount logic rebuilds the mount on arrival.
+
+Vanilla Gravship Expanded：其世界炮击弹丸自带"离开发射图 → 世界地图 → 目标图"流程，与无缝接缝的弹道交接有冲突，已单独适配保留原生流程，远程火炮向其他地块开火时不再卡在发射图边缘。
+Its world-artillery projectiles have their own "leave the firing map → world map → target map" flow, which conflicted with seamless seam projectile handoff; a dedicated adaptation preserves the native flow, and long-range artillery firing at other tiles no longer gets stuck at the firing map's edge.
+
+Vanilla Expanded Framework 的地图物体刷出（ObjectSpawns，含 Vanilla Vehicles Expanded 的载具残骸、Dark Ages / Mythic Ages 的巢穴等一切基于此机制的内容）：刷出位置现已被限制在实际可玩的六边形区域内（不再落到边界外看得见够不着的 void 区），分帧生成的地块图上也会正常刷出。
+Vanilla Expanded Framework's map object spawning (ObjectSpawns — including Vanilla Vehicles Expanded wrecks, Dark Ages / Mythic Ages nests, and anything else built on this mechanism): spawn positions are now restricted to the actually playable hexagon area (no more landing in the unreachable void beyond the border), and frame-sliced tile maps receive these spawns too.
+
 ----------------------------------------------------------
 天生兼容 / Naturally Compatible
 ----------------------------------------------------------
 
-闪毁（Glitter World Destroyer）等 Mod 加的任务点：本质上仍走可进入据点的机制，进入逻辑也没有特殊之处，所以天生走生成 POI 时的原生地图生成器，不会有兼容问题。
+闪毁（Glitter World Destroyer）等 Mod 加的任务点：本质上仍走可进入地点（site）的机制，进入逻辑也没有特殊之处，所以天生走生成 POI 时的原生地图生成器，不会有兼容问题。
 Quest sites added by such mods still use the enterable-site mechanism with nothing special in their entry logic, so they naturally go through the vanilla generator used for POIs — no compatibility issues.
 
-金鸢尾兰等 Mod 加的外交选项：本 Mod 的据点贸易商对话选项复用远行队选项，所以外交选项会正常出现；且因为确实有影子远行队，外交流程能完整走完并收到花糕。
+金鸢尾兰等 Mod 加的外交选项：本 Mod 的派系基地贸易商对话选项复用远行队选项，所以外交选项会正常出现；且因为确实有影子远行队，外交流程能完整走完并收到花糕。
 Diplomacy options from such mods appear normally, because the trader dialog reuses caravan options; and since a shadow caravan really exists, the diplomacy flow completes fully — flower cake included.
 
 ----------------------------------------------------------
@@ -64,9 +76,6 @@ Fog only renders on the focused map; the simplified neighbor rendering is unaffe
 
 各种小地图 Mod：只显示聚焦地图的小地图，邻接地图技术上不在当前地图内，自然不会被显示。
 Minimaps only show the focused map; neighbor maps technically aren't inside it, so they simply aren't shown.
-
-CE（Combat Extended）：本 Mod 没有改动任何单图战斗内容，但 CE 的战斗行为与原版不走同一条路，因此没有跨图射击适配；同一地图内没有兼容性问题。
-RimExodus doesn't touch any single-map combat content, but CE's combat follows a different code path from vanilla, so cross-map shooting isn't adapted. Within a single map there are no issues.
 
 ----------------------------------------------------------
 不兼容 / Incompatible

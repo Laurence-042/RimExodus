@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using RimWorld;
 using UnityEngine;
 using Verse;
@@ -31,17 +30,10 @@ namespace RimExodus
     /// - v1 范围仅地块图（<see cref="MapParent_SeamlessTile"/>，营地自动覆盖），原生家族不纳入
     ///   （Settlement 删图留对象/再访重生成驻军的语义与整图快照恢复天然冲突，单独设计）。
     ///
-    /// 本类只出判定与发布数据（PreservedTiles 供世界图点标消费，每轮 Sweep 末由 governor 重写）；
-    /// 删除/封存/弹窗策略在 <see cref="SeamlessDormancyGovernor"/>，记录数据在 <see cref="ZoneMapRecord"/>。
+    /// 本类只出判定；删除/封存/弹窗策略在 <see cref="SeamlessDormancyGovernor"/>，记录数据在 <see cref="ZoneMapRecord"/>。
     /// </summary>
     internal static class SeamlessMapModificationTracker
     {
-        /// <summary>
-        /// 当前"会被保留"的 tile 集合（达阈活图 ∪ 已封存 WO），每轮 Sweep 末由 governor 全量重写。
-        /// 消费方 = 世界图中心点标（<see cref="TileWorldIcons"/>，每帧一次 HashSet 查询）。
-        /// </summary>
-        internal static readonly HashSet<int> PreservedTiles = new HashSet<int>();
-
         /// <summary>
         /// 居住区格数与阈值比较。Area.TrueCount 是 BoolGrid 维护的计数器（O(1)，Area.cs:28），
         /// 每轮 Sweep 对每张管辖图调用一次，成本可忽略。

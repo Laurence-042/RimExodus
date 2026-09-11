@@ -23,7 +23,10 @@ Shooting across a seam
 
 [*][b]Raids that march in from neighboring maps[/b]: walking attackers can enter at an unseen outer seam of an adjacent map, then cross the world-tile border to advance on and attack you, instead of materializing between two maps that are already loaded.
 
-[*][b]Future long-range combat[/b]: further improvements to shooting across world-tile borders are planned, bringing it together with cross-map raid entry and attacks. The goal is to break past the engagement-distance limit of a single map. With weapon ranges adjusted by XML patches, this may eventually enable pistols with roughly 30-meter ranges, SMGs with 100-meter ranges, and automatic rifles with 200-meter ranges — rather than today's roughly 10 / 20 / 40-meter scale. This is a future plan, not a completed feature.
+[*][b]Weapon range curve remap (off by default)[/b]: optionally stretches every ranged weapon's range along a piecewise linear curve, moving vanilla accuracy-band distances (Touch/Short/Medium/Long) with it — each weapon is about as accurate at its new maximum range as it was at its old one. The default curve deliberately keeps short-range weapons close while spreading long-range ones further apart (shotgun 16→29, revolver 26→48, assault rifle 31→61, bolt-action 37→77, sniper 45→99), pairing with raids that march in from neighboring maps to give rifles the engagement distance they deserve.
+
+[img]https://raw.githubusercontent.com/Laurence-042/RimExodus/main/doc/img/range-curve.png[/img]
+The range curve editor
 
 [*][b]Incremental frame-sliced generation[/b]: neighbor tile maps generate as colonists are ordered toward the border, usually without pausing the game or a loading screen (saving blocked while generating — takes seconds).
 
@@ -31,17 +34,21 @@ Shooting across a seam
 
 [*][b]Native content integration[/b]: world-map POIs — faction settlements, ancient mechanitor compounds, ambushes, opportunity sites — generate as seamless tiles via the vanilla pipeline as you approach, naturally compatible with other mods' structures; camps too.
 
+[*][b]Ocean exploration[/b]: vanilla has no enterable ocean maps, so this mod supplies deep-ocean terrain and basic weather built in — sail out through a coastal seam to explore and cross the open ocean. If another mod provides its own ocean maps, the built-in support can be disabled in settings (takes effect after restart, only affects newly generated maps).
+
 [*][b]Settlement traders[/b]: friendly settlements designate a "trader" from their garrison (question mark overhead); right-click to talk and trade — buy from settlement stock, sell your carried items, pay with carried silver. Full caravan trading semantics, minus the caravan. The dialog gathers every settlement interaction, including ones from other mods (e.g. Oberonia Aurea's diplomacy).
 
 [img]https://raw.githubusercontent.com/Laurence-042/RimExodus/main/doc/img/trade.png[/img]
 Trading with a settlement trader
 
-[*][b]Three-state world map icons[/b]: tile icons show active/dormant state live; select a tile to manually dorm or delete it.
+[*][b]Live tile status markers[/b]: tiles are tinted along their real shape — active (orange with pawns / blue without), dormant (grey), archived (teal). Select a tile to manually dorm or delete it.
 [/list]
 
 [h1]Mod Compatibility[/h1]
 
 In theory, anything that doesn't modify base maps (the per-tile maps on the planet view) works.
+
+[b]Combat Extended cross-map combat is adapted[/b]: ordinary firearms, grenades, mortars, instant rays, guided projectiles, CIWS, suppression fire, and ability-launched projectiles can all engage targets on adjacent maps, while pawns and automatic/manual turrets acquire cross-map targets; range, line of sight, cover, smoke, lighting, dispersion, and ballistics still follow CE rules on the actual maps. Same-map combat goes entirely through CE's native logic, and CE world shelling keeps its original flow.
 
 For details, see the "Compatibility Details" post in the discussions.
 

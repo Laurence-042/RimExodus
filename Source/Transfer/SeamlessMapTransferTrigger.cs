@@ -135,7 +135,10 @@ namespace RimExodus
                 if (duty == null) return false;
                 return duty.def == DutyDefOf.AssaultColony || duty.def == DutyDefOf.AssaultThing
                     || duty.def == DutyDefOf.Defend || duty.def == DutyDefOf.DefendBase
-                    || duty.def == DutyDefOf.PrisonerAssaultColony;
+                    || duty.def == DutyDefOf.PrisonerAssaultColony
+                    // ChimeraAttack（2026-09）：奇美拉攻击模式的推进/追击 Goto 同为战斗意图——
+                    // 不登记 Pursue 则落地无 lord 保护（见 NotifyPawnTransferred Bridge 分支注）。
+                    || duty.def == DutyDefOf.ChimeraAttack;
             }
             return false;
         }

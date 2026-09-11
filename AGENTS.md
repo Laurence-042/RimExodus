@@ -172,7 +172,7 @@
 - 能用 Prefix/Postfix、ref 改参或收尾字段修正完成的功能，不写 transpiler。必须写 transpiler 时，先对真实游戏 DLL 解码确认 IL；原地 mutate `CodeInstruction`，不要替换对象导致 labels 丢失。CLR 验证器无法发现全部 Mono DMD 非法 IL，游戏启动日志才是最终依据。
 - Harmony 按参数名绑定；不确定时使用已核实的真实签名或位置参数。手动绑定的重载必须显式参数类型消歧。
 - 分模块日志使用 `RimExodusLog` 与 `RimExodusLogModule`。新诊断消息走对应模块；Warn/Error 不受开关控制。低频生命周期与显式 Dev 动作可常开，热路径和周期细节必须门控。旧 `verboseLogging` 只保留存档兼容，不新增消费点。
-- 离线 PatchAll 验证器位于 `C:\Users\Laure\.zcode\tmp\rimptest\`。新增或修改 Harmony patch 后运行它；当前记录基线（2026-09-10）为 `BOUND OK 111 / FAILED 16`，16 项是已确认的 CLR 伪迹（`DrawTargetHighlightWithLayer` 与既有 `GenDraw` 绘制 patch 同为 `SecurityException: ECall`）。基线变化时只更新当前数字与伪迹清单所在注释，不保留数字演进流水账。
+- 离线 PatchAll 验证器位于 `C:\Users\Laure\.zcode\tmp\rimptest\`。新增或修改 Harmony patch 后运行它；当前记录基线（2026-09-11）为 `BOUND OK 114 / FAILED 17`，17 项是已确认的 CLR 伪迹（`DrawTargetHighlightWithLayer` 与既有 `GenDraw` 绘制 patch 同为 `SecurityException: ECall`；`Patch_JobGiver_Manhunter_CrossMapMelee` 与 `MapInterface_SeamOutline` 等虚方法 patch 同为 `TypeLoadException: 接口中的非抽象、非 .cctor 方法`——游戏内绑定以 `GetPatchedMethods` 报告为准）。基线变化时只更新当前数字与伪迹清单所在注释，不保留数字演进流水账。
 - 最终确认必须包含游戏日志中的 Mod 实例化行与 `GetPatchedMethods` 报告。测试本地构建前先确认游戏实际加载的是刚编译 DLL，而不是 Workshop 旧版本。
 
 ## 14. 存档与卸载

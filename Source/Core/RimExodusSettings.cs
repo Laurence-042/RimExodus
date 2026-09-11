@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Verse;
 
 namespace RimExodus
@@ -220,6 +221,15 @@ namespace RimExodus
         /// </summary>
         public bool raidOuterSpawnEnabled = true;
 
+        /// <summary>
+        /// 袭击外缘生成的"仅本图生成"事件名单（2026-09，defName 列表）：默认空 = 所有袭击事件
+        ///（含 mod 扩展）都走外缘跨图进场；mod 自定义策略的未知 lord 形态按 parms 旗标降级重建为
+        /// 普通突击迁移（专属策略行为会丢失）。玩家可在设置"跨图战斗"页的事件列表里把个别事件
+        /// 改回本图生成（本列表即逐事件退出通道）。覆写 MakeLords 的策略（机械体围攻等）结构性
+        /// 不经迁移链，本名单对它们无效果。
+        /// </summary>
+        public List<string> raidOuterSpawnLocalIncidents = new List<string>();
+
         // ===== 武器射程映射曲线（2026-09，默认关；语义唯一出处 = SeamlessRangeCurve） =====
 
         /// <summary>
@@ -317,6 +327,8 @@ namespace RimExodus
             Scribe_Values.Look(ref throttleSeamFastRadius, "throttleSeamFastRadius", 15);
             Scribe_Values.Look(ref crossMapCombatEnabled, "crossMapCombatEnabled", true);
             Scribe_Values.Look(ref raidOuterSpawnEnabled, "raidOuterSpawnEnabled", true);
+            Scribe_Collections.Look(ref raidOuterSpawnLocalIncidents, "raidOuterSpawnLocalIncidents", LookMode.Value);
+            raidOuterSpawnLocalIncidents ??= new List<string>();
             Scribe_Values.Look(ref weaponRangeCurveEnabled, "weaponRangeCurveEnabled", false);
             Scribe_Values.Look(ref weaponRangeCurveTouch, "weaponRangeCurveTouch", 5f);
             Scribe_Values.Look(ref weaponRangeCurveShort, "weaponRangeCurveShort", 22f);

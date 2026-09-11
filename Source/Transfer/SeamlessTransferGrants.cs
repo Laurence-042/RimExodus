@@ -318,7 +318,11 @@ namespace RimExodus
         /// </summary>
         private static void ContinueBridgeMove(Pawn pawn, Map arrivalMap, Grant grant)
         {
-            if (grant.NextJob != null)
+            // def 判空防御（2026-09 NRE 根因收口）：包装 job 按引用存于 grant，一旦被回池
+            //（Job.Clear 置 def=null）即成悬垂引用——StartJob→MakeDriver 访问 def.driverClass
+            // 直接 NRE，并把 jobTracker 打进每 tick 报错的坏状态。命中时按无包装 job 走
+            // FinalDest 续链（行为等价：Goto 到目标格，同图 think 接管）。
+            if (grant.NextJob != null && grant.NextJob.def != null)
             {
                 if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Bridge continuation: resuming wrapped job {grant.NextJob.def.defName} "
@@ -326,6 +330,9 @@ namespace RimExodus
                 pawn.jobs.StartJob(grant.NextJob, JobCondition.InterruptForced);
                 return;
             }
+            if (grant.NextJob != null)
+                Log.Warning($"[RimExodus] Bridge continuation: wrapped job of {pawn.LabelShort} was pooled before "
+                    + $"arrival on map {arrivalMap.uniqueID}; falling back to final-dest goto.");
             if (grant.FinalDestMap != arrivalMap) return;
             var finalCell = grant.FinalDestCell;
             // 载具终点判据（2026-08 第三轮对齐）：pawn 用 Walkable；载具终点必须是整车矩形可立格

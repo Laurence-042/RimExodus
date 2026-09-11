@@ -426,10 +426,8 @@ namespace RimExodus
                 }
             }
 
-            // 前哨保留收尾（2026-09）：权重淘汰（cap>0 时，覆盖本轮新封存与设置调小两类触发）
-            // + 全量发布 PreservedTiles（世界图点标消费）。
+            // 前哨保留收尾（2026-09）：权重淘汰（cap>0 时，覆盖本轮新封存与设置调小两类触发）。
             RunArchiveEviction();
-            RefreshPreservedTiles();
         }
 
         // ====================================================================
@@ -471,7 +469,6 @@ namespace RimExodus
                         $"zone={record.zoneCells.Count} cells, buildings={record.buildings.Count}, items={record.items.Count}) — {reason}");
 
             RunArchiveEviction();
-            RefreshPreservedTiles();
         }
 
         /// <summary>
@@ -626,32 +623,6 @@ namespace RimExodus
                 Messages.Message("RimExodus_PreserveEvicted".Translate(label), MessageTypeDefOf.NeutralEvent, false);
                 TileWorldIcons.ReleaseTileMesh(victim.Tile);
                 victim.Destroy();
-            }
-        }
-
-        /// <summary>
-        /// 全量重写 tracker.PreservedTiles（世界图点标数据源）：达阈活图 ∪ 已封存 WO。
-        /// 状态派生无持久化（居住区是实时状态、封存 = 记录在档），每轮重算即自愈。
-        /// </summary>
-        private static void RefreshPreservedTiles()
-        {
-            var set = SeamlessMapModificationTracker.PreservedTiles;
-            set.Clear();
-            foreach (var m in Find.Maps)
-            {
-                if (m == null || m.Disposed || !(m.Parent is MapParent_SeamlessTile)) continue;
-                if (((MapParent_SeamlessTile)m.Parent).preserveRecord != null
-                    || SeamlessMapModificationTracker.Evaluate(m, out _) == PreserveDecision.Auto)
-                {
-                    set.Add(SeamlessTileRegistry.GetMapWorldTile(m));
-                }
-            }
-            foreach (var wo in Find.World.worldObjects.AllWorldObjects)
-            {
-                if (wo is MapParent_SeamlessTile st && !st.Destroyed && st.preserveRecord != null)
-                {
-                    set.Add(st.Tile.tileId);
-                }
             }
         }
     }

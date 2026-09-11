@@ -29,12 +29,17 @@ namespace RimExodus
         /// <summary>
         /// NPC 战斗体（追击传送的主体，行为表行 15/23/31）：人形或机械族且非玩家阵营。
         /// 覆盖敌方人形/敌方机械族/盟友增援（表对盟友战斗移动同样要求传送）。
+        /// Anomaly 实体（奇美拉/吞尸兽等，Faction.OfEntities）一并视为战斗体——四足兽体 +
+        /// EntityFlesh，既非 Humanlike 也非 Mechanoid，不判则跨图战斗链对它们整体失效
+        /// （踩点 Pursue 不登记、Bridge 落地无袭击 lord 收编 → 跨图后被原版 ExitMap 分支
+        /// 原地遣散，2026-09 实测"奇美拉跨图后不再索敌攻击"的根因）。
         /// 野生动物（含狂猎动物）不属战斗体——行为表无对应行，不登记追击传送（已知边界）。
         /// </summary>
         internal static bool IsNpcCombatant(Pawn pawn)
         {
             if (pawn == null || pawn.Faction == Faction.OfPlayer) return false;
-            return pawn.RaceProps.Humanlike || pawn.RaceProps.IsMechanoid;
+            if (pawn.RaceProps.Humanlike || pawn.RaceProps.IsMechanoid) return true;
+            return pawn.Faction == Faction.OfEntities;
         }
 
         /// <summary>玩家阵营驯养动物（跟随传送的主体，行为表行 60）。</summary>

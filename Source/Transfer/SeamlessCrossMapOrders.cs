@@ -40,6 +40,18 @@ namespace RimExodus
             // 下一个 job 清掉（日志表现 = Bridge issued 后紧跟 Grant cleared）。直接以当前格触发传送。
             if (pawn.Position == gotoCell)
             {
+                // nextJob == curJob 时必须解除引用（2026-09 实测 NRE 根因）：本分支的传送 DeSpawn
+                // 会结束并**回池**当前 job（Job.Clear 置 def=null）——grant.NextJob 成悬垂引用，
+                // ContinueBridgeMove.StartJob 访问 def.driverClass 即炸。正常桥接流程无此问题：
+                // StartJob 默认 canReturnCurJobToPool=false，被桥 job 替换的包装 job 不回池。
+                // 落地续链走 FinalDest 分支（Goto 到目标格），行为等价。
+                if (nextJob != null && ReferenceEquals(nextJob, pawn.jobs?.curJob))
+                {
+                    grant.NextJob = null;
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
+                        Log.Message($"[RimExodus] Bridge immediate: wrapped job is curJob, NextJob reference dropped "
+                            + $"(will continue via final dest) for {pawn.LabelShort}.");
+                }
                 if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Bridge immediate: {pawn.LabelShort} already on spot {exitSpot.Position}, transferring now.");
                 SeamlessMapTransferTrigger.TryTriggerTransfer(pawn, exitSpot.Position, pawn.Map);

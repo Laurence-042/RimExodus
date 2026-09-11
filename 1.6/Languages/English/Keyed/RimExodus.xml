@@ -78,7 +78,13 @@ The map you are currently on and your home map are never deleted. Default: 3.</R
   <RimExodus_SettingsCombatTip>Allow pawns to see, target and shoot enemies standing on the neighboring map across the seam. Turn off if you prefer strictly original combat rules (nothing on another map can be interacted with).</RimExodus_SettingsCombatTip>
 
   <RimExodus_SettingsRaidOuterSpawnLabel>Walk-in raids arrive from the outer edge</RimExodus_SettingsRaidOuterSpawnLabel>
-  <RimExodus_SettingsRaidOuterSpawnTip>Walking enemies (tribal or pirate raiders on foot, manhunter packs, ghouls, etc.) enter from a seam whose far side you have not seen (an unloaded or dormant map) instead of appearing at a border that faces a map you are already watching. Hostile walking raids may arrive on the outer edge of a neighboring map and march across the seam toward you. Drop pods, tunnels and other non-walking arrivals are unaffected. Default: ON.</RimExodus_SettingsRaidOuterSpawnTip>
+  <RimExodus_SettingsRaidOuterSpawnTip>Walking enemies enter from a seam whose far side you have not seen (an unloaded or dormant map) instead of appearing at a border that faces a map you are already watching. Hostile walking raids may also arrive on the outer edge of a neighboring map and march across the seam toward you.
+
+[What counts as a \"walking raid\"] Raids whose enemies walk in through a map edge (the vanilla edge-walk-in arrival mode): tribal/pirate ground raids, manhunter packs, ghouls, shamblers, chimeras, and so on. Only events that bring enemies in through a ground edge appear in the incident-type list below; modded events of this family also default to cross-map, while events with their own special arrival flows are unaffected and never show up in the list.
+
+[Why drop pods are excluded] Drop pods are all about ignoring terrain and slamming straight inside your defenses; walking over from a neighboring map would only delay the landing and defeat their purpose — technically they never pass through a map-edge spawn point, so there is no \"outer edge\" to arrive from.
+
+[Why mechanoid and psychic ritual sieges are excluded] A mechanoid siege pressures you with mortar fire and timed activation, but its mech cluster is dropped straight onto your map — it is effectively a drop-pod arrival (and technically it never passes through a map-edge spawn point), so the drop-pod reasoning above applies; a psychic ritual siege must hold its ritual repeatedly at a fixed site on YOUR map — moving the site to a neighboring map would make it do nothing to you. Regular human sieges are NOT affected: their mortars can fire across seams, so they properly set up camp and shell you from a neighboring map. Default: ON.</RimExodus_SettingsRaidOuterSpawnTip>
 
   <!-- Weapon range curve (2026-09, off by default): remap all ranged weapon ranges and the vanilla accuracy anchor distances through a player-configured piecewise-linear curve. -->
   <RimExodus_SettingsRangeCurveLabel>Weapon range curve remap</RimExodus_SettingsRangeCurveLabel>
@@ -226,4 +232,11 @@ Bring everyone home (or to a native map) first - everything on deleted tile maps
 
 SAVE NOW. After saving, RimExodus can be safely removed.</RimExodus_UninstallRestoreDone>
   <RimExodus_UninstallRestoreNoGame>Load a game first.</RimExodus_UninstallRestoreNoGame>
+  <RimExodus_RaidOuterSpawnOpenIncidents>Configure incident types...</RimExodus_RaidOuterSpawnOpenIncidents>
+  <RimExodus_RaidOuterSpawnIncidentsTitle>Raid outer spawn — incident types</RimExodus_RaidOuterSpawnIncidentsTitle>
+  <RimExodus_RaidOuterSpawnIncidentsHint>By default every walking attack incident (mod-added ones included) may arrive from a neighboring map. Unrecognized mod strategies are downgraded to a plain assault when relocated. Tick an incident to always spawn it on the local map instead.</RimExodus_RaidOuterSpawnIncidentsHint>
+  <RimExodus_RaidOuterSpawnIncidentsHintTip>Defaults: everything crosses maps (mod incidents included). Mechanoid sieges (their cluster is drop-podded in), psychic ritual sieges (ritual anchored to your map), and cult sieges never relocate regardless of this list. Changes apply immediately.</RimExodus_RaidOuterSpawnIncidentsHintTip>
+  <RimExodus_RaidOuterSpawnLocalToggleTip>Tick = this incident always spawns on the local map (vanilla spawn point), never from a neighboring map. Unticked = may arrive from an outer seam and march across.</RimExodus_RaidOuterSpawnLocalToggleTip>
+  <RimExodus_RaidOuterSpawnAlwaysLocal>always local</RimExodus_RaidOuterSpawnAlwaysLocal>
+  <RimExodus_RaidOuterSpawnAlwaysLocalTip>This incident's mechanics are anchored to the map it attacks (e.g. the psychic ritual is performed at a site on your map), so it can never arrive from a neighboring map and cannot be toggled.</RimExodus_RaidOuterSpawnAlwaysLocalTip>
 </LanguageData>

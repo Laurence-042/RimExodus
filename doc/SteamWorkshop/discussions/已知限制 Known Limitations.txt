@@ -35,19 +35,19 @@ Seamless movement through empty outer space is meaningless. Underground maps and
 
 ---
 
-- 据点交易仅支持随身物品（地上的物品、随行囚犯/奴隶出售暂不支持）。
+- 派系基地交易仅支持随身物品（地上的物品、随行囚犯/奴隶出售暂不支持）。
 Settlement trading only supports carried items (items on the ground and selling accompanying prisoners/slaves are not supported yet).
 
 这个其实是一个妥协设计。
 This is actually a compromise design.
 
-这个据点交易的本质其实是维护了一个不可见、不可被埋伏、和当前地块上的殖民者成员对应的影子远行队。殖民者身上的东西会直接被算作影子远行队的库存，所以能直接售卖。但是存储区的物品和囚犯/奴隶就没有这个待遇了。
+这个派系基地交易的本质其实是维护了一个不可见、不可被埋伏、和当前地块上的殖民者成员对应的影子远行队。殖民者身上的东西会直接被算作影子远行队的库存，所以能直接售卖。但是存储区的物品和囚犯/奴隶就没有这个待遇了。
 Under the hood, settlement trading maintains an invisible, ambush-immune shadow caravan matching the colonists on the current tile. Items on a colonist count directly as the shadow caravan's inventory, so they can be sold. Items in stockpiles and prisoners/slaves don't get this treatment.
 
 不过我想这也不是一个大问题。
 But I don't think this is a big deal.
 
-如果你使用穿梭机，那么只需要别进入定居点，作为真远行队交易就行了。
+如果你使用穿梭机，那么只需要别进入派系基地，作为真远行队交易就行了。
 If you use shuttles, just don't enter the settlement — trade as a real caravan instead.
 
 如果使用 Vehicle Framework 的载具，它们也会被视为远行队的一员，所以其后备箱里的东西也会被视为可以交易的随身物品。
@@ -85,8 +85,40 @@ Since projection always prioritizes the currently focused tile, once you focus t
 
 ---
 
-- 原生成在地图边缘的袭击会生成在接缝附近，不论对侧是否已加载地图（之后可能优化为从已加载地图外围生成，未定，需先调研可能冲突的mod实现）
-Raids that would originally spawn at the map edge spawn near the seam instead, regardless of whether the far side has a loaded map (may later be improved to spawn from the outskirts of loaded maps — undecided, pending research into possibly conflicting mod implementations)
+- 步行袭击现在会从你尚未看见的方向进场（无图边缘或邻图外侧），敌对袭击（含发狂动物、食尸鬼、奇美拉）可在邻图外侧进场后跨缝行军攻来。边界：从邻图行军过来的袭击者不会绑架/偷窃（与跨缝追击的敌人同语义）；袭击超时计时包含行军时间；行军途经图上有你的殖民者/建筑时会先与本地交战（涌现行为）；邪教徒围攻与访客/旅行者暂不参与外缘进场。空投/钻地等非步行进场不受影响。可在设置"跨图战斗"页关闭回到原版落点。
+Walking raids now enter from directions you haven't seen (an edge with no map beyond, or a neighboring map's outer edge); hostile attacks (manhunter animals, ghouls, and chimeras included) can enter beyond an adjacent map and march across the seam to attack. Boundaries: raiders marching in from a neighboring map don't kidnap or steal (same rule as enemies chasing across seams); the raid timeout clock includes their march time; if their route passes a map with your colonists or buildings, they engage there first (emergent behavior); cult sieges and visitors/travelers don't use outer-edge entry yet. Drop pods, tunnels, and other non-walking arrivals are unaffected. Can be disabled in the "Cross-map combat" settings tab to restore vanilla spawn locations.
 
-暂未实现的功能
-Not implemented yet.
+外缘进场的敌人走的是与跨缝追击/撤离同一条跨图移动链，而绑架、偷窃这类行为挂在原版的袭击结算上，跨图行军中不会执行；袭击计时在生成时就开始走，行军自然算在内。近战敌人（发狂动物、食尸鬼、蹒跚怪、奇美拉、近战袭击者）同样跨图索敌——锁定邻图目标后桥接行军过缝再打。mod 添加的袭击事件默认也跨图：无法识别的策略在迁移时降级为普通突击（专属策略行为会丢失），不希望某个事件跨图可在设置的"袭击事件类型"列表里把它改回本图生成；机械体围攻/灵能仪式围攻与邪教徒围攻不参与跨图迁移（自建营地机制限定在自己图上）。
+Enemies entering from the outer edge use the same cross-map movement chain as pursuit and evacuation across seams, and behaviors like kidnapping or stealing are tied to vanilla raid resolution, so they don't execute during a cross-map march; the raid clock starts at spawn, so the march time counts. Melee enemies (manhunter animals, ghouls, shamblers, chimeras, melee raiders) acquire targets across maps too — they lock onto a target on the neighboring map, march across the seam, and fight. Mod-added raid incidents also default to cross-map: unrecognized strategies are downgraded to a plain assault when relocated (their unique strategy behavior is lost) — if you don't want that for a specific incident, switch it back to local spawning in the settings' incident-type list; mechanoid sieges, psychic ritual sieges, and cult sieges never relocate (their camp-building mechanics are bound to their own map).
+
+---
+
+- 爆炸范围伤害不跨缝：弹丸（含迫击炮/手雷）可以飞过接缝，但爆炸只在落点地图按原生范围结算。
+Explosions don't cross seams: projectiles (mortar shells and grenades included) can fly across a seam, but the blast only resolves on the landing map at its native radius.
+
+设计如此：让爆炸跨缝需要接管原版爆炸的逐格结算并按格归属图路由，patch 面和兼容性风险都不小。弹丸本身能跨缝、落点图是对的，绝大多数场景已经成立，我不想为边缘情形冒这个险。
+By design: making blasts cross seams would mean taking over vanilla's per-cell explosion resolution and routing each cell to its owning map — a large patch surface and a real compatibility risk. The projectile itself crosses the seam and lands on the right map, which already covers the vast majority of cases; I'd rather not take that risk for the edge cases.
+
+---
+
+- 跨图寻路/下令是单跳的：一次下令最多到达相邻一张地图，多段行程需要逐图下令。
+Cross-map pathfinding/orders are single-hop: one order reaches at most the adjacent map; longer trips must be ordered map by map.
+
+设计如此：一张 RimWorld 地图的运行开销不算小，我不建议同时开很多地图，多跳下令等于鼓励这么玩。而且多跳意味着沿途地图要一并加载渲染，还得大改摄像机逻辑，容易和 Simple Camera Settings 之类的 mod 冲突——逐图下令麻烦一点，但可控。
+By design: a single RimWorld map isn't cheap to run, and I don't recommend keeping many maps loaded — multi-hop orders would encourage exactly that. Multi-hop would also mean loading and rendering every map along the route plus substantial camera work, likely conflicting with mods like Simple Camera Settings. Ordering map by map takes a few more clicks, but stays in control.
+
+---
+
+- 武器射程曲线映射（默认关）的边界：Combat Extended 武器射程同样映射，但 CE 迫击炮 75 格直瞄/间瞄分界是 CE 硬编码、不随曲线移动；原版恶劣天气的射程截断仍按原版语义生效；武器最小射程不映射；以 rangeStat（按属性定义射程）定义射程的罕见 verb 与挂在小体积 Def（hediff/能力）上的罕见弹丸 verb 不在映射范围；射程超过 90 格时原版不再绘制选中圈（纯视觉）。
+Weapon range curve remap (off by default) boundaries: Combat Extended weapon ranges are remapped too, but CE's hardcoded 75-cell direct/indirect mortar threshold doesn't move with the curve; vanilla bad-weather range truncation still applies as usual; minimum ranges are not remapped; rare verbs with rangeStat-defined ranges and rare projectile verbs attached to small defs (hediffs/abilities) are outside the remap; ranges beyond 90 cells lose their selection circle (vanilla behavior, visual only).
+
+这些边界要么是外部系统写死的逻辑，要么是极罕见的定义方式：CE 的迫击炮 75 格分界是 CE 自己硬编码的，原版恶劣天气的射程截断是原版语义，硬改就得去 patch 两边的内部实现；以 rangeStat 或挂在小体积 Def 上的弹丸 verb 定义的射程太少见，为它们扩大映射覆盖面不划算。
+These boundaries are either hard-coded by external systems or extremely rare definition styles: CE's 75-cell mortar threshold is hard-coded in CE, and vanilla bad-weather range truncation is vanilla semantics — forcing either means patching their internals. Ranges defined via rangeStat or projectile verbs on tiny defs are too rare to be worth widening the remap's surface for.
+
+---
+
+- Combat Extended 的世界炮击不进入跨图弹道层，继续使用 CE 原生世界对象流程。
+Combat Extended world shelling stays outside the cross-map projectile layer and keeps using CE's native world-object flow.
+
+CE 的世界炮击走的是它自己的世界对象流程（发射 → 世界地图 → 目标图），本来就不经过地图接缝；把它塞进跨图弹道层意味着要复刻 CE 的世界流程逻辑，风险大而收益小。
+CE's world shelling goes through its own world-object flow (fire → world map → target map) and never passes through a map seam in the first place; pulling it into the cross-map projectile layer would mean reimplementing CE's world-side logic — high risk, little gain.

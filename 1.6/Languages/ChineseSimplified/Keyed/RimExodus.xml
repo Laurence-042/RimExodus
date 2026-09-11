@@ -78,7 +78,14 @@
   <RimExodus_SettingsCombatTip>允许 pawn 看见、瞄准并射击站在缝对侧相邻地图上的敌人。若你偏好严格的原版战斗规则（无法与另一张地图上的任何目标交互），请关闭。</RimExodus_SettingsCombatTip>
 
   <RimExodus_SettingsRaidOuterSpawnLabel>步行袭击从外缘进场</RimExodus_SettingsRaidOuterSpawnLabel>
-  <RimExodus_SettingsRaidOuterSpawnTip>步行来袭的敌人（部落/海盗的步行袭击、发狂的动物、食尸鬼等）从对侧你尚未看见（未生成或休眠地图）的接缝进场，而不再出现在正对着你已观察地图的边界上凭空冒出来。敌对步行袭击也可能在相邻地图的外侧边缘进场，然后行军穿过接缝向你进攻。空投、钻地等非步行进场方式不受影响。默认：开启。</RimExodus_SettingsRaidOuterSpawnTip>
+  <RimExodus_SettingsRaidOuterSpawnTip>步行来袭的敌人从对侧你尚未看见（未生成或休眠地图）的接缝进场，而不再出现在正对着你已观察地图的边界上凭空冒出来。敌对步行袭击也可能在相邻地图的外侧边缘进场，然后行军穿过接缝向你进攻。
+
+【什么叫“步行袭击”】指敌人从地图边缘走进来的袭击（原版的边缘步行进场方式），包括部落/海盗的各类地面袭击、发狂动物、食尸鬼、蹒跚怪、奇美拉等。只有“走地面边缘进场”的事件才会出现在下方的袭击类型配置里；mod 自制的事件若属于这一族会默认同样跨图，其他类型（自带特殊进场流程的事件）不受影响、也不会出现在配置列表中。
+
+【空投为什么不纳入】空投的核心体验就是无视地形、直接砸进你的防线之内；从邻图一路走来既无意义（无非是延迟落地），也违背其“突袭”定位——实现上它们也根本不经过地图边缘出生点，没有“外侧边缘”可言。
+
+【机械体围攻与灵能仪式围攻为什么不纳入】机械体围攻虽以迫击炮轰击与定时唤醒逼你出手，但它的机械集群是
+直接空降在你图上的——本质是空投进场（实现上也不经过地图边缘出生点），与上面的空投同理；灵能仪式围攻则要在你图上的固定地点反复举行仪式，仪式点搬到邻图就对你完全无效。普通人类炮击围攻不受此限——其迫击炮可以跨缝轰击，会正常从邻图扎营开炮。默认：开启。</RimExodus_SettingsRaidOuterSpawnTip>
 
   <!-- 武器射程曲线（2026-09，默认关）：把全部远程武器射程与原版精度锚点距离按玩家配置的分段线性曲线重映射。 -->
   <RimExodus_SettingsRangeCurveLabel>武器射程曲线映射</RimExodus_SettingsRangeCurveLabel>
@@ -226,4 +233,11 @@
 
 请立即存档。存档后即可安全卸载 RimExodus。</RimExodus_UninstallRestoreDone>
   <RimExodus_UninstallRestoreNoGame>请先进入一局游戏。</RimExodus_UninstallRestoreNoGame>
+  <RimExodus_RaidOuterSpawnOpenIncidents>配置袭击事件类型…</RimExodus_RaidOuterSpawnOpenIncidents>
+  <RimExodus_RaidOuterSpawnIncidentsTitle>袭击外缘生成——事件类型</RimExodus_RaidOuterSpawnIncidentsTitle>
+  <RimExodus_RaidOuterSpawnIncidentsHint>默认所有步行袭击事件（含 mod 扩展）都可能从邻图外缘进场；无法识别的 mod 策略迁移时会降级为普通突击。勾选某事件可让它固定在本图生成。</RimExodus_RaidOuterSpawnIncidentsHint>
+  <RimExodus_RaidOuterSpawnIncidentsHintTip>默认：全部跨图（mod 事件同样默认跨图）。机械体围攻（集群空降，属空投类）、灵能仪式围攻（仪式锚定本图）与邪教徒围攻无论如何都不参与跨图迁移。改动即时生效。</RimExodus_RaidOuterSpawnIncidentsHintTip>
+  <RimExodus_RaidOuterSpawnLocalToggleTip>勾选 = 该事件固定在本图原版落点生成，不从邻图外缘进场；取消勾选 = 可从外侧接缝进场并跨缝行军。</RimExodus_RaidOuterSpawnLocalToggleTip>
+  <RimExodus_RaidOuterSpawnAlwaysLocal>始终本图</RimExodus_RaidOuterSpawnAlwaysLocal>
+  <RimExodus_RaidOuterSpawnAlwaysLocalTip>该事件的机制锚定在它进攻的地图上（例如灵能仪式要在你图上的固定地点举行），因此永远无法从邻图进场，也不可切换。</RimExodus_RaidOuterSpawnAlwaysLocalTip>
 </LanguageData>

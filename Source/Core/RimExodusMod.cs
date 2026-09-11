@@ -314,6 +314,11 @@ namespace RimExodus
                     // 袭击外缘生成（2026-09）：步行袭击从外侧（对侧未被看见的）接缝进场。
                     CheckRow(listing, "RimExodus_SettingsRaidOuterSpawnLabel", "RimExodus_SettingsRaidOuterSpawnTip",
                         v => s.raidOuterSpawnEnabled = v, s.raidOuterSpawnEnabled);
+                    // 事件级退出通道（2026-09 默认全员跨图）：把个别事件（含 mod 扩展）改回本图生成。
+                    if (listing.ButtonText("RimExodus_RaidOuterSpawnOpenIncidents".Translate()))
+                    {
+                        Find.WindowStack.Add(new RaidOuterSpawnIncidentDialog());
+                    }
                     // 武器射程映射曲线（2026-09，默认关）：切换即时应用/还原（启动快照支撑）。
                     CheckRow(listing, "RimExodus_SettingsRangeCurveLabel", "RimExodus_SettingsRangeCurveTip",
                         v => { s.weaponRangeCurveEnabled = v; SeamlessRangeCurve.SetEnabled(v); },
