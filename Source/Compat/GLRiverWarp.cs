@@ -46,6 +46,21 @@ namespace RimExodus
     ///
     /// 【门控】MapPreviewAPI.IsGeneratingPreview 跳过（预览原样）；无 river-link 边带命中 →
     /// 不钉（世界数据权威性）；全程 try/catch 安全失败 = 不钉（原 GL 行为，勿杀 Trace）。
+    ///
+    /// 【v10（2026-09-17 两轮实测定案）】v9 只钉端点时河仍在缝旁错开 ≤29 格，但主因不是
+    /// 转向半径：A\* 的提前接受（TargetAcceptRadius=StepSize + PlanarTargetFallback=3·StepSize，
+    /// 垂直平面接受）使它从不精确抵达目标。修法（纯数据、不与碰撞系统对抗）：
+    /// ①FindPath Prefix 对钉位目标收紧接受（<see cref="OnFindPathPrefix"/>：两字段都是
+    /// PathFinder public double，反射直写）；②v9 钉位时放宽叶段 AngleTenacity，转向预算升到
+    /// 地貌作者自设的 AngleLimitAbs 上限内——末端弯折由 A\* 在成本场内自己完成，仍遵守
+    /// Overlap 避让与烘焙碰撞规则。
+    /// 【v10a 节点表扭曲——已撤销，勿回退】曾在 FindPath Postfix 对 A* 结果节点表整体
+    /// smoothstep 位移（末端误差前馈抵消）。实测死因：烘焙期碰撞系统（value/offset 差检测
+    /// 河带压叠）与碰撞处理器的避让调整（divert/simplify/…/stub 阶梯）互搏——扭曲每轮把
+    /// 叶子河带拉回穿越点方向、恰好撤销处理器的避让，误差逐轮放大（26→33→41→49）直至
+    /// stub 截断、河流整体消失（registered=0）。教训：**不得绕过 A\* 事后位移其结果**——
+    /// 结果的合法性（避让/碰撞/成本）只在 A\* 决策内成立；同理勿用 GridValueSupplier
+    /// 委托包装（Vector2d 无编译引用需 emit）。
     /// </summary>
     internal static class GLRiverWarp
     {
@@ -82,6 +97,15 @@ namespace RimExodus
         private static FieldInfo _gridMarginField;     // PathTracer.GridMargin (public readonly Vector2d)
         private static FieldInfo _traceInnerMarginField; // PathTracer.TraceInnerMargin (public readonly double)
         private static bool _warnedCheckFailure;
+
+        // ===== v10：FindPath Prefix 接受收紧（可选解析——失败只禁收紧，不影响 v9 钉位）=====
+        private static bool _acceptTightenDisabled;
+        private static bool _warnedTightenFailure;
+        private static FieldInfo _finderTracerField;       // PathFinder._tracer (private readonly PathTracer)
+        private static FieldInfo _finderStepField;         // PathFinder.FullStepDistance (public double)
+        private static FieldInfo _finderAcceptField;       // PathFinder.TargetAcceptRadius (public double)
+        private static FieldInfo _finderPlanarField;       // PathFinder.PlanarTargetFallback (public double)
+        private static FieldInfo _angleTenacityField;      // TraceParams.AngleTenacity
 
         // ===== 边带缓存（单槽；生成串行）=====
         private static List<EdgeBand> _edges;
@@ -209,6 +233,16 @@ namespace RimExodus
                     var outwardLead = stepSize + 2f * traceInnerMargin + 1f;
                     var pinnedTarget = tBand.Target - tBand.Inward * outwardLead;
                     _targetField.SetValue(tpBoxed, MakeVec2d(pinnedTarget.x, pinnedTarget.y));
+                    // v10：放宽叶段转向预算（只降不升）——AngleLimit(width, tenacity) 随之升到
+                    // 地貌作者自设的 AngleLimitAbs 上限内，末端弯折由 A* 自己在成本场内完成
+                    // （Overlap 避让与烘焙碰撞规则全保留）。宽河 tenacity 0.3→0.1 ≈ 2°/格→5°/格。
+                    if (_angleTenacityField != null)
+                    {
+                        var tenacityBoxed = _angleTenacityField.GetValue(tpBoxed);
+                        if (tenacityBoxed != null && System.Convert.ToDouble(tenacityBoxed) > 0.1)
+                            _angleTenacityField.SetValue(tpBoxed,
+                                System.Convert.ChangeType(0.1, tenacityBoxed.GetType()));
+                    }
                     _traceParamsField.SetValue(seg, tpBoxed);
                     pinnedTargets++;
                     sb.Append($"tgt({t.x:F0},{t.y:F0})->e{tBand.EdgeIdx}t({tBand.Target.x:F0},{tBand.Target.y:F0})out={outwardLead:F0};");
@@ -358,6 +392,72 @@ namespace RimExodus
             }
         }
 
+        /// <summary>
+        /// PathFinder.FindPath Prefix（v10 主线之二，由 SeamlessGLRiverCompat.Patch_PathFinderFindPath
+        /// 转发）。对钉位目标**收紧接受判定**：vanilla 的 TargetAcceptRadius=StepSize(5) +
+        /// PlanarTargetFallback=3·StepSize(15，垂直平面接受、±10 横向无界) 使 A* 从不精确
+        /// 抵达——这是缝旁错开的主体（实测 d=-29 与两半径同量级）。钉位时接受半径收到
+        /// 0.5·步长（≥2 格，不低于半步以免跨步脱靶）、平面接受清零，逼 A* 真正走到目标；
+        /// 路线本身仍由 A* 在成本场内决策（避让/碰撞/风格全部保留——与碰撞处理器不对抗，
+        /// v10a 节点扭曲的教训）。PathFinder 每段任务新建、用后即弃，无需复原。
+        /// 门控：targetPos 与 v9 钉过的某条边目标同式重合（容差 1.5 格）；非钉位目标零介入。
+        /// </summary>
+        internal static void OnFindPathPrefix(object __instance, object targetPos)
+        {
+            try
+            {
+                if (_acceptTightenDisabled || targetPos == null) return;
+                if (!Resolve() || _finderAcceptField == null) return;
+                if ((bool)_isGeneratingPreviewProp.GetValue(null)) return;
+                if (_edges == null || _edges.Count == 0) return;
+
+                var tracer = _finderTracerField.GetValue(__instance);
+                var step = (double)_finderStepField.GetValue(__instance);
+                var traceInnerMargin = tracer != null ? (double)_traceInnerMarginField.GetValue(tracer) : 3.0;
+                var margin = tracer != null ? ReadVec2d(_gridMarginField.GetValue(tracer)) : Vector2.zero;
+                var lead = (float)(step + 2.0 * traceInnerMargin + 1.0); // 与 v9 钉位同式外推量
+
+                var tp = ReadVec2d(targetPos);
+                var matched = false;
+                var bestDist = 1.5f;
+                var bandIdx = -1;
+                for (var i = 0; i < _edges.Count; i++)
+                {
+                    var e = _edges[i];
+                    var d = Vector2.Distance(tp, e.Target - e.Inward * lead + margin);
+                    if (d < bestDist) { bestDist = d; bandIdx = i; matched = true; }
+                }
+                if (!matched) return;
+
+                // 收紧接受（只减不增；实例随任务丢弃，无需复原）。半径 = max(2, 0.5·StepSize)：
+                // 不小于半步长——A* 节点按步长推进，半径过小会"跨过"目标无节点命中（planar 兜底
+                // 已清零，命中不了就迭代到上限返回 null → 段降级为梯度跟随，比错开更糟）。
+                // 垂直平面接受（PlanarTargetFallback，±10 横向无界）是错开的主体，直接清零。
+                var accept = (double)_finderAcceptField.GetValue(__instance);
+                var tightAccept = System.Math.Max(2.0, 0.5 * step);
+                if (accept > tightAccept) _finderAcceptField.SetValue(__instance, tightAccept);
+                _finderPlanarField.SetValue(__instance, 0d);
+
+                if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
+                {
+                    var e2 = _edges[bandIdx];
+                    RimExodusLog.Message(RimExodusLogModule.Compat,
+                        $"GL river accept tighten: tile={_edgesTile} e{e2.EdgeIdx}->t{e2.NeighborTile} " +
+                        $"accept={accept:F1}->{tightAccept:F1} planar->0.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _acceptTightenDisabled = true;
+                if (!_warnedTightenFailure)
+                {
+                    _warnedTightenFailure = true;
+                    var stackHead = ex.StackTrace == null ? "" : " @ " + ex.StackTrace.Split('\n')[0];
+                    Log.Warning($"[RimExodus] GL river warp: FindPath prefix failed once (accept tightening disabled for this session, v9 pinning stays): {ex.GetType().Name}: {ex.Message}{stackHead}");
+                }
+            }
+        }
+
         /// <summary>本图全部 river-link 边带（含缝上哈希 target）；缓存 key=(tile,size)。无河图返回空表。</summary>
         private static List<EdgeBand> EnsureEdges(int tileId, int mapSize)
         {
@@ -473,6 +573,21 @@ namespace RimExodus
                 _mainGridField = AccessTools.Field(tracerType, "_mainGrid");
                 _gridMarginField = AccessTools.Field(tracerType, "GridMargin");
                 _traceInnerMarginField = AccessTools.Field(tracerType, "TraceInnerMargin");
+
+                // v10 接受收紧 + 角限放宽（可选——解析失败只禁用对应项，v9 钉位不受影响）。
+                var pathFinderType = AccessTools.TypeByName("TerrainGraph.Flow.PathFinder");
+                if (pathFinderType != null)
+                {
+                    _finderTracerField = AccessTools.Field(pathFinderType, "_tracer");
+                    _finderStepField = AccessTools.Field(pathFinderType, "FullStepDistance");
+                    _finderAcceptField = AccessTools.Field(pathFinderType, "TargetAcceptRadius");
+                    _finderPlanarField = AccessTools.Field(pathFinderType, "PlanarTargetFallback");
+                    if (_finderTracerField == null || _finderStepField == null
+                        || _finderAcceptField == null || _finderPlanarField == null)
+                        _acceptTightenDisabled = true;
+                }
+                else _acceptTightenDisabled = true;
+                _angleTenacityField = AccessTools.Field(traceParamsType, "AngleTenacity");
 
                 if (_segmentsProp == null || _relPositionField == null || _parentIdsProp == null || _branchIdsProp == null
                     || _traceParamsField == null || _targetField == null || _stepSizeField == null

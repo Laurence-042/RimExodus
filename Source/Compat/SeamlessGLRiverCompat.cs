@@ -12,9 +12,11 @@ using static RimWorld.Planet.SurfaceTile;
 namespace RimExodus
 {
     /// <summary>
-    /// GL (Geological Landforms) 河流接缝适配层（2026-09；**v9 = Path 树钉位，主线在
-    /// <see cref="GLRiverWarp"/>（patch PathTracer.Trace Prefix）**，勿回退 v1"offset 注入"、
-    /// v2-v7"末端地形场补丁"或 v8"Named 函数场 warp"路线）。
+    /// GL (Geological Landforms) 河流接缝适配层（2026-09；**v9 = Path 树钉位 + v10 = FindPath
+    /// 接受收紧，主线在 <see cref="GLRiverWarp"/>（patch PathTracer.Trace Prefix +
+    /// PathFinder.FindPath Prefix）**，勿回退 v1"offset 注入"、v2-v7"末端地形场补丁"、
+    /// v8"Named 函数场 warp"、"节点表事后扭曲"（烘焙碰撞对抗致死，已撤销）或"委托包装/拆段
+    /// 预弯"路线（淘汰理由见 GLRiverWarp 类注释 v10 段）。
     ///
     /// 【背景】GL 1.7 起河流走自有地貌系统：tile 选中带 OutputWaterFlow 的 landform 时
     /// TileMutatorsCustomization 移除原版全部五个河流 mutator，河道由节点图生成。六种河流
@@ -59,7 +61,8 @@ namespace RimExodus
     /// 预览显示未钉位的河（IsGeneratingPreview 门控跳过）。
     ///
     /// 【绑定纪律】GL 可选依赖：全部软反射 + 手动绑定（离线验证器不覆盖——游戏内权威确认 =
-    /// 启动日志 "GL river compat: bound" 三行）；类型漂移降级 Warning 不杀 mod；patch 体全程
+    /// 启动日志 "GL river compat: bound" 四行：GetOrCreateTileLinkData / GeneratePostTerrain /
+    /// PathTracer.Trace / PathFinder.FindPath）；类型漂移降级 Warning 不杀 mod；patch 体全程
     /// try/catch 吞异常放行 GL 原值（调用链上有 GL 世界 UI/编辑器/MapPreview 后台线程）。
     /// GL 缺失时 Register 直接短路，零介入零开销。
     /// </summary>
@@ -199,8 +202,24 @@ namespace RimExodus
                 }
                 else
                 {
-                    Log.Warning("[RimExodus] GL river compat: path-pin patch NOT bound " +
-                                $"(target={traceTarget}, prefix={tracePrefix}, postfix={tracePostfix}) — GL rivers stay unaligned across seams.");
+                    Log.Warning("[RimExodus] GL river compat: path-pin patch NOT bound "
+                                + $"(target={traceTarget}, prefix={tracePrefix}, postfix={tracePostfix}) — GL rivers stay unaligned across seams.");
+                }
+
+                // ===== Patch D：PathFinder.FindPath Prefix（v10 接受收紧——钉位目标逼 A* 精确抵达，
+                // 逻辑在 GLRiverWarp.OnFindPathPrefix；public 单一签名无重载）=====
+                var pathFinderType = AccessTools.TypeByName("TerrainGraph.Flow.PathFinder");
+                var findPathTarget = AccessTools.Method(pathFinderType, "FindPath");
+                var findPathPrefix = AccessTools.Method(typeof(Patch_PathFinderFindPath), nameof(Patch_PathFinderFindPath.Prefix));
+                if (findPathTarget != null && findPathPrefix != null)
+                {
+                    harmony.Patch(findPathTarget, prefix: new HarmonyMethod(findPathPrefix));
+                    LogBindConfirmed(harmony, findPathTarget, "PathFinder.FindPath");
+                }
+                else
+                {
+                    Log.Warning("[RimExodus] GL river compat: accept-tighten patch NOT bound "
+                                + $"(target={findPathTarget}, prefix={findPathPrefix}) — GL river seam offsets up to the early-accept radius may remain.");
                 }
             }
             catch (Exception ex)
@@ -250,6 +269,22 @@ namespace RimExodus
             internal static void Postfix(object __instance)
             {
                 GLRiverWarp.OnTracePostfix(__instance);
+            }
+        }
+
+        /// <summary>
+        /// v10 接受收紧（2026-09-17 两轮实测定案）：错开主体 = A* 的提前接受
+        /// （TargetAcceptRadius=StepSize + PlanarTargetFallback=3·StepSize 垂直平面接受），
+        /// A* 从不精确抵达钉位目标。本 Prefix 对钉位目标把两字段收紧（纯数据、每任务新实例无需
+        /// 复原）——路线仍由 A* 在成本场内决策，不与碰撞处理器对抗（v10a 节点表扭曲因对抗烘焙
+        /// 碰撞系统导致河流整体消失，已撤销，勿回退）。targetPos object 装箱注入（Vector2d
+        /// struct，无编译引用）；逻辑全在 <see cref="GLRiverWarp.OnFindPathPrefix"/>。
+        /// </summary>
+        internal static class Patch_PathFinderFindPath
+        {
+            internal static void Prefix(object __instance, object targetPos)
+            {
+                GLRiverWarp.OnFindPathPrefix(__instance, targetPos);
             }
         }
 
