@@ -22,6 +22,13 @@ namespace RimExodus
         /// <summary>全局 RimExodus 设置实例（由 GetSettings 提供，自动持久化）。</summary>
         public static RimExodusSettings Settings { get; private set; }
 
+        /// <summary>
+        /// 全局 Harmony 实例（同一 owner id "RimExodus.SeamlessWorld"）。延迟注册的兼容层
+        /// （GL 河流 patch 经 SeamlessLandformsCompat.EnsureRegisteredForGeneration 生成入口兜底）
+        /// 复用它挂 patch——各建新实例会分裂 owner 统计且无必要。
+        /// </summary>
+        internal static HarmonyLib.Harmony HarmonyInstance { get; private set; }
+
         public RimExodusMod(ModContentPack content) : base(content)
         {
             Settings = GetSettings<RimExodusSettings>();
@@ -37,13 +44,17 @@ namespace RimExodus
             LongEventHandler.ExecuteWhenFinished(SeamlessRangeCurve.Initialize);
 
             var harmony = new Harmony("RimExodus.SeamlessWorld");
+            HarmonyInstance = harmony;
             harmony.PatchAll();
 
             // GL 白名单注册（2026-08）：无派系的 RimExodus_SeamlessTileMap parent 会被 GL 的
             // CheckWorldObject 当外来 site 过滤掉该 tile 全部 landform（营地图生成时缺失且被
             // CommitDirectly 毒化永久失效；地块图存在期间 MapPreview 预览丢 GL）。必须在任何
-            // GL 判定/预览线程之前注册——本构造器时点全部 mod assembly 已加载，够早。
-            // 成功标志（日志）= "GL compat: registered RimExodus_SeamlessTileMap in IgnoredWorldObjects (verified...)"。
+            // GL 判定/预览线程之前注册。本构造器是首次尝试；GL 1.7.13 起主程序集经 LunarLoader
+            // 懒加载入域，此时可能尚未完成——最终兜底在生成入口
+            // （SeamlessLandformsCompat.EnsureRegisteredForGeneration，经 EnsureNeighborSnapshots
+            // 漏斗，原生/分帧两路径全覆盖）。成功标志（日志）= "GL compat: registered
+            // RimExodus_SeamlessTileMap in IgnoredWorldObjects (verified...)"。
             SeamlessLandformsCompat.RegisterIgnoredWorldObject();
 
             // PerspectiveShift 兼容（2026-08）：PS 的 WASD 自由移动绕过 job/pather，挂
@@ -62,7 +73,8 @@ namespace RimExodus
             // patch（GetOrCreateTileLinkData 穿越点对齐 + GeneratePostTerrain void 还原/河格登记 +
             // PathTracer.Trace Prefix/Postfix Path 树钉位与偏差诊断——河路本体层，水/岸/biome/海拔
             // 全层自动一致）。软检测未装短路；手动绑定全程 try/catch；成功标志 =
-            // "GL river compat: bound" 三行。
+            // "GL river compat: bound" 三行。此调用是首次尝试（GL 经 LunarLoader 懒加载，ctor 时点
+            // 可能未入域）；生成入口由 EnsureRegisteredForGeneration 幂等兜底重试（内部防双挂）。
             SeamlessGLRiverCompat.Register(harmony);
 
             // VEF ObjectSpawns 位置过滤（2026-09）：VEF 的地图物体刷出（VVE 载具残骸等）逐格判据

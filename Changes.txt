@@ -17,6 +17,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 1.0.1
 - 修复：暴雨与季节性洪水的洪水会漫过地图边缘六边形外的整圈 void 边界（从相邻地图望过去也是一片洪水），现在洪水到 void 边界即止；可玩区与接缝带上的涨水退水保持原版行为（@dawndeath4 报告的问题）
   Fixed: floodwater from torrential rain and seasonal flooding used to spread across the entire void border beyond the map's hexagon edge (showing as a sheet of water when viewed from adjacent maps). Flooding now stops at the void border; rising and receding water on the playable area and the seam band keeps vanilla behavior. (Reported by @dawndeath4.)
+- 修复：安装 Geological Landforms 时，该 mod 改为延迟加载后 RimExodus 的适配会随 mod 排序静默失效——失效期间走近时生成的邻接地块会缺失河流乃至地貌（定居点等按原版方式生成的地图不受影响）。适配现在会在任何地图生成前自动就绪，不再依赖 mod 加载顺序
+  Fixed: with Geological Landforms installed, RimExodus's adaptation for it could silently stop working depending on mod load order after that mod switched to loading itself lazily — while inactive, neighboring tiles generated as you approached lacked their river and even their landforms (settlements and other natively generated maps were unaffected). The adaptation now readies itself automatically before any map generates and no longer depends on mod load order.
 
 
 1.0.0

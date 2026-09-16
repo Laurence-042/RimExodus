@@ -58,21 +58,21 @@ namespace RimExodus
     /// </summary>
     internal static class SeamlessLandformsCompat
     {
-        private static readonly bool available;
-        private static readonly MethodInfo prepareMethod;
-        private static readonly MethodInfo cleanupMethod;
-        private static readonly PropertyInfo generatingTileProp;
-        private static readonly PropertyInfo generatingLandformsProp;
-        private static readonly PropertyInfo customGenStepsProp;
-        private static readonly PropertyInfo nodeGenStepDefProp;
-        private static readonly Type biomeVariantsStepType;
-        private static readonly FieldInfo biomeVariantsDefField;
-        private static readonly Type biomeGridType;
-        private static readonly PropertyInfo biomeGridPrimaryProp;
-        private static readonly MethodInfo entrySetMethod;
-        private static readonly MethodInfo refreshAllEntriesMethod;
-        private static readonly FieldInfo ignoredWorldObjectsField;
-        private static readonly bool glPresent;
+        private static bool available;
+        private static MethodInfo prepareMethod;
+        private static MethodInfo cleanupMethod;
+        private static PropertyInfo generatingTileProp;
+        private static PropertyInfo generatingLandformsProp;
+        private static PropertyInfo customGenStepsProp;
+        private static PropertyInfo nodeGenStepDefProp;
+        private static Type biomeVariantsStepType;
+        private static FieldInfo biomeVariantsDefField;
+        private static Type biomeGridType;
+        private static PropertyInfo biomeGridPrimaryProp;
+        private static MethodInfo entrySetMethod;
+        private static MethodInfo refreshAllEntriesMethod;
+        private static FieldInfo ignoredWorldObjectsField;
+        private static bool glPresent;
 
         /// <summary>本轮增量生成是否已成功 Prepare（控制 EnsureContextAlive 是否重试；Cleanup 时复位）。</summary>
         private static bool prepared;
@@ -83,8 +83,30 @@ namespace RimExodus
         /// </summary>
         private static object preparedContext;
 
+        /// <summary>"GL 在 mod 列表但类型解析失败"的一次性告警旗标（版本漂移检测，防刷屏）。</summary>
+        private static bool warnedGlExpectedMissing;
+
         static SeamlessLandformsCompat()
         {
+            EnsureResolved();
+        }
+
+        /// <summary>
+        /// 解析 GL 反射面（幂等，未成功前可重试）。首跑 = 静态构造器（RimExodusMod ctor 触达）；
+        /// 生成期由 <see cref="EnsureRegisteredForGeneration"/> 兜底重试。
+        ///
+        /// 【LunarLoader 懒加载教训（2026-09-16"邻图没生成河流"定案，勿回退为一次性 ctor 解析）】
+        /// GL 1.7.13 起工坊包 1.6/Assemblies 里只有 LunarLoader.dll，真程序集在 Lunar/Components/
+        /// 由 LunarFramework **延迟入域**——RimExodusMod 构造器时点 TypeByName 拿不到类型，
+        /// glPresent 恒 false，本兼容层（含白名单与 GL 河流 patch 注册）整层静默 no-op：GL 的
+        /// Tile.Mutators getter patch 照常移除河流 tile 的原版河 mutator，分帧路径却无人 Prepare
+        /// 上下文 → GL worker 守卫早退 → 两边都没河（症状：MutatorPostTerrain 0ms、无
+        /// BiomeVariants 注入步、无 River edge match 日志）。曾因测试列表里 RimExodus 排在 GL 之后
+        /// （懒加载恰好先完成）侥幸通过——ctor 时点解析对 mod 顺序敏感，不是可靠时点。
+        /// </summary>
+        internal static void EnsureResolved()
+        {
+            if (glPresent) return; // 已解析成功。结构半残（available=false）不重扫：同一程序集重试无意义。
             try
             {
                 var landformType = AccessTools.TypeByName("GeologicalLandforms.GraphEditor.Landform");
@@ -134,18 +156,48 @@ namespace RimExodus
         }
 
         /// <summary>
+        /// 生成入口兜底注册（原生 Prefix 与 IncrementalMapGenerator.Start 两路径都经
+        /// <see cref="SeamlessSnapshotRegenerator.EnsureNeighborSnapshots"/> 漏斗到达此处；预览线程
+        /// 与非表面层已被其守卫滤除，此处必为主线程正式生成）。GL 的 LunarLoader 懒加载可能晚于
+        /// 任何启动时点（含 StaticConstructorOnStartup），本入口保证：任何地图正式生成（原生/分帧）
+        /// 之前，白名单、GL 河流 patch 与本层上下文复刻能力在 GL 在场时必然已就绪。幂等——解析
+        /// 成功/注册完成后全为常数级早退，每张图的调用开销可忽略。
+        /// </summary>
+        internal static void EnsureRegisteredForGeneration()
+        {
+            EnsureResolved();
+            RegisterIgnoredWorldObject();
+            SeamlessGLRiverCompat.Register(RimExodusMod.HarmonyInstance);
+
+            // 版本漂移哨兵：到生成时 GL 程序集必已入域（其 Mutators getter patch 已在生效），
+            // 此时仍解析不到类型 = GL 改了结构——出告警提醒适配层需要跟进，不再静默。
+            if (glPresent || warnedGlExpectedMissing) return;
+            foreach (var mod in LoadedModManager.RunningMods)
+            {
+                var id = mod.PackageIdPlayerFacing;
+                if (id == null || id.ToLower() != "m00nl1ght.geologicallandforms") continue;
+                warnedGlExpectedMissing = true;
+                Log.Warning("[RimExodus] GL compat: Geological Landforms is active but its types did not resolve "
+                            + "(version drift?) — GL landforms/rivers stay unadapted on seamless maps.");
+                break;
+            }
+        }
+
+        /// <summary>
         /// 把 RimExodus_SeamlessTileMap 注册进 GL 的 NodeUIWorldTileReq.IgnoredWorldObjects 白名单
         /// （private static readonly List&lt;string&gt;——readonly 只锁引用、内容可变）。根因见类注释
         /// 【白名单根因】段：白名单命中后 CheckWorldObject 首过，营地图 landform 恢复且
         /// CommitDirectly 烧正确数据（不再毒化），地块图存在期间的预览/运行时 Mutators 查询全链恢复。
         ///
-        /// 挂点 = RimExodusMod 构造器（mod 加载阶段，全部 assembly 已加载，早于任何 GL 判定与
-        /// MapPreview 后台线程启动）。List 非线程安全，但注册发生在预览线程存在之前、此后全程
-        /// 只读。GL 缺失时静默 no-op（glPresent=false）；GL 改结构（字段取不到）降级 Warning。
-        /// 幂等（Contains 检查）。
+        /// 挂点 = RimExodusMod 构造器（首次尝试）+ <see cref="EnsureRegisteredForGeneration"/>（生成
+        /// 入口兜底重试——GL 经 LunarLoader 懒加载入域，ctor 时点可能尚未完成，见 EnsureResolved
+        /// 注释的 2026-09-16 教训）。List 非线程安全，但两个挂点均为主线程且注册早于预览线程存在。
+        /// GL 缺失时静默 no-op（glPresent=false）；GL 改结构（字段取不到）降级 Warning。幂等
+        /// （Contains 检查）。
         /// </summary>
         public static void RegisterIgnoredWorldObject()
         {
+            EnsureResolved();
             if (!glPresent) return;
             try
             {
@@ -176,6 +228,7 @@ namespace RimExodus
         /// </summary>
         public static void TryPrepare(Map map)
         {
+            EnsureResolved();
             if (!available || map == null) return;
             try
             {

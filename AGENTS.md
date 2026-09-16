@@ -158,7 +158,7 @@
 
 - 兼容层全部软检测：目标 Mod 缺失时零行为、零错误；类型或签名漂移时 Warning 并安全降级，不能让兼容诊断杀死 RimExodus 初始化。
 - 手动 `AccessTools.Method + harmony.Patch` 不受离线 PatchAll 验证器覆盖；必须 try/catch，并输出可核对的绑定成功行。
-- Geological Landforms：分帧路径复刻其 Prepare/Cleanup 上下文；RimExodus parent 必须登记进 GL 的 IgnoredWorldObjects。GL 河流通过 Path tree 钉位，不能回退到离散函数场 warp 或生成后地形修补。
+- Geological Landforms：分帧路径复刻其 Prepare/Cleanup 上下文；RimExodus parent 必须登记进 GL 的 IgnoredWorldObjects。GL 河流通过 Path tree 钉位，不能回退到离散函数场 warp 或生成后地形修补。GL 1.7.13 起主程序集经 LunarLoader 懒加载（Assemblies 只有 LunarLoader.dll，真程序集在 Lunar/Components/）——GL 类型解析必须经 `SeamlessLandformsCompat.EnsureResolved` 可重试，最终注册兜底在生成入口（`EnsureNeighborSnapshots` 漏斗 → `EnsureRegisteredForGeneration`，原生/分帧两路径全覆盖）；勿回退为 RimExodusMod 构造器时点一次性解析（2026-09 教训：ctor 时点解析对 mod 列表顺序敏感，静默失效时河流地貌 tile 两边河 mutator 都不跑、地块图无河无地貌）。
 - MapPreview：后台预览与正式生成共享 MapGenerator static，必须互斥；线程判定不能只看全局 IsGeneratingPreview。
 - Vehicle Framework：跨图前先同步就绪化目标图 VehiclePathGrid，再用整车矩形与载具自己的成本源判断落点。不得用普通 Pawn 的 Walkable 或 thingGrid Standable 预筛深水/植被。
 - Perspective Shift：WASD 绕过 job/pather，预加载和踩点需兼容钩子；传送方向以输入与邻接 `offsetDir` 的正点积门控，跨图后切 CurrentMap 并保留缩放。PS 与 VF 同装时驾驶路径走独立 vehicle movement 钩子。

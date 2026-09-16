@@ -81,6 +81,12 @@ namespace RimExodus
             if (!targetTile.Valid || targetTile.LayerDef != PlanetLayerDefOf.Surface) return;
             if (SeamlessMapPreviewCompat.IsGeneratingPreviewOnCurrentThread) return;
 
+            // GL 懒加载兜底（2026-09-16"邻图没生成河流"定案）：GL 1.7.13 主程序集经 LunarLoader
+            // 延迟入域，任何启动时点（含 ctor）都可能解析不到——原生 Prefix 与 IncrementalMapGenerator
+            // Start 两路径都在占用生成 static 前经过本漏斗，在此幂等重试 GL 兼容注册（白名单 + 河流
+            // patch + landform 上下文复刻能力）。必须置于上方守卫之后：预览线程不做 Harmony 绑定。
+            SeamlessLandformsCompat.EnsureRegisteredForGeneration();
+
             var neighbors = new List<PlanetTile>();
             Find.WorldGrid.GetTileNeighbors(targetTile, neighbors);
             foreach (var neighbor in neighbors)

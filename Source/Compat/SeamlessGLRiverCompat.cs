@@ -109,16 +109,26 @@ namespace RimExodus
         private static bool _warnedAlignFailure;
 
         /// <summary>
-        /// 绑定入口（RimExodusMod 构造器调用，PatchAll 之后）。GL 不在场直接短路；
-        /// 类型/方法解析失败降级 Warning 返回（不完整绑定的字段保持 null，patch 体自守卫）。
+        /// 防重入旗标：GL 类型在场后本方法只做一次最终尝试（部分绑定失败也不重试——Harmony
+        /// 已挂上的 patch 重挂会双倍生效）；GL 未在场时早退返回、可被后续时点重试。
+        /// </summary>
+        private static bool registered;
+
+        /// <summary>
+        /// 绑定入口（RimExodusMod 构造器首跑 + <see cref="SeamlessLandformsCompat.EnsureRegisteredForGeneration"/>
+        /// 生成入口兜底重试——GL 1.7.13 起主程序集经 LunarLoader 懒加载入域，ctor 时点可能拿不到
+        /// 类型，见 SeamlessLandformsCompat.EnsureResolved 的 2026-09-16 教训）。GL 不在场直接短路
+        /// （可重试）；类型/方法解析失败降级 Warning 返回（不完整绑定的字段保持 null，patch 体自守卫）。
         /// </summary>
         public static void Register(Harmony harmony)
         {
+            if (registered) return;
             try
             {
                 _worldTileInfoType = AccessTools.TypeByName("GeologicalLandforms.WorldTileInfo");
                 _landformType = AccessTools.TypeByName("GeologicalLandforms.GraphEditor.Landform");
-                if (_worldTileInfoType == null || _landformType == null) return; // GL 未装
+                if (_worldTileInfoType == null || _landformType == null) return; // GL 未装/懒加载未完成——可重试
+                registered = true; // GL 在场：本次即最终尝试
 
                 _tileIdField = AccessTools.Field(_worldTileInfoType, "TileId");
                 _riverPositionToOffsetMethod = AccessTools.Method(AccessTools.TypeByName("GeologicalLandforms.WorldTileUtils"), "RiverPositionToOffset");
