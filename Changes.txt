@@ -14,6 +14,11 @@ If what you’re really asking is whether I’ll make more RimWorld mods in the 
 well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, I need to refocus on my own game development first. Even if it does get finished, it'll likely flop hard, and I'll just go back to being a corporate drone. Everyone knows how that life goes.
 
 
+1.0.1
+- 修复：暴雨与季节性洪水的洪水会漫过地图边缘六边形外的整圈 void 边界（从相邻地图望过去也是一片洪水），现在洪水到 void 边界即止；可玩区与接缝带上的涨水退水保持原版行为（@dawndeath4 报告的问题）
+  Fixed: floodwater from torrential rain and seasonal flooding used to spread across the entire void border beyond the map's hexagon edge (showing as a sheet of water when viewed from adjacent maps). Flooding now stops at the void border; rising and receding water on the playable area and the seam band keeps vanilla behavior. (Reported by @dawndeath4.)
+
+
 1.0.0
 - 新增：完整适配 Combat Extended 的跨图射击。普通枪械、手雷、迫击炮、瞬时射线、制导弹、CIWS、压制射击和能力发射路径均可攻击相邻地图；角色和自动/手动炮塔会跨图索敌。射程、视线、掩体、烟雾、光照、散布、弹道、碰撞和爆炸仍按 CE 规则在实际地图上计算；世界炮击继续使用 CE 原有流程
   New: expanded Combat Extended cross-map combat compatibility. Ordinary firearms, grenades, mortars, instant rays, guided projectiles, CIWS, suppression fire, and ability-launched projectiles can now engage targets on adjacent maps, while pawns and automatic/manual turrets can acquire cross-map targets. Range, line of sight, cover, smoke, lighting, dispersion, ballistics, collision, and explosions continue to use CE rules on the actual maps; world shelling remains handled by CE's original system.
