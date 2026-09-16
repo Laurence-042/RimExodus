@@ -206,20 +206,24 @@ namespace RimExodus
                                 + $"(target={traceTarget}, prefix={tracePrefix}, postfix={tracePostfix}) — GL rivers stay unaligned across seams.");
                 }
 
-                // ===== Patch D：PathFinder.FindPath Prefix（v10 接受收紧——钉位目标逼 A* 精确抵达，
-                // 逻辑在 GLRiverWarp.OnFindPathPrefix；public 单一签名无重载）=====
+                // ===== Patch D：PathFinder.FindPath Prefix+Postfix（v10 接受收紧 + 终端收口——
+                // 收紧逼 A* 精确抵达，收口在结果末节点前插入缝线穿越点节点把偏差压到 0；
+                // 逻辑在 GLRiverWarp.OnFindPathPrefix/Postfix；public 单一签名无重载）=====
                 var pathFinderType = AccessTools.TypeByName("TerrainGraph.Flow.PathFinder");
                 var findPathTarget = AccessTools.Method(pathFinderType, "FindPath");
                 var findPathPrefix = AccessTools.Method(typeof(Patch_PathFinderFindPath), nameof(Patch_PathFinderFindPath.Prefix));
-                if (findPathTarget != null && findPathPrefix != null)
+                var findPathPostfix = AccessTools.Method(typeof(Patch_PathFinderFindPath), nameof(Patch_PathFinderFindPath.Postfix));
+                if (findPathTarget != null && findPathPrefix != null && findPathPostfix != null)
                 {
-                    harmony.Patch(findPathTarget, prefix: new HarmonyMethod(findPathPrefix));
+                    harmony.Patch(findPathTarget,
+                        prefix: new HarmonyMethod(findPathPrefix),
+                        postfix: new HarmonyMethod(findPathPostfix));
                     LogBindConfirmed(harmony, findPathTarget, "PathFinder.FindPath");
                 }
                 else
                 {
-                    Log.Warning("[RimExodus] GL river compat: accept-tighten patch NOT bound "
-                                + $"(target={findPathTarget}, prefix={findPathPrefix}) — GL river seam offsets up to the early-accept radius may remain.");
+                    Log.Warning("[RimExodus] GL river compat: accept-tighten/terminal-pin patch NOT bound "
+                                + $"(target={findPathTarget}, prefix={findPathPrefix}, postfix={findPathPostfix}) — GL river seam offsets up to the early-accept radius may remain.");
                 }
             }
             catch (Exception ex)
@@ -285,6 +289,12 @@ namespace RimExodus
             internal static void Prefix(object __instance, object targetPos)
             {
                 GLRiverWarp.OnFindPathPrefix(__instance, targetPos);
+            }
+
+            /// <summary>v10d 终端收口：在 A* 结果末节点前插入恰在缝线穿越点上的节点（d→0）。</summary>
+            internal static void Postfix(object __instance, ref object __result, object targetPos)
+            {
+                GLRiverWarp.OnFindPathPostfix(__instance, ref __result, targetPos);
             }
         }
 

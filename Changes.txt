@@ -19,8 +19,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
   Fixed: floodwater from torrential rain and seasonal flooding used to spread across the entire void border beyond the map's hexagon edge (showing as a sheet of water when viewed from adjacent maps). Flooding now stops at the void border; rising and receding water on the playable area and the seam band keeps vanilla behavior. (Reported by @dawndeath4.)
 - 修复：安装 Geological Landforms 时，该 mod 改为延迟加载后 RimExodus 的适配会随 mod 排序静默失效——失效期间走近时生成的邻接地块会缺失河流乃至地貌（定居点等按原版方式生成的地图不受影响）。适配现在会在任何地图生成前自动就绪，不再依赖 mod 加载顺序
   Fixed: with Geological Landforms installed, RimExodus's adaptation for it could silently stop working depending on mod load order after that mod switched to loading itself lazily — while inactive, neighboring tiles generated as you approached lacked their river and even their landforms (settlements and other natively generated maps were unaffected). The adaptation now readies itself automatically before any map generates and no longer depends on mod load order.
-- 改进：安装 Geological Landforms 时，河流在地图接缝处的错位显著减小——此前河流寻路会在"差不多到达"时就提前停下，河道最多偏出两侧约定的穿越位置约 30 格；现在会精确抵达穿越位置（多条河流交汇的地块上仍可能残留个位数格的偏移，观察中）
-  Improved: with Geological Landforms installed, rivers are far better aligned at map seams. The river pathfinder used to stop early once "close enough", leaving the channel up to ~30 tiles off the crossing position agreed by both maps; it now arrives precisely. (Tiles where several rivers meet may still show single-digit offsets; under observation.)
+- 改进：安装 Geological Landforms 时，河流现在精确穿过两侧地图约定的接缝穿越位置——此前河流寻路会在"差不多到达"时就提前停下，河道最多偏出约 30 格
+  Improved: with Geological Landforms installed, rivers now pass exactly through the seam crossing position agreed by both maps — the river pathfinder previously stopped early once "close enough", leaving the channel up to ~30 tiles off the crossing.
 
 
 1.0.0

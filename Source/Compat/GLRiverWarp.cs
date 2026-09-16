@@ -47,20 +47,22 @@ namespace RimExodus
     /// 【门控】MapPreviewAPI.IsGeneratingPreview 跳过（预览原样）；无 river-link 边带命中 →
     /// 不钉（世界数据权威性）；全程 try/catch 安全失败 = 不钉（原 GL 行为，勿杀 Trace）。
     ///
-    /// 【v10（2026-09-17 两轮实测定案）】v9 只钉端点时河仍在缝旁错开 ≤29 格，但主因不是
-    /// 转向半径：A\* 的提前接受（TargetAcceptRadius=StepSize + PlanarTargetFallback=3·StepSize，
-    /// 垂直平面接受）使它从不精确抵达目标。修法（纯数据、不与碰撞系统对抗）：
-    /// ①FindPath Prefix 对钉位目标收紧接受（<see cref="OnFindPathPrefix"/>：两字段都是
-    /// PathFinder public double，反射直写）；②v9 钉位时放宽叶段 AngleTenacity，转向预算升到
-    /// 地貌作者自设的 AngleLimitAbs 上限内——末端弯折由 A\* 在成本场内自己完成，仍遵守
-    /// Overlap 避让与烘焙碰撞规则。
-    /// 【v10a 节点表扭曲——已撤销，勿回退】曾在 FindPath Postfix 对 A* 结果节点表整体
-    /// smoothstep 位移（末端误差前馈抵消）。实测死因：烘焙期碰撞系统（value/offset 差检测
-    /// 河带压叠）与碰撞处理器的避让调整（divert/simplify/…/stub 阶梯）互搏——扭曲每轮把
-    /// 叶子河带拉回穿越点方向、恰好撤销处理器的避让，误差逐轮放大（26→33→41→49）直至
-    /// stub 截断、河流整体消失（registered=0）。教训：**不得绕过 A\* 事后位移其结果**——
-    /// 结果的合法性（避让/碰撞/成本）只在 A\* 决策内成立；同理勿用 GridValueSupplier
-    /// 委托包装（Vector2d 无编译引用需 emit）。
+    /// 【v10（2026-09-17 三轮实测定案）】v9 只钉端点时河仍在缝旁错开 ≤29 格，主因是 A\* 的
+    /// 提前接受（TargetAcceptRadius=StepSize + PlanarTargetFallback=3·StepSize 垂直平面接受）——
+    /// 它从不精确抵达目标。修法（纯数据 + 终端单点，不与碰撞系统对抗）：
+    /// ①FindPath Prefix 对钉位目标收紧接受（两字段都是 PathFinder public double，反射直写），
+    /// 贪心重试档（HeuristicDistanceWeight≥5）恢复 vanilla 洪量防 null→梯度跟随降级；
+    /// ②v9 钉位时放宽叶段 AngleTenacity（转向预算升到地貌作者自设 AngleLimitAbs 上限内）；
+    /// ③FindPath Postfix 终端收口（v10d）：在结果末节点前插入恰在缝线穿越点上的节点——跨缝
+    /// 段以它为端点，中心线按构造精确穿过穿越点；位移局限于终段一格步长（终段在接缝带边缘、
+    /// 远离他人河带），不触发碰撞互搏。
+    /// 【v10a 全路径节点位移——已撤销，勿回退】曾对 A* 结果整表 smoothstep 位移（末端误差前馈
+    /// 抵消）。实测死因：烘焙期碰撞系统（value/offset 差检测河带压叠）与碰撞处理器的避让调整
+    /// （divert/simplify/…/stub 阶梯）互搏——位移每轮把叶子河带拉回穿越点方向、恰好撤销处理器
+    /// 的避让，误差逐轮放大（26→33→41→49）直至 stub 截断、河流整体消失（registered=0）。
+    /// 教训：**不得整体位移 A\* 结果**——结果的合法性（避让/碰撞/成本）只在 A\* 决策内成立；
+    /// 终端单点收口（v10d）是唯一允许的事后修改。亦勿用 GridValueSupplier 委托包装（Vector2d
+    /// 无编译引用需 emit）。
     /// </summary>
     internal static class GLRiverWarp
     {
@@ -105,7 +107,20 @@ namespace RimExodus
         private static FieldInfo _finderStepField;         // PathFinder.FullStepDistance (public double)
         private static FieldInfo _finderAcceptField;       // PathFinder.TargetAcceptRadius (public double)
         private static FieldInfo _finderPlanarField;       // PathFinder.PlanarTargetFallback (public double)
+        private static FieldInfo _finderHeuristicField;    // PathFinder.HeuristicDistanceWeight (public float，重试阶梯档位)
         private static FieldInfo _angleTenacityField;      // TraceParams.AngleTenacity
+
+        // ===== v10d：FindPath Postfix 终端收口（穿越点单点插入；可选解析——失败只禁收口）=====
+        private static bool _terminalPinDisabled;
+        private static bool _warnedTerminalFailure;
+        private static ConstructorInfo _nodeCtor;          // PathFinder.Node(Vector2d, Vector2d, int, int, Node)
+        private static FieldInfo _nodePositionField;       // Node.Position (public readonly Vector2d)
+
+        /// <summary>收口节点与相邻节点的最小间距（格）——过近会使烘焙帧推进弦长→0 而停摆。</summary>
+        private const float MinNodeSpacing = 2f;
+
+        /// <summary>末端已距穿越点多近时视为已对齐（不收口）。</summary>
+        private const float TerminalNoOpDist = 1.2f;
 
         // ===== 边带缓存（单槽；生成串行）=====
         private static List<EdgeBand> _edges;
@@ -223,14 +238,15 @@ namespace RimExodus
                 var t = ReadVec2d(targetBoxed);
                 if (TryFindBand(edges, t, TargetBandDepth, out var tBand, out var td, out var tl))
                 {
-                    // 出场端不能只放在缝线上：PathFinder 可在 StepSize 半径内提前接受，
-                    // 2026-09-09 实测 tile 20771 e1 因此 NO-CROSS。沿外法线外推，但不改
-                    // target lat；这样两图仍在同一哈希穿越点相交，且河带确实延伸出多边形。
+                    // 出场端不能只放在缝线上：PathFinder 可在接受半径内提前结束。沿外法线外推，
+                    // 但不改 target lat；这样两图仍在同一哈希穿越点相交，且河心确实越过缝线。
+                    // v10c 外推量从 16 格（step+2·margin+1）缩到 接受半径+3（≈5.5 格）：
+                    // ①斜向接近的过缝横向偏移 ∝ 外推量·tan(接近角)（实测 d=-13 = 16·tan39°），
+                    // 缩短直接减三倍；②旧 NO-CROSS（tile 20771）的根因是 planar 提前接受 15 格，
+                    // v10b 已清零——河心停在缝外 ≥3 格 + 河半宽 ~10，MainGrid 在缝线上必然 >0。
+                    // 与 OnFindPathPrefix 的 lead 匹配式必须同步（gate 靠它对上 targetPos）。
                     var stepSize = Mathf.Max(1f, (float)(double)_stepSizeField.GetValue(tpBoxed));
-                    var traceInnerMargin = tracer != null
-                        ? Mathf.Max(0f, (float)(double)_traceInnerMarginField.GetValue(tracer))
-                        : 3f;
-                    var outwardLead = stepSize + 2f * traceInnerMargin + 1f;
+                    var outwardLead = Mathf.Max(4f, stepSize * 0.5f) + 3f;
                     var pinnedTarget = tBand.Target - tBand.Inward * outwardLead;
                     _targetField.SetValue(tpBoxed, MakeVec2d(pinnedTarget.x, pinnedTarget.y));
                     // v10：放宽叶段转向预算（只降不升）——AngleLimit(width, tenacity) 随之升到
@@ -413,9 +429,8 @@ namespace RimExodus
 
                 var tracer = _finderTracerField.GetValue(__instance);
                 var step = (double)_finderStepField.GetValue(__instance);
-                var traceInnerMargin = tracer != null ? (double)_traceInnerMarginField.GetValue(tracer) : 3.0;
                 var margin = tracer != null ? ReadVec2d(_gridMarginField.GetValue(tracer)) : Vector2.zero;
-                var lead = (float)(step + 2.0 * traceInnerMargin + 1.0); // 与 v9 钉位同式外推量
+                var lead = (float)(System.Math.Max(4.0, 0.5 * step) + 3.0); // 与 v9 钉位同式外推量（v10c）
 
                 var tp = ReadVec2d(targetPos);
                 var matched = false;
@@ -433,17 +448,31 @@ namespace RimExodus
                 // 不小于半步长——A* 节点按步长推进，半径过小会"跨过"目标无节点命中（planar 兜底
                 // 已清零，命中不了就迭代到上限返回 null → 段降级为梯度跟随，比错开更糟）。
                 // 垂直平面接受（PlanarTargetFallback，±10 横向无界）是错开的主体，直接清零。
+                // 【v10c 重试感知】HeuristicDistanceWeight 是 PathTracer 重试阶梯（1+2^i：2/3/5/9）
+                // 的当前档——贪心档（≥5）= 前两次精确尝试已 null（多支流图的后跑叶面对先跑叶
+                // 河带的 Overlap ×100 障碍时可能无法精确命中），恢复 vanilla 洪量兜底接受，
+                // 杜绝 null → Target=null → 梯度跟随（实测合流图 +31 的来源）。
                 var accept = (double)_finderAcceptField.GetValue(__instance);
                 var tightAccept = System.Math.Max(2.0, 0.5 * step);
-                if (accept > tightAccept) _finderAcceptField.SetValue(__instance, tightAccept);
-                _finderPlanarField.SetValue(__instance, 0d);
+                var hw = (float)_finderHeuristicField.GetValue(__instance);
+                var relaxed = hw >= 5f;
+                if (relaxed)
+                {
+                    if (accept < step) _finderAcceptField.SetValue(__instance, step);
+                    _finderPlanarField.SetValue(__instance, 3d * step);
+                }
+                else
+                {
+                    if (accept > tightAccept) _finderAcceptField.SetValue(__instance, tightAccept);
+                    _finderPlanarField.SetValue(__instance, 0d);
+                }
 
                 if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
                 {
                     var e2 = _edges[bandIdx];
                     RimExodusLog.Message(RimExodusLogModule.Compat,
                         $"GL river accept tighten: tile={_edgesTile} e{e2.EdgeIdx}->t{e2.NeighborTile} " +
-                        $"accept={accept:F1}->{tightAccept:F1} planar->0.");
+                        $"accept={accept:F1}->{(relaxed ? step : tightAccept):F1} planar->{(relaxed ? (3d * step) : 0d):F0} hw={hw:F0}{(relaxed ? " (greedy-retry fallback)" : "")}.");
                 }
             }
             catch (Exception ex)
@@ -454,6 +483,110 @@ namespace RimExodus
                     _warnedTightenFailure = true;
                     var stackHead = ex.StackTrace == null ? "" : " @ " + ex.StackTrace.Split('\n')[0];
                     Log.Warning($"[RimExodus] GL river warp: FindPath prefix failed once (accept tightening disabled for this session, v9 pinning stays): {ex.GetType().Name}: {ex.Message}{stackHead}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// PathFinder.FindPath Postfix（v10d 终端收口；由 SeamlessGLRiverCompat.Patch_PathFinderFindPath
+        /// 转发）。在 A* 结果的末节点前**插入一个恰在缝线穿越点上的节点**——跨缝段以它为端点，
+        /// 中心线按构造精确穿过穿越点（d→0）；越缝延伸由原末节点（钉位目标在缝外）与 marginHead
+        /// 保证。位移局限于终段一格步长（v10b 收紧使 A* 末端本就落在穿越点附近，折角很小），
+        /// 终段位于接缝带边缘、远离根段与兄弟支流的河带——不触发 v10a 式碰撞互搏（那是全路径
+        /// 位移扫过他人河带）。防停摆守卫：收口点与倒数第二节点间距不足时改为把末节点替换到
+        /// 缝外 2.5 格（lat 仍精确）；末端已在穿越点 1.2 格内则不收口。
+        /// </summary>
+        internal static void OnFindPathPostfix(object __instance, ref object __result, object targetPos)
+        {
+            try
+            {
+                if (_terminalPinDisabled || __result == null || targetPos == null) return;
+                if (!Resolve() || _nodeCtor == null) return;
+                if ((bool)_isGeneratingPreviewProp.GetValue(null)) return;
+                if (_edges == null || _edges.Count == 0) return;
+
+                var nodes = __result as System.Collections.IEnumerable;
+                if (nodes == null) { _terminalPinDisabled = true; return; }
+
+                var tracer = _finderTracerField.GetValue(__instance);
+                var step = (double)_finderStepField.GetValue(__instance);
+                var margin = tracer != null ? ReadVec2d(_gridMarginField.GetValue(tracer)) : Vector2.zero;
+                var lead = (float)(System.Math.Max(4.0, 0.5 * step) + 3.0);
+
+                // 门控：与收紧 Prefix 同式匹配钉位目标。
+                var tp = ReadVec2d(targetPos);
+                var band = default(EdgeBand);
+                var matched = false;
+                var bestDist = 1.5f;
+                for (var i = 0; i < _edges.Count; i++)
+                {
+                    var e = _edges[i];
+                    var d = Vector2.Distance(tp, e.Target - e.Inward * lead + margin);
+                    if (d < bestDist) { bestDist = d; band = e; matched = true; }
+                }
+                if (!matched) return;
+
+                var positions = new List<Vector2>();
+                foreach (var node in nodes)
+                    positions.Add(ReadVec2d(_nodePositionField.GetValue(node)));
+                var n = positions.Count;
+                if (n < 2) return;
+
+                // 收口点 = 缝线上的穿越点（grid 坐标）。
+                var pin = band.Target + margin;
+                var end0 = positions[n - 1];
+                if (Vector2.Distance(end0, pin) < TerminalNoOpDist) return;
+
+                var outward = -band.Inward;
+
+                // 截尾：找最后一个仍在缝线内侧（沿外法线深度 ≤0）的节点 k，k 之后的越缝段丢弃
+                // ——否则旧斜向交线（错误 lat）与收口点各过缝一次，河带在缝上并成宽带、中心不
+                // 归零；截尾后中心线只在收口点过缝一次（按构造精确）。
+                int k = n - 1;
+                while (k >= 1 && Vector2.Dot(positions[k] - pin, outward) > 0f) k--;
+                // 间距守卫：收口点与 node_k 距离不足会零弦长停摆，再回退一节点。
+                while (k >= 1 && Vector2.Distance(positions[k], pin) < MinNodeSpacing) k--;
+                if (k < 1) return; // 异常：连起点都判在外侧（几何错乱），放行原路径。
+
+                // 越缝延伸端点：原末节点已在缝外且不贴身 → 保留（其 lat 偏差无碍——在缝外侧）；
+                // 否则重建到缝外 lead+2.5。
+                var endDepth = Vector2.Dot(end0 - pin, outward);
+                var endPos = endDepth > MinNodeSpacing && Vector2.Distance(end0, pin) >= MinNodeSpacing
+                    ? end0
+                    : pin + outward * (lead + 2.5f);
+
+                var pinDirV = pin - positions[k];
+                var pinDir = pinDirV.sqrMagnitude > 1e-4f ? pinDirV.normalized : outward;
+                var endDirV = endPos - pin;
+                var endDir = endDirV.sqrMagnitude > 1e-4f ? endDirV.normalized : outward;
+
+                var newList = (System.Collections.IList)Activator.CreateInstance(__result.GetType());
+                var idx = 0;
+                foreach (var node in nodes)
+                {
+                    idx++;
+                    if (idx > k + 1) break; // 截尾：只保留 node0..node_k
+                    newList.Add(node);
+                }
+                newList.Add(_nodeCtor.Invoke(new object[]
+                    { MakeVec2d(pin.x, pin.y), MakeVec2d(pinDir.x, pinDir.y), 0, 0, null }));
+                newList.Add(_nodeCtor.Invoke(new object[]
+                    { MakeVec2d(endPos.x, endPos.y), MakeVec2d(endDir.x, endDir.y), 0, 0, null }));
+                __result = newList;
+
+                if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
+                    RimExodusLog.Message(RimExodusLogModule.Compat,
+                        $"GL river terminal pin: tile={_edgesTile} e{band.EdgeIdx}->t{band.NeighborTile} " +
+                        $"nodes={n}->{newList.Count} keep=0..{k} pin=({pin.x:F0},{pin.y:F0}) endOffset={Vector2.Distance(end0, pin):F1}.");
+            }
+            catch (Exception ex)
+            {
+                _terminalPinDisabled = true;
+                if (!_warnedTerminalFailure)
+                {
+                    _warnedTerminalFailure = true;
+                    var stackHead = ex.StackTrace == null ? "" : " @ " + ex.StackTrace.Split('\n')[0];
+                    Log.Warning($"[RimExodus] GL river warp: terminal pin failed once (disabled for this session, pinning/tightening stay): {ex.GetType().Name}: {ex.Message}{stackHead}");
                 }
             }
         }
@@ -582,12 +715,24 @@ namespace RimExodus
                     _finderStepField = AccessTools.Field(pathFinderType, "FullStepDistance");
                     _finderAcceptField = AccessTools.Field(pathFinderType, "TargetAcceptRadius");
                     _finderPlanarField = AccessTools.Field(pathFinderType, "PlanarTargetFallback");
+                    _finderHeuristicField = AccessTools.Field(pathFinderType, "HeuristicDistanceWeight");
                     if (_finderTracerField == null || _finderStepField == null
-                        || _finderAcceptField == null || _finderPlanarField == null)
+                        || _finderAcceptField == null || _finderPlanarField == null
+                        || _finderHeuristicField == null)
                         _acceptTightenDisabled = true;
                 }
                 else _acceptTightenDisabled = true;
                 _angleTenacityField = AccessTools.Field(traceParamsType, "AngleTenacity");
+
+                // v10d 终端收口（可选——解析失败只禁用收口，钉位/收紧不受影响）。
+                var nodeType = AccessTools.TypeByName("TerrainGraph.Flow.PathFinder+Node");
+                if (nodeType != null)
+                {
+                    _nodeCtor = AccessTools.Constructor(nodeType, new[] { vec2dType, vec2dType, typeof(int), typeof(int), nodeType });
+                    _nodePositionField = AccessTools.Field(nodeType, "Position");
+                    if (_nodeCtor == null || _nodePositionField == null) _terminalPinDisabled = true;
+                }
+                else _terminalPinDisabled = true;
 
                 if (_segmentsProp == null || _relPositionField == null || _parentIdsProp == null || _branchIdsProp == null
                     || _traceParamsField == null || _targetField == null || _stepSizeField == null
