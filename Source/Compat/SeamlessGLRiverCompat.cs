@@ -264,9 +264,9 @@ namespace RimExodus
         /// </summary>
         internal static class Patch_PathTracerTrace
         {
-            internal static void Prefix(object __instance, object path)
+            internal static void Prefix(object __instance, object path, ref int maxAttempts)
             {
-                GLRiverWarp.OnTracePrefix(__instance, path);
+                GLRiverWarp.OnTracePrefix(__instance, path, ref maxAttempts);
             }
 
             /// <summary>量化诊断：实测缝线河带中心 vs 钉位 target 的逐边偏差（GLRiverWarp.OnTracePostfix）。</summary>

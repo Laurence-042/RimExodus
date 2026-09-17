@@ -13,6 +13,14 @@ If what you’re really asking is whether I’ll make more RimWorld mods in the 
 我猜，也许，大概……会？说实话，制作 RimWorld mod 有时甚至比玩游戏本身更有意思，我也确实还有一些进一步利用RimExodus中催熟的跨地图机制的想法。不过别抱太大期望，毕竟我得先把重点放回我的游戏开发；就算开发完成了，也大概率会暴死，然后我继续回去当社畜。社畜的生活大家都懂
 well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, I need to refocus on my own game development first. Even if it does get finished, it'll likely flop hard, and I'll just go back to being a corporate drone. Everyone knows how that life goes.
 
+1.0.2
+- 修复：征召的殖民地机械族无法跨过接缝下令（移动/攻击选项永远显示"超出可控范围"）。机械师的指挥半径现在按无缝世界的连续距离评估——机械师站在缝边即可指挥缝对面的机械族，机械族过缝后只要仍在连续距离内就可继续指挥；点得过深照旧如实提示超出范围（安装 Combat Extended 时按其放宽后的半径计算）
+  Fixed: drafted colony mechs could not be ordered across the seam (move/attack options always showed "out of command range"). The mechanitor's command range is now measured as continuous distance through the seamless world — standing next to the seam lets you command mechs just across it, and a mech that has crossed stays commandable within continuous range; targets too far away still honestly show as out of range (with Combat Extended installed, its widened range applies).
+- 修复：护卫（Escort）等跟随模式的机械族，在跟随对象跨过接缝后会陷入每 tick 重复报错的死循环或原地站桩。现在跟随中的机械族会正常穿过接缝跟上目标，抵达后恢复跟随；跟随目标跑到更远的地图（隔了不止一张）或无路可过缝时，机械族会在缝边原地等待而不是报错
+  Fixed: mechs in Escort and other follow modes fell into a per-tick error loop or just stood still once the pawn they were following crossed the seam. Following mechs now properly cross the seam to catch up and resume following on arrival; if the target ends up on a map beyond the direct neighbor or the seam is unreachable, the mech waits by the seam instead of erroring.
+- 修复：机械师自己跨过接缝时，其所有处于征召状态的机械族会被立即解除征召。现在机械族的征召状态在机械师跨缝后保持不变（机械师真正离场——例如加入远行队——时仍按原版解除）
+  Fixed: when the mechanitor themselves crossed the seam, all of their drafted mechs were instantly undrafted. Mechs now keep their drafted status through the mechanitor's crossing (a real departure, such as joining a caravan, still undrafts them as in vanilla).
+
 
 1.0.1
 - 修复：暴雨与季节性洪水的洪水会漫过地图边缘六边形外的整圈 void 边界（从相邻地图望过去也是一片洪水），现在洪水到 void 边界即止；可玩区与接缝带上的涨水退水保持原版行为（@dawndeath4 报告的问题）
@@ -21,13 +29,6 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
   Fixed: with Geological Landforms installed, RimExodus's adaptation for it could silently stop working depending on mod load order after that mod switched to loading itself lazily — while inactive, neighboring tiles generated as you approached lacked their river and even their landforms (settlements and other natively generated maps were unaffected). The adaptation now readies itself automatically before any map generates and no longer depends on mod load order.
 - 改进：安装 Geological Landforms 时，河流现在精确穿过两侧地图约定的接缝穿越位置——此前河流寻路会在"差不多到达"时就提前停下，河道最多偏出约 30 格
   Improved: with Geological Landforms installed, rivers now pass exactly through the seam crossing position agreed by both maps — the river pathfinder previously stopped early once "close enough", leaving the channel up to ~30 tiles off the crossing.
-- 修复：征召的殖民地机械族无法跨过接缝下令（移动/攻击选项永远显示"超出可控范围"）。机械师的指挥半径现在按无缝世界的连续距离评估——机械师站在缝边即可指挥缝对面的机械族，机械族过缝后只要仍在连续距离内就可继续指挥；点得过深照旧如实提示超出范围（安装 Combat Extended 时按其放宽后的半径计算）
-  Fixed: drafted colony mechs could not be ordered across the seam (move/attack options always showed "out of command range"). The mechanitor's command range is now measured as continuous distance through the seamless world — standing next to the seam lets you command mechs just across it, and a mech that has crossed stays commandable within continuous range; targets too far away still honestly show as out of range (with Combat Extended installed, its widened range applies).
-- 修复：护卫（Escort）等跟随模式的机械族，在跟随对象跨过接缝后会陷入每 tick 重复报错的死循环或原地站桩。现在跟随中的机械族会正常穿过接缝跟上目标，抵达后恢复跟随；跟随目标跑到更远的地图（隔了不止一张）或无路可过缝时，机械族会在缝边原地等待而不是报错
-  Fixed: mechs in Escort and other follow modes fell into a per-tick error loop or just stood still once the pawn they were following crossed the seam. Following mechs now properly cross the seam to catch up and resume following on arrival; if the target ends up on a map beyond the direct neighbor or the seam is unreachable, the mech waits by the seam instead of erroring.
-- 修复：机械师自己跨过接缝时，其所有处于征召状态的机械族会被立即解除征召。现在机械族的征召状态在机械师跨缝后保持不变（机械师真正离场——例如加入远行队——时仍按原版解除）
-  Fixed: when the mechanitor themselves crossed the seam, all of their drafted mechs were instantly undrafted. Mechs now keep their drafted status through the mechanitor's crossing (a real departure, such as joining a caravan, still undrafts them as in vanilla).
-
 
 1.0.0
 - 新增：完整适配 Combat Extended 的跨图射击。普通枪械、手雷、迫击炮、瞬时射线、制导弹、CIWS、压制射击和能力发射路径均可攻击相邻地图；角色和自动/手动炮塔会跨图索敌。射程、视线、掩体、烟雾、光照、散布、弹道、碰撞和爆炸仍按 CE 规则在实际地图上计算；世界炮击继续使用 CE 原有流程

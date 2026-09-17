@@ -47,15 +47,22 @@ namespace RimExodus
     /// 【门控】MapPreviewAPI.IsGeneratingPreview 跳过（预览原样）；无 river-link 边带命中 →
     /// 不钉（世界数据权威性）；全程 try/catch 安全失败 = 不钉（原 GL 行为，勿杀 Trace）。
     ///
-    /// 【v10（2026-09-17 三轮实测定案）】v9 只钉端点时河仍在缝旁错开 ≤29 格，主因是 A\* 的
+    /// 【v10（2026-09-17 四轮实测定案）】v9 只钉端点时河仍在缝旁错开 ≤29 格，主因是 A\* 的
     /// 提前接受（TargetAcceptRadius=StepSize + PlanarTargetFallback=3·StepSize 垂直平面接受）——
     /// 它从不精确抵达目标。修法（纯数据 + 终端单点，不与碰撞系统对抗）：
     /// ①FindPath Prefix 对钉位目标收紧接受（两字段都是 PathFinder public double，反射直写），
-    /// 贪心重试档（HeuristicDistanceWeight≥5）恢复 vanilla 洪量防 null→梯度跟随降级；
+    /// 最后一档重试（HeuristicDistanceWeight≥9）恢复 vanilla 洪量防 null→梯度跟随降级；
     /// ②v9 钉位时放宽叶段 AngleTenacity（转向预算升到地貌作者自设 AngleLimitAbs 上限内）；
-    /// ③FindPath Postfix 终端收口（v10d）：在结果末节点前插入恰在缝线穿越点上的节点——跨缝
-    /// 段以它为端点，中心线按构造精确穿过穿越点；位移局限于终段一格步长（终段在接缝带边缘、
-    /// 远离他人河带），不触发碰撞互搏。
+    /// ③FindPath Postfix 终端收口（v10d）：截尾到缝内侧最后节点，接上恰在缝线穿越点上的节点
+    /// 与缝外垂直延伸节点——中心线按构造只在穿越点过缝一次；
+    /// ④v10f/g 安全阀：钉位 trace 碰撞重试上限钳 12；中段偏差（12,40] 的制造腿须通过**余量
+    /// 走廊检查**（沿线圆盘采样，与一切已成形河带保持 CorridorClearance 净空——只查本体时
+    /// 腿贴余量带通过仍烧碰撞循环、把无辜兄弟支流 stub 成 NO-CROSS，北支路死亡链）+ 锚点
+    /// 回溯（node_k 向下最多 6 个找净空直线）；全被占则放弃收口保留 GL 路线。
+    /// 【到此为止（用户定夺 2026-09-17）】合流/分流地貌"分支点贴边无扭转空间"是结构性事实，
+    /// 走廊被同图河带阻挡的支流保留 GL 原生走向；实测个别支流（v10g 后的北支路）仍被 GL
+    /// 碰撞处理器截断、在合流图一侧整体缺失——剩余碰撞来自 GL 原生拓扑与钉位目标的冲突，
+    /// 非我方制造腿，已接受为已知边界。继续深入 node 操作等于重写 GL 河流生成，不做。
     /// 【v10a 全路径节点位移——已撤销，勿回退】曾对 A* 结果整表 smoothstep 位移（末端误差前馈
     /// 抵消）。实测死因：烘焙期碰撞系统（value/offset 差检测河带压叠）与碰撞处理器的避让调整
     /// （divert/simplify/…/stub 阶梯）互搏——位移每轮把叶子河带拉回穿越点方向、恰好撤销处理器
@@ -122,6 +129,35 @@ namespace RimExodus
         /// <summary>末端已距穿越点多近时视为已对齐（不收口）。</summary>
         private const float TerminalNoOpDist = 1.2f;
 
+        /// <summary>
+        /// 收口的最大许可末端偏差（格）：≤ 此值无条件收口。超过 = A* 以放宽洪量兜底接受的结果。
+        /// </summary>
+        private const float TerminalPinMaxOffset = 12f;
+
+        /// <summary>
+        /// 收口的硬上限（格）：兜底结果偏差 ∈ (12, 40] 时先做走廊检查（见 v10g）——干净则收口
+        /// （截掉兜底路线的肇事斜段、精确过缝），脏则放弃（保留 GL 路线）。>40 一律放弃。
+        /// </summary>
+        private const float TerminalPinCorridorMaxOffset = 40f;
+
+        /// <summary>
+        /// 走廊净空余量（格，v10g）：中段偏差收口的制造腿必须与任何已成形河带（MainGrid&gt;0）
+        /// 保持至少这一切比雪夫距离——烘焙碰撞检测在河带附近的余量带内就会触发（value/offset
+        /// 差），v10f 只查本体时制造腿贴边通过、烧满碰撞循环把无辜的兄弟支流 stub 成 NO-CROSS
+        /// （2026-09-17 北支路死亡链）。过严的后果只是少对齐一条支流，无稳定性风险。
+        /// </summary>
+        private const int CorridorClearance = 12;
+
+        /// <summary>锚点回溯的最大步数（v10g）：从 node_k 向下最多再试 6 个锚点找净空直线。</summary>
+        private const int AnchorBacktrackSteps = 6;
+
+        /// <summary>
+        /// 钉位 trace 的碰撞重试上限（GL 默认 50）：钉位把出场目标横移数十格后，合流树的碰撞
+        /// 循环可能无法收敛（A* 每轮重新瞄准钉位、撤销处理器的避让），50 轮全树重烘焙 = 严重
+        /// 卡顿。钳到 12 轮兜底性能；未钉位的 trace 不动。
+        /// </summary>
+        private const int MaxTraceAttempts = 12;
+
         // ===== 边带缓存（单槽；生成串行）=====
         private static List<EdgeBand> _edges;
         private static int _edgesTile = -1;
@@ -141,8 +177,11 @@ namespace RimExodus
         /// <summary>
         /// PathTracer.Trace Prefix 入口（由 SeamlessGLRiverCompat.Patch_PathTracerTrace 转发）。
         /// 在 trace 开始前钉位 Path 树——之后河形/全部 grid/全部消费层自动一致。
+        /// 【v10f】钉位过的 trace 把碰撞重试上限钳到 <see cref="MaxTraceAttempts"/>：钉位横移
+        /// 出场目标后合流树的碰撞循环可能不收敛（A* 每轮重新瞄准钉位、撤销处理器避让），
+        /// GL 默认 50 轮全树重烘焙 = 严重卡顿（2026-09-17 实测）。
         /// </summary>
-        internal static void OnTracePrefix(object tracer, object path)
+        internal static void OnTracePrefix(object tracer, object path, ref int maxAttempts)
         {
             try
             {
@@ -159,7 +198,8 @@ namespace RimExodus
                 var edges = EnsureEdges(tileId, mapSize);
                 if (edges == null || edges.Count == 0) return; // 无 river-link 边：零介入
 
-                ShiftPathTree(tracer, path, edges, tileId);
+                var pinned = ShiftPathTree(tracer, path, edges, tileId);
+                if (pinned > 0 && maxAttempts > MaxTraceAttempts) maxAttempts = MaxTraceAttempts;
             }
             catch (Exception ex)
             {
@@ -172,11 +212,11 @@ namespace RimExodus
             }
         }
 
-        /// <summary>对一棵 Path 树做 Root/Target 钉位。天然幂等（重钉增量恒 0）。</summary>
-        private static void ShiftPathTree(object tracer, object path, List<EdgeBand> edges, int tileId)
+        /// <summary>对一棵 Path 树做 Root/Target 钉位。天然幂等（重钉增量恒 0）。返回钉位计数。</summary>
+        private static int ShiftPathTree(object tracer, object path, List<EdgeBand> edges, int tileId)
         {
             var segments = _segmentsProp.GetValue(path) as System.Collections.IEnumerable;
-            if (segments == null) return;
+            if (segments == null) return 0;
 
             var sb = new StringBuilder();
             var pinnedRoots = 0;
@@ -273,6 +313,7 @@ namespace RimExodus
             if (diagEnabled)
                 RimExodusLog.Message(RimExodusLogModule.Compat,
                     $"GL river warp pin: tile={tileId} segs={segmentCount} roots={pinnedRoots} targets={pinnedTargets} {sb}");
+            return pinnedRoots + pinnedTargets;
         }
 
         /// <summary>NOMATCH 诊断：附最近边的深度/lat 与候选边数，定位带判定失败原因。</summary>
@@ -363,7 +404,9 @@ namespace RimExodus
                     var hi = 0f;
                     var bestLo = 0f;
                     var bestHi = -1f;
-                    for (var l = 0f; l <= e.Len; l += 1f)
+                    // 两端各留 15 格顶点歧义区（2026-09-17 实测教训）：入场河带在共享顶点附近会
+                    // 斜切过本边线段形成窄条，把"最宽连续段"骗到几十格外（236191 e2 假 d=-65）。
+                    for (var l = 15f; l <= e.Len - 15f; l += 1f)
                     {
                         var p = e.V0 + e.Dir * l + new Vector2(margin.x, margin.y);
                         var gx = (int)p.x;
@@ -444,18 +487,16 @@ namespace RimExodus
                 }
                 if (!matched) return;
 
-                // 收紧接受（只减不增；实例随任务丢弃，无需复原）。半径 = max(2, 0.5·StepSize)：
-                // 不小于半步长——A* 节点按步长推进，半径过小会"跨过"目标无节点命中（planar 兜底
+                // 收紧接受（只减不增；实例随任务丢弃，无需复原）。半径 = max(2, 0.75·StepSize)：
+                // 不小于半个多步长——A* 节点按步长推进，半径过小会"跨过"目标无节点命中（planar 兜底
                 // 已清零，命中不了就迭代到上限返回 null → 段降级为梯度跟随，比错开更糟）。
                 // 垂直平面接受（PlanarTargetFallback，±10 横向无界）是错开的主体，直接清零。
-                // 【v10c 重试感知】HeuristicDistanceWeight 是 PathTracer 重试阶梯（1+2^i：2/3/5/9）
-                // 的当前档——贪心档（≥5）= 前两次精确尝试已 null（多支流图的后跑叶面对先跑叶
-                // 河带的 Overlap ×100 障碍时可能无法精确命中），恢复 vanilla 洪量兜底接受，
-                // 杜绝 null → Target=null → 梯度跟随（实测合流图 +31 的来源）。
+                // 兜底放宽只在最后一档（hw=9）：中途放宽会以 vanilla 洪量接受出 28 格偏的结果。
+                //（v10e 曾把 IterationLimit 抬到 50000——实测救不回合流图支路的 null，纯亏性能，已撤。）
                 var accept = (double)_finderAcceptField.GetValue(__instance);
-                var tightAccept = System.Math.Max(2.0, 0.5 * step);
+                var tightAccept = System.Math.Max(2.0, 0.75 * step);
                 var hw = (float)_finderHeuristicField.GetValue(__instance);
-                var relaxed = hw >= 5f;
+                var relaxed = hw >= 9f;
                 if (relaxed)
                 {
                     if (accept < step) _finderAcceptField.SetValue(__instance, step);
@@ -472,7 +513,7 @@ namespace RimExodus
                     var e2 = _edges[bandIdx];
                     RimExodusLog.Message(RimExodusLogModule.Compat,
                         $"GL river accept tighten: tile={_edgesTile} e{e2.EdgeIdx}->t{e2.NeighborTile} " +
-                        $"accept={accept:F1}->{(relaxed ? step : tightAccept):F1} planar->{(relaxed ? (3d * step) : 0d):F0} hw={hw:F0}{(relaxed ? " (greedy-retry fallback)" : "")}.");
+                        $"accept={accept:F1}->{(relaxed ? step : tightAccept):F1} planar->{(relaxed ? (3d * step) : 0d):F0} hw={hw:F0}{(relaxed ? " (last-resort fallback)" : "")}.");
                 }
             }
             catch (Exception ex)
@@ -535,7 +576,8 @@ namespace RimExodus
                 // 收口点 = 缝线上的穿越点（grid 坐标）。
                 var pin = band.Target + margin;
                 var end0 = positions[n - 1];
-                if (Vector2.Distance(end0, pin) < TerminalNoOpDist) return;
+                var endOffset = Vector2.Distance(end0, pin);
+                if (endOffset < TerminalNoOpDist) return;
 
                 var outward = -band.Inward;
 
@@ -548,14 +590,47 @@ namespace RimExodus
                 while (k >= 1 && Vector2.Distance(positions[k], pin) < MinNodeSpacing) k--;
                 if (k < 1) return; // 异常：连起点都判在外侧（几何错乱），放行原路径。
 
-                // 越缝延伸端点：原末节点已在缝外且不贴身 → 保留（其 lat 偏差无碍——在缝外侧）；
-                // 否则重建到缝外 lead+2.5。
-                var endDepth = Vector2.Dot(end0 - pin, outward);
-                var endPos = endDepth > MinNodeSpacing && Vector2.Distance(end0, pin) >= MinNodeSpacing
-                    ? end0
-                    : pin + outward * (lead + 2.5f);
+                // 【v10g 分级门控】≤12 无条件收口；(12,40] 做**余量走廊检查 + 锚点回溯**——
+                // 从 node_k 向下最多试 6 个锚点，取首个到 pin 直线与一切已成形河带保持
+                /// CorridorClearance 净空的 j（优先大 j = 短腿）。全部被占 → 放弃（拉腿会进入
+                // 碰撞余量带引发循环、烧死无辜兄弟支流，v10f 教训）；>40 一律放弃（宁可不齐，
+                // 不毁河）。
+                int anchor = k;
+                if (endOffset > TerminalPinMaxOffset)
+                {
+                    if (endOffset > TerminalPinCorridorMaxOffset || tracer == null)
+                    {
+                        if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
+                            RimExodusLog.Message(RimExodusLogModule.Compat,
+                                $"GL river terminal pin SKIPPED: tile={_edgesTile} e{band.EdgeIdx}->t{band.NeighborTile} " +
+                                $"endOffset={endOffset:F1} > {TerminalPinCorridorMaxOffset:F0} (keeping GL route).");
+                        return;
+                    }
 
-                var pinDirV = pin - positions[k];
+                    anchor = -1;
+                    var j = k;
+                    for (var tried = 0; tried <= AnchorBacktrackSteps && j >= 1; tried++, j--)
+                    {
+                        if (Vector2.Distance(positions[j], pin) < MinNodeSpacing) continue;
+                        if (!CorridorClear(tracer, positions[j], pin)) continue;
+                        anchor = j;
+                        break;
+                    }
+                    if (anchor < 0)
+                    {
+                        if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
+                            RimExodusLog.Message(RimExodusLogModule.Compat,
+                                $"GL river terminal pin SKIPPED: tile={_edgesTile} e{band.EdgeIdx}->t{band.NeighborTile} " +
+                                $"endOffset={endOffset:F1} (corridor blocked within {CorridorClearance} clearance, keeping GL route).");
+                        return;
+                    }
+                }
+
+                // 越缝延伸端点：永远沿外法线垂直外推（不沿用原末端的横向偏差——缝上河带不再斜偏，
+                // 两侧同规则方向连续；缝外为 void 区，无形态顾虑）。
+                var endPos = pin + outward * (lead + 2.5f);
+
+                var pinDirV = pin - positions[anchor];
                 var pinDir = pinDirV.sqrMagnitude > 1e-4f ? pinDirV.normalized : outward;
                 var endDirV = endPos - pin;
                 var endDir = endDirV.sqrMagnitude > 1e-4f ? endDirV.normalized : outward;
@@ -565,7 +640,7 @@ namespace RimExodus
                 foreach (var node in nodes)
                 {
                     idx++;
-                    if (idx > k + 1) break; // 截尾：只保留 node0..node_k
+                    if (idx > anchor + 1) break; // 截尾：只保留 node0..node_anchor
                     newList.Add(node);
                 }
                 newList.Add(_nodeCtor.Invoke(new object[]
@@ -577,7 +652,7 @@ namespace RimExodus
                 if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
                     RimExodusLog.Message(RimExodusLogModule.Compat,
                         $"GL river terminal pin: tile={_edgesTile} e{band.EdgeIdx}->t{band.NeighborTile} " +
-                        $"nodes={n}->{newList.Count} keep=0..{k} pin=({pin.x:F0},{pin.y:F0}) endOffset={Vector2.Distance(end0, pin):F1}.");
+                        $"nodes={n}->{newList.Count} keep=0..{anchor} pin=({pin.x:F0},{pin.y:F0}) endOffset={Vector2.Distance(end0, pin):F1}.");
             }
             catch (Exception ex)
             {
@@ -588,6 +663,47 @@ namespace RimExodus
                     var stackHead = ex.StackTrace == null ? "" : " @ " + ex.StackTrace.Split('\n')[0];
                     Log.Warning($"[RimExodus] GL river warp: terminal pin failed once (disabled for this session, pinning/tightening stay): {ex.GetType().Name}: {ex.Message}{stackHead}");
                 }
+            }
+        }
+
+        /// <summary>
+        /// 走廊检查（v10g 余量版）：from→to 线段（grid 坐标，每 ~2 格采样）沿途每点，其切比雪夫
+        /// 半径 <see cref="CorridorClearance"/> 的圆盘内不得存在已成形河带（MainGrid&gt;0）。
+        /// v10f 只查线段本体——制造腿贴着河带**碰撞余量带**边缘通过仍会触发烘焙碰撞循环、
+        /// 烧死无辜兄弟支流（2026-09-17 北支路 stub 死亡链）。只用已缓存的 _mainGridField，
+        /// 不依赖 _distanceGrid 的初始化语义。读不到 MainGrid 时保守返回 false（=不收口）。
+        /// </summary>
+        private static bool CorridorClear(object tracer, Vector2 from, Vector2 to)
+        {
+            try
+            {
+                var grid = _mainGridField.GetValue(tracer) as double[,];
+                if (grid == null) return false;
+                var maxX = grid.GetLength(0);
+                var maxZ = grid.GetLength(1);
+                var steps = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(from, to) / 2f));
+                for (var i = 0; i <= steps; i++)
+                {
+                    var p = Vector2.Lerp(from, to, (float)i / steps);
+                    var cx = (int)p.x;
+                    var cz = (int)p.y;
+                    for (var dx = -CorridorClearance; dx <= CorridorClearance; dx++)
+                    {
+                        var gx = cx + dx;
+                        if (gx < 0 || gx >= maxX) continue;
+                        for (var dz = -CorridorClearance; dz <= CorridorClearance; dz++)
+                        {
+                            var gz = cz + dz;
+                            if (gz < 0 || gz >= maxZ) continue;
+                            if (grid[gx, gz] > 0.0) return false;
+                        }
+                    }
+                }
+                return true;
+            }
+            catch
+            {
+                return false;
             }
         }
 
