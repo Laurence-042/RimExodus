@@ -21,6 +21,12 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
   Fixed: with Geological Landforms installed, RimExodus's adaptation for it could silently stop working depending on mod load order after that mod switched to loading itself lazily — while inactive, neighboring tiles generated as you approached lacked their river and even their landforms (settlements and other natively generated maps were unaffected). The adaptation now readies itself automatically before any map generates and no longer depends on mod load order.
 - 改进：安装 Geological Landforms 时，河流现在精确穿过两侧地图约定的接缝穿越位置——此前河流寻路会在"差不多到达"时就提前停下，河道最多偏出约 30 格
   Improved: with Geological Landforms installed, rivers now pass exactly through the seam crossing position agreed by both maps — the river pathfinder previously stopped early once "close enough", leaving the channel up to ~30 tiles off the crossing.
+- 修复：征召的殖民地机械族无法跨过接缝下令（移动/攻击选项永远显示"超出可控范围"）。机械师的指挥半径现在按无缝世界的连续距离评估——机械师站在缝边即可指挥缝对面的机械族，机械族过缝后只要仍在连续距离内就可继续指挥；点得过深照旧如实提示超出范围（安装 Combat Extended 时按其放宽后的半径计算）
+  Fixed: drafted colony mechs could not be ordered across the seam (move/attack options always showed "out of command range"). The mechanitor's command range is now measured as continuous distance through the seamless world — standing next to the seam lets you command mechs just across it, and a mech that has crossed stays commandable within continuous range; targets too far away still honestly show as out of range (with Combat Extended installed, its widened range applies).
+- 修复：护卫（Escort）等跟随模式的机械族，在跟随对象跨过接缝后会陷入每 tick 重复报错的死循环或原地站桩。现在跟随中的机械族会正常穿过接缝跟上目标，抵达后恢复跟随；跟随目标跑到更远的地图（隔了不止一张）或无路可过缝时，机械族会在缝边原地等待而不是报错
+  Fixed: mechs in Escort and other follow modes fell into a per-tick error loop or just stood still once the pawn they were following crossed the seam. Following mechs now properly cross the seam to catch up and resume following on arrival; if the target ends up on a map beyond the direct neighbor or the seam is unreachable, the mech waits by the seam instead of erroring.
+- 修复：机械师自己跨过接缝时，其所有处于征召状态的机械族会被立即解除征召。现在机械族的征召状态在机械师跨缝后保持不变（机械师真正离场——例如加入远行队——时仍按原版解除）
+  Fixed: when the mechanitor themselves crossed the seam, all of their drafted mechs were instantly undrafted. Mechs now keep their drafted status through the mechanitor's crossing (a real departure, such as joining a caravan, still undrafts them as in vanilla).
 
 
 1.0.0

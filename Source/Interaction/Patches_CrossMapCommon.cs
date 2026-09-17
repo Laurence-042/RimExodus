@@ -21,6 +21,9 @@ namespace RimExodus
     /// ④ <see cref="Patch_Pawn_PathFollower_StartPath_CrossMap"/>：一切玩家下令 job 的通用
     ///    跨图包装——目标在邻图（Thing 帧无歧义 / Cell 匹配命令登记格）→ 以 NextJob=curJob
     ///    桥接，传送后续原 job（近战/开采/砍伐/搬运/驯服等全选项通用；范围 = 仅 playerForced）。
+    /// ⑤ <see cref="Patch_MechanitorUtility_InMechanitorCommandRange_CrossMap"/>：机械师指挥半径的
+    ///    连续距离投影——跨图下令语境把目标格投影回 overseer 图评估（原生 7 个菜单调用点共用
+    ///    InMechanitorCommandRange chokepoint，机械族跨缝下令/过缝后持续指挥，2026-09）。
     /// 可达性真实答案在 Patches_ReachabilityCrossMap。
     /// </summary>
     public static class Patches_CrossMapCommon
@@ -312,7 +315,8 @@ namespace RimExodus
             // null），RimExodus.NpcApproach 标记在 StartJob 前就被抹掉——旧判据恒 false，推进 job
             // 从未被桥接过。job.dutyTag 不能作为 think-tree job 的自标识通道）。改结构判据：非
             // playerForced 的 Goto 且 targetA 是邻图上的 Thing——原生 giver 的 CanReach 对跨图 NPC
-            // 安静 false，这样的 job 只可能来自我们的跨图推进 patch。
+            // 安静 false，这样的 job 只可能来自我们的跨图推进 patch 或跟随 giver 拦截
+            // （Patches_FollowGiver，2026-09：跟随目标跨图时同款结构 job）。
             // NPC 战斗 job 不查 IsCrossMapOrderable（敌对 NPC 本就不是"可下令主体"，但战斗推进合法）。
             var npcCombatJob = job.def == JobDefOf.AttackMelee || job.def == JobDefOf.AttackStatic
                 || IsNpcApproachGoto(job, pawn);
@@ -336,7 +340,18 @@ namespace RimExodus
                 finalCell = ct.cell;
             }
             if (targetMap == null || targetMap == pawn.Map) return true;
-            if (!SeamlessCombatCoords.TryGetCombatLink(pawn.Map, targetMap, out _)) return true;
+            if (!SeamlessCombatCoords.TryGetCombatLink(pawn.Map, targetMap, out _))
+            {
+                // 战斗链接缺失（跨图战斗开关关闭）时 approach-goto 结构 job 仍按几何投影判邻接放行：
+                // 战斗 patch 产 job 前先查 SeamlessCombatCoords.Enabled，开关关闭时不会产出推进 job，
+                // 到达此处的非链接 approach-goto 只可能来自跟随 giver 拦截（Patches_FollowGiver）——
+                // 跟随不是战斗语义，不应被战斗开关一并关死。Attack 系 job 维持战斗链接门（战斗语义回原版）。
+                if (!IsNpcApproachGoto(job, pawn)
+                    || !SeamlessViewProjection.TryProject(targetMap, IntVec3.Zero, pawn.Map, out _))
+                {
+                    return true;
+                }
+            }
 
             // TransitTag 的桥接 job 自身目标是本图 spot——不会进到这里（同图）。
             if (SeamlessCrossMapOrders.TryBridgeJob(pawn, targetMap, finalCell, job))
@@ -352,12 +367,106 @@ namespace RimExodus
         /// NPC 跨图推进 Goto 的结构判据（GotoNearestHostile 跨图版下发的 job 经 think tree 冒泡后的
         /// 存活识别——dutyTag 已被 ThinkNode_Duty 抹掉，见 Prefix 内教训注）：非 playerForced 的 Goto
         /// 且 targetA 是 Thing 且在别的图上。targetA 在 pawn 当前图上时返回 false（同图走原生）。
+        /// 跨图跟随 Goto（Patches_FollowGiver 拦截下发，2026-09）同走此判据。
         /// </summary>
         private static bool IsNpcApproachGoto(Job job, Pawn pawn)
         {
             return job.def == JobDefOf.Goto && !job.playerForced
                 && job.targetA.HasThing && job.targetA.Thing != null
                 && job.targetA.Thing.Map != null && job.targetA.Thing.Map != pawn.Map;
+        }
+    }
+
+    // =====================================================================================
+    // ⑤ 机械师指挥半径：跨图下令语境的连续距离投影
+    // =====================================================================================
+
+    /// <summary>
+    /// MechanitorUtility.InMechanitorCommandRange 的跨图连续距离（2026-09 修复"征召的机械族无法
+    /// 穿越接缝"+ 二轮"机械族过缝后整侧灰显"）：原生 7 个菜单调用点（DraftedMove.PawnCanGoto /
+    /// DraftedAttack×2 / FloatMenuUtility×2 / MultiPawnGotoController×2——全库无 AI 消费者）共用
+    /// 此 chokepoint。三类断点：① 点击重放把下令坐标换成邻图框架 → CanCommandTo 混框架距离恒
+    /// 超限；② mech 与 overseer 异图（机械族已过缝）原版同图检查恒 false；③ 异图时 mech 常无
+    /// 任何语境登记（重放 Finalizer 不登记已在目标图上的 pawn；玩家切视角到对侧图下令、点本图
+    /// 叫机械族回来同样无登记）——因此按"target 所在图"解析评估框架，不依赖登记。
+    /// 接管口径（用户定夺 2026-09-17）：**连续距离**——评估框架 = target 所在图（Thing 以
+    /// Thing.Map 为权威；Cell 按重放槽 / CommandTargets / CurrentMap 解析），把 overseer 经
+    /// <see cref="SeamlessVirtualTeleporter"/> 虚拟传送到评估框架投影位后在目标框架上跑原版
+    /// CanCommandTo。投影与跨图射击的统一坐标（SeamlessCombatCoords.ToUnified 的
+    /// targetLocal+offset）是同一邻居表平移，距离对平移不变；CanCommandTo 只对 target.Cell 做
+    /// InBounds（真实格恒过——深点不被宿主方形边的 void 带宽度误杀），原版阈值与 CE Postfix
+    /// 放宽整条链原生生效。勿改为把目标格投影回 overseer 图（InBounds 会误杀深点）。
+    /// 同图同框架（绝大多数调用）放行原版，零开销零行为变化。
+    /// </summary>
+    [HarmonyPatch(typeof(MechanitorUtility), nameof(MechanitorUtility.InMechanitorCommandRange))]
+    public static class Patch_MechanitorUtility_InMechanitorCommandRange_CrossMap
+    {
+        public static bool Prefix(Pawn mech, ref LocalTargetInfo target, ref bool __result)
+        {
+            var overseer = mech?.GetOverseer();
+            if (overseer == null || overseer.mechanitor == null || overseer.MapHeld == null) return true;
+
+            // 评估框架 = target 所在图。Thing 恒无歧义（Thing.Map 权威）；Cell 三种语境：
+            // ① 菜单重放帧——点击格产在重放目标图框架（mech 在宿主图或目标图上均可能）；
+            // ② 拖拽队形——队形格产在 ct.map 框架（菜单期登记沿用）；
+            // ③ 普通菜单——CurrentMap 框架（含玩家切视角到对侧图下令、对异图 mech 的本图点击）。
+            Map evalFrame;
+            if (target.HasThing)
+            {
+                if (target.Thing == null || target.Thing.Map == null) return true;
+                evalFrame = target.Thing.Map;
+            }
+            else if (!target.Cell.IsValid)
+            {
+                return true;
+            }
+            else if (SeamlessReplayContext.Active
+                && (mech.MapHeld == SeamlessReplayContext.Target
+                    || (SeamlessCommandTargets.TryGet(mech, out var ctReplay) && ctReplay.map == SeamlessReplayContext.Target)))
+            {
+                evalFrame = SeamlessReplayContext.Target;
+            }
+            else if (SeamlessCommandTargets.TryGet(mech, out var ct) && ct.map != null && ct.map != Find.CurrentMap)
+            {
+                evalFrame = ct.map;
+            }
+            else if (Find.CurrentMap != null)
+            {
+                evalFrame = Find.CurrentMap;
+            }
+            else
+            {
+                return true;
+            }
+
+            // 帧解析可疑（如拖拽对无登记 pawn 的混框架格）：交还原版。
+            if (!target.HasThing && !target.Cell.InBounds(evalFrame)) return true;
+            // 同图同框架：原生（绝大多数调用零开销早退）。
+            if (mech.MapHeld == overseer.MapHeld && evalFrame == overseer.MapHeld) return true;
+
+            if (evalFrame == overseer.MapHeld)
+            {
+                // 评估框架即 overseer 图（mech 在对侧）：跳过原版 mech/overseer 同图早退，直接评估。
+                __result = overseer.mechanitor.CanCommandTo(target);
+            }
+            else if (SeamlessViewProjection.TryProject(overseer.MapHeld, overseer.Position, evalFrame, out var overseerUnified))
+            {
+                // 连续距离评估：overseer 虚拟传送到评估框架投影位（与射击 ToUnified 同一平移契约，
+                // 距离对平移不变），窗口内只跑只读评估（CanCommandTo 不读 overseer 位置的网格）。
+                using (var teleport = new SeamlessVirtualTeleporter(overseer, evalFrame, overseerUnified))
+                {
+                    __result = overseer.mechanitor.CanCommandTo(target);
+                }
+            }
+            else
+            {
+                __result = false; // 非邻接（多跳外）：诚实不可指挥（原版混框架答案不可信）
+            }
+
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
+                Log.Message($"[RimExodus] Cross-map mechanitor command: {mech.LabelShort} in-range={__result} "
+                    + $"(mech map {mech.MapHeld?.uniqueID}, eval map {evalFrame.uniqueID}, overseer map {overseer.MapHeld.uniqueID}).");
+            return false;
         }
     }
 }

@@ -122,9 +122,12 @@
 ## 9. 传送、交互与战斗
 
 - 传送资格使用 `SeamlessTransferGrants` 许可登记制。踩点热路径只查许可并匹配；无许可不传。玩家跨图命令、NPC 撤离、追击和跟随分别登记 Bridge/Evacuation/Pursue/Follow。
+- 无缝传送的 DeSpawn 是"假离场"：overseer 被传送时 `Pawn_MechanitorTracker.Notify_DeSpawned`（UndraftAllMechs——原版"overseer 离场即解除全部机械族征召"）在 `SeamlessMapTransfer.MechanitorDespawnSuppression` 窗口内被抑制，机械族征召状态跨 overseer 传送保留；真离场（组队/被俘/销毁）不受影响。
 - 触发器必须在 `Pawn_PathFollower.TryEnterNextPathCell` Prefix 读取 `pather.nextCell`。Postfix 会晚于 job 完成和许可清理；传送成功后以 Map 是否变化决定是否跳过旧图方法体，不能用 `pawn.Spawned`。
 - `TryTransferPawn` 不自行校验 pawn 与 spot 的格距；调用方负责保证正在进入/绑定该 spot，坐标映射只依赖 spot。
 - 跨图命令的架构是“点击在真实邻图重放 + 公共函数层跨图化 + StartPath 桥接”。不要恢复整方法接管 FloatMenu 或为每个 provider 手工注入选项。designation 前置型命令的覆盖边界以审计文档为准。
+- 机械师指挥半径（`MechanitorUtility.InMechanitorCommandRange`）的跨图语义 = 连续距离（用户定夺 2026-09-17）：评估框架 = target 所在图（Thing 以 `Thing.Map` 为权威；Cell 按重放槽 / `SeamlessCommandTargets` / CurrentMap 解析——全库 7 个调用点均为玩家菜单路径、无 AI 消费者，异图即可接管）。评估 = 把 overseer 经 `SeamlessVirtualTeleporter` 虚拟传送到下令图投影位后在目标框架上跑原版 `CanCommandTo`——与射击 `SeamlessCombatCoords.ToUnified` 同一邻居表平移契约，原版阈值与 CE Postfix 放宽整条链生效。勿改为把目标格投影回 overseer 图：`CanCommandTo` 对 target.Cell 的 InBounds 会把超过宿主 void 带宽（~13-17 格）的深点误判越界。勿在各 provider 分别打补丁。
+- Follow/FollowClose 一律不得以跨图目标原生下发（JobDriver 跨图预约/寻路必失败循环，与 AttackMelee 同教训）。拦截点在 giver 基类 `JobGiver_AIFollowPawn.TryGiveJob`（`Patches_FollowGiver`，派生含 `JobGiver_AIFollowOverseer` 经 base 调用覆盖）：邻接可桥接 → 结构化 `Goto(followee)` 经 StartPath 桥接（approach-goto 在战斗链接缺失时按几何投影放行，战斗开关不关死跟随）；非邻接/不可桥接/duty 语境 → null。duty 语境 NPC 随从只走 `MarkFollowers` 瞬间扫描（ThinkNode_Duty 会抹 think-tree job 的 dutyTag，桥接 TransitTag 自标识不安全）；Follow 许可落地以 `FollowTarget` 在本图判"有目的"免游荡清扫。
 - 跨图寻路只支持单跳。桥点选择使用双侧代价场；普通 Pawn 与 VF 载具必须使用各自的路径成本源和准入规则。
 - 外部 Mod 若用多个 spawned Pawn 表示一个移动主体，使用 `SeamlessTransferAssociations` provider 扩展；关联 Pawn 复用 `TryTransferPawnInternal(captureAssociations:false)`，不要在核心硬编码外部字段。Giddy-Up 恢复骑乘前必须结束旧图的 Mounted job，再调用其即时 GoMount。
 - NPC 撤离目标是传送点时，`JobDriver_Goto.TryExitMap` 在到达 spot 前推迟原生离场；对端活跃则跨图续链，对端未加载/休眠则在缝线上交还原生离场。不要按 lord 类型拆分这条共同链。
@@ -172,7 +175,7 @@
 - 能用 Prefix/Postfix、ref 改参或收尾字段修正完成的功能，不写 transpiler。必须写 transpiler 时，先对真实游戏 DLL 解码确认 IL；原地 mutate `CodeInstruction`，不要替换对象导致 labels 丢失。CLR 验证器无法发现全部 Mono DMD 非法 IL，游戏启动日志才是最终依据。
 - Harmony 按参数名绑定；不确定时使用已核实的真实签名或位置参数。手动绑定的重载必须显式参数类型消歧。
 - 分模块日志使用 `RimExodusLog` 与 `RimExodusLogModule`。新诊断消息走对应模块；Warn/Error 不受开关控制。低频生命周期与显式 Dev 动作可常开，热路径和周期细节必须门控。旧 `verboseLogging` 只保留存档兼容，不新增消费点。
-- 离线 PatchAll 验证器位于 `C:\Users\Laure\.zcode\tmp\rimptest\`。新增或修改 Harmony patch 后运行它；当前记录基线（2026-09-16）为 `BOUND OK 115 / FAILED 17`，17 项是已确认的 CLR 伪迹（`DrawTargetHighlightWithLayer` 与既有 `GenDraw` 绘制 patch 同为 `SecurityException: ECall`；`Patch_JobGiver_Manhunter_CrossMapMelee` 与 `MapInterface_SeamOutline` 等虚方法 patch 同为 `TypeLoadException: 接口中的非抽象、非 .cctor 方法`——游戏内绑定以 `GetPatchedMethods` 报告为准）。基线变化时只更新当前数字与伪迹清单所在注释，不保留数字演进流水账。
+- 离线 PatchAll 验证器位于 `C:\Users\Laure\.zcode\tmp\rimptest\`。新增或修改 Harmony patch 后运行它；当前记录基线（2026-09-17）为 `BOUND OK 118 / FAILED 17`，17 项是已确认的 CLR 伪迹（`DrawTargetHighlightWithLayer` 与既有 `GenDraw` 绘制 patch 同为 `SecurityException: ECall`；`Patch_JobGiver_Manhunter_CrossMapMelee` 与 `MapInterface_SeamOutline` 等虚方法 patch 同为 `TypeLoadException: 接口中的非抽象、非 .cctor 方法`——游戏内绑定以 `GetPatchedMethods` 报告为准）。基线变化时只更新当前数字与伪迹清单所在注释，不保留数字演进流水账。
 - 最终确认必须包含游戏日志中的 Mod 实例化行与 `GetPatchedMethods` 报告。测试本地构建前先确认游戏实际加载的是刚编译 DLL，而不是 Workshop 旧版本。
 
 ## 14. 存档与卸载

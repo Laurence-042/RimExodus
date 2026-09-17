@@ -14,6 +14,8 @@
 - 跨图 goto 覆盖：殖民者、殖民地机械族、被征召的驯养动物。
 - 敌方主体战斗移动（追击/走位）踩已加载传送点 → 传送（跨图追击）。
 - 驯养动物跟随主人踩已加载传送点 → 传送；其余闲逛/工作/无 flag 逃跑一律无事。
+- 殖民地机械族跟随 overseer（Escort）踩已加载传送点 → 传送（瞬时链 + giver 拦截双通道，
+  2026-09）；非邻接（overseer 跨 2 图外）/不可桥接时原地待命（杀 FollowClose 失败循环）。
 - 目标格不是传送点的行，传送点不激活（踩点两列恒"—"）。
 """
 import io
@@ -111,7 +113,7 @@ SOURCES = [
             "unloaded": "不涉及（对端必须先生成才能 goto）",
             "preload": {"spot": "不涉及（对端必须先生成才能 goto）", "band": "不涉及"},
             "vanilla": "不存在",
-            "patch": "已实现（点击重放 + 公共函数层：IsCrossMapOrderable 覆盖殖民者/殖民地机械族/玩家阵营驯养动物；Bridge 许可 TransitTag；选点 = 双侧代价场联合最优）",
+            "patch": "已实现（点击重放 + 公共函数层：IsCrossMapOrderable 覆盖殖民者/殖民地机械族/玩家阵营驯养动物；Bridge 许可 TransitTag；选点 = 双侧代价场联合最优；2026-09 机械族菜单门槛补全——机械师指挥半径 InMechanitorCommandRange 在跨图下令语境按连续距离投影评估：overseer 站缝边即可下令缝对面，机械族过缝后连续距离内仍可持续指挥，点得过深照旧诚实灰显）",
         },
     ),
     (
@@ -206,6 +208,20 @@ SOURCES = [
             "preload": {"spot": "否", "band": "否"},
             "vanilla": "无事",
             "patch": "已实现（Follow 许可：跟随目标刚跨图→传送；其余闲逛/工作无事）",
+        },
+    ),
+    (
+        "机械族跟随 overseer（Escort 工作模式）",
+        lambda name, animal: name == "殖民地机械族",
+        lambda name, animal, tgt: {
+            "expect": "Escort 模式机械族应跟随 overseer 跨缝；非邻接（overseer 跨 2 图外）或本图无可达传送点时原地待命（自愈），不得下发跨图 FollowClose 刷错",
+            "flag": "无（Follow/FollowClose 不带）",
+            "elig": True,
+            "loaded": ACT_TRANSFER_PLAIN,
+            "unloaded": ACT_NOTHING,
+            "preload": {"spot": "否", "band": "否"},
+            "vanilla": "无事",
+            "patch": "已实现（2026-09 双通道：目标跨图瞬间机械族正在 Follow/FollowClose 上 → MarkFollowers 瞬时链（Follow 许可 + FollowTarget 落地免游荡清扫）；漏登窗口（job 200 tick 过期重发）→ giver 基类拦截（Patches_FollowGiver，JobGiver_AIFollowPawn.TryGiveJob）产出结构化 Goto(followee)，StartPath 桥接过缝、落地续跑、think 原生恢复 FollowClose；非邻接/不可桥接/duty 语境 → null 杀循环）",
         },
     ),
 ]

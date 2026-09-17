@@ -29,16 +29,16 @@ namespace RimExodus
 
         internal enum GrantKind
         {
-            /// <summary>玩家跨图 goto 桥接（殖民者/殖民地机械族/驯养动物，行为表行 3/10/55）。</summary>
+            /// <summary>玩家跨图 goto 桥接（殖民者/殖民地机械族/驯养动物，行为表行 3/10/57）。</summary>
             Bridge,
 
-            /// <summary>NPC 撤离链（撤离 duty/囚犯越狱/野性恐慌/释放访客，行为表行 19/27/35/41/47/53）。</summary>
+            /// <summary>NPC 撤离链（撤离 duty/囚犯越狱/野性恐慌/释放访客，行为表行 21/29/37/43/49/55）。</summary>
             Evacuation,
 
-            /// <summary>跨图追击（NPC 战斗体近战追击目标刚跨图，行为表行 15/23/31）。</summary>
+            /// <summary>跨图追击（NPC 战斗体近战追击目标刚跨图，行为表行 17/25/33）。</summary>
             Pursue,
 
-            /// <summary>跟随跨图（驯养动物/NPC 随从的 Follow job 目标刚跨图，行为表行 60）。</summary>
+            /// <summary>跟随跨图（驯养动物/机械族 Escort/NPC 随从的 Follow job 目标刚跨图，行为表行 62/13）。</summary>
             Follow
         }
 
@@ -63,6 +63,13 @@ namespace RimExodus
             /// 点击下令的 job 无累积状态（MakeNewToils 从头跑）。
             /// </summary>
             public Job NextJob;
+
+            /// <summary>
+            /// Follow：跟随目标引用（登记时的 leader）。落地判定"目标已在本图 → 有目的，免游荡
+            /// 清扫"用——机械族等非动物跟随者此前落地即进 StrayNpcs，600 ticks 后被误转撤离链
+            /// 赶出地图（2026-09 修复）。运行时引用，Grant 不序列化故无存档负担。
+            /// </summary>
+            public Thing FollowTarget;
 
             /// <summary>
             /// 传送时刻 pawn 所属 lord 的 LordJob 备份（<see cref="SeamlessMapTransfer.TryTransferPawn"/>
@@ -212,6 +219,11 @@ namespace RimExodus
                     // 下一 think tick 直接离场——被 Patches_RCellFinder 重定向到脚下传送点格后原生
                     // 离图，即 2026-08 实测"追击者传送后消失"的根因）；其余登记游荡宽限。
                     if (SeamlessBoundaryRules.IsColonyAnimal(pawn)) break;
+                    // Follow 且跟随目标已落本图 = 有目的（think 即恢复 FollowClose，机械族 Escort
+                    // 跟随 overseer 过缝的主场景），免游荡登记——否则非动物跟随者 600 ticks 后被
+                    // 误转撤离链赶出地图（2026-09 修复）。目标不在本图/已失效才走游荡兜底。
+                    if (grant.Kind == GrantKind.Follow && grant.FollowTarget != null
+                        && !grant.FollowTarget.Destroyed && grant.FollowTarget.Map == arrivalMap) break;
                     if (grant.Kind == GrantKind.Pursue && TryAttachAssaultLord(pawn, arrivalMap)) break;
                     StrayNpcs[pawn] = new StrayInfo
                     {
@@ -466,7 +478,7 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 追击者扫描（行为表行 15/23/31，待办④）：目标刚跨图，出发地图上正追击它的 NPC 战斗体
+        /// 追击者扫描（行为表行 17/25/33，待办④）：目标刚跨图，出发地图上正追击它的 NPC 战斗体
         /// 借同一传送点跨图追击（玩家不能靠跨图甩掉追兵）。
         /// 意图判据（2026-08 扩展）：①AttackMelee/AttackStatic job 目标=跨图者（交战瞬间）；
         /// ②推进期 Goto 目标=跨图者（GotoNearestHostile 的 Goto(目标 thing)——原版此阶段不设
@@ -506,8 +518,9 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 跟随者扫描（行为表行 60 + 商队随从）：跟随目标（Follow/FollowClose job 指向跨图者）的 pawn
-        /// 借同一传送点跟随跨图。驯养动物与 NPC 随从（商队 carrier，防商队过缝解体）统一覆盖。
+        /// 跟随者扫描（行为表行 62/13 + 商队随从）：跟随目标（Follow/FollowClose job 指向跨图者）的 pawn
+        /// 借同一传送点跟随跨图。驯养动物、机械族 Escort（2026-09）与 NPC 随从（商队 carrier，
+        /// 防商队过缝解体）统一覆盖。
         /// </summary>
         private static void MarkFollowers(Pawn leader, Map departureMap, Thing spot)
         {
@@ -522,6 +535,7 @@ namespace RimExodus
                 IssueTransitGoto(other, spot.Position, LocomotionUrgency.Jog);
                 var grant = Create(other, GrantKind.Follow);
                 grant.BoundSpot = spot.Position;
+                grant.FollowTarget = leader;
 
                 if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Follow grant: {other.LabelShort} follows {leader.LabelShort} across map {departureMap.uniqueID}.");

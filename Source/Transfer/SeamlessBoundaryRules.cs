@@ -11,7 +11,7 @@ namespace RimExodus
     internal static class SeamlessBoundaryRules
     {
         /// <summary>
-        /// 该 pawn 是否可接收玩家跨图 goto 指令（桥接注入对象，行为表行 3/10/55）：
+        /// 该 pawn 是否可接收玩家跨图 goto 指令（桥接注入对象，行为表行 3/10/57）：
         /// 殖民者 / 殖民地机械族 / 玩家阵营驯养动物。
         /// 机械族保留原版 !IsColonyMech 例外（征召 goto 出口格不设 flag、不自行离图），
         /// 跨图移动统一走跨图 goto 桥接。
@@ -27,7 +27,7 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// NPC 战斗体（追击传送的主体，行为表行 15/23/31）：人形或机械族且非玩家阵营。
+        /// NPC 战斗体（追击传送的主体，行为表行 17/25/33）：人形或机械族且非玩家阵营。
         /// 覆盖敌方人形/敌方机械族/盟友增援（表对盟友战斗移动同样要求传送）。
         /// Anomaly 实体（奇美拉/吞尸兽等，Faction.OfEntities）一并视为战斗体——四足兽体 +
         /// EntityFlesh，既非 Humanlike 也非 Mechanoid，不判则跨图战斗链对它们整体失效
@@ -42,7 +42,7 @@ namespace RimExodus
             return pawn.Faction == Faction.OfEntities;
         }
 
-        /// <summary>玩家阵营驯养动物（跟随传送的主体，行为表行 60）。</summary>
+        /// <summary>玩家阵营驯养动物（跟随传送的主体，行为表行 62；机械族 Escort 跟随见行为表行 13）。</summary>
         internal static bool IsColonyAnimal(Pawn pawn)
         {
             return pawn != null && pawn.RaceProps.Animal && pawn.Faction == Faction.OfPlayer;

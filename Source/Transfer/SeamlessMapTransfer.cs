@@ -1,3 +1,5 @@
+using HarmonyLib;
+using RimWorld;
 using Verse;
 using Verse.AI;
 using Verse.AI.Group;
@@ -10,6 +12,14 @@ namespace RimExodus
     /// </summary>
     public static class SeamlessMapTransfer
     {
+        /// <summary>
+        /// 无缝传送 DeSpawn 窗口标志（try/finally 包裹 <see cref="Pawn.DeSpawn"/> 本体，同步窗口）：
+        /// overseer 被传送时 Pawn.DeSpawn → mechanitor.Notify_DeSpawned → UndraftAllMechs 会把其
+        /// **全部机械族解除征召**——这是"overseer 真离场"的原版语义，对"同调用内即在邻图 Spawn"
+        /// 的假离场是误伤（2026-09 修复"机械师过缝导致机械族被解除征召"）。抑制 patch 见文件尾。
+        /// </summary>
+        internal static bool MechanitorDespawnSuppression;
+
         /// <summary>
         /// 把 pawn 从 departureSpot 所在地图转移到 arrivalMap 的 arrivalCell。
         /// arrivalCell 由调用方（trigger）从传送点的缓存对端坐标读取（容纳投影扭曲的 offset 映射）。
@@ -125,7 +135,16 @@ namespace RimExodus
             // 变动事件（AfterTransfer → SeamlessPawnLocationTracker），影子名单同步/陈旧条目清扫由底座在
             // 下一 GameComponentTick 的位置刷新段完成；同 tick 内的删图决策先经 Forget 的删前清扫，
             // 时序自洽——传送流程对影子系统零感知。
-            pawn.DeSpawn();
+            // 假离场窗口（见 MechanitorDespawnSuppression 注释）：overseer 的 DeSpawn 不解除机械族征召。
+            MechanitorDespawnSuppression = true;
+            try
+            {
+                pawn.DeSpawn();
+            }
+            finally
+            {
+                MechanitorDespawnSuppression = false;
+            }
             GenSpawn.Spawn(pawn, arrivalCell, arrivalMap, rotation);
 
             // VF 载具 ③：清 vehiclePather 旧图 path/nextCell 残留（Notify_Teleported =
@@ -154,6 +173,23 @@ namespace RimExodus
                 Log.Message($"[RimExodus] Seamless transfer: {pawn.LabelShort} "
                     + $"map {departureMap.uniqueID} {departureCell} -> map {arrivalMap.uniqueID} {arrivalCell}");
             return true;
+        }
+    }
+
+    /// <summary>
+    /// 无缝传送窗口内抑制 <see cref="Pawn_MechanitorTracker.Notify_DeSpawned"/>（UndraftAllMechs）：
+    /// overseer 跨缝的 DeSpawn 是假离场（同调用内即在邻图 Spawn，见
+    /// <see cref="SeamlessMapTransfer.MechanitorDespawnSuppression"/>），原版"overseer 离场 →
+    /// 解除全部机械族征召"（Pawn.cs:2400 调用链）是传送的误伤。机械族征召状态跨 overseer
+    /// 传送保留；留在远端的机械族可指挥性由指挥半径的连续距离语义（Patches_CrossMapCommon ⑤）
+    /// 另行把关。真离场（组队/被俘/销毁）不经本窗口，原版语义不变。
+    /// </summary>
+    [HarmonyPatch(typeof(Pawn_MechanitorTracker), nameof(Pawn_MechanitorTracker.Notify_DeSpawned))]
+    public static class Patch_Pawn_MechanitorTracker_Notify_DeSpawned_SeamlessTransfer
+    {
+        public static bool Prefix()
+        {
+            return !SeamlessMapTransfer.MechanitorDespawnSuppression;
         }
     }
 }

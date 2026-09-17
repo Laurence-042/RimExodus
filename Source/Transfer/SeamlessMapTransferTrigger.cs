@@ -41,7 +41,7 @@ namespace RimExodus
             if (pawn.Downed || pawn.Dead) return;
 
             // 登记制：无传送许可不传（行为表"收紧"的结构性结果）。
-            // 例外（行为表行 15/23/31"AI 战斗移动"落地，2026-08 阶段5）：NPC 战斗体的战斗移动踩
+            // 例外（行为表行 17/25/33"AI 战斗移动"落地，2026-08 阶段5）：NPC 战斗体的战斗移动踩
             // 已加载传送点且追击目标在对端 → 即席 Pursue 许可传送（防玩家跨图甩追兵）。
             if (!SeamlessTransferGrants.TryGet(pawn, out var grant))
             {
@@ -78,7 +78,7 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 战斗踩点资格（行为表行 15/23/31"敌方主体战斗移动踩已加载传送点 → 传送（跨图追击）"的
+        /// 战斗踩点资格（行为表行 17/25/33"敌方主体战斗移动踩已加载传送点 → 传送（跨图追击）"的
         /// 实现时细化版）：NPC 战斗体 + 战斗 job（AttackMelee / AttackStatic / 战斗 lord duty 下的
         /// Goto）且追击目标（job.targetA 或 mindState.enemyTarget）在对端图，才即席登记 Pursue
         /// 许可——"目标在对端"的意图判据防止沿接缝带走位路径的袭击者被误甩过缝。
