@@ -15,7 +15,9 @@ namespace RimExodus
     /// （**无可通行性过滤**，用户定夺 2026-08——spot 是纯逻辑连接设施，能不能走由地形运行时决定；
     /// 传送圈是 3 圈接缝带内的实地形，非 void 格），传送点格集合与
     /// <see cref="ExitMapGrid"/> 标记的 exit cell 集合同源。复用传送点格而非重新跑带几何，
-    /// 保证唯一口径。
+    /// 保证唯一口径。唯一例外是边缘选点回落（<see cref="GetSeamEdgeCellsWithBandFallback"/>）：
+    /// 无传送点（生成期 389-1490 窗口）时按 <see cref="SeamlessPolygonGeometry.BuildSeamBand"/>
+    /// 传送圈取格，两池范围恒等（铺点本就无过滤铺满该圈）。
     ///
     /// 缓存：按 (map.uniqueID, spot 数量) 失效。spot 铺设/邻居加载后数量变化即重建。
     /// </summary>
@@ -65,6 +67,28 @@ namespace RimExodus
 
             _cache[map.uniqueID] = (version, cells);
             return cells;
+        }
+
+        /// <summary>
+        /// 边缘选点专用池（2026-09 VEF 边缘入场开局修复）：<see cref="GetSeamEdgeCells"/> 非空时
+        /// 原样返回——spot 池还承载步行敌人邻图入场、袭击朝向（<see cref="PopulateFacingCells"/>）等
+        /// 运行时机制，语义不变。无传送点时（生成期 389-1490 窗口，如 genStep 875 的边缘入场
+        /// ScenPart；以及恢复模式后的瞬态）对 RimExodus 表面图回落 BuildSeamBand 的传送圈
+        /// （离散边圈 ∪ 带外圈，与稳态 spot 铺设范围恒等）；非 RimExodus 图返回 null。
+        /// validator 链由调用方（Patches_CellFinder）原样执行。不加独立缓存：BuildSeamBand 自带
+        /// (worldTile, mapSize) 进程缓存，无点场景低频，每次拷贝一圈格即可。
+        /// </summary>
+        internal static List<IntVec3> GetSeamEdgeCellsWithBandFallback(Map map)
+        {
+            var spotCells = GetSeamEdgeCells(map);
+            if (spotCells != null) return spotCells;
+
+            var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
+            if (worldTile < 0) return null;
+
+            var transportRing = SeamlessPolygonGeometry.BuildSeamBand(worldTile, map.Size.x).TransportRing;
+            if (transportRing.Count == 0) return null;
+            return new List<IntVec3>(transportRing);
         }
 
         /// <summary>

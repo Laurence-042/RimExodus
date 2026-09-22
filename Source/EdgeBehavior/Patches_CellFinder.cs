@@ -8,6 +8,9 @@ namespace RimExodus
     /// <summary>
     /// 核心 patch：把原版所有"在地图边缘找格"的消费者（袭击入口、远行队出口、撤退 spot、行人穿越等）
     /// 统一改用六边形接缝带（传送点格集合），而不是原版方形地图边缘（六边形裁切后多为 void）。
+    /// 候选池在有传送点时用点位（稳态），无传送点（生成期 389-1490，传送点 1490 才铺）时经
+    /// <see cref="SeamlessEdgeCells.GetSeamEdgeCellsWithBandFallback"/> 回落 BuildSeamBand 传送圈几何
+    /// （2026-09：修复 VEF 边缘入场类开局 ScenPart 在 genStep 875 选点失败致 pawn 静默不生成）。
     ///
     /// 设计：所有边缘消费者最终都走三个根原语——
     /// 1. <see cref="CellFinder.TryFindRandomEdgeCellWith(Predicate{IntVec3}, Map, float, out IntVec3)"/>
@@ -28,25 +31,30 @@ namespace RimExodus
     static class Patch_CellFinder_TryFindRandomEdgeCellWith
     {
         /// <summary>
-        /// 对有 RimExodus 传送点的地图：把候选池从"方形边缘格"换成"六边形接缝带格（传送点）"。
+        /// 对 RimExodus 表面图：把候选池从"方形边缘格"换成"六边形接缝带格"。
         /// 打乱后逐个过原版 <paramref name="validator"/>，命中即返回。全部不满足返回 false。
         /// 非 RimExodus 地图放行原版。
         /// </summary>
+        /// 门与池（2026-09 VEF 边缘入场开局修复）：门 = GetMapWorldTile(map) >= 0；池经
+        /// <see cref="SeamlessEdgeCells.GetSeamEdgeCellsWithBandFallback"/>——有传送点用点位
+        /// （稳态语义不变），无点（生成期 389-1490，如 genStep 875 的边缘入场 ScenPart 在
+        /// 传送点 1490 铺设前调本链）回落 BuildSeamBand 传送圈几何。
         internal static bool Prefix(Predicate<IntVec3> validator, Map map, ref IntVec3 result, ref bool __result)
         {
             if (map == null) return true;
-            if (!SeamlessEdgeCells.HasSeamEdge(map)) return true; // 非 RimExodus 地块放行原版
+            var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
+            if (worldTile < 0) return true; // 非 RimExodus 表面图放行原版
 
             // 袭击外缘生成（2026-09）：同图约束窗口内（本次袭击的 TryExecuteWorker 执行中）且
             // map 是被袭击图 → 候选池过滤为"朝向允许 tile 的传送点格"；**过滤池空回落整圈池**
             // （绝不比现状更容易失败——保护 EdgeWalkInDarkness 等带额外谓词的模式）。窗口外
             // 零行为变化（一次静态判空）。validator 链原样复用（含 CanReachColony 等原版把关）。
             var raidConstrained = SeamlessRaidOuterSpawn.TryGetSameMapFacingCells(map, _raidFacingCells);
-            var cells = raidConstrained ? (List<IntVec3>)_raidFacingCells : SeamlessEdgeCells.GetSeamEdgeCells(map);
+            var cells = raidConstrained ? (List<IntVec3>)_raidFacingCells : SeamlessEdgeCells.GetSeamEdgeCellsWithBandFallback(map);
             if ((cells == null || cells.Count == 0) && raidConstrained)
             {
                 raidConstrained = false;
-                cells = SeamlessEdgeCells.GetSeamEdgeCells(map);
+                cells = SeamlessEdgeCells.GetSeamEdgeCellsWithBandFallback(map);
                 RimExodusLog.Message(RimExodusLogModule.Combat,
                     $"Raid outer spawn: facing pool empty on map {map.uniqueID}, fell back to full seam pool.");
             }
@@ -135,9 +143,9 @@ namespace RimExodus
         internal static bool Prefix(Predicate<IntVec3> validator, Map map, Rot4 dir, ref IntVec3 result, ref bool __result)
         {
             if (map == null) return true;
-            if (!SeamlessEdgeCells.HasSeamEdge(map)) return true; // 非 RimExodus 地块放行原版
+            if (SeamlessTileRegistry.GetMapWorldTile(map) < 0) return true; // 非 RimExodus 表面图放行原版
 
-            var cells = SeamlessEdgeCells.GetSeamEdgeCells(map);
+            var cells = SeamlessEdgeCells.GetSeamEdgeCellsWithBandFallback(map);
             if (cells == null || cells.Count == 0)
             {
                 result = IntVec3.Invalid;
@@ -221,9 +229,11 @@ namespace RimExodus
         static void Postfix(Map map, ref IntVec3 __result)
         {
             if (map == null) return;
-            if (!SeamlessEdgeCells.HasSeamEdge(map)) return;
-            var seam = SeamlessEdgeCells.RandomSeamEdgeCell(map);
-            if (seam.IsValid) __result = seam;
+            if (SeamlessTileRegistry.GetMapWorldTile(map) < 0) return;
+            // 无点窗口经几何回落取随机接缝格（GetSeamEdgeCellsWithBandFallback），有点时与
+            // RandomSeamEdgeCell 同池；非空守卫保留（几何异常时不覆盖原版结果）。
+            var cells = SeamlessEdgeCells.GetSeamEdgeCellsWithBandFallback(map);
+            if (cells != null && cells.Count > 0) __result = cells[Rand.Range(0, cells.Count)];
         }
     }
 }
