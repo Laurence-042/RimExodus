@@ -50,6 +50,7 @@ namespace RimExodus
             bool canBashDoors, bool canTakeTargetsCloserThanEffectiveMinRange, bool canBashFences, bool onlyRanged,
             ref IAttackTarget __result)
         {
+            RimExodusPerfProbe.Mark(RimExodusPerfProbe.BestAttackTargetPostfix); // 诊断：入口计数（含早退）
             if (__result != null) return; // 本图优先：原版有结果不动。
             if (!SeamlessCombatCoords.Enabled) return;
             var searcherThing = searcher?.Thing;
@@ -93,59 +94,69 @@ namespace RimExodus
             IAttackTarget best = null;
             var bestDistSq = float.MaxValue;
             var targetInfo = new LocalTargetInfo();
-            for (var n = 0; n < neighbors.Count; n++)
+            var probeT0 = RimExodusPerfProbe.Now();
+            var probeIter = 0L;
+            try
             {
-                var neighbor = neighbors[n];
-                if (!SeamlessCombatCoords.TryGetCombatLink(map, neighbor.map, out var link)) continue;
-
-                List<IAttackTarget> pool;
-                if (meleeSearch)
+                for (var n = 0; n < neighbors.Count; n++)
                 {
-                    meleePool.Clear();
-                    var neighborPawns = neighbor.map.mapPawns.AllPawnsSpawned;
-                    for (int i = 0; i < neighborPawns.Count; i++)
-                        if (neighborPawns[i] is IAttackTarget it) meleePool.Add(it);
-                    pool = meleePool;
-                }
-                else pool = neighbor.map.attackTargetsCache.GetPotentialTargetsFor(searcher);
-                for (var i = 0; i < pool.Count; i++)
-                {
-                    var t = pool[i];
-                    var thing = t.Thing;
-                    if (thing == searcherThing || thing == null || !thing.Spawned || thing.Destroyed) continue;
-                    var unified = thing.Position + link.offset;
-                    var distSq = searcherPos.DistanceToSquared(unified);
-                    // 距离口径 = 原版 caller maxDist（接战半径 65，2026-08 勘误：原版获取不查武器射程——
-                    // 射程属于 CastPositionFinder 抵近层；武器射程过滤曾把 42-65 接战圈提前拒掉）。
-                    if (distSq < minDistSq || distSq > maxDistSq)
-                    {
-                        continue;
-                    }
-                    if (hasLocus && unified.DistanceToSquared(locus) > maxLocusDistSq) continue;
-                    if (!searcherThing.HostileTo(thing)) continue;
-                    if (validator != null && !validator(thing)) continue;
-                    if (needThreat && t.ThreatDisabled(searcher)) continue;
-                    if (needActiveThreat && !GenHostility.IsActiveThreatTo(t, searcherThing.Faction)) continue;
-                    if ((flags & TargetScanFlags.NeedNonBurning) != TargetScanFlags.None && thing.IsBurning()) continue;
-                    // 跨图候选不做 fog 过滤（2026-08 实测修正）：邻图接缝带多数仍在雾中（揭雾只绕
-                    // 本图中心），而 SeamlessTileRenderer.DrawNeighborPawns 无条件把邻图 pawn 画给
-                    // 玩家——可见性口径跟渲染走，看得见就打得着；原版 fog 门只对玩家阵营搜索者，
-                    // 这里对玩家侧同样放开（跨缝连续可视是本 mod 的核心体验）。
+                    var neighbor = neighbors[n];
+                    if (!SeamlessCombatCoords.TryGetCombatLink(map, neighbor.map, out var link)) continue;
 
-                    if (!meleeSearch)
+                    List<IAttackTarget> pool;
+                    if (meleeSearch)
                     {
-                        // "当前可射击"门控（跨图射击线 = 射程 + 分段 LOS + 统一格界内）。
-                        // 近战免此门——锁定的意义是"走过去打"，能否走到由推进链的 CanBridgeTo 把关。
-                        targetInfo = new LocalTargetInfo(thing);
-                        if (!verb.TryFindShootLineFromTo(searcherPos, targetInfo, out _)) continue;
+                        meleePool.Clear();
+                        var neighborPawns = neighbor.map.mapPawns.AllPawnsSpawned;
+                        for (int i = 0; i < neighborPawns.Count; i++)
+                            if (neighborPawns[i] is IAttackTarget it) meleePool.Add(it);
+                        pool = meleePool;
                     }
-
-                    if (distSq < bestDistSq)
+                    else pool = neighbor.map.attackTargetsCache.GetPotentialTargetsFor(searcher);
+                    for (var i = 0; i < pool.Count; i++)
                     {
-                        bestDistSq = distSq;
-                        best = t;
+                        probeIter++;
+                        var t = pool[i];
+                        var thing = t.Thing;
+                        if (thing == searcherThing || thing == null || !thing.Spawned || thing.Destroyed) continue;
+                        var unified = thing.Position + link.offset;
+                        var distSq = searcherPos.DistanceToSquared(unified);
+                        // 距离口径 = 原版 caller maxDist（接战半径 65，2026-08 勘误：原版获取不查武器射程——
+                        // 射程属于 CastPositionFinder 抵近层；武器射程过滤曾把 42-65 接战圈提前拒掉）。
+                        if (distSq < minDistSq || distSq > maxDistSq)
+                        {
+                            continue;
+                        }
+                        if (hasLocus && unified.DistanceToSquared(locus) > maxLocusDistSq) continue;
+                        if (!searcherThing.HostileTo(thing)) continue;
+                        if (validator != null && !validator(thing)) continue;
+                        if (needThreat && t.ThreatDisabled(searcher)) continue;
+                        if (needActiveThreat && !GenHostility.IsActiveThreatTo(t, searcherThing.Faction)) continue;
+                        if ((flags & TargetScanFlags.NeedNonBurning) != TargetScanFlags.None && thing.IsBurning()) continue;
+                        // 跨图候选不做 fog 过滤（2026-08 实测修正）：邻图接缝带多数仍在雾中（揭雾只绕
+                        // 本图中心），而 SeamlessTileRenderer.DrawNeighborPawns 无条件把邻图 pawn 画给
+                        // 玩家——可见性口径跟渲染走，看得见就打得着；原版 fog 门只对玩家阵营搜索者，
+                        // 这里对玩家侧同样放开（跨缝连续可视是本 mod 的核心体验）。
+
+                        if (!meleeSearch)
+                        {
+                            // "当前可射击"门控（跨图射击线 = 射程 + 分段 LOS + 统一格界内）。
+                            // 近战免此门——锁定的意义是"走过去打"，能否走到由推进链的 CanBridgeTo 把关。
+                            targetInfo = new LocalTargetInfo(thing);
+                            if (!verb.TryFindShootLineFromTo(searcherPos, targetInfo, out _)) continue;
+                        }
+
+                        if (distSq < bestDistSq)
+                        {
+                            bestDistSq = distSq;
+                            best = t;
+                        }
                     }
                 }
+            }
+            finally
+            {
+                RimExodusPerfProbe.Record(RimExodusPerfProbe.BestAttackTargetScan, probeT0, probeIter);
             }
 
             if (best != null)
@@ -300,28 +311,36 @@ namespace RimExodus
 
             Thing best = null;
             var bestDistSq = float.MaxValue;
-            for (var n = 0; n < neighbors.Count; n++)
+            var probeT0 = RimExodusPerfProbe.Now();
+            try
             {
-                var neighbor = neighbors[n];
-                if (!SeamlessCombatCoords.TryGetCombatLink(map, neighbor.map, out var link)) continue;
-                if (!SeamlessCrossMapOrders.CanBridgeTo(pawn, neighbor.map)) continue;
-
-                var pool = neighbor.map.attackTargetsCache.GetPotentialTargetsFor(pawn);
-                for (var i = 0; i < pool.Count; i++)
+                for (var n = 0; n < neighbors.Count; n++)
                 {
-                    var t = pool[i];
-                    var thing = t?.Thing;
-                    if (thing == null || !thing.Spawned || thing.Destroyed) continue;
-                    // 过滤镜像原版 :32（NPC 阵营侧 fog 项天然不适用）。
-                    if (t.ThreatDisabled(pawn) || !AttackTargetFinder.IsAutoTargetable(t)) continue;
-                    if (thing is Pawn p && !p.IsCombatant()) continue; // 非战斗 pawn 跨图仅认 IsCombatant（见类头）
-                    var distSq = pawn.Position.DistanceToSquared(thing.Position + link.offset);
-                    if (distSq < bestDistSq)
+                    var neighbor = neighbors[n];
+                    if (!SeamlessCombatCoords.TryGetCombatLink(map, neighbor.map, out var link)) continue;
+                    if (!SeamlessCrossMapOrders.CanBridgeTo(pawn, neighbor.map)) continue;
+
+                    var pool = neighbor.map.attackTargetsCache.GetPotentialTargetsFor(pawn);
+                    for (var i = 0; i < pool.Count; i++)
                     {
-                        bestDistSq = distSq;
-                        best = thing;
+                        var t = pool[i];
+                        var thing = t?.Thing;
+                        if (thing == null || !thing.Spawned || thing.Destroyed) continue;
+                        // 过滤镜像原版 :32（NPC 阵营侧 fog 项天然不适用）。
+                        if (t.ThreatDisabled(pawn) || !AttackTargetFinder.IsAutoTargetable(t)) continue;
+                        if (thing is Pawn p && !p.IsCombatant()) continue; // 非战斗 pawn 跨图仅认 IsCombatant（见类头）
+                        var distSq = pawn.Position.DistanceToSquared(thing.Position + link.offset);
+                        if (distSq < bestDistSq)
+                        {
+                            bestDistSq = distSq;
+                            best = thing;
+                        }
                     }
                 }
+            }
+            finally
+            {
+                RimExodusPerfProbe.Record(RimExodusPerfProbe.GotoNearestHostilePostfix, probeT0);
             }
 
             if (best == null) return;
@@ -354,6 +373,7 @@ namespace RimExodus
     {
         public static bool Prefix(Pawn pawn, ref Job __result)
         {
+            var probeT0 = RimExodusPerfProbe.Now();
             try
             {
                 Patches_CombatTargetSearch.SuppressMeleeCrossMap = 0; // 防御性清（上一次异常泄漏自愈）
@@ -391,6 +411,10 @@ namespace RimExodus
                 Log.Error("[RimExodus] JobGiver_Manhunter cross-map prefix failed, vanilla behavior kept: " + ex);
                 return true;
             }
+            finally
+            {
+                RimExodusPerfProbe.Record(RimExodusPerfProbe.ManhunterPrefix, probeT0);
+            }
         }
 
         public static void Postfix()
@@ -418,25 +442,33 @@ namespace RimExodus
             neighbors.Clear();
             SeamlessTileGraph.PopulateNeighbors(map, neighbors);
             var bestDistSq = float.MaxValue;
-            for (var n = 0; n < neighbors.Count; n++)
+            var probeT0 = RimExodusPerfProbe.Now();
+            try
             {
-                var neighbor = neighbors[n];
-                if (!SeamlessCombatCoords.TryGetCombatLink(map, neighbor.map, out var link)) continue;
-
-                var neighborPawns = neighbor.map.mapPawns.AllPawnsSpawned;
-                for (var i = 0; i < neighborPawns.Count; i++)
+                for (var n = 0; n < neighbors.Count; n++)
                 {
-                    var thing = neighborPawns[i];
-                    if (thing == null || thing.Dead || !thing.Spawned || thing.Destroyed) continue;
-                    var unified = thing.Position + link.offset;
-                    var distSq = pawn.Position.DistanceToSquared(unified);
-                    if (distSq > maxDistSq || distSq >= bestDistSq) continue;
-                    if (!pawn.HostileTo(thing)) continue;
-                    if (thing is IAttackTarget at && at.ThreatDisabled(pawn)) continue;
-                    if (validator != null && !validator(thing)) continue;
-                    bestDistSq = distSq;
-                    best = thing;
+                    var neighbor = neighbors[n];
+                    if (!SeamlessCombatCoords.TryGetCombatLink(map, neighbor.map, out var link)) continue;
+
+                    var neighborPawns = neighbor.map.mapPawns.AllPawnsSpawned;
+                    for (var i = 0; i < neighborPawns.Count; i++)
+                    {
+                        var thing = neighborPawns[i];
+                        if (thing == null || thing.Dead || !thing.Spawned || thing.Destroyed) continue;
+                        var unified = thing.Position + link.offset;
+                        var distSq = pawn.Position.DistanceToSquared(unified);
+                        if (distSq > maxDistSq || distSq >= bestDistSq) continue;
+                        if (!pawn.HostileTo(thing)) continue;
+                        if (thing is IAttackTarget at && at.ThreatDisabled(pawn)) continue;
+                        if (validator != null && !validator(thing)) continue;
+                        bestDistSq = distSq;
+                        best = thing;
+                    }
                 }
+            }
+            finally
+            {
+                RimExodusPerfProbe.Record(RimExodusPerfProbe.MeleeSearch, probeT0);
             }
             return best != null;
         }

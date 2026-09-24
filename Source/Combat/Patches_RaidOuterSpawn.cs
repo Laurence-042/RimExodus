@@ -176,7 +176,16 @@ namespace RimExodus
         {
             static void Postfix(IncidentParms parms, List<Pawn> pawns)
             {
-                SeamlessRaidOuterSpawn.TryRelocateToHost(parms, pawns);
+                // 诊断：袭击跨图迁移整体墙钟（含迁移后 lord 建立触发的首批 think——spawn 卡顿主嫌疑）。
+                var probeT0 = RimExodusPerfProbe.Now();
+                try
+                {
+                    SeamlessRaidOuterSpawn.TryRelocateToHost(parms, pawns);
+                }
+                finally
+                {
+                    RimExodusPerfProbe.Record(RimExodusPerfProbe.RaidSpawnPostfix, probeT0, pawns?.Count ?? 0);
+                }
             }
         }
     }

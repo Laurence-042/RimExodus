@@ -173,6 +173,9 @@ namespace RimExodus
             // 耗时 + 触发周期汇报。关闭时零开销（内部首行早退）。
             SeamlessTickProfiler.OnGameComponentTick();
 
+            // 诊断（临时）：跨图战斗热路径探针的窗口汇总输出（DevMode 才启用，关闭时零开销）。
+            RimExodusPerfProbe.ReportIfDue();
+
             // 全局静态清扫（自 SeamlessMapTransferTrigger.MapComponentTick 迁移，2026-08 软休眠）：
             // 原挂"仅家园图 tick"——家园无玩家 pawn 时可随软休眠冻结，图 tick 不再可靠；
             // GameComponent 恒 tick，与一切地图的活跃状态解耦。（预约/UI 域，刻意不并入下方位置刷新段。）

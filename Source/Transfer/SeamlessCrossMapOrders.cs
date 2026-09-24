@@ -78,6 +78,19 @@ namespace RimExodus
         /// </summary>
         private static bool TryFindBestBridgeSpot(Pawn pawn, Map toMap, IntVec3 destCell, out Thing exitSpot, out IntVec3 gotoCell, out string costDebug)
         {
+            var probeT0 = RimExodusPerfProbe.Now();
+            try
+            {
+                return TryFindBestBridgeSpotInner(pawn, toMap, destCell, out exitSpot, out gotoCell, out costDebug);
+            }
+            finally
+            {
+                RimExodusPerfProbe.Record(RimExodusPerfProbe.BridgeSpotFlood, probeT0);
+            }
+        }
+
+        private static bool TryFindBestBridgeSpotInner(Pawn pawn, Map toMap, IntVec3 destCell, out Thing exitSpot, out IntVec3 gotoCell, out string costDebug)
+        {
             exitSpot = null;
             gotoCell = IntVec3.Invalid;
             costDebug = null;
@@ -288,7 +301,15 @@ namespace RimExodus
         /// </summary>
         public static bool CanBridgeTo(Pawn pawn, Map toMap)
         {
-            return TryFindNearestReachableBridgeSpot(pawn, toMap, out _);
+            var probeT0 = RimExodusPerfProbe.Now();
+            try
+            {
+                return TryFindNearestReachableBridgeSpot(pawn, toMap, out _);
+            }
+            finally
+            {
+                RimExodusPerfProbe.Record(RimExodusPerfProbe.CanBridgeTo, probeT0);
+            }
         }
 
         /// <summary>

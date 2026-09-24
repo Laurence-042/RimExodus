@@ -86,6 +86,20 @@ namespace RimExodus
         /// </summary>
         private static bool TryRegisterCombatStepTransfer(Pawn pawn, IntVec3 cell, Map map)
         {
+            // 诊断：无许可战斗 pawn 的每跨格探测（含每跨格字符串 def 查询——评估其真实占比）。
+            var probeT0 = RimExodusPerfProbe.Now();
+            try
+            {
+                return TryRegisterCombatStepTransferInner(pawn, cell, map);
+            }
+            finally
+            {
+                RimExodusPerfProbe.Record(RimExodusPerfProbe.CombatStepProbe, probeT0);
+            }
+        }
+
+        private static bool TryRegisterCombatStepTransferInner(Pawn pawn, IntVec3 cell, Map map)
+        {
             if (!SeamlessCombatCoords.Enabled || pawn.Downed || pawn.Dead) return false;
             if (!SeamlessBoundaryRules.IsNpcCombatant(pawn)) return false;
 
