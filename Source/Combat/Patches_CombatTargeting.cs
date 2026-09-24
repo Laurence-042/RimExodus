@@ -317,6 +317,9 @@ namespace RimExodus
     /// 对瞄准姿态（Stance_Busy.focusTarg）与 Job 面向（curDriver.rotateToFace 目标）直接用
     /// focusTarg 的 Thing/Cell 本地坐标——跨图时 pawn 会朝本图同数字坐标方向看。
     /// 焦点目标在对端活跃邻居图时改朝统一坐标（DrawPos + offset，与弹道/渲染同一坐标系）。
+    /// 【热路径纪律（2026-09-24）】UpdateRotation 经 PostTickVisuals 对全图每 pawn 每帧调用；
+    /// 本 Postfix 必须保持"同图目标/不可见 pawn 秒退"，勿在早退门前引入 CurrentEffectiveVerb
+    /// 或投影计算（曾有 49µs/次 × 586 pawn/帧 = 28.8ms/帧 的回归，探针定案后修复）。
     /// </summary>
     [HarmonyPatch(typeof(Pawn_RotationTracker), "UpdateRotation")]
     public static class Patch_PawnRotationTracker_CrossMapFacing
@@ -326,25 +329,77 @@ namespace RimExodus
 
         public static void Postfix(Pawn_RotationTracker __instance, Pawn ___pawn)
         {
-            var pawn = ___pawn;
-            if (pawn?.Map == null) return;
-
-            var focus = LocalTargetInfo.Invalid;
-            Verb verb = null;
-            var busy = pawn.stances?.curStance as Stance_Busy;
-            if (busy != null)
+            // 诊断（临时，2026-09-24 第五轮探针）：UpdateRotation 每 pawn 每帧被
+            // PostTickVisuals 调用，260 pawn 场景下本 Postfix 是帧侧嫌疑——直接自计时裁决。
+            var probeT0 = RimExodusPerfProbe.Now();
+            try
             {
-                if (busy.focusTarg.IsValid) focus = busy.focusTarg;
-                verb = busy.verb;
-            }
-            else if (pawn.jobs?.curJob != null && pawn.jobs.curDriver != null)
-            {
-                focus = pawn.CurJob.GetTarget(RotateToFaceRef(pawn.jobs.curDriver));
-                verb = pawn.CurrentEffectiveVerb;
-            }
+                var pawn = ___pawn;
+                if (pawn?.Map == null) return;
 
-            if (SeamlessCrossMapCellTarget.TryGetUnifiedTarget(pawn, verb, focus, out var unified))
-                __instance.Face(unified);
+                // 【2026-09-24 性能修复（探针定案 49µs/次 × 每 pawn 每帧）】UpdateRotation 经
+                // PostTickVisuals 对全图每 pawn 每帧调用（含非当前图）。三道由便宜到贵的早退门：
+                // ① THING 目标先做同图早退——原版 UpdateRotation 已按本地坐标正确朝向，本 Postfix
+                //    无事可做（杀掉绝大多数调用）。
+                // ② 非 busy 分支不再调 pawn.CurrentEffectiveVerb（内部 MannedThing()+TryGetAttackVerb
+                //    是 49µs 级）。verb 仅对纯格目标的 ByVerb 侧表有意义；THING 分支解析不用 verb；
+                //    两处 Register（CombatTargeter/CE）总是 verb/caster 成对，ByCaster 完整覆盖，
+                //    verb=null 仍可解析。busy 分支保留 busy.verb 字段读（便宜）。
+                // ③ 视区早退：跨图朝向是纯视觉修正，pawn 本身不可见时无意义（见 PawnPotentiallyVisible）。
+                LocalTargetInfo focus;
+                Verb verb = null;
+                var busy = pawn.stances?.curStance as Stance_Busy;
+                if (busy != null)
+                {
+                    if (!busy.focusTarg.IsValid) return;
+                    focus = busy.focusTarg;
+                    verb = busy.verb;
+                }
+                else
+                {
+                    var driver = pawn.jobs?.curDriver;
+                    if (driver == null) return;
+                    focus = pawn.CurJob.GetTarget(RotateToFaceRef(driver));
+                    if (!focus.IsValid) return;
+                }
+
+                if (focus.HasThing)
+                {
+                    var targetMap = focus.Thing?.MapHeld;
+                    if (targetMap == null || targetMap == pawn.Map) return;
+                }
+
+                if (!PawnPotentiallyVisible(pawn)) return;
+
+                if (SeamlessCrossMapCellTarget.TryGetUnifiedTarget(pawn, verb, focus, out var unified))
+                    __instance.Face(unified);
+            }
+            finally
+            {
+                RimExodusPerfProbe.Record(RimExodusPerfProbe.CrossMapFacingPostfix, probeT0);
+            }
+        }
+
+        /// <summary>视区早退门的视区缓存（UpdateRotation 每 pawn 每帧跑，CurrentViewRect 不能现取）。</summary>
+        private static int cachedViewFrame = -1;
+        private static CellRect cachedViewRect;
+
+        /// <summary>跨图朝向修正是纯视觉的：pawn 本身当前不可见就不做。当前图 pawn 判视区包含；
+        /// 邻图 pawn 判"投影进当前图视区"——邻图动态物只经复合视图绘制，TryProject(→CurrentMap)
+        /// 失败即不可能可见（与 SeamlessTileRenderer 绘制范围一致）。门只跳过我方修正，原版每帧
+        /// 旋转照常，无陈旧状态。ExpandedBy(2) 容忍快速平移。</summary>
+        private static bool PawnPotentiallyVisible(Pawn pawn)
+        {
+            var current = Find.CurrentMap;
+            if (current == null) return false;
+            if (UnityEngine.Time.frameCount != cachedViewFrame)
+            {
+                cachedViewRect = Find.CameraDriver.CurrentViewRect.ExpandedBy(2);
+                cachedViewFrame = UnityEngine.Time.frameCount;
+            }
+            if (pawn.Map == current) return cachedViewRect.Contains(pawn.Position);
+            return SeamlessViewProjection.TryProject(pawn.Map, pawn.Position, current, out var projected)
+                && cachedViewRect.Contains(projected);
         }
     }
 }

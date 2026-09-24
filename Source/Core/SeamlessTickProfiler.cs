@@ -194,7 +194,9 @@ namespace RimExodus
                 var wt = SeamlessTileRegistry.GetMapWorldTile(m);
                 var fast = SeamlessTickThrottle.IsThrottled(m)
                     ? $", fastZone {SeamlessTickThrottle.FastRegionCellCount(m)} cells" : "";
-                sb.Append($"\n  map {m.uniqueID} (wt={wt}, {state}): things {s.ThingMs:F0}ms " +
+                var pawns = 0;
+                try { pawns = m.mapPawns.AllPawnsSpawnedCount; } catch { /* 报告容错 */ }
+                sb.Append($"\n  map {m.uniqueID} (wt={wt}, {state}, pawns {pawns}): things {s.ThingMs:F0}ms " +
                     $"({s.ThingCalls} calls, {s.ThingSkipped} skipped{fast}), pre {s.PreMs:F0}ms, post {s.PostMs:F0}ms, " +
                     $"update {s.UpdateMs:F0}ms over {s.UpdateFrames} frames");
                 thingSum += s.ThingMs;

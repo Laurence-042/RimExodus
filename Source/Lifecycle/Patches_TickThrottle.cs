@@ -25,6 +25,12 @@ namespace RimExodus
     [HarmonyPatch(typeof(Thing), nameof(Thing.DoTick))]
     static class Patch_Thing_DoTick_Throttle
     {
+        // DoTick 不重入（单线程、TickList 顺序调用），桶间传递可用静态时间戳。
+        // mapless 归因（2026-09-24 第三轮探针）：EndThing 对 thing.Map==null 直接丢弃——世界 pawn
+        // 等无图 thing 的 tick 耗时落不进任何桶，是"调度开销缺口"的一部分；此处按 def 补记。
+        private static long maplessStamp;
+        private static bool maplessRan;
+
         static bool Prefix(Thing __instance)
         {
             // 诊断（临时）：门判定本体计时——TickManagerUpdate 里 things/pre/post 之外的调度开销
@@ -32,6 +38,8 @@ namespace RimExodus
             var probeT0 = RimExodusPerfProbe.Now();
             var run = SeamlessTickThrottle.ShouldThingTick(__instance);
             RimExodusPerfProbe.Record(RimExodusPerfProbe.ThrottleGate, probeT0);
+            maplessStamp = probeT0;
+            maplessRan = run;
             SeamlessTickProfiler.BeginThing(__instance, run); // 剖析器关闭时 no-op。
             return run;
         }
@@ -40,6 +48,11 @@ namespace RimExodus
         static void Postfix(Thing __instance)
         {
             SeamlessTickProfiler.EndThing(__instance);
+            if (maplessRan && __instance.Map == null)
+            {
+                RimExodusPerfProbe.Record(RimExodusPerfProbe.MaplessDoTick, maplessStamp);
+                RimExodusPerfProbe.RecordMaplessDoTick(__instance.def?.defName ?? __instance.GetType().Name, maplessStamp);
+            }
         }
     }
 

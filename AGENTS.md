@@ -41,7 +41,9 @@
 
 ## 3. 外部源码与兼容性参考
 
-涉及 RimWorld 或外部 Mod 内部行为时，只能以 `references/` 中已有源码/反编译内容为施工依据。若缺少目标版本/Mod 的可靠参考，先明确告知用户，不要自行扫描 SteamLibrary、下载或反编译其他内容。
+涉及 RimWorld 或外部 Mod 内部行为时，只能以 `references/` 中已有源码/反编译内容为施工依据。若缺少目标版本/Mod 的可靠参考，先明确告知用户，不要自行扫描 SteamLibrary、下载或反编译其他内容；也不要用反射枚举程序集签名来替代反编译参考。
+
+RimWorld 核心反编译位于 `D:\SteamLibrary\steamapps\common\RimWorld\Mods\RimExodus_Delta-V\references\RimWorldDecompiled\`（1.6.9438，本仓库施工依据；签名/行为核对直接读它）。
 
 建议在进行底层机制调整时，提醒用户确保 `references/` 包含 RimWorld、MapPreview、Geological Landforms、Vehicle Framework、Vehicle Map Framework、Perspective Shift、Giddy-Up、Vanilla Expanded 系列等调查材料；实际使用前先核对目录和版本。兼容性对外结论以 `README.md` 为准。
 
@@ -175,7 +177,7 @@
 - 能用 Prefix/Postfix、ref 改参或收尾字段修正完成的功能，不写 transpiler。必须写 transpiler 时，先对真实游戏 DLL 解码确认 IL；原地 mutate `CodeInstruction`，不要替换对象导致 labels 丢失。CLR 验证器无法发现全部 Mono DMD 非法 IL，游戏启动日志才是最终依据。
 - Harmony 按参数名绑定；不确定时使用已核实的真实签名或位置参数。手动绑定的重载必须显式参数类型消歧。
 - 分模块日志使用 `RimExodusLog` 与 `RimExodusLogModule`。新诊断消息走对应模块；Warn/Error 不受开关控制。低频生命周期与显式 Dev 动作可常开，热路径和周期细节必须门控。旧 `verboseLogging` 只保留存档兼容，不新增消费点。
-- 离线 PatchAll 验证器位于 `C:\Users\Laure\.zcode\tmp\rimptest\`。新增或修改 Harmony patch 后运行它；当前记录基线（2026-09-17）为 `BOUND OK 118 / FAILED 17`，17 项是已确认的 CLR 伪迹（`DrawTargetHighlightWithLayer` 与既有 `GenDraw` 绘制 patch 同为 `SecurityException: ECall`；`Patch_JobGiver_Manhunter_CrossMapMelee` 与 `MapInterface_SeamOutline` 等虚方法 patch 同为 `TypeLoadException: 接口中的非抽象、非 .cctor 方法`——游戏内绑定以 `GetPatchedMethods` 报告为准）。基线变化时只更新当前数字与伪迹清单所在注释，不保留数字演进流水账。
+- 离线 PatchAll 验证器位于 `C:\Users\Laure\.zcode\tmp\rimptest\`。新增或修改 Harmony patch 后运行它；当前记录基线（2026-09-24，含第五轮探针）为 `BOUND OK 146 / FAILED 25`，25 项中 17 项是历史已确认的 CLR 伪迹（`DrawTargetHighlightWithLayer` 与既有 `GenDraw` 绘制 patch 同为 `SecurityException: ECall`；`Patch_JobGiver_Manhunter_CrossMapMelee` 与 `MapInterface_SeamOutline` 等虚方法 patch 同为 `TypeLoadException: 接口中的非抽象、非 .cctor 方法`——游戏内绑定以 `GetPatchedMethods` 报告为准），另 8 项为诊断探针期同类伪迹：`Patch_TickManager_TickManagerUpdate_PerfProbe`（ECall；游戏内已实证出数）、`Patch_OverlayDrawer_DrawAllOverlays_PerfProbe`（经 ShaderDatabase cctor 的 ECall）、`Patch_GlowGrid_GlowGridUpdate_PerfProbe`（attr 读取即抛接口 TypeLoad）、`Patch_SkyManager_PerfProbe`/`Patch_PlantFallColors_PerfProbe`/`Patch_WaterInfo_PerfProbe`/`Patch_DesignationManager_PerfProbe`/`Patch_FleckManager_Update_PerfProbe`（均 ECall）；窗口报告里缺席的探针 = 游戏内也没绑上，需复核。探针移除后数字回落。基线变化时只更新当前数字与伪迹清单所在注释，不保留数字演进流水账。
 - 最终确认必须包含游戏日志中的 Mod 实例化行与 `GetPatchedMethods` 报告。测试本地构建前先确认游戏实际加载的是刚编译 DLL，而不是 Workshop 旧版本。
 
 ## 14. 存档与卸载
