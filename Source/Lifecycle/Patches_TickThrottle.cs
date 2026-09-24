@@ -27,7 +27,11 @@ namespace RimExodus
     {
         static bool Prefix(Thing __instance)
         {
+            // 诊断（临时）：门判定本体计时——TickManagerUpdate 里 things/pre/post 之外的调度开销
+            // 归因（本门 vs Harmony 调度/TickList 本体）。calls 数同时给出总 dispatch 计数。
+            var probeT0 = RimExodusPerfProbe.Now();
             var run = SeamlessTickThrottle.ShouldThingTick(__instance);
+            RimExodusPerfProbe.Record(RimExodusPerfProbe.ThrottleGate, probeT0);
             SeamlessTickProfiler.BeginThing(__instance, run); // 剖析器关闭时 no-op。
             return run;
         }

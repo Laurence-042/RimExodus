@@ -41,4 +41,24 @@ namespace RimExodus
             RimExodusPerfProbe.Record(RimExodusPerfProbe.TickManagerUpdate, stamp);
         }
     }
+
+    /// <summary>
+    /// MapComponentUpdate 按图计时（裁决当前图 MapUpdate 大头 = 组件段 vs 非组件段 drawer/section/fog）。
+    /// 注意 Map.MapUpdate 内含本调用；报告里与 tick 剖析器的 per-map update 列相减即得非组件段。
+    /// </summary>
+    [HarmonyPatch(typeof(MapComponentUtility), nameof(MapComponentUtility.MapComponentUpdate))]
+    internal static class Patch_MapComponentUtility_MapComponentUpdate_PerfProbe
+    {
+        private static long stamp;
+
+        internal static void Prefix(Map map)
+        {
+            stamp = RimExodusPerfProbe.Now();
+        }
+
+        internal static void Postfix(Map map)
+        {
+            RimExodusPerfProbe.RecordMapComponentUpdate(map, stamp);
+        }
+    }
 }
