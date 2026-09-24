@@ -74,6 +74,19 @@ namespace RimExodus
 
         public override void MapComponentDraw()
         {
+            var probeT0 = RimExodusPerfProbe.Now();
+            try
+            {
+                MapComponentDrawInner();
+            }
+            finally
+            {
+                RimExodusPerfProbe.Record(RimExodusPerfProbe.NeighborCompositeDraw, probeT0);
+            }
+        }
+
+        private void MapComponentDrawInner()
+        {
             if (Find.CurrentMap != map || !WorldRendererUtility.DrawingMap)
             {
                 return;

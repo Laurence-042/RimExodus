@@ -22,11 +22,40 @@ namespace RimExodus
         /// </summary>
         internal static bool TryBridgeJob(Pawn pawn, Map targetMap, IntVec3 targetLocalCell, Job nextJob = null)
         {
-            if (!TryFindBestBridgeSpot(pawn, targetMap, targetLocalCell, out var exitSpot, out var gotoCell, out var costDebug))
+            // NPC 战斗桥接的空间聚类选点共享（2026-09 perf probe 定向优化，见 SeamlessBridgeCluster
+            // 类头）：nextJob 非 playerForced = NPC 战斗 job 的 StartPath 包装（AttackMelee/
+            // AttackStatic/推进 Goto/跟随）——同空间桶敌群窗口内共享一次选点。玩家点击（nextJob
+            // == null）与 playerForced 包装、VF 载具不共享，保持联合最优全精度。
+            var shareCluster = nextJob != null && !nextJob.playerForced
+                && pawn != null && pawn.Map != null && !pawn.Map.Disposed
+                && targetMap != null && !targetMap.Disposed
+                && !SeamlessVehiclesCompat.IsVehicle(pawn);
+            Thing exitSpot = null;
+            IntVec3 gotoCell = IntVec3.Invalid;
+            string costDebug = null;
+            if (shareCluster
+                && SeamlessBridgeCluster.TryGetSharedSpot(pawn, targetMap, Find.TickManager.TicksGame, out exitSpot, out gotoCell))
             {
+                if (exitSpot == null)
+                {
+                    // 本聚类窗口内已知无可达 spot（负面结论共享，免整群重复泛洪）。
+                    if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
+                        Log.Message($"[RimExodus] Cross-map move rejected (cluster-known): no reachable seamless enter spot bridges map {pawn.Map.uniqueID} to map {targetMap.uniqueID}.");
+                    return false;
+                }
+                costDebug = "cluster-shared";
+            }
+            else if (!TryFindBestBridgeSpot(pawn, targetMap, targetLocalCell, out exitSpot, out gotoCell, out costDebug))
+            {
+                if (shareCluster)
+                    SeamlessBridgeCluster.RecordSharedSpot(pawn, targetMap, Find.TickManager.TicksGame, null, IntVec3.Invalid);
                 if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Cross-map move rejected: no reachable seamless enter spot bridges map {pawn.Map.uniqueID} to map {targetMap.uniqueID}.");
                 return false;
+            }
+            else if (shareCluster)
+            {
+                SeamlessBridgeCluster.RecordSharedSpot(pawn, targetMap, Find.TickManager.TicksGame, exitSpot, gotoCell);
             }
 
             var grant = SeamlessTransferGrants.Create(pawn, SeamlessTransferGrants.GrantKind.Bridge);

@@ -840,6 +840,8 @@ namespace RimExodus
             // map.info.parent 仍可读时回调，Game.cs:766-770）；口袋/空间图返回 -1 自然早退。
             // 天气域重算保持既有职责。
             SeamlessPolygonGeometry.ReleaseTileCaches(SeamlessTileRegistry.GetMapWorldTile(map));
+            // 桥接聚类共享表键持 Map 引用，随图释放（同上，防悬垂引用阻 GC）。
+            SeamlessBridgeCluster.NotifyMapRemoved(map);
             SeamlessWeatherClusterManager.RebindAll();
         }
 

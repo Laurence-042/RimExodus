@@ -27,7 +27,10 @@ namespace RimExodus
         internal const int BridgeSpotFlood = 6;           // TryFindBestBridgeSpot（双侧泛洪）
         internal const int CombatStepProbe = 7;           // 无许可战斗 pawn 每跨格探测
         internal const int RaidSpawnPostfix = 8;          // Patches_RaidOuterSpawn Postfix
-        internal const int ProbeCount = 9;
+        internal const int NeighborCompositeDraw = 9;     // SeamlessTileRenderer.MapComponentDraw（邻图合成，每帧）
+        internal const int GameUpdatePlay = 10;            // Verse.Game.UpdatePlay 全量（tick+渲染调度+UI）
+        internal const int TickManagerUpdate = 11;         // Verse.TickManager.TickManagerUpdate（tick 循环本体）
+        internal const int ProbeCount = 12;
 
         private static readonly string[] Names =
         {
@@ -40,6 +43,9 @@ namespace RimExodus
             "BridgeSpotFlood",
             "CombatStepProbe",
             "RaidSpawn.postfix",
+            "NeighborCompositeDraw",
+            "GameUpdatePlay",
+            "TickManagerUpdate",
         };
 
         private const long TicksPerSecondFallback = 10_000_000; // Stopwatch.Frequency 保险值
@@ -50,6 +56,11 @@ namespace RimExodus
         private static readonly double[] maxMs = new double[ProbeCount];
         private static readonly long[] extras = new long[ProbeCount];
         private static int nextReportTick = -1;
+
+        // 帧侧归因（窗口级，非逐调用）：wall/frames/GC 计数差。
+        private static long lastReportTimestamp;
+        private static int lastFrameCount = -1;
+        private static int lastGen0 = -1, lastGen1 = -1, lastGen2 = -1;
 
         internal static bool Enabled => Prefs.DevMode;
 
@@ -97,6 +108,29 @@ namespace RimExodus
 
             var sb = new System.Text.StringBuilder();
             sb.Append("[RimExodus] PerfProbe window ").Append(ReportIntervalTicks).AppendLine(" ticks:");
+
+            // 帧侧归因行：wall/帧数/fps/GC 代际回收次数差。fps 低 + tick 位点总耗远小于 wall
+            // = 渲染/GC 绑定而非 tick 绑定（tick 剖析器的 "tick wall" 是心跳墙钟差，含帧时间）。
+            var stampNow = Stopwatch.GetTimestamp();
+            var frameNow = UnityEngine.Time.frameCount;
+            if (lastReportTimestamp != 0 && lastFrameCount >= 0)
+            {
+                var wall = (stampNow - lastReportTimestamp) * 1000.0 / Stopwatch.Frequency;
+                var frames = frameNow - lastFrameCount;
+                var fps = frames > 0 ? 1000.0 / (wall / frames) : 0.0;
+                sb.Append("  frame: wall=").Append(wall.ToString("F0")).Append("ms frames=").Append(frames)
+                    .Append(" fps=").Append(fps.ToString("F0"))
+                    .Append(" gcGen0=+").Append(GC.CollectionCount(0) - Math.Max(lastGen0, 0))
+                    .Append(" gen1=+").Append(GC.CollectionCount(1) - Math.Max(lastGen1, 0))
+                    .Append(" gen2=+").Append(GC.CollectionCount(2) - Math.Max(lastGen2, 0))
+                    .AppendLine();
+            }
+            lastReportTimestamp = stampNow;
+            lastFrameCount = frameNow;
+            lastGen0 = GC.CollectionCount(0);
+            lastGen1 = GC.CollectionCount(1);
+            lastGen2 = GC.CollectionCount(2);
+
             var any = false;
             for (var i = 0; i < ProbeCount; i++)
             {
