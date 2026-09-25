@@ -13,9 +13,12 @@ If what you’re really asking is whether I’ll make more RimWorld mods in the 
 我猜，也许，大概……会？说实话，制作 RimWorld mod 有时甚至比玩游戏本身更有意思，我也确实还有一些进一步利用RimExodus中催熟的跨地图机制的想法。不过别抱太大期望，毕竟我得先把重点放回我的游戏开发；就算开发完成了，也大概率会暴死，然后我继续回去当社畜。社畜的生活大家都懂
 well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, I need to refocus on my own game development first. Even if it does get finished, it'll likely flop hard, and I'll just go back to being a corporate drone. Everyone knows how that life goes.
 
-1.0.3
+
+1.0.4
 - 优化：大量单位同场时（如超大规模袭击、机械族大军混战）游戏速度（TPS）显著提升——此前存在一项随单位数量成倍增长的逐帧开销，在两百名以上单位同场时会拖慢近一半速度，现已消除；无缝跨图体验（跨缝朝向、射击、行军）不受影响
   Improved: game speed (TPS) with very large numbers of pawns on one map (oversized raids, big mech battles) is now significantly higher — a per-frame cost that scaled with unit count used to cut speed nearly in half with 200+ pawns present and has been eliminated; the seamless cross-map experience (facing, shooting and marching across seams) is unchanged.
+
+1.0.3
 - 修复：使用"殖民者从地图边缘步行进场"类开局（如 Medieval Overhaul 的佣兵团等基于 Vanilla Expanded Framework 的开局场景）时，开局殖民者可能完全不生成且没有任何报错。成因有两层：生成早期的边缘落点选取在裁切后的地图边缘上找不到有效位置；以及个别地图的出生点会被生成中途落地的建筑覆盖、导致整场落位判定失效。两层均已修复，普通地图上的边缘生成行为不变（@Fiur、@zakphoenix 报告的问题）
   Fixed: with "colonists walk in from the map edge" style starts (VEF-based scenarios such as Medieval Overhaul's mercenary company), starting colonists could fail to appear entirely with no error shown. Two layered causes: early-generation edge placement could not find a valid position on the trimmed map edge, and on some maps the player start spot got covered by a structure placed mid-generation, invalidating the placement check map-wide. Both are fixed; edge spawning behavior on regular maps is unchanged. (Reported by @Fiur and @zakphoenix.)
 
