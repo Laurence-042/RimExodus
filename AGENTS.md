@@ -145,7 +145,7 @@ RimWorld 核心反编译位于 `D:\SteamLibrary\steamapps\common\RimWorld\Mods\R
 - 中立/友方派系基地必须阻止原版 `CheckDefeated` 的“无敌对威胁即败亡”误判；敌对基地仍走原版。真败亡后邻接链接要重接到同 tile 的废墟 parent。
 - 派系基地贸易商只在生成时选一次，不写原版 `pawn.trader` 或 `wantsToTradeWithColony`。对话复用原生 `Dialog_NodeTreeWithFactionInfo`，选项同时采集 `GetCaravanGizmos` 与 `GetFloatMenuOptions`，并显式过滤攻击、进入、访问等会二次进图的命令。
 - 影子远行队是未加入 `Find.WorldObjects` 的常驻投影，用于兼容即时与延迟的远行队交互；不 tick、不序列化、不出现在世界图。不要回退到“加入世界对象表再逐面隐藏”。
-- 影子成员不能经 `Caravan.AddPawn`/`ThingOwner.TryAdd` 注入；当前实现直接维护内部列表与 holdingOwner，因此所有 DeSpawn/真组队入口必须先释放影子持有关系，`GetRootMap` 对影子持有链返回实际地图。
+- 影子成员不能经 `Caravan.AddPawn`/`ThingOwner.TryAdd` 注入；当前实现直接维护内部列表与 holdingOwner，因此所有 DeSpawn/真组队入口必须先释放影子持有关系，`GetRootMap` 对影子持有链返回实际地图。spawned + 影子 Caravan holdingOwner 有意打破"Spawned ⇒ ParentHolder == null"不变量；勿改 `ParentHolder` getter（会拆掉 OAYH 外交识别根基），第三方直读 `ParentHolder is Map` 的检查（如 MeleeAnim `IsPawnValid`）在 Compat 层逐一窄修。
 - 影子维护与 spawnedThings 陈旧条目清扫依赖 `SeamlessPawnLocationTracker`；Wake 重注册只处理 `t.Map == map`，避免活 Pawn 双 tick、mapIndex 错位或被错误 Discard。
 
 ## 11. 渲染与效果

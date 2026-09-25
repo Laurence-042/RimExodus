@@ -32,6 +32,12 @@ namespace RimExodus
     ///   影子返回 null。远行队身份判定不受影响：<see cref="Caravan.IsOwner"/> 走 pawns.Contains
     ///   （holdingOwner 比对）而非 GetCaravan。
     ///
+    /// 持有契约补充（2026-09-25）：spawned + 影子 Caravan holdingOwner 有意打破原版不变量
+    /// "Spawned ⇒ ParentHolder == null"。原版功能性消费点已由 GetRootMap/GetCaravan patch 兜住
+    /// （MapHeld 走 spawned 优先；Kill/Dialog_MapSearch/UnnaturalCorpse 等逐一核实无破坏面）；
+    /// 第三方直读 <c>ParentHolder is Map</c> 的检查（如 MeleeAnim IsPawnValid）在 Compat 层逐一
+    /// 窄修，勿改 ParentHolder getter——那会拆掉 OAYH 外交识别的根基。
+    ///
     /// 维护：统一 pawn 所在地追踪底座（<see cref="SeamlessPawnLocationTracker"/>，2026-08-29 收拢架构）
     /// 的消费者——事件触发（跨缝传送/组队/进图，即时）+ 60 ticks 轮询兜底（进/离图/死亡自动跟随），
     /// 读档后首轮自动重建——**影子不序列化**（pawn 是图上 pawn，随档

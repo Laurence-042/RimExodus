@@ -89,6 +89,11 @@ namespace RimExodus
             // affected CE hook and is reported without aborting RimExodus startup.
             SeamlessCombatExtendedCompat.Register(harmony);
 
+            // Melee Animation 兼容：影子远行队成员 ParentHolder 是影子 Caravan，被其
+            // IsPawnValid 判无效导致动画启动即销毁；放行"持有者为影子且宿主图 == 动画图"。
+            // 成功标志 = "Melee Animation compat: bound IsPawnValid shadow-caravan allowance"。
+            SeamlessMeleeAnimationCompat.Register(harmony);
+
             // Giddy-Up 2 compatibility: mounted riders and animals are separate spawned pawns. Register a
             // generic transfer-association provider which moves the mount through the normal state-preserving
             // transfer path and asks Giddy-Up to rebuild its own relationship/job after arrival.
