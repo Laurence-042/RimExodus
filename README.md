@@ -1,6 +1,6 @@
 # RimExodus — 无缝世界地块探索
 
-一个 RimWorld 1.6 mod：使相邻世界地块的局部地图在视觉与操作上连续连接，Pawn 可以直接从一张地图走入相邻地图，无需组建远行队。
+一个适配 RimWorld 1.6 与 1.7 预览版的 mod：使相邻世界地块的局部地图在视觉与操作上连续连接，Pawn 可以直接从一张地图走入相邻地图，无需组建远行队。1.7 的兼容性验证仍在进行，详见下文。
 
 核心原则是**所有地图一视同仁**——任务地点、遭遇、派系基地、定居点、营地等一切拥有合法 `MapParent` 的地图都走同一条无缝链。RimExodus 地图本质上就是标准任务地图生成 + 我们的裁切步骤（void + 接缝带 + 传送点），将其包装成可连续通行的地块。
 
@@ -198,7 +198,7 @@
 
 ## 依赖
 
-- RimWorld 1.6
+- RimWorld 1.6 或 1.7 预览版（1.7 兼容性验证仍在进行，见上文）
 - [Harmony](https://github.com/pardeike/HarmonyRimWorld)（[Steam 创意工坊](https://steamcommunity.com/sharedfiles/filedetails/?id=2009463077)）
 
 ## 源码目录结构
