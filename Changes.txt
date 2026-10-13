@@ -15,6 +15,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 
 
 1.0.4
+- 修复：RimWorld 1.7 预览版中，走近邻接地块时地图画面可能在分帧生成期间变黑，生成后邻图地形与水面也可能不显示。现在生成期间原地图持续显示，完成后邻图正常绘制
+  Fixed: in the RimWorld 1.7 preview, the map view could turn black while a nearby tile was being generated over several frames, and its terrain or water might not appear afterward. The current map now remains visible during generation, and the neighboring map draws when ready.
 - 修复：安装 Melee Animation 时，据点里的殖民者无法进行决斗等近战动画——动画刚要开始就失败并报错。现在站在据点里的殖民者照常参与全部近战动画（未安装该 mod 时不受影响）（@momo 报告的问题）
   Fixed: with Melee Animation installed, colonists at a settlement could not perform duels and other melee animations — the animation failed with errors right as it started. Colonists standing in a settlement now participate in all melee animations as normal (no effect when that mod is not installed). (Reported by @momo.)
 - 优化：大量单位同场时（如超大规模袭击、机械族大军混战）游戏速度（TPS）显著提升——此前存在一项随单位数量成倍增长的逐帧开销，在两百名以上单位同场时会拖慢近一半速度，现已消除；无缝跨图体验（跨缝朝向、射击、行军）不受影响（@AnarchE 报告的问题）

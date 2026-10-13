@@ -11,8 +11,8 @@ namespace RimExodus
 {
     /// <summary>
         /// 将当前地图的直接邻居地块作为背景绘制（对称架构）。
-        /// 邻居地形/建筑/光照遮罩/战雾在原版当前地图之前提交，绘制完成后只清除深度，
-        /// 从而让当前地图可靠覆盖重叠带，同时保留当前地图边界外的邻居颜色。
+        /// 邻居地形/建筑/光照遮罩/战雾在原版当前地图之前提交。1.6 命令缓冲
+        /// 在绘制后只清深度，使当前地图覆盖重叠带；1.7 UnityStubs 改用即时提交。
         /// 对称性：聚焦任意图块时，其所有直接邻居（原生 parent 图与地块图）都会被绘制。
         /// 光照天色分层（2026-08）：LightOverlay shader 的天色染色走材质 color alpha、
         /// glow/roof 走顶点色，两通道独立（实验验证）——邻图 overlay 用 (1,1,1,0) 克隆材质
@@ -24,6 +24,13 @@ namespace RimExodus
     {
         private const string CommandBufferName = "RimExodus Seamless Neighbor Terrain";
         private const string WaterDepthCommandBufferName = "RimExodus Seamless Neighbor Water Depth";
+
+        // 1.7 Waylith 的 UnityStubs.CommandBuffer/Camera.AddCommandBuffer 是只告警的桩。
+        // 其 MapDrawLayer 和 Watergen 都经 Graphics.DrawMesh 提交到对应 render layer。
+        private static readonly bool useImmediateRendering =
+            string.Equals(typeof(CommandBuffer).Assembly.GetName().Name, "UnityStubs", StringComparison.Ordinal);
+
+        internal static bool IsWaylithRuntime => useImmediateRendering;
 
         private static readonly Type watergenLayerType = AccessTools.TypeByName("Verse.SectionLayer_Watergen");
         private static readonly int useWaterOffsetId = Shader.PropertyToID("_UseWaterOffset");
@@ -65,6 +72,7 @@ namespace RimExodus
             public Material material;
             public Matrix4x4 matrix;
             public int renderQueue;
+            public int renderLayer;
             public int sequence;
         }
 
@@ -107,6 +115,8 @@ namespace RimExodus
             SeamlessTileGraph.PopulateNeighbors(map, cachedNeighbors);
             if (cachedNeighbors.Count == 0)
             {
+                // 1.7 的 CommandBuffer 清屏也是桩；即时路径没有待清理的相机命令。
+                if (useImmediateRendering) return;
                 // 零邻居（新档首图生成 / 孤岛地块 / 邻居全部卸载 / 读档邻居未再生成）时
                 // 仍要执行全屏清色：void 地形画半透明 ShadowMask 不写不透明色，主相机只清
                 // 深度——不清色的话 void 带保留上一帧像素，平移相机时残影累积成红色拖影。
@@ -120,16 +130,16 @@ namespace RimExodus
                 return;
             }
 
-            EnsureCommandBuffer();
-            commandBuffer.Clear();
-            waterDepthCommandBuffer?.Clear();
+            if (!useImmediateRendering)
+            {
+                EnsureCommandBuffer();
+                commandBuffer.Clear();
+                waterDepthCommandBuffer?.Clear();
+                // 1.6 路径先清色与深度，避免 void 带残留上一帧内容。
+                commandBuffer.ClearRenderTarget(true, true, Color.clear, 1f);
+            }
             drawCommands.Clear();
             nextSequence = 0;
-
-            // 开头清除色缓冲和深度缓冲：邻居 mesh 画在干净背景上，避免移动相机时上一帧残留
-            // 在 void 区域（ShadowMask 半透明不写不透明色）累积成红色残影。
-            // 当前地图随后在 ForwardOpaque 阶段正常覆盖它该出现的像素。
-            commandBuffer.ClearRenderTarget(true, true, Color.clear, 1f);
 
             // 宿主相机视区（cell 坐标，ExpandedBy(1) 镜像原版 MapDrawer.ViewRect，所有邻居共用）。
             // 此处 Find.CurrentMap == map 已由方法开头守卫保证，CurrentViewRect 即宿主视区。
@@ -137,7 +147,11 @@ namespace RimExodus
 
             foreach (var neighbor in cachedNeighbors)
             {
-                CollectNeighborLayers(neighbor.map, neighbor.offset, neighbor.offset.ToVector3(), hostViewRect);
+                // 即时绘制与当前图进入同一个队列；略降邻图高度以缓解深度竞争。
+                // 1.7 透明重叠带已实测，1.6 仍由命令缓冲清深度保证覆盖顺序。
+                var offsetVec = neighbor.offset.ToVector3();
+                if (useImmediateRendering) offsetVec.y -= 0.01f;
+                CollectNeighborLayers(neighbor.map, neighbor.offset, offsetVec, hostViewRect);
                 DrawNeighborPawns(neighbor.map, hostViewRect);
                 DrawNeighborProjectiles(neighbor.map, hostViewRect);
                 DrawNeighborRealtimeThings(neighbor.map, neighbor.offset.ToVector3(), hostViewRect);
@@ -151,13 +165,16 @@ namespace RimExodus
             drawCommands.Sort(CompareDrawCommands);
             foreach (var drawCommand in drawCommands)
             {
-                commandBuffer.DrawMesh(drawCommand.mesh, drawCommand.matrix, drawCommand.material);
+                if (useImmediateRendering)
+                    Graphics.DrawMesh(drawCommand.mesh, drawCommand.matrix, drawCommand.material, drawCommand.renderLayer);
+                else
+                    commandBuffer.DrawMesh(drawCommand.mesh, drawCommand.matrix, drawCommand.material);
             }
 
-            // 保留邻居地图已经写入的颜色，但清除它写入的深度。
-            // 随后进入原版主相机渲染流程的当前地图不会再受邻居地图深度遮挡。
-            // 注意：这使重叠带由"聚焦地图"覆盖（非完全对称）；完全对称留待连续地形阶段的归属裁剪。
-            commandBuffer.ClearRenderTarget(true, false, Color.clear, 1f);
+            // 1.6 命令缓冲保留邻图颜色后清深度，让当前图覆盖重叠带。
+            // 1.7 即时路径没有可用的清深度命令，靠上述小幅高度差处理重叠。
+            if (!useImmediateRendering)
+                commandBuffer.ClearRenderTarget(true, false, Color.clear, 1f);
         }
 
         /// <summary>
@@ -377,7 +394,7 @@ namespace RimExodus
         /// <summary>
         /// 收集邻居地图的地形层（SectionLayer_Terrain）、静态物层（SectionLayer_ThingsGeneral）、
         /// 光照遮罩层（SectionLayer_LightingOverlay）和战雾层（SectionLayer_FogOfWar），
-        /// 用 offset 平移矩阵提交到 CommandBuffer。
+        /// 用 offset 平移矩阵收集；1.6 提交到 CommandBuffer，1.7 即时提交。
         /// 视区裁剪：只提交与当前相机视区相交的 section（镜像 MapDrawer.DrawMapMesh 的做法），
         /// 邻居地图通常只有约一半可见，跳过不可见 section 显著减少 draw call。
         /// </summary>
@@ -540,6 +557,7 @@ namespace RimExodus
                 material = MatBases.LightOverlay,
                 matrix = Matrix4x4.TRS(center, Quaternion.identity, new Vector3(width, 1f, height)),
                 renderQueue = MatBases.LightOverlay.renderQueue,
+                renderLayer = 0,
                 sequence = nextSequence++
             });
         }
@@ -589,6 +607,7 @@ namespace RimExodus
                         material = materialOverride ?? subMesh.material,
                         matrix = matrix,
                         renderQueue = subMesh.material.renderQueue,
+                        renderLayer = subMesh.renderLayer,
                         sequence = nextSequence++
                     });
                 }
@@ -597,12 +616,12 @@ namespace RimExodus
 
         /// <summary>
         /// TerrainWater 的主相机颜色 pass 必须与 WaterDepth 子相机里的同位置 Watergen 几何配对。
-        /// 邻图深度通过子相机 BeforeForwardOpaque buffer 先画，随后原版 CurrentMap Watergen 正常
-        /// opaque 绘制覆盖重叠区；复用原版相机与 RT，不创建每图水体目标。
+        /// 1.6 经子相机 buffer 提交，1.7 经原版 WaterDepth render layer 提交；
+        /// 两路都复用原版相机与 RT，不创建每图水体目标。
         /// </summary>
         private void CollectNeighborWaterDepth(Section section, Matrix4x4 matrix)
         {
-            if (waterDepthCommandBuffer == null || watergenLayerType == null) return;
+            if ((!useImmediateRendering && waterDepthCommandBuffer == null) || watergenLayerType == null) return;
             var layers = layersRef(section);
             if (layers == null) return;
 
@@ -612,8 +631,11 @@ namespace RimExodus
                 foreach (var subMesh in layer.subMeshes)
                 {
                     if (!subMesh.finalized || subMesh.disabled || subMesh.material == null) continue;
-                    waterDepthCommandBuffer.DrawMesh(subMesh.mesh, matrix,
-                        StillWaterDepthMaterial(subMesh.material));
+                    var material = StillWaterDepthMaterial(subMesh.material);
+                    if (useImmediateRendering)
+                        Graphics.DrawMesh(subMesh.mesh, matrix, material, SubcameraDefOf.WaterDepth.LayerId);
+                    else
+                        waterDepthCommandBuffer.DrawMesh(subMesh.mesh, matrix, material);
                 }
             }
         }

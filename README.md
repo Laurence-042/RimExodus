@@ -15,6 +15,8 @@
 
 ## Mod 兼容性
 
+**RimWorld 1.7 预览版（1.7.4976 rev1043，兼容性验证中）**：该运行时的 `CommandBuffer` 绘制和相机挂载接口是空桩，1.6 的邻图背景路径因此不会显示地形与水深。已按运行时选择原版 `Graphics.DrawMesh` 提交路径；玩家实测重叠带、透明层和水面正常。分帧生成期间地图黑屏源于 Waylith 在 `mapBeingGenerated` 非空时暂停地图帧；针对 RimExodus 分帧生成的适配已由玩家实测解决黑屏。整套 1.7 兼容性尚未完成。详细机制见 [无缝世界地块探索](doc/无缝世界地块探索.md)。
+
 ### 已适配（游戏内验证）
 
 | Mod | 状态 |
@@ -213,7 +215,7 @@
 | `Combat/` | 跨图索敌与射击 | `SeamlessCrossMapSight`（分段 LOS）、`SeamlessCombatCoords`（统一坐标与归属路由）、`SeamlessCrossMapCellTarget`（纯格目标的真实地图上下文）、`SeamlessDirectFireSupport`（原版/第三方 projectile 能力入口）、`Patches_CombatTargetSearch`（索敌两层模型跨图化）、`Patches_CombatTargeter`（武器/Ability 邻图点选）、`Patches_CombatTargeting`（TryCastShot 门/ShotReport）、`Patches_Projectile`（含原版迫击炮的弹丸缝交接与连续更新）、`Patches_CombatVisuals`（朝向/瞄准角/连线等视觉修正）、`SeamlessRaidOuterSpawn` + `Patches_RaidOuterSpawn`（袭击外缘生成：步行袭击从外侧接缝进场，敌对步行袭击可在一跳邻图外侧进场并行军跨缝攻来）、`SeamlessRangeCurve` + `Patches_RangeCurveAccuracy`（武器射程映射曲线：远程 verb def 变异唯一入口 + 原版精度锚点距离逆映射）、`RangeCurveEditorDialog`（曲线编辑器：五行锚点编辑/预览/试算） |
 | `EdgeBehavior/` | 地图边缘语义接缝化与预加载 | `SeamlessBorderPreloader`/`SeamlessTilePreloader`（边界带预加载队列）、`Patches_CellFinder`/`Patches_RCellFinder`（边缘出口格接缝池）、`Patches_Reachability`（CanReachMapEdge）、`Patches_RegionMaker`（区域触边判定）、`Patches_ExitMapGrid`（撤离带）、`Patches_PlaySettings`（沉浸模式开关 + 缩放门控） |
 | `Rendering/` | void 渲染与邻居背景 | `SeamlessTileRenderer`（邻图静态/动态层收集）、`SeamlessViewProjection`（地图间坐标换算唯一入口）、`SeamlessCompositeEffectRenderer`（邻图 Fleck/Mote 保持源图归属并在绘制阶段平移）、`Patches_SeamlessSound`（视野内邻图空间 one-shot）、`SeamlessVoidRockLink`（void 边界岩隐形 link 延续体）、`Patch_MapEdgeClipDrawer_DrawClippers` |
-| `Compat/` | 第三方 mod 兼容层（全部软检测，缺 mod 时零开销） | `SeamlessLandformsCompat`（Geological Landforms 分帧路径复刻）、`SeamlessMapPreviewCompat`（预览线程守卫与避让）、`SeamlessPerspectiveShiftCompat`（Perspective Shift 第一人称移动接入）、`SeamlessVehiclesCompat`（Vehicle Framework 载具移动/下令接入无缝世界）、`SeamlessCombatExtendedCompat` + `Compat/CombatExtended/`（CE 共享绑定及按瞄准、炮塔、弹丸拆分的跨图层）、`SeamlessGiddyUpCompat`（Giddy-Up 骑手/坐骑关联随迁与原生重建）、`SeamlessVGECompat`（VGE 世界炮击保留原生出图链）、`SeamlessVEFCompat`（VEF ObjectSpawns 地图物体刷出的可玩区位置过滤）；`Generation/GenerateMapPostfixReplay`（分帧路径通用复放第三方 GenerateMap postfix，VEF 刷出在地块图上生效的机制基础） |
+| `Compat/` | 第三方 mod 与预览运行时兼容层（全部软检测，目标缺失时零开销） | `SeamlessLandformsCompat`（Geological Landforms 分帧路径复刻）、`SeamlessMapPreviewCompat`（预览线程守卫与避让）、`SeamlessPerspectiveShiftCompat`（Perspective Shift 第一人称移动接入）、`SeamlessVehiclesCompat`（Vehicle Framework 载具移动/下令接入无缝世界）、`SeamlessCombatExtendedCompat` + `Compat/CombatExtended/`（CE 共享绑定及按瞄准、炮塔、弹丸拆分的跨图层）、`SeamlessGiddyUpCompat`（Giddy-Up 骑手/坐骑关联随迁与原生重建）、`SeamlessVGECompat`（VGE 世界炮击保留原生出图链）、`SeamlessVEFCompat`（VEF ObjectSpawns 地图物体刷出的可玩区位置过滤）；`Generation/GenerateMapPostfixReplay`（分帧路径通用复放第三方 GenerateMap postfix，VEF 刷出在地块图上生效的机制基础） |
 
 ## 项目文档索引
 

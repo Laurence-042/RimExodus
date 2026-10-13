@@ -46,6 +46,7 @@ namespace RimExodus
             var harmony = new Harmony("RimExodus.SeamlessWorld");
             HarmonyInstance = harmony;
             harmony.PatchAll();
+            SeamlessWaylithMapRenderCompat.Register(harmony);
 
             // GL 白名单注册（2026-08）：无派系的 RimExodus_SeamlessTileMap parent 会被 GL 的
             // CheckWorldObject 当外来 site 过滤掉该 tile 全部 landform（营地图生成时缺失且被
@@ -350,7 +351,7 @@ namespace RimExodus
                     // ===== tab：高级 / 诊断 =====
                     SliderRow(listing, "RimExodus_SettingsNoiseLabel", "RimExodus_SettingsNoiseTip",
                         s.seamOverrideNoiseAmplitude, 0f, 0.5f, v => s.seamOverrideNoiseAmplitude = v, "{0:F2}");
-                    // 分模块诊断日志（2026-09，取代单一 verbose 总开关）：总控 + 9 模块逐项。
+                    // 分模块诊断日志（2026-09，取代单一 verbose 总开关）：总控 + 模块逐项。
                     // 默认全关；开启后对应模块输出详细日志（Warn/Error 与常开心跳不受控）。
                     listing.Gap(6f);
                     listing.Label("RimExodus_SettingsLogModulesLabel".Translate(),
