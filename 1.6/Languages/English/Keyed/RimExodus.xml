@@ -24,7 +24,7 @@
   <RimExodus_SettingsGroupAdvanced>Advanced / diagnostics</RimExodus_SettingsGroupAdvanced>
 
   <RimExodus_SettingsBorderPreloadLabel>Border preload distance: {0} cells</RimExodus_SettingsBorderPreloadLabel>
-  <RimExodus_SettingsBorderPreloadTip>How close a colonist must get to the map edge (in cells) before the neighboring map on the other side starts loading.\n\nHigher values trigger neighboring map loading more readily: loading slows the game down while it runs, and loaded maps keep consuming performance until they are put to sleep or deleted. Default: 15.</RimExodus_SettingsBorderPreloadTip>
+  <RimExodus_SettingsBorderPreloadTip>How many cells inward from the evacuation strip can trigger neighboring map loading. The first row toward the map center counts as 1; the evacuation strip itself is excluded. Set to 0 to disable. Applies to movement destinations, or your current position during first-person movement.\n\nHigher values trigger neighboring map loading more readily: loading slows the game down while it runs, and loaded maps keep consuming performance until they are put to sleep or deleted. Default: 15.</RimExodus_SettingsBorderPreloadTip>
   <RimExodus_SettingsBorderNoBuildLabel>Border no-build distance: {0} cells</RimExodus_SettingsBorderNoBuildLabel>
   <RimExodus_SettingsBorderNoBuildTip>A strip of this width (in cells) along the map edge where you cannot build, keeping the crossing points between neighboring maps clear. Default: 3.</RimExodus_SettingsBorderNoBuildTip>
   <RimExodus_SettingsIncrementalLabel>Gradual map generation (per-frame)</RimExodus_SettingsIncrementalLabel>

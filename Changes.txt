@@ -15,6 +15,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 
 
 1.0.6
+- 修复：邻图预加载距离现在从接缝撤离带朝地图中心的第一圈算起，设为 1 即可触发一圈预加载区域，不再需要先设到 4；设为 0 仍关闭预加载
+  Fixed: neighboring map preload distance now starts at the first row inward from the evacuation strip. A value of 1 enables one row of preloading instead of requiring at least 4; 0 still disables preloading.
 - 修复：在普通无缝地块上探索或停留时，可能一直没有常规袭击和地图事件，放弃原家园后尤其明显；现在有玩家角色在场的活跃地块可正常参与事件调度，休眠图和无人非家园图仍被排除，地块不会因此变成玩家家园
   Fixed: exploring or staying on ordinary seamless tiles could leave you without regular raids and map events, especially after abandoning your original home. Active tiles with player pawns can now receive those events under the normal conditions; dormant maps and empty non-home maps remain excluded, and tiles do not become player homes.
 - 修复：走近地图边界时，部分位置可能被误当成撤离区域，导致邻接地图不生成；同样修复了 Perspective Shift 第一人称步行与驾驶中的这一问题

@@ -12,8 +12,8 @@ namespace RimExodus
     /// 不在表中的格 = 非边界带，不触发预加载。
     /// 查询 O(1)，适合未来高频场景（如撤退袭击者批量检查）。
     ///
-    /// 构建算法：算法 C（凸多边形内缩 + 扫描线差集），见 <see cref="SeamlessPolygonGeometry.ComputeVoidBand"/>。
-    /// 阈值从 <see cref="RimExodusSettings.borderPreloadDistance"/> 读取。
+    /// 预加载带复用 BuildSeamBand 的 TransitionDepth，从接缝带核心侧第一圈算距离 1。
+    /// 阈值从 <see cref="RimExodusSettings.borderPreloadDistance"/> 读取，0 表示关闭。
     /// </summary>
     public class SeamlessBorderLookup : MapComponent
     {
@@ -115,7 +115,7 @@ namespace RimExodus
             if (built && !force) return;
 
             // verbose 计时（2026-08 收尾段用时统计）：本方法在生成完成后的下一 tick 执行，
-            // 两次全图带扫描（ComputeVoidBand）是 FinishGeneration 之后的残余长尾。
+            // 预加载带读取缓存几何，禁建带仍扫描 void 实况。
             var sw = (RimExodusLog.Enabled(RimExodusLogModule.Core))
                 ? System.Diagnostics.Stopwatch.StartNew() : null;
 
@@ -146,16 +146,24 @@ namespace RimExodus
             }
 
             // 构建预加载带（borderCells：格 → 最近边对应的邻居 worldTile）。
-            // 用 ComputeVoidBand（void 边界 + 多轮膨胀）——与 void 铺设/接缝覆写/传送点带同源，
-            // 不会漏掉接缝附近的擦边格（旧的 ComputeEdgeBand 浮点边距离会漏，需传送点格兜底补全，已废弃）。
+            // 从接缝带核心侧起算，不能从 void 起算再排除 Band：后者会吞掉设置值的前三圈。
+            // 直接复用权威几何的深度，避免固定 +3 在斜边/顶角处与真实接缝厚度不一致。
             borderCells = new Dictionary<IntVec3, int>();
             if (preloadBandWidth > 0)
             {
-                SeamlessPolygonGeometry.ComputeVoidBand(map, preloadBandWidth, neighborWorldTiles, borderCells);
+                var seamBand = SeamlessPolygonGeometry.BuildSeamBand(worldTile, map.Size.x);
+                foreach (var entry in seamBand.TransitionDepth)
+                {
+                    if (entry.Value < 1 || entry.Value > preloadBandWidth) continue;
+                    var cell = entry.Key;
+                    var edgeIndex = SeamlessPolygonGeometry.FindClosestEdgeIndex(verts, cell.x + 0.5f, cell.z + 0.5f);
+                    if (edgeIndex >= 0 && edgeIndex < neighborWorldTiles.Count)
+                        borderCells[cell] = neighborWorldTiles[edgeIndex];
+                }
             }
 
             // 构建不可建造带（noBuildBandCells：只需格集合，不需 worldTile 值）。
-            // 同预加载带，用 ComputeVoidBand（void 边界同源）。语义上多覆盖一圈擦边格，禁建更安全。
+            // 仍用 ComputeVoidBand（void 边界同源），不随预加载距离的起算点调整。
             noBuildBandCells = new HashSet<IntVec3>();
             if (noBuildBandWidth > 0)
             {

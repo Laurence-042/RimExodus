@@ -15,7 +15,7 @@ namespace RimExodus
     /// 所有方法统一遍历 N 个顶点（N=5 或 6），不区分五边形/六边形。
     ///
     /// 提供多边形顶点构造、点在多边形内判定、
-    /// 距 void 边界环形带（ComputeVoidBand，传送点/混合带/边界带共用）等能力，
+    /// 接缝带及核心侧深度（BuildSeamBand）、距 void 边界环形带（ComputeVoidBand）等能力，
     /// 供 GenStep 铺虚空、ComputeNeighborOffset 算偏移、PlaceEnterSpotsAllNeighbors 放传送点、
     /// Registry 归属判定复用。
     /// </summary>
@@ -415,10 +415,9 @@ namespace RimExodus
         /// **算法（多轮膨胀）**：以 void 格为种子，每轮把已标记层的 8-邻格（含自身，切比雪夫距离）并入，
         /// 共 <paramref name="bandWidth"/> 轮。等价于"void 向外膨胀 bandWidth 格"。复杂度 O(N²·bandWidth)。
         ///
-        /// **消费方（3 圈接缝带重构后）**：仅剩 <see cref="SeamlessBorderLookup"/> 的预加载带
-        /// （borderPreloadDistance，默认 15）与禁建带（borderNoBuildDistance，默认 3）——两者读
-        /// terrainGrid void 实况即可，自动适应新 void 形状（void 边界退到接缝带外）。传送点带
-        /// 已改用 <see cref="BuildSeamBand"/> 传送圈（纯几何），SeamOverride 也以此判定实时/基础参考域。
+        /// **消费方**：禁建带（borderNoBuildDistance，默认 3）与降频接缝快速区读取
+        /// terrainGrid void 实况。预加载带改用 <see cref="BuildSeamBand"/> 的 TransitionDepth，
+        /// 从接缝带核心侧起算；传送点与 SeamOverride 同样复用该几何信息。
         ///
         /// **调用时机**：必须在 void 铺设（ApplyPolygonTerrain）之后调用——本方法直接读 terrainGrid 判定 void。
         /// </summary>
