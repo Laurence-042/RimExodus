@@ -14,6 +14,12 @@ If what you’re really asking is whether I’ll make more RimWorld mods in the 
 well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, I need to refocus on my own game development first. Even if it does get finished, it'll likely flop hard, and I'll just go back to being a corporate drone. Everyone knows how that life goes.
 
 
+1.0.6
+- 修复：走近地图边界时，部分位置可能被误当成撤离区域，导致邻接地图不生成；同样修复了 Perspective Shift 第一人称步行与驾驶中的这一问题
+  Fixed: some positions near a map border could be mistaken for the evacuation area, preventing a neighboring map from generating; this also fixes the same issue while walking or driving in first person with Perspective Shift.
+- 修复：修改邻图预加载距离后，已有地图会在下次触发检测时使用新距离，无需重新读档
+  Fixed: after changing the neighbor preload distance, existing maps use the new distance on the next preload check without requiring a reload.
+
 1.0.5
 - 1.7 预览版适配：走近邻接地块时，地图画面可能在分帧生成期间变黑，生成后邻图地形与水面也可能不显示。现在生成期间原地图持续显示，完成后邻图正常绘制
   RimWorld 1.7 preview compatibility: the map view could turn black while a nearby tile was being generated over several frames, and its terrain or water might not appear afterward. The current map now remains visible during generation, and the neighboring map draws when ready.

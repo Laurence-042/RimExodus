@@ -6,7 +6,7 @@ namespace RimExodus
 {
     /// <summary>
     /// 边界带速查表（阶段4a：邻居预加载）。
-    /// 每张无缝地图持有一份，构建一次后只读查询（地图生成时多边形固定，邻居表不变）。
+    /// 每张无缝地图持有一份；预加载距离改变后，在下次预加载查询前按新距离重建。
     ///
     /// 存储：Dictionary&lt;IntVec3,int&gt;（边界带格 → 该格最近边对应的世界邻居 tile id）。
     /// 不在表中的格 = 非边界带，不触发预加载。
@@ -35,6 +35,9 @@ namespace RimExodus
         public bool IsBuilt => built;
 
         private bool built;
+
+        /// <summary>当前预加载表使用的距离；与表一起仅驻内存，不序列化。</summary>
+        private int builtPreloadBandWidth = -1;
 
         public SeamlessBorderLookup(Map map) : base(map)
         {
@@ -82,6 +85,12 @@ namespace RimExodus
         public bool TryGetPreloadTarget(IntVec3 cell, out int worldTile)
         {
             worldTile = -1;
+            // 按需刷新：暂停时下令、休眠后唤醒及 PS 移动均使用当前距离；拖滑条不逐帧重扫地图。
+            // 首次构建仍由原有首 tick 路径负责，避免在生成尚未铺 void 时提前构建。
+            if (built && builtPreloadBandWidth != (RimExodusMod.Settings?.borderPreloadDistance ?? 15))
+            {
+                BuildBorderLookup(force: true);
+            }
             if (borderCells == null || borderCells.Count == 0) return false;
             return borderCells.TryGetValue(cell, out worldTile) && worldTile >= 0;
         }
@@ -131,6 +140,7 @@ namespace RimExodus
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, map.Size.x);
             if (verts.Count < 3)
             {
+                builtPreloadBandWidth = preloadBandWidth;
                 built = true;
                 return;
             }
@@ -157,6 +167,7 @@ namespace RimExodus
                 }
             }
 
+            builtPreloadBandWidth = preloadBandWidth;
             built = true;
 
             if (RimExodusLog.Enabled(RimExodusLogModule.Core))

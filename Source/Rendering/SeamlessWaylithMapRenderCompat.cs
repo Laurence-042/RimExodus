@@ -8,13 +8,9 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// 只适用于 1.7 Waylith：其 MapRenderFeature.CaptureFrame 要求
-    /// MapGenerator.mapBeingGenerated == null 才生成地图帧。RimExodus 分帧生成邻图时，
-    /// genStep 跨帧依赖此 static，当前已完成的地图却被 Waylith 一并停绘，表现为地图黑屏而 UI 正常。
-    /// 这里只替换渲染门槛的那一次字段读取；生成中的图不是 CurrentMap 且确由我方增量生成器
-    /// 管理时才向门槛返回 null，不改共享 static，也不放行其他生成状态。
-    /// 1.6 使用 Unity 相机/CommandBuffer 渲染链，没有 MapRenderFeature 及该门槛；
-    /// 将补丁并入 1.6 路径既无目标方法，也会误改已经正常工作的绘制链。注册时必须按运行时隔离。
+    /// 1.7 MapRenderFeature.CaptureFrame 的场景门槛要求 mapBeingGenerated == null。
+    /// RimExodus 分帧路径必须跨帧保留此 static 给 genStep 使用，但绘制的是另一张已完成的
+    /// CurrentMap。只在该门槛处把我方后台生成视为“不阻止当前地图绘制”；不改 static 本身。
     /// </summary>
     internal static class SeamlessWaylithMapRenderCompat
     {

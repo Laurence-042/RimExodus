@@ -264,13 +264,17 @@ namespace RimExodus
         /// <summary>avatar 换格进边界带（且非接缝带/传送点格 = 撤离口径排除）→ 预加载/唤醒对端。</summary>
         private static void TryPreloadAt(Pawn pawn, Map map, IntVec3 cell)
         {
+            var sourceWorldTile = SeamlessTileRegistry.GetMapWorldTile(map);
+            if (sourceWorldTile < 0) return;
+
             var lookup = map.GetComponent<SeamlessBorderLookup>();
             if (lookup == null) return;
             if (!lookup.TryGetPreloadTarget(cell, out int worldTile) || worldTile < 0) return;
 
             // 接缝带格排除与 CheckPawnGoto 同口径：带内 = 撤离意图。对 avatar 而言意义是
             // "已到缝边，预加载来不及/无意义"——传送由 ② 即席处理，对端未就绪则被 void 挡住无事。
-            if (SeamlessPolygonGeometry.BuildSeamBand(worldTile, map.Size.x)?.Band.Contains(cell) == true
+            // cell 属于本图；worldTile 是待加载邻居，接缝排除必须使用本图几何。
+            if (SeamlessPolygonGeometry.BuildSeamBand(sourceWorldTile, map.Size.x)?.Band.Contains(cell) == true
                 || SeamlessEdgeCells.IsSeamEdgeCell(map, cell))
                 return;
 

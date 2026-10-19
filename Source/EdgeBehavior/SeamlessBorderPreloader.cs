@@ -23,6 +23,8 @@ namespace RimExodus
             if (pawn == null) return;
             var map = pawn.Map;
             if (map == null) return;
+            var sourceWorldTile = SeamlessTileRegistry.GetMapWorldTile(map);
+            if (sourceWorldTile < 0) return;
 
             var lookup = map.GetComponent<SeamlessBorderLookup>();
             if (lookup == null)
@@ -45,7 +47,8 @@ namespace RimExodus
             // 传送点格（Patches_ExitMapGrid），玩家征召 goto 到带内任意格 → 到站原生离场组队，
             // 永远不会踏进对端地图——排除集必须与 exit 标记集同口径，否则 goto 带内圈非传送点格
             // 会白预加载一张永远不会被进入的对侧图（BuildSeamBand 进程缓存，Contains O(1)）。
-            if (SeamlessPolygonGeometry.BuildSeamBand(worldTile, map.Size.x)?.Band.Contains(targetCell) == true
+            // targetCell 属于本图；上面查出的 worldTile 是待加载邻居，不能用其几何判断本图撤离带。
+            if (SeamlessPolygonGeometry.BuildSeamBand(sourceWorldTile, map.Size.x)?.Band.Contains(targetCell) == true
                 || SeamlessEdgeCells.IsSeamEdgeCell(map, targetCell))
             {
                 if (RimExodusLog.Enabled(RimExodusLogModule.Transfer)) Log.Message($"[RimExodus] CheckPawnGoto: pawn {pawn.LabelShort} target {targetCell} is in the seam band (exit intent), skip preload.");

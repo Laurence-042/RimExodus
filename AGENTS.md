@@ -41,11 +41,11 @@
 
 ## 3. 外部源码与兼容性参考
 
-涉及 RimWorld 或外部 Mod 内部行为时，只能以 `references/` 中已有源码/反编译内容为施工依据。若缺少目标版本/Mod 的可靠参考，先明确告知用户，不要自行扫描 SteamLibrary、下载或反编译其他内容；也不要用反射枚举程序集签名来替代反编译参考。
+涉及 RimWorld 或外部 Mod 内部行为时，只能以统一参考目录 `C:\Users\Laure\Documents\workspace\rimworld\_refernces` 中已有源码/反编译内容为施工依据。若缺少目标版本/Mod 的可靠参考，先明确告知用户，不要自行扫描 SteamLibrary、下载或反编译其他内容；也不要用反射枚举程序集签名来替代反编译参考。
 
-RimWorld 核心反编译位于 `D:\SteamLibrary\steamapps\common\RimWorld\Mods\RimExodus_Delta-V\references\RimWorldDecompiled\`（1.6.9438，本仓库施工依据；签名/行为核对直接读它）。
+RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_refernces\RimWorldDecompiled\`；使用前核对其中的游戏版本，签名和行为直接查该目录。
 
-建议在进行底层机制调整时，提醒用户确保 `references/` 包含 RimWorld、MapPreview、Geological Landforms、Vehicle Framework、Vehicle Map Framework、Perspective Shift、Giddy-Up、Vanilla Expanded 系列等调查材料；实际使用前先核对目录和版本。兼容性对外结论以 `README.md` 为准。
+建议在进行底层机制调整时，确认统一参考目录 `C:\Users\Laure\Documents\workspace\rimworld\_refernces` 包含所需的 RimWorld、MapPreview、Geological Landforms、Vehicle Framework、Vehicle Map Framework、Perspective Shift、Giddy-Up、Vanilla Expanded 系列等调查材料；实际使用前先核对目录和版本。兼容性对外结论以 `README.md` 为准。
 
 ## 4. 总体架构：表面地图对等
 
@@ -156,8 +156,8 @@ RimWorld 核心反编译位于 `D:\SteamLibrary\steamapps\common\RimWorld\Mods\R
 - 邻图动态物单独绘制 Pawn、Projectile、RealtimeOnly Thing 和 Mote。Mote 保持源图归属与生命周期，仅在最终 `Mote.DrawMote` 出口通过 `SeamlessCompositeDrawContext` 平移。
 - 当前不重复运行邻图整套 FleckManager；这样避免水波/水花使用 CurrentMap 水深而错层，也避免额外每帧成本。切到该图后 Fleck 恢复原版绘制。
 - 邻图 section 只在进入视区且 dirty 时调用原版 `Section.TryUpdate(neighborView)`；不得恢复“任意脏就全图全层 RegenerateAllLayers 并清标记”。视区外 dirtyFlags 必须保留。
-- 即使没有邻居，void 渲染分支也要清色并清 CommandBuffer，防止上一帧残影。
-- 地图删除和换图时，terrain 与 water 两组 CommandBuffer 必须同步 clear/release。
+- 1.7 Waylith 的 `UnityStubs.CommandBuffer` 与 `Camera.AddCommandBuffer` 是只告警的桩；仅在该运行时用原版 `Graphics.DrawMesh` 分别向主图层和 WaterDepth 图层提交邻图网格。1.6 保持命令缓冲路径；不能把水深网格送到主图层。
+- 1.6 命令缓冲路径即使没有邻居也要清色并清 CommandBuffer，防止上一帧残影；地图删除和换图时 terrain 与 water 两组 CommandBuffer 同步 clear/release。1.7 即时路径不创建这两组缓冲。
 
 ## 12. 兼容层通用纪律
 
