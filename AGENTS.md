@@ -106,7 +106,7 @@ RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_ref
 - 距离源是所有玩家阵营 pawn 所在图与玩家远行队所在 tile 的并集；空源时本轮不睡不删。距离每轮用世界网格 BFS 现算，不维护会过期的距离图。
 - `dormancySleepHops` 的 UI 与运行时下限都是 2；删除距离运行时至少等于休眠距离。保活条件集中在 governor：CurrentMap、含玩家 pawn、`IsProtectedHome`、已追踪活跃威胁。
 - pawn 位置变动事件只调用 `SeamlessPawnLocationTracker.NotifyChanged()` 置脏；影子远行队维护和休眠 Sweep 在下一 `GameComponentTick` 的固定顺序执行。不要在 Thing tick 回调中直接睡图、删图或拆影子。
-- 活跃威胁判定集中在 `SeamlessMapGovernance.HasActiveThreat`；发现走休眠 Sweep，清零走独立高频复查。二者节奏不同，不要合并。休眠图不因威胁自动唤醒。
+- 活跃威胁判定集中在 `SeamlessMapGovernance.HasActiveThreat`；不要把设置混入威胁事实谓词。敌人保活名单只代表当前生效的保护：默认开启的 `threatKeepaliveEnabled` 在 tick 安全点同步，变更先清名单并重跑距离 Sweep，仅发现入口按开关登记；轮询、保活与原因文案直接消费名单，不重复门控。告警快照单独实时读开关，保证暂停时关闭也隐藏，但不修改运行时名单。UI 不直接睡图/改 tick 表。发现走休眠 Sweep，清零走独立高频复查，二者不要合并。休眠图不因威胁或重新开启保护而自动唤醒。
 - 降频是活跃与休眠之间的中间态。0% 时快速区外 Thing 从 tick 表摘除；恢复必须先 `RemoveAllFromMap` 再统一注册，避免 `TickList.RegisterThing` 双注册。Sleep 调 Unthrottle 时使用 `restoreTicks:false`。接缝快速区内 Thing 在 0% 仍全速。
 - 殖民者栏过滤后必须同时重建 `cachedDrawLocs`、`cachedReorderableGroups` 和 `cachedScale`；反射 FieldInfo 静态缓存，不在每次 recache 重取。
 - 原生 `ShouldRemoveMapNow` 家族由 governor 接管删除时机，但删除语义仍调用原版偏好决定是否同时移除 WorldObject。主动 WorldObject 销毁不属于这条被动接管路径。

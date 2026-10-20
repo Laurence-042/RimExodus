@@ -130,6 +130,9 @@ namespace RimExodus
         /// </summary>
         public int dormancySweepIntervalTicks = 600;
 
+        /// <summary>活跃敌人使地图豁免降频、休眠与滚动删除；默认开启，旧设置缺键保持原行为。</summary>
+        public bool threatKeepaliveEnabled = true;
+
         /// <summary>
         /// 威胁保活轮询间隔（ticks，2026-09 威胁保活）：governor 对"因活跃敌人而保活"的追踪名单
         /// 复查敌人是否清零的间隔，独立于扫描间隔（敌人清零后多久回落降频）。默认 120 ticks
@@ -322,6 +325,7 @@ namespace RimExodus
             Scribe_Values.Look(ref dormancySleepHops, "dormancySleepHops", 2);
             Scribe_Values.Look(ref dormancyDeleteHops, "dormancyDeleteHops", 3);
             Scribe_Values.Look(ref dormancySweepIntervalTicks, "dormancySweepIntervalTicks", 600);
+            Scribe_Values.Look(ref threatKeepaliveEnabled, "threatKeepaliveEnabled", true);
             Scribe_Values.Look(ref threatKeepalivePollIntervalTicks, "threatKeepalivePollIntervalTicks", 120);
             Scribe_Values.Look(ref dormancyThrottlePercent, "dormancyThrottlePercent", 50);
             Scribe_Values.Look(ref throttleSeamFastRadius, "throttleSeamFastRadius", 15);

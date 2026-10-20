@@ -52,23 +52,32 @@ namespace RimExodus
         private const int MinThreatPollIntervalTicks = 60;
 
         /// <summary>
-        /// 活跃威胁保活追踪名单（2026-09，实例字段不序列化——随 Game 重建天然换档干净，读档后
-        /// 首轮 Sweep 重新发现注册）。Sweep 对非休眠图跑 <see cref="SeamlessMapGovernance.HasActiveThreat"/>
+        /// 当前生效的敌人保活名单，不保存独立的敌情历史。实例字段不序列化，读档后首轮 Sweep 重建。
+        /// 开关变化先在 tick 安全点清空名单；只有开启时的发现入口允许登记。因此轮询、保活和
+        /// 原因文案只消费名单，无需再次检查设置。Sweep 对非休眠图跑 <see cref="SeamlessMapGovernance.HasActiveThreat"/>
         /// 发现敌人 → 注册 + Unthrottle（豁免降频/休眠/删除 = 保活第四条）；独立轮询段按
         /// <c>threatKeepalivePollIntervalTicks</c> 复查，敌人清零/图休眠/销毁 → 注销，回落交给
         /// 下轮 Sweep 按距离收敛（0% 图重新摘表走既有幂等路径）。**休眠图刻意不注册**（休眠冻结
         /// 防级联语义保留——袭击打不进休眠图，唯一残留 = 玩家撤离留追兵后图休眠，冻着属预期）。
-        /// 消费方 = 保活分支 + 告警（Alert_ThreatKeepalive 读快照）。
+        /// 告警读取展示快照；暂停期间尚未经过 tick 同步时，由快照单独屏蔽已关闭的保护。
         /// </summary>
         private readonly HashSet<Map> threatKeepaliveMaps = new HashSet<Map>();
 
         /// <summary>下次威胁轮询的 game tick（名单空时不动，零常驻成本）。</summary>
         private int nextThreatPollTick;
 
+        private static bool ThreatKeepaliveEnabled => RimExodusMod.Settings?.threatKeepaliveEnabled ?? true;
+
+        // 与追踪名单一样仅驻内存；开关变更在 GameComponentTick 的安全时点收敛。
+        private bool lastThreatKeepaliveEnabled = true;
+
         /// <summary>追踪名单只读快照（告警 <see cref="Alert_ThreatKeepalive"/> 消费；拷贝防遍历中变异）。</summary>
         public List<Map> ThreatKeepaliveSnapshot()
         {
             var list = new List<Map>(threatKeepaliveMaps.Count);
+            // 仅展示层实时读设置：暂停时名单尚未在 tick 安全点清空，告警也应立即隐藏。
+            // 不在此修改名单或调度地图；生命周期消费者仍以 tick 同步后的名单为准。
+            if (!ThreatKeepaliveEnabled) return list;
             foreach (var m in threatKeepaliveMaps)
             {
                 if (m != null && !m.Disposed) list.Add(m);
@@ -191,6 +200,18 @@ namespace RimExodus
             // ① 影子远行队（事件即时 或 自持 60t 轮询兜底）：据点图名单同步 + 轮询清扫注入副作用。
             SeamlessShadowCaravan.Maintain(locationsDirty);
 
+            // 名单不变量的同步点，必须先于 Sweep 和轮询：关闭后名单为空，发现入口也不再登记。
+            // 不能在设置 UI 回调中睡图/摘 tick 表。开关变化在此清掉旧保活并触发同 tick Sweep；
+            // 重新开启只发现仍活跃的地图，不因敌人自动唤醒休眠图。
+            var threatKeepaliveEnabled = ThreatKeepaliveEnabled;
+            if (lastThreatKeepaliveEnabled != threatKeepaliveEnabled)
+            {
+                lastThreatKeepaliveEnabled = threatKeepaliveEnabled;
+                threatKeepaliveMaps.Clear();
+                nextThreatPollTick = 0;
+                nextSweepTick = 0;
+            }
+
             // ② 休眠距离扫描（事件即时 或 自持间隔轮询兜底，原 RequestSweepSoon 语义并入本段）。
             // **固定排在影子之后**：Sweep 的睡/删决策必须看到影子同步后的名单与清扫后的 spawnedThings
             //（删除路径另经 Forget → 底座 NotifyMapRemoving 的删前清扫双保险）。
@@ -252,6 +273,7 @@ namespace RimExodus
 
             var settings = RimExodusMod.Settings;
             var enabled = settings?.dormancyEnabled ?? true;
+            var threatKeepaliveEnabled = ThreatKeepaliveEnabled;
             // sleepHops 下限 2（2026-08-29 收回：1 会导致刚生成的邻接地图立刻被休眠甚至删除——
             // 邻图预加载生成时玩家就在旁边，距离 1 恒达；放宽到 1 系 2026-08 误判，UI 同步 2-8）。
             // deleteHops 允许与 sleepHops 相等（同一轮即删，无需先休眠一段时间）；语义 =
@@ -331,7 +353,7 @@ namespace RimExodus
                 // 休眠图刻意不注册（休眠冻结防级联语义保留，见 threatKeepaliveMaps 注释）。
                 // 发现延迟 ≤ 一个 Sweep 周期——顺带自愈"袭击 incident 选中降频图、敌人冻在 0%
                 // 生成点"的既有半 bug。
-                if (!SeamlessDormancyManager.IsDormant(m) && !threatKeepaliveMaps.Contains(m)
+                if (threatKeepaliveEnabled && !SeamlessDormancyManager.IsDormant(m) && !threatKeepaliveMaps.Contains(m)
                     && SeamlessMapGovernance.HasActiveThreat(m))
                 {
                     threatKeepaliveMaps.Add(m);

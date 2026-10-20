@@ -15,6 +15,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 
 
 1.0.7
+- 新增：可在地图滚动休眠设置中关闭“有活跃敌人的地图保持全速”，让这些地图按正常规则降频、休眠或随距离删除；默认开启，相关告警提示了设置入口，设置说明列出敌人冻结、低频行为和其他 Mod 可能出现异常的风险
+  Added: an option under map rolling dormancy to turn off "Keep maps with active enemies at full speed", allowing those maps to follow normal throttling, dormancy and distance-based deletion rules. It is enabled by default; the related alert points to the setting, whose tooltip explains enemy freezing, low tick-rate behavior and possible issues with other mods.
 - 修复：关闭接缝显示与撤离后，直接下令走到接缝带也能触发邻接地图加载；Perspective Shift 第一人称步行与驾驶同样生效。重新开启撤离后，接缝带恢复为撤离区域，不触发预加载；预加载距离为 0 时两种模式均不触发
   Fixed: with seam display and evacuation turned off, ordering a pawn directly onto the seam strip can now load the neighboring map. This also works while walking or driving in first person with Perspective Shift. Turning evacuation back on excludes the strip from preloading again; a preload distance of 0 disables preloading in either mode.
 
