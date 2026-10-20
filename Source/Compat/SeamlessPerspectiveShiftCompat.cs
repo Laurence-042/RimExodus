@@ -261,7 +261,7 @@ namespace RimExodus
             }
         }
 
-        /// <summary>avatar 换格进边界带（且非接缝带/传送点格 = 撤离口径排除）→ 预加载/唤醒对端。</summary>
+        /// <summary>avatar 换格进入可预加载区域 → 预加载/唤醒对端；与普通移动共用距离及撤离开关规则。</summary>
         private static void TryPreloadAt(Pawn pawn, Map map, IntVec3 cell)
         {
             var sourceWorldTile = SeamlessTileRegistry.GetMapWorldTile(map);
@@ -271,12 +271,7 @@ namespace RimExodus
             if (lookup == null) return;
             if (!lookup.TryGetPreloadTarget(cell, out int worldTile) || worldTile < 0) return;
 
-            // 接缝带格排除与 CheckPawnGoto 同口径：带内 = 撤离意图。对 avatar 而言意义是
-            // "已到缝边，预加载来不及/无意义"——传送由 ② 即席处理，对端未就绪则被 void 挡住无事。
-            // cell 属于本图；worldTile 是待加载邻居，接缝排除必须使用本图几何。
-            if (SeamlessPolygonGeometry.BuildSeamBand(sourceWorldTile, map.Size.x)?.Band.Contains(cell) == true
-                || SeamlessEdgeCells.IsSeamEdgeCell(map, cell))
-                return;
+            // lookup 在撤离关闭时允许接缝带触发，距离 0 时仍完全关闭预加载。
 
             if (SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, worldTile, out _)) return; // 已加载。
 

@@ -24,7 +24,7 @@
   <RimExodus_SettingsGroupAdvanced>高级 / 诊断</RimExodus_SettingsGroupAdvanced>
 
   <RimExodus_SettingsBorderPreloadLabel>边界预加载距离：{0} 格</RimExodus_SettingsBorderPreloadLabel>
-  <RimExodus_SettingsBorderPreloadTip>从接缝撤离带朝地图中心多少格以内可触发邻接地图加载。紧邻接缝带的第一圈算 1，接缝带本身不计入，也不触发预加载；设为 0 关闭。普通移动按指令目标格判断，第一人称移动按当前位置判断。\n\n数值越大越容易触发邻接地图加载：加载过程中会拖慢 TPS，加载完成后也会持续占用性能，直到该图被休眠或删除。默认值：15。</RimExodus_SettingsBorderPreloadTip>
+  <RimExodus_SettingsBorderPreloadTip>从接缝撤离带朝地图中心多少格以内可触发邻接地图加载。紧邻接缝带的第一圈算 1，接缝带本身不占用距离圈数：开启接缝撤离时不触发，关闭时也可触发预加载。设为 0 在两种模式下均关闭预加载。普通移动按指令目标格判断，第一人称步行与驾驶按当前位置判断。\n\n数值越大越容易触发邻接地图加载：加载过程中会拖慢 TPS，加载完成后也会持续占用性能，直到该图被休眠或删除。默认值：15。</RimExodus_SettingsBorderPreloadTip>
   <RimExodus_SettingsBorderNoBuildLabel>边界禁建距离：{0} 格</RimExodus_SettingsBorderNoBuildLabel>
   <RimExodus_SettingsBorderNoBuildTip>沿地图边缘的一条禁区宽度（格）：此范围内不能建造，以保持相邻地图之间穿越点的畅通。默认值：3。</RimExodus_SettingsBorderNoBuildTip>
   <RimExodus_SettingsIncrementalLabel>分帧渐进生成地图</RimExodus_SettingsIncrementalLabel>

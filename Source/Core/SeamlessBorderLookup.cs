@@ -9,7 +9,7 @@ namespace RimExodus
     /// 每张无缝地图持有一份；预加载距离改变后，在下次预加载查询前按新距离重建。
     ///
     /// 存储：Dictionary&lt;IntVec3,int&gt;（边界带格 → 该格最近边对应的世界邻居 tile id）。
-    /// 不在表中的格 = 非边界带，不触发预加载。
+    /// 表含核心侧预加载带与接缝带；查询时按撤离开关决定是否允许接缝带触发。
     /// 查询 O(1)，适合未来高频场景（如撤退袭击者批量检查）。
     ///
     /// 预加载带复用 BuildSeamBand 的 TransitionDepth，从接缝带核心侧第一圈算距离 1。
@@ -81,7 +81,7 @@ namespace RimExodus
             }
         }
 
-        /// <summary>查询某格是否在边界带内，若是返回应预加载的邻居 worldTile。</summary>
+        /// <summary>普通移动与 PS 共用的预加载资格查询；撤离开启时排除接缝带，距离 0 全部关闭。</summary>
         public bool TryGetPreloadTarget(IntVec3 cell, out int worldTile)
         {
             worldTile = -1;
@@ -92,7 +92,20 @@ namespace RimExodus
                 BuildBorderLookup(force: true);
             }
             if (borderCells == null || borderCells.Count == 0) return false;
-            return borderCells.TryGetValue(cell, out worldTile) && worldTile >= 0;
+            if (!borderCells.TryGetValue(cell, out worldTile) || worldTile < 0) return false;
+
+            // 开关实时读取，不参与建表：暂停时切换也立即生效，无需重新扫描地图。
+            // 本图接缝带（含传送点兜底）只在允许撤离时表示离场意图；沉浸模式下允许预加载。
+            // worldTile 是待加载邻居，几何必须使用本图的 tile。
+            if (SeamExitBandGating.Enabled
+                && (SeamlessPolygonGeometry.BuildSeamBand(SeamlessTileRegistry.GetMapWorldTile(map), map.Size.x)
+                        .Band.Contains(cell)
+                    || SeamlessEdgeCells.IsSeamEdgeCell(map, cell)))
+            {
+                worldTile = -1;
+                return false;
+            }
+            return true;
         }
 
         /// <summary>
@@ -152,10 +165,16 @@ namespace RimExodus
             if (preloadBandWidth > 0)
             {
                 var seamBand = SeamlessPolygonGeometry.BuildSeamBand(worldTile, map.Size.x);
+                // Band 不占用设置的 N 圈；距离 >0 时预存映射，查询时再按撤离开关放行。
+                foreach (var cell in seamBand.Band) AddPreloadCell(cell);
                 foreach (var entry in seamBand.TransitionDepth)
                 {
                     if (entry.Value < 1 || entry.Value > preloadBandWidth) continue;
-                    var cell = entry.Key;
+                    AddPreloadCell(entry.Key);
+                }
+
+                void AddPreloadCell(IntVec3 cell)
+                {
                     var edgeIndex = SeamlessPolygonGeometry.FindClosestEdgeIndex(verts, cell.x + 0.5f, cell.z + 0.5f);
                     if (edgeIndex >= 0 && edgeIndex < neighborWorldTiles.Count)
                         borderCells[cell] = neighborWorldTiles[edgeIndex];

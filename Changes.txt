@@ -14,6 +14,10 @@ If what you’re really asking is whether I’ll make more RimWorld mods in the 
 well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, I need to refocus on my own game development first. Even if it does get finished, it'll likely flop hard, and I'll just go back to being a corporate drone. Everyone knows how that life goes.
 
 
+1.0.7
+- 修复：关闭接缝显示与撤离后，直接下令走到接缝带也能触发邻接地图加载；Perspective Shift 第一人称步行与驾驶同样生效。重新开启撤离后，接缝带恢复为撤离区域，不触发预加载；预加载距离为 0 时两种模式均不触发
+  Fixed: with seam display and evacuation turned off, ordering a pawn directly onto the seam strip can now load the neighboring map. This also works while walking or driving in first person with Perspective Shift. Turning evacuation back on excludes the strip from preloading again; a preload distance of 0 disables preloading in either mode.
+
 1.0.6
 - 修复：邻图预加载距离现在从接缝撤离带朝地图中心的第一圈算起，设为 1 即可触发一圈预加载区域，不再需要先设到 4；设为 0 仍关闭预加载
   Fixed: neighboring map preload distance now starts at the first row inward from the evacuation strip. A value of 1 enables one row of preloading instead of requiring at least 4; 0 still disables preloading.
