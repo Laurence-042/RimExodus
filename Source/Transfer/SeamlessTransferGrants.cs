@@ -196,7 +196,9 @@ namespace RimExodus
                     // think tree 对无 lord 敌对 pawn 的 JobGiver_ExitMap 分支会直接给离场 job（即 Pursue
                     // 分支修过的"传送后消失"）。玩家方桥接者（殖民者/机械族/殖民地动物）不属 NPC 战斗体，
                     // 直接续程。非敌对 NPC 战斗体（盟友推进兵等）给游荡宽限，与 Pursue 分支口径一致。
-                    if (grant.PrevLordJob == null || !TryContinueLordOnArrival(pawn, arrivalMap, grant.PrevLordJob))
+                    var continuedLord = grant.PrevLordJob != null
+                        && TryContinueLordOnArrival(pawn, arrivalMap, grant.PrevLordJob);
+                    if (!continuedLord)
                     {
                         if (SeamlessBoundaryRules.IsNpcCombatant(pawn) && !TryAttachAssaultLord(pawn, arrivalMap))
                         {
@@ -207,6 +209,11 @@ namespace RimExodus
                             };
                         }
                     }
+                    // The seam spot is only a marching target. On the attacked map the
+                    // rebuilt sapper/breacher lord must choose its own duty immediately.
+                    if (continuedLord && grant.PrevLordJob is LordJob_SeamlessRaidMarch raidMarch
+                        && SeamlessTileRegistry.GetMapWorldTile(arrivalMap) == raidMarch.TargetWorldTile)
+                        break;
                     ContinueBridgeMove(pawn, arrivalMap, grant);
                     break;
                 case GrantKind.Evacuation:
@@ -224,6 +231,8 @@ namespace RimExodus
                     // 误转撤离链赶出地图（2026-09 修复）。目标不在本图/已失效才走游荡兜底。
                     if (grant.Kind == GrantKind.Follow && grant.FollowTarget != null
                         && !grant.FollowTarget.Destroyed && grant.FollowTarget.Map == arrivalMap) break;
+                    if (grant.Kind == GrantKind.Pursue && grant.PrevLordJob is LordJob_SeamlessRaidMarch
+                        && TryContinueLordOnArrival(pawn, arrivalMap, grant.PrevLordJob)) break;
                     if (grant.Kind == GrantKind.Pursue && TryAttachAssaultLord(pawn, arrivalMap)) break;
                     StrayNpcs[pawn] = new StrayInfo
                     {
@@ -282,15 +291,18 @@ namespace RimExodus
         /// lord 跨图续接策略（唯一判定点，2026-08）：lord 是唯一的 map-anchored 行为载体（per-map
         /// LordManager + 构造参数/toil 焦点全是本图坐标与实体），原版对"pawn 换图"的答案就是离开 lord
         /// （Pawn.ExitMap → Notify_PawnLost）——位置锚定类（DefendBase/Staging/Party/Visit 等）跨图即失
-        /// 是与原版一致的正确语义，不续；仅"意图与地图无关"的 lord 忠实续接，当前 = 奴隶叛乱
+        /// 是与原版一致的正确语义，不续；仅"意图与地图无关"的 lord 忠实续接，当前包括奴隶叛乱
         /// （SlaveRebellionUtility.IsRebelling ≡ lord 是 LordJob_SlaveRebellion；敌对性/SlaveIsSecure/
         /// 殖民者自动反击全挂此判定——传送剥离 lord 即叛乱定义上终结，2026-08 实测"叛乱奴隶跨图追击
         /// 后不再叛乱"的根因）。未来需忠实续接的新类型（如 PrisonBreak）在此加分支，不动下游。
         /// 仅 Bridge 类（战斗追击跨图）调用：逃亡展叛奴的 exit 意图 job 走撤离链，lord 目标（跑出世界）
-        /// 已由链达成，重建会双驱动——撤离链跨图不续接。
+        /// 已由链达成，重建会双驱动——撤离链跨图不续接。外缘工兵/破墙的行军 lord 也在此按
+        /// 袭击身份合流；抵达目标图时才创建原版专用工作所需的带旗标 lord。
         /// </summary>
         private static bool TryContinueLordOnArrival(Pawn pawn, Map arrivalMap, LordJob prevLordJob)
         {
+            if (prevLordJob is LordJob_SeamlessRaidMarch raidMarch)
+                return TryContinueRaidMarch(pawn, arrivalMap, raidMarch);
             if (!(prevLordJob is LordJob_SlaveRebellion rebellion)) return false;
 
             var manager = arrivalMap.lordManager;
@@ -320,6 +332,35 @@ namespace RimExodus
             if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] Lord continuation (SlaveRebellion): {pawn.LabelShort} starts a rebellion lord "
                     + $"on map {arrivalMap.uniqueID} (passive={!rebellion.IsAggressiveRebellion}).");
+            return true;
+        }
+
+        private static bool TryContinueRaidMarch(Pawn pawn, Map arrivalMap, LordJob_SeamlessRaidMarch previous)
+        {
+            var manager = arrivalMap.lordManager;
+            if (manager == null || pawn.Faction == null) return false;
+            var onTarget = SeamlessTileRegistry.GetMapWorldTile(arrivalMap) == previous.TargetWorldTile;
+            foreach (var lord in manager.lords)
+            {
+                if (lord.LordJob is LordJob_SeamlessRaidMarch candidate
+                    && candidate.RaidIdentity == previous.RaidIdentity
+                    && candidate.Marching == !onTarget
+                    && lord.faction == pawn.Faction && lord.ownedPawns.Count > 0
+                    && lord.CanAddPawn(pawn))
+                {
+                    lord.AddPawn(pawn);
+                    RimExodusLog.Message(RimExodusLogModule.Combat,
+                        $"Raid march {previous.RaidIdentity}: {pawn.LabelShort} joined "
+                        + $"{(onTarget ? "sapper/breacher assault" : "marching")} lord on map {arrivalMap.uniqueID}.");
+                    return true;
+                }
+            }
+
+            LordMaker.MakeNewLord(pawn.Faction, previous.ForArrival(pawn.Faction, onTarget),
+                arrivalMap, new[] { pawn });
+            RimExodusLog.Message(RimExodusLogModule.Combat,
+                $"Raid march {previous.RaidIdentity}: {pawn.LabelShort} started "
+                + $"{(onTarget ? "sapper/breacher assault" : "marching")} lord on map {arrivalMap.uniqueID}.");
             return true;
         }
 

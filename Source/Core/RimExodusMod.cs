@@ -95,6 +95,9 @@ namespace RimExodus
             // 成功标志 = "Melee Animation compat: bound IsPawnValid shadow-caravan allowance"。
             SeamlessMeleeAnimationCompat.Register(harmony);
 
+            // Colony Groups replaces the visible bar with its own cache; filter that cache as well.
+            SeamlessColonyGroupsCompat.Register(harmony);
+
             // Giddy-Up 2 compatibility: mounted riders and animals are separate spawned pawns. Register a
             // generic transfer-association provider which moves the mount through the normal state-preserving
             // transfer path and asks Giddy-Up to rebuild its own relationship/job after arrival.

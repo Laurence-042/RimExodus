@@ -5,6 +5,7 @@ using RimWorld;
 using UnityEngine;
 using Verse;
 using Verse.AI;
+using Verse.AI.Group;
 
 namespace RimExodus
 {
@@ -52,6 +53,10 @@ namespace RimExodus
         {
             RimExodusPerfProbe.Mark(RimExodusPerfProbe.BestAttackTargetPostfix); // 诊断：入口计数（含早退）
             if (__result != null) return; // 本图优先：原版有结果不动。
+            // Marching raiders fight threats on their current map, then keep moving toward
+            // the attacked tile. Acquiring a cross-map enemy here can preempt that march.
+            if (searcher?.Thing is Pawn marcher
+                && marcher.GetLord()?.LordJob is LordJob_SeamlessRaidMarch march && march.Marching) return;
             if (!SeamlessCombatCoords.Enabled) return;
             var searcherThing = searcher?.Thing;
             if (searcherThing?.Map == null || searcherThing.Map.Disposed) return;
@@ -300,7 +305,13 @@ namespace RimExodus
     {
         public static void Postfix(Pawn pawn, ref Job __result)
         {
-            if (__result != null || !SeamlessCombatCoords.Enabled) return;
+            if (__result != null) return;
+            if (pawn?.GetLord()?.LordJob is LordJob_SeamlessRaidMarch march && march.Marching)
+            {
+                __result = march.TryMakeMarchJob(pawn);
+                return;
+            }
+            if (!SeamlessCombatCoords.Enabled) return;
             if (pawn?.Map == null || pawn.Map.Disposed || !pawn.Spawned) return;
             var map = pawn.Map;
             if (!SeamlessCombatCoords.HasActiveSeamNeighbors(map)) return;

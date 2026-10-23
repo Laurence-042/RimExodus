@@ -19,6 +19,10 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
   Added: an option under map rolling dormancy to turn off "Keep maps with active enemies at full speed", allowing those maps to follow normal throttling, dormancy and distance-based deletion rules. It is enabled by default; the related alert points to the setting, whose tooltip explains enemy freezing, low tick-rate behavior and possible issues with other mods.
 - 修复：关闭接缝显示与撤离后，直接下令走到接缝带也能触发邻接地图加载；Perspective Shift 第一人称步行与驾驶同样生效。重新开启撤离后，接缝带恢复为撤离区域，不触发预加载；预加载距离为 0 时两种模式均不触发
   Fixed: with seam display and evacuation turned off, ordering a pawn directly onto the seam strip can now load the neighboring map. This also works while walking or driving in first person with Perspective Shift. Turning evacuation back on excludes the strip from preloading again; a preload distance of 0 disables preloading in either mode.
+- 修复：安装 Colony Groups 时，“隐藏没有殖民者的地图”现在也会正确隐藏空白地图栏位，不再挤压殖民者图标（@Downtunedgrind 报告的问题）
+  Fixed: with Colony Groups installed, “hide maps with no colonists” now hides empty map slots instead of leaving blank boxes that squeeze the colonist icons. (Reported by @Downtunedgrind.)
+- 修复：从邻图进场的工兵与破墙袭击者可能在空地图上游荡直至饿死；现在他们会穿过接缝前往被袭击地图，抵达后继续选择破墙目标（@Downtunedgrind 报告的问题）
+  Fixed: sappers and breaching raiders arriving on a neighboring map could wander there until they starved. They now cross the seam toward the attacked map and resume choosing breach targets after arrival. (Reported by @Downtunedgrind.)
 
 1.0.6
 - 修复：邻图预加载距离现在从接缝撤离带朝地图中心的第一圈算起，设为 1 即可触发一圈预加载区域，不再需要先设到 4；设为 0 仍关闭预加载

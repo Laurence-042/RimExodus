@@ -31,8 +31,8 @@ namespace RimExodus
         /// - **跨图生成**（host == B）：敌对 raid 族经 Patch_RaidStrategyWorker_MakeLords 的
         ///   Postfix（此时 pawn 已在 A 生成、lord 已建好且自洽）把整组 pawn 迁往 B 的选定格，
         ///   A 图 lord 随清空自毁（Vanished 通知），在 B 上重建袭击 lord——纯突击族重建
-        ///   AssaultColony（镜像 vanilla ImmediateAttack，工兵/破墙旗标透传——掘进语义在宿主图
-        ///   无对象，自然退化为走接缝突击），StageThenAttack 在宿主图重选扎营点
+        ///   AssaultColony（镜像 vanilla ImmediateAttack）；工兵/破墙在宿主图行军，抵达
+        ///   被袭击图后重建专用 lord。StageThenAttack 在宿主图重选扎营点
         ///   重建 LordJob_StageThenAttack（扎营计时 → 攻击子图），Siege 在宿主图重选炮兵阵地
         ///   重建 LordJob_Siege（迫击炮经既有跨图索敌/弹丸越缝链轰击目标图）——三者均 2026-09
         ///   用户定夺纳入。机械体围攻/PsychicRitualSiege（覆写 MakeLords）与邪教徒仍出局。
@@ -114,7 +114,7 @@ namespace RimExodus
             if (Current?.CrossHostMap != null && pawn != null) WindowPawns.Add(pawn);
         }
 
-        /// <summary>读 LordJob_AssaultColony 私有旗标（工兵/破墙策略的行军语义 map-local，不跨图）。</summary>
+        /// <summary>读 LordJob_AssaultColony 私有旗标；专用工作只在被袭击图启动。</summary>
         private static AccessTools.FieldRef<LordJob_AssaultColony, bool> sappersRef;
         private static AccessTools.FieldRef<LordJob_AssaultColony, bool> breachersRef;
 
@@ -300,7 +300,7 @@ namespace RimExodus
 
         /// <summary>
         /// raid 族跨图迁移（MakeLords Postfix 入口）：守卫（walkIn/敌对/lord 纯 AssaultColony）+
-        /// 共享迁移核心 + 在宿主图重建 AssaultColony lord。全部守卫通过才动手；半途失败 = 原版。
+        /// 共享迁移核心 + 在宿主图重建袭击 lord。全部守卫通过才动手；半途失败 = 原版。
         /// 返回 false = 不迁移（MakeLords 原生结果保持）。
         /// </summary>
         internal static bool TryRelocateToHost(IncidentParms parms, List<Pawn> pawns)
@@ -327,9 +327,8 @@ namespace RimExodus
                 if (pawns == null || pawns.Count == 0) return Decline("empty pawn group");
 
                 // 允许的 lord 形状（2026-09 三轮扩展，用户定夺）：
-                // ① LordJob_AssaultColony（含工兵/破墙旗标——掘进语义是"朝本图殖民地定向挖墙"，
-                //   宿主图上没有殖民地对象，跨图后自然退化为"走接缝过来再突击"；旗标仍原样
-                //   透传重建，若途中真被挡住语义照旧）；② LordJob_StageThenAttack（扎营计时 →
+                // ① LordJob_AssaultColony（工兵/破墙先行军，过缝后恢复专用工作）；
+                //   ② LordJob_StageThenAttack（扎营计时 →
                 //   AssaultColony 子图——攻击期推进链已跨图化，扎营期 Defend duty 地图无关，
                 ///  扎营点在宿主图重选）；③ LordJob_Siege——迫击炮的跨图索敌/射击线/弹丸越缝
                 //   均已有（flyOverhead 免 LOS、炮塔走 BestAttackTarget 跨图 Postfix），扎营建在
@@ -385,6 +384,10 @@ namespace RimExodus
                     }
                 }
 
+                var raidIdentity = pawns[0].GetLord()?.GetUniqueLoadID() ?? pawns[0].GetUniqueLoadID();
+                var targetWorldTile = SeamlessTileRegistry.GetMapWorldTile((Map)parms.target);
+                if ((wasSappers || wasBreachers) && targetWorldTile < 0)
+                    return Decline("sapper/breacher target has no surface world tile");
                 if (!TryTransferGroupToHost(parms, pawns, out var hostMap)) return false;
 
                 // B 上重建袭击 lord（镜像 vanilla MakeLords 收尾）。
@@ -412,6 +415,14 @@ namespace RimExodus
                 {
                     rebuiltJob = new LordJob_AssaultColony(parms.faction, canKidnap: false,
                         canTimeoutOrFlee: false, sappers: false, useAvoidGridSmart: false, canSteal: false);
+                }
+                else if (wasSappers || wasBreachers)
+                {
+                    foreach (var pawn in pawns)
+                        if (pawn.mindState != null) pawn.mindState.enemyTarget = null;
+                    rebuiltJob = new LordJob_SeamlessRaidMarch(parms.faction, targetWorldTile,
+                        raidIdentity, wasSappers, wasBreachers, parms.canKidnap,
+                        parms.canTimeoutOrFlee, parms.canSteal, marching: true);
                 }
                 else
                 {
