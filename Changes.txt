@@ -21,6 +21,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
   Fixed: rocks at a three-map junction could disagree with the neighboring map. Newly generated maps now favor the rock formations along the adjoining seam.
 - 修复：安装 Colony Groups 时，“隐藏没有殖民者的地图”现在也会正确隐藏空白地图栏位，不再挤压殖民者图标（@Downtunedgrind 报告的问题）
   Fixed: with Colony Groups installed, “hide maps with no colonists” now hides empty map slots instead of leaving blank boxes that squeeze the colonist icons. (Reported by @Downtunedgrind.)
+  - 补充：仅安装 Colony Groups、不安装 RimExodus 时，全新存档中家园留两名殖民者、派另一名到相邻地块扎营，再存档读档，也会出现 `Cannot register TacticalGroups.ColonyGroup… (id=TacticalGroups.ColonyGroup1…)` 报错；与上述空白栏位问题无关。
+    Note: Even with Colony Groups installed and RimExodus absent, a new game with two colonists staying home and another camping on an adjacent tile produces `Cannot register TacticalGroups.ColonyGroup… (id=TacticalGroups.ColonyGroup1…)` after saving and loading; this is separate from the empty-slot issue above.
 - 修复：从邻图进场的工兵与破墙袭击者可能在空地图上游荡直至饿死；现在他们会穿过接缝前往被袭击地图，抵达后继续选择破墙目标（@Downtunedgrind 报告的问题）
   Fixed: sappers and breaching raiders arriving on a neighboring map could wander there until they starved. They now cross the seam toward the attacked map and resume choosing breach targets after arrival. (Reported by @Downtunedgrind.)
 
