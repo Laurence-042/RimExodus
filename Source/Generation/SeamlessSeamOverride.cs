@@ -35,7 +35,8 @@ namespace RimExodus
     ///   一条直线。self 分布（C 当前 topGrid 3×3）+ 各参考分布（实时/基础快照 3×3）→ 众数覆写；
     ///   **岩体/屋顶跟随主导参考（w 最大）的 def**——与照抄区语义统一（地形走卷积混合，
     ///   离散层跟随参考；地形驱动 spawn 会在参考无岩体处生成本端岩体，2026-08 用户实测）。
-    /// 顶点楔形区（B_C 多邻居命中）保留卷积合成（几何模糊地带，各 w=1）。
+    /// 顶点楔形区（B_C 多邻居命中）保留卷积合成；远处 void 外条带快照按距接缝的深度降权，
+    /// 避免它与另一邻图的带内实况平票并决定岩体。单参考仍字面照抄。
     ///
     /// 【参考源（所有实际加载邻图）】B 与限定深度 T 优先读当前 terrain/rock/roof；当前格为
     /// null/void 时回落完整基础快照，外条带直接读基础快照。无 Map 的封存图不参与参考。
@@ -198,7 +199,7 @@ namespace RimExodus
             // - B_C（三圈）→ 字面照抄对端对应格的地形与岩体（a = c − offset，有参考即抄）；
             // - T_C（过渡带）→ 卷积权重覆盖（w 按本端过渡深度衰减 + dither）；
             // - void_C → 不在枚举范围（直接用自己的 void）。
-            // 顶点楔形区（B_C 多邻居命中）保留卷积合成（几何模糊地带，各 w=1）。
+            // 顶点楔形区（B_C 多邻居命中）保留卷积合成；外条带参考按深度降权。
             bandCells.Clear();
             bandCells.UnionWith(band.Band);
             bandCells.UnionWith(band.TransitionBand);
@@ -256,25 +257,30 @@ namespace RimExodus
                 else
                 {
                     // 过渡带（或顶点楔形多参考）：terrain 是唯一连续层，走卷积加权众数；
-                    // 离散层（building/roof）无法加权，跟随主导参考（w 最大）的 def——
-                    // 仅在 terrain 被参考覆写时同步（地形没变 = 本端已与参考一致或参考权重弱，
-                    // 不动离散层）。历史教训（2026-08 用户实测）：地形驱动 spawn 会在参考
-                    // 无岩体处生成本端岩体——离散层必须跟随参考而非地形。
+                    // 离散层（building/roof）无法加权，跟随主导参考（w 最大）的 def。
+                    // 过渡带仅在 terrain 被参考覆写时同步，避免弱参考改变本端岩体；照抄区
+                    // 多参考的 self 权重为 0，即使选中地形碰巧等于本端，也必须同步离散层。
+                    // 否则三图交界的地形平票会跳过岩体，留下两侧岩石断裂。
                     CollectBlendParts(topGrid, mapSize, voidDef, cCell);
                     if (blendParts.Count == 0) continue;
                     var blended = BlendDistributions(blendParts);
                     var chosenTerrain = GetMode(blended);
-                    if (chosenTerrain == null || ReferenceEquals(chosenTerrain, seamLayers[0].ReadLocal(map, cCell))) continue;
+                    if (chosenTerrain == null) continue;
+                    var terrainChanged = !ReferenceEquals(chosenTerrain, seamLayers[0].ReadLocal(map, cCell));
+                    if (!terrainChanged && !isCopyZone) continue;
 
-                    seamLayers[0].Write(map, cCell, chosenTerrain);
+                    if (terrainChanged) seamLayers[0].Write(map, cCell, chosenTerrain);
                     var dominant = DominantRef(cellRefs);
                     // 离散层跟随主导参考的渲染映射格值（带内=当前实况 / void 外条带=基础快照）。
+                    var anyWritten = terrainChanged;
                     for (var i = 1; i < seamLayers.Length; i++)
                     {
                         var read = seamLayers[i].ReadReference(dominant.owner, dominant.aCell);
-                        if (read.has) seamLayers[i].Write(map, cCell, read.value);
+                        if (!read.has || ReferenceEquals(read.value, seamLayers[i].ReadLocal(map, cCell))) continue;
+                        seamLayers[i].Write(map, cCell, read.value);
+                        anyWritten = true;
                     }
-                    written++;
+                    if (anyWritten) written++;
                 }
             }
 
@@ -327,8 +333,8 @@ namespace RimExodus
         /// <summary>
         /// 收集 cCell 的各邻居参考到 <see cref="cellRefs"/>（复用 <see cref="neighborRefs"/>），
         /// 返回是否有参考。**规则轴 = 本端圈层**（用户定夺 2026-08）：
-        /// - c ∈ 照抄区（B_C 或 T·1）：命中 = a 在邻居参考域内（有数据即命中），
-        ///   w = 1（仅多命中合成时用到）；
+        /// - c ∈ 照抄区（B_C 或 T·1）：命中 = a 在邻居参考域内（有数据即命中）。
+        ///   单参考字面照抄；多参考时带内/浅过渡实况优先，void 外条带快照按深度降权；
         /// - c ∈ T_C depth≥2（卷积区）：w = dSq/(dSq+dOut)（源地图轴：接近源六边形高 → 源方形边 0）
         ///   ×乘性 dither。
         /// </summary>
@@ -371,6 +377,27 @@ namespace RimExodus
                 }
 
                 cellRefs.Add(new CellRef { w = wRaw, owner = nref, aCell = aCell });
+            }
+            if (inCopyZone && cellRefs.Count > 1)
+            {
+                // 三图顶点可能同时映到 A 的带内圈和 B 的深层 void 外条带。
+                // 后者只有 389 前基础快照，不能与前者的当前实况平票决定岩体；
+                // 将最近参考归一到 1，保持楔形区 self 权重为 0。单参考仍走原字面照抄。
+                var maxWeight = 0f;
+                for (var i = 0; i < cellRefs.Count; i++)
+                {
+                    var cellRef = cellRefs[i];
+                    if (cellRef.owner.band.OuterStripDepth.TryGetValue(cellRef.aCell, out var depth))
+                        cellRef.w = 1f / (depth + 1f);
+                    if (cellRef.w > maxWeight) maxWeight = cellRef.w;
+                    cellRefs[i] = cellRef;
+                }
+                for (var i = 0; i < cellRefs.Count; i++)
+                {
+                    var cellRef = cellRefs[i];
+                    cellRef.w /= maxWeight;
+                    cellRefs[i] = cellRef;
+                }
             }
             return cellRefs.Count > 0;
         }
@@ -703,6 +730,13 @@ namespace RimExodus
 
             // ―― 混合情况追踪（本侧）――
             sb.AppendLine("  混合情况追踪:");
+            foreach (var nref in neighborRefs)
+            {
+                var aCell = new IntVec3(cell.x - nref.offset.x, 0, cell.z - nref.offset.z);
+                if (nref.band.OuterStripDepth.ContainsKey(aCell)
+                    && !ReadReference(nref, aCell, ReferenceLayer.Terrain).has)
+                    sb.AppendLine($"    (注意: wt={nref.worldTile} 的外条带基础快照不可用；本次重放缺少生成时可能存在的参考，不能据此推断历史混合结果)");
+            }
             var roadComp = map.GetComponent<SeamlessRoadPaths>();
             var roadGuard = BuildRoadGuard(map);
             if (roadComp == null || roadComp.paths.Count == 0)
@@ -728,7 +762,7 @@ namespace RimExodus
                 var totalW = 0f;
                 foreach (var r in cellRefs) totalW += r.w;
                 var selfW = Mathf.Clamp01(1f - totalW);
-                sb.AppendLine($"    权重: self={selfW:F3}  {string.Join("  ", cellRefs.ConvertAll(r => $"wt={r.owner.worldTile} w={r.w:F3}"))}{(isCopyZone ? "（照抄区 B∪T·1，参考 w=1）" : "（卷积区 T·≥2，源地图轴权重 × dither）")}");
+                sb.AppendLine($"    权重: self={selfW:F3}  {string.Join("  ", cellRefs.ConvertAll(r => $"wt={r.owner.worldTile} w={r.w:F3}"))}{(isCopyZone ? "（照抄区 B∪T·1，多参考外条带按深度降权）" : "（卷积区 T·≥2，源地图轴权重 × dither）")}");
 
                 // 本侧 snapshot 各层 3×3 卷积（快照缺失回落当前实际并注明）。
                 var selfTerrDist = Convolve3x3(baseT ?? map.terrainGrid.topGrid, mapSize, baseT != null ? null : voidDef, cell);
@@ -769,6 +803,12 @@ namespace RimExodus
                     rockPart = readB.has ? (ThingDef)readB.value : localRock;
                     roofPart = readR.has ? (RoofDef)readR.value : localRoof;
                     modeLabel = $"卷积区/多参考，离散层随主导 wt={dominant.owner.worldTile}";
+                    if (!isCopyZone && ReferenceEquals(terrPart, localTerrain))
+                    {
+                        rockPart = localRock;
+                        roofPart = localRoof;
+                        modeLabel += "（过渡区地形未变，离散层不写入）";
+                    }
                 }
                 sb.AppendLine($"    各层混合结果({modeLabel}):  {LayerTriple(terrPart, rockPart, roofPart)}{VerdictSuffix(terrPart, localTerrain, "地面")}{VerdictSuffix(rockPart, localRock, "岩体")}{VerdictSuffix(roofPart, localRoof, "屋顶")}");
             }

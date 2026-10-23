@@ -15,6 +15,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 
 
 1.0.8
+- 修复：三张地图交界处的岩石可能与相邻地图不一致；新生成的地图现在会优先衔接邻图接缝上的岩体
+  Fixed: rocks at a three-map junction could disagree with the neighboring map. Newly generated maps now favor the rock formations along the adjoining seam.
 - 修复：安装 Colony Groups 时，“隐藏没有殖民者的地图”现在也会正确隐藏空白地图栏位，不再挤压殖民者图标（@Downtunedgrind 报告的问题）
   Fixed: with Colony Groups installed, “hide maps with no colonists” now hides empty map slots instead of leaving blank boxes that squeeze the colonist icons. (Reported by @Downtunedgrind.)
 - 修复：从邻图进场的工兵与破墙袭击者可能在空地图上游荡直至饿死；现在他们会穿过接缝前往被袭击地图，抵达后继续选择破墙目标（@Downtunedgrind 报告的问题）
