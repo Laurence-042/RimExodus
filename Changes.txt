@@ -15,6 +15,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 
 
 1.0.8
+- 修复：同时看到多张相邻地图时，早晨和黄昏的色调可能在交界处重复叠加，形成过深的色块
+  Fixed: when several neighboring maps were visible, morning and dusk colors could overlap at their junction and create an overly dark patch.
 - 修复：三张地图交界处的岩石可能与相邻地图不一致；新生成的地图现在会优先衔接邻图接缝上的岩体
   Fixed: rocks at a three-map junction could disagree with the neighboring map. Newly generated maps now favor the rock formations along the adjoining seam.
 - 修复：安装 Colony Groups 时，“隐藏没有殖民者的地图”现在也会正确隐藏空白地图栏位，不再挤压殖民者图标（@Downtunedgrind 报告的问题）
