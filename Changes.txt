@@ -15,6 +15,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 
 
 1.0.9
+- 修复：开启“隐藏无人图”后，大量空地图（例如 Delta-V 飞船交战产生的残骸图）可能使殖民者头像缩小并挤在栏位左侧；现在头像会按可见分组正常排列
+  Fixed: with “Hide empty colonist bar groups” enabled, many empty maps (such as debris maps from Delta-V ship battles) could shrink colonist portraits and crowd them to the left of the bar. Portraits now lay out correctly for the visible groups.
 - 改进：因活跃敌人而保持全速的地图告警现在可以点击；点击会跳到对应地图并聚焦一名敌人，再次点击可依次查看其他受影响的地图（@omgmub 建议）
   Improved: the alert for maps kept at full speed by active enemies is now clickable. It jumps to the map and focuses an enemy; click again to cycle through other affected maps. (Suggested by @omgmub.)
 

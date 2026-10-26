@@ -141,8 +141,20 @@ namespace RimExodus
             private static readonly FieldInfo CachedScaleField = AccessTools.Field(typeof(ColonistBar), "cachedScale");
             private static readonly FieldInfo DrawLocsFinderField = AccessTools.Field(typeof(ColonistBar), "drawLocsFinder");
 
-            static void Postfix(ColonistBar __instance)
+            static void Prefix(bool ___entriesDirty, out bool __state)
             {
+                // 只处理入口 entriesDirty=true 的外层调用。原版 CheckRecacheEntries 一进门便清脏，
+                // 末尾 CalculateDrawLocs 又读取 Entries，导致嵌套调用本方法；内层虽直接返回，
+                // Harmony Postfix 仍会执行。若在内层过滤 cachedEntries，外层手里的组数 num
+                // 仍是过滤前的值，随后按过多的空组计算缩放，头像会缩小并挤向左侧。
+                // 如果和其他生成大量地图的mod共同使用尤其明显。务必在 Prefix 抓取清脏前的状态，
+                // 让内层 Postfix 跳过，等外层完成原版布局后再过滤并重建三项派生缓存。
+                __state = ___entriesDirty;
+            }
+
+            static void Postfix(ColonistBar __instance, bool __state)
+            {
+                if (!__state) return;
                 if (!(CachedEntriesField?.GetValue(__instance) is List<ColonistBar.Entry> entries)) return;
                 if (!TryGetDerivedCaches(__instance, out var groups, out var drawLocs, out var finder)) return;
 
