@@ -14,6 +14,10 @@ If what you’re really asking is whether I’ll make more RimWorld mods in the 
 well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, I need to refocus on my own game development first. Even if it does get finished, it'll likely flop hard, and I'll just go back to being a corporate drone. Everyone knows how that life goes.
 
 
+1.0.9
+- 改进：因活跃敌人而保持全速的地图告警现在可以点击；点击会跳到对应地图并聚焦一名敌人，再次点击可依次查看其他受影响的地图（@omgmub 建议）
+  Improved: the alert for maps kept at full speed by active enemies is now clickable. It jumps to the map and focuses an enemy; click again to cycle through other affected maps. (Suggested by @omgmub.)
+
 1.0.8
 - 修复：同时看到多张相邻地图时，早晨和黄昏的色调可能在交界处重复叠加，形成过深的色块
   Fixed: when several neighboring maps were visible, morning and dusk colors could overlap at their junction and create an overly dark patch.

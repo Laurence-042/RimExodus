@@ -113,15 +113,30 @@ namespace RimExodus
         /// </summary>
         internal static bool HasActiveThreat(Map map)
         {
+            return TryGetActiveThreat(map, out _);
+        }
+
+        /// <summary>与保活判定同口径，返回一个可供告警聚焦的活跃敌人。</summary>
+        internal static bool TryGetActiveThreat(Map map, out Thing threat)
+        {
+            threat = null;
             if (map == null || map.Disposed) return false;
-            if (GenHostility.AnyHostileActiveThreatToPlayer(map)) return true;
+            if (GenHostility.AnyHostileActiveThreatTo(map, Faction.OfPlayer, out var target))
+            {
+                threat = target.Thing;
+                return true;
+            }
 
             var shamblers = map.mapPawns?.SpawnedShamblers;
             if (shamblers == null) return false;
             for (int i = 0; i < shamblers.Count; i++)
             {
                 var s = shamblers[i];
-                if (s != null && !s.Dead && !s.Downed) return true;
+                if (s != null && !s.Dead && !s.Downed)
+                {
+                    threat = s;
+                    return true;
+                }
             }
             return false;
         }
