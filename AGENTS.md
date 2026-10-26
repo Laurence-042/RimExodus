@@ -41,11 +41,11 @@
 
 ## 3. 外部源码与兼容性参考
 
-涉及 RimWorld 或外部 Mod 内部行为时，只能以统一参考目录 `C:\Users\Laure\Documents\workspace\rimworld\_refernces` 中已有源码/反编译内容为施工依据。若缺少目标版本/Mod 的可靠参考，先明确告知用户，不要自行扫描 SteamLibrary、下载或反编译其他内容；也不要用反射枚举程序集签名来替代反编译参考。
+涉及 RimWorld 或外部 Mod 内部行为时，只能以统一参考目录 `C:\Users\Laure\Documents\workspace\rimworld\_references` 中已有源码/反编译内容为施工依据。若缺少目标版本/Mod 的可靠参考，先明确告知用户，不要自行扫描 SteamLibrary、下载或反编译其他内容；也不要用反射枚举程序集签名来替代反编译参考。
 
-RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_refernces\RimWorldDecompiled\`；使用前核对其中的游戏版本，签名和行为直接查该目录。
+RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_references\RimWorldDecompiled\`；使用前核对其中的游戏版本，签名和行为直接查该目录。
 
-建议在进行底层机制调整时，确认统一参考目录 `C:\Users\Laure\Documents\workspace\rimworld\_refernces` 包含所需的 RimWorld、MapPreview、Geological Landforms、Vehicle Framework、Vehicle Map Framework、Perspective Shift、Giddy-Up、Vanilla Expanded 系列等调查材料；实际使用前先核对目录和版本。兼容性对外结论以 `README.md` 为准。
+建议在进行底层机制调整时，确认统一参考目录 `C:\Users\Laure\Documents\workspace\rimworld\_references` 包含所需的 RimWorld、MapPreview、Geological Landforms、Vehicle Framework、Vehicle Map Framework、Perspective Shift、Giddy-Up、Vanilla Expanded 系列等调查材料；实际使用前先核对目录和版本。兼容性对外结论以 `README.md` 为准。
 
 ## 4. 总体架构：表面地图对等
 
