@@ -23,12 +23,11 @@ namespace RimExodus
     /// （可见即被看见，与 SeamlessTileGraph 邻接口径一致）。
     ///
     /// 两种执行形态（host = 实际生成图）：
-    /// - **同图约束**（host == A）：raid 族 / 发狂动物 / 食尸鬼 worker 的 Prefix 设置
-    ///   <see cref="Current"/>（窗口 = 本次 TryExecuteWorker，Postfix 清），由
-    ///   Patch_CellFinder_TryFindRandomEdgeCellWith 的 4 参 Prefix 消费——候选池过滤为
-    ///   "朝向允许 tile 的传送点格"，**过滤池空回落整圈池**（绝不比现状更容易失败，保护
-    ///   EdgeWalkInDarkness 等带额外谓词的模式）。validator 链原样复用（含 CanReachColony）。
-        /// - **跨图生成**（host == B）：敌对 raid 族经 Patch_RaidStrategyWorker_MakeLords 的
+    /// - **地图优先选点**：Prefix 建立并打乱候选宿主图；4 参 CellFinder 收到原版
+    ///   validator 后，逐图尝试该图允许的外缘方向。同图 A 用朝向格；跨图 B 要求
+    ///   B 的入口可站且可到 A 侧缝，并在 A 找到原生生成链所需的临时入口。
+    ///   某图所有入口失败才尝试下一图；全失败清计划，A 走未约束的正常选点。
+    /// - **跨图生成**（host == B）：敌对 raid 族经 Patch_RaidStrategyWorker_MakeLords 的
         ///   Postfix（此时 pawn 已在 A 生成、lord 已建好且自洽）把整组 pawn 迁往 B 的选定格，
         ///   A 图 lord 随清空自毁（Vanished 通知），在 B 上重建袭击 lord——纯突击族重建
         ///   AssaultColony（镜像 vanilla ImmediateAttack）；工兵/破墙在宿主图行军，抵达
@@ -81,37 +80,43 @@ namespace RimExodus
                 && typeof(IncidentWorker_PsychicRitualSiege).IsAssignableFrom(workerType);
         }
 
+        /// <summary>一次事件的候选宿主图及该图允许的外缘方向。先随机排图，再逐图试入口。</summary>
+        internal sealed class SpawnMapCandidate
+        {
+            public Map HostMap;
+            public readonly List<int> FacingTiles = new();
+        }
+
         /// <summary>
-        /// 本次袭击的落点计划（ambient，窗口 = 本次 TryExecuteWorker 执行期）。
-        /// CrossHostMap == null → 同图约束（AllowedFacingTiles 生效，CellFinder 侧消费）；
-        /// CrossHostMap != null → 跨图生成（MakeLords Postfix 消费 CrossAnchors 迁移整组）。
+        /// 窗口 = 本次 TryExecuteWorker。目标图 A 保持原版事件参数；跨图计划在选到
+        /// 宿主图入口后才生效，MakeLords/worker Postfix 再把已生成的组迁到宿主图。
         /// </summary>
         internal sealed class Plan
         {
             public Map TargetMap;
-            public HashSet<int> AllowedFacingTiles;
+            public List<SpawnMapCandidate> CandidateMaps;
+            public bool EntrySelected;
+            public int SelectedFacingTile = -1;
             public Map CrossHostMap;
             public int CrossFacingTile;
             public List<IntVec3> CrossAnchors;
-            /// <summary>建立时的 tick——窗口 = 本次 TryExecuteWorker（同 tick）；消费侧时效守卫用
-            /// （Postfix 在原方法异常时不跑，防陈旧计划泄漏到后续无关的边缘格查询）。</summary>
             public int CreatedTick;
         }
 
         internal static Plan Current;
 
         /// <summary>
-        /// 跨图计划窗口内经 PawnGenerator 生成的 pawn（发狂动物/食尸鬼/奇美拉三个**不走
+        /// 外缘计划窗口内经 PawnGenerator 生成的 pawn（发狂动物/食尸鬼/奇美拉三个**不走
         /// RaidStrategyWorker.MakeLords** 的 worker 由此捕获生成组——它们的 worker 直接
         /// GenSpawn.Spawn + LordMaker.MakeNewLord，没有携带 pawn 列表的公共执行点可挂）。
         /// Begin 前/End 时清空；raid 族不消费（MakeLords Postfix 自带 pawn 列表）。
         /// </summary>
         internal static readonly List<Pawn> WindowPawns = new List<Pawn>();
 
-        /// <summary>PawnGenerator.GeneratePawn Postfix 的捕获入口（仅跨图计划窗口内生效）。</summary>
+        /// <summary>PawnGenerator.GeneratePawn Postfix 的捕获入口（仅外缘计划窗口内生效）。</summary>
         internal static void NotifyWindowPawnGenerated(Pawn pawn)
         {
-            if (Current?.CrossHostMap != null && pawn != null) WindowPawns.Add(pawn);
+            if (Current?.CandidateMaps != null && pawn != null) WindowPawns.Add(pawn);
         }
 
         /// <summary>读 LordJob_AssaultColony 私有旗标；专用工作只在被袭击图启动。</summary>
@@ -124,7 +129,7 @@ namespace RimExodus
 
         /// <summary>
         /// 袭击 worker 的 TryExecuteWorker Prefix：枚举资格缝并建立计划。
-        /// allowCrossMap = false 限同图约束（发狂动物/食尸鬼）；true 允许跨图生成（raid 族）。
+        /// allowCrossMap = false 只列触发图候选；true 同时列活跃邻图候选。
         /// incidentDefName = worker.def.defName（事件级"仅本图生成"判据）；workerType =
         /// worker 实际类型（结构性本图判据—— PsychicRitualSiege 等建了计划也无消费者，
         /// 直接短路省掉误导性的"cross-map plan"日志）。
@@ -153,34 +158,34 @@ namespace RimExodus
                     && parms.controllerPawn == null
                     && (parms.attackTargets == null || parms.attackTargets.Count == 0);
 
-                // ---- 枚举候选缝（三分支 + fallback）----
+                // ---- 枚举候选宿主图：同一图的可入场方向归在一起 ----
                 var ring1 = new List<PlanetTile>();
                 Find.WorldGrid.GetTileNeighbors(tileA, ring1);
                 var ring2 = new List<PlanetTile>();
-                var candidates = new List<(Map host, int facing, bool cross)>();
+                var candidates = new List<SpawnMapCandidate>();
                 foreach (var n in ring1)
                 {
                     var mapB = MapAt(n.tileId);
                     if (!IsActive(mapB))
                     {
-                        // ② 一跳邻居无图或休眠 → A 朝它的边（同图）。
-                        candidates.Add((mapA, n.tileId, false));
+                        // 无图或休眠的邻居不能作为宿主：从 A 朝该邻居的一侧进场。
+                        AddCandidate(candidates, mapA, n.tileId);
                         continue;
                     }
-                    // ① B 活跃：其世界邻居 C 无图或休眠 → B 朝 C 的边（跨图）。
+                    if (!crossAllowed) continue;
+                    // 活跃邻图 B 可作宿主，入口朝向尚未加载或休眠的 C。
                     ring2.Clear();
                     Find.WorldGrid.GetTileNeighbors(n, ring2);
                     foreach (var u in ring2)
                     {
-                        if (u.tileId == tileA) continue; // A 恒活跃（事件目标过滤），结构性不满足
-                        if (!IsActive(MapAt(u.tileId))) candidates.Add((mapB, u.tileId, true));
+                        if (u.tileId == tileA) continue;
+                        if (!IsActive(MapAt(u.tileId))) AddCandidate(candidates, mapB, u.tileId);
                     }
                 }
                 var fallback = candidates.Count == 0;
-                if (fallback)
+                if (fallback && crossAllowed)
                 {
-                    // ③ 一跳二跳全活跃：任意 B-C 边（用户 fallback 定夺）。朝向 A 的边不入选——
-                    // 生成在 B-A 缝 = 出现在玩家眼皮底下的接缝上，恰是要避免的形态。
+                    // 一跳、二跳都活跃时，允许活跃 B 的任意非 A 外边。
                     foreach (var n in ring1)
                     {
                         var mapB = MapAt(n.tileId);
@@ -189,76 +194,62 @@ namespace RimExodus
                         Find.WorldGrid.GetTileNeighbors(n, ring2);
                         foreach (var u in ring2)
                         {
-                            if (u.tileId == tileA) continue;
-                            candidates.Add((mapB, u.tileId, true));
+                            if (u.tileId != tileA) AddCandidate(candidates, mapB, u.tileId);
                         }
                     }
                 }
                 if (candidates.Count == 0) return;
 
-                if (RimExodusLog.Enabled(RimExodusLogModule.Combat))
-                {
-                    var sb = new System.Text.StringBuilder();
-                    sb.Append($"Raid outer spawn: target map {mapA.uniqueID} (wt={tileA}), {candidates.Count} candidate seams");
-                    if (fallback) sb.Append(" (all-active fallback)");
-                    sb.Append(':');
-                    foreach (var c in candidates)
-                        sb.Append($" [host={c.host.uniqueID} facing={c.facing} cross={c.cross}]");
-                    RimExodusLog.Message(RimExodusLogModule.Combat, sb.ToString());
-                }
-
-                // ---- 随机打乱后取第一个"能落地"的候选 ----
+                // 地图先随机，再随机各图内的外缘方向；失败时按这个顺序试下一张图。
                 for (int i = candidates.Count - 1; i > 0; i--)
                 {
                     int j = Rand.Range(0, i + 1);
                     (candidates[i], candidates[j]) = (candidates[j], candidates[i]);
                 }
-                var facingScratch = new List<IntVec3>();
-                foreach (var cand in candidates)
+                foreach (var candidate in candidates)
                 {
-                    if (cand.cross && !crossAllowed) continue;
-
-                    if (!cand.cross)
+                    var facing = candidate.FacingTiles;
+                    for (int i = facing.Count - 1; i > 0; i--)
                     {
-                        // 同图候选：朝向格非空即可（可走性/可达由 CellFinder 侧原版 validator 把关）。
-                        SeamlessEdgeCells.PopulateFacingCells(mapA, cand.facing, facingScratch);
-                        if (facingScratch.Count == 0) continue;
-                        Current = new Plan
-                        {
-                            TargetMap = mapA,
-                            AllowedFacingTiles = new HashSet<int> { cand.facing },
-                            CreatedTick = GenTicks.TicksGame,
-                        };
-                        RimExodusLog.Message(RimExodusLogModule.Combat,
-                            $"Raid outer spawn: same-map plan on map {mapA.uniqueID}, facing wt={cand.facing} " +
-                            $"({facingScratch.Count} facing cells).");
-                        return;
+                        int j = Rand.Range(0, i + 1);
+                        (facing[i], facing[j]) = (facing[j], facing[i]);
                     }
-
-                    // 跨图候选：host 仍活跃 + 朝向格中有可站且能走到 A 侧缝的锚点（防密封口袋）。
-                    if (!TryBuildCrossAnchors(cand.host, cand.facing, tileA, facingScratch)) continue;
-                    Current = new Plan
-                    {
-                        TargetMap = mapA,
-                        CrossHostMap = cand.host,
-                        CrossFacingTile = cand.facing,
-                        CrossAnchors = new List<IntVec3>(facingScratch),
-                        CreatedTick = GenTicks.TicksGame,
-                    };
-                    RimExodusLog.Message(RimExodusLogModule.Combat,
-                        $"Raid outer spawn: cross-map plan, host map {cand.host.uniqueID} facing wt={cand.facing}, " +
-                        $"{facingScratch.Count} anchors; pawns will march to target via existing pursuit chain.");
-                    return;
                 }
 
-                RimExodusLog.Message(RimExodusLogModule.Combat,
-                    "Raid outer spawn: no workable candidate seam, vanilla spawn kept.");
+                Current = new Plan
+                {
+                    TargetMap = mapA,
+                    CandidateMaps = candidates,
+                    CreatedTick = GenTicks.TicksGame,
+                };
+                if (RimExodusLog.Enabled(RimExodusLogModule.Combat))
+                {
+                    var sb = new System.Text.StringBuilder();
+                    sb.Append($"Raid outer spawn: target map {mapA.uniqueID} (wt={tileA}), {candidates.Count} candidate maps");
+                    if (fallback) sb.Append(" (all-active fallback)");
+                    sb.Append(':');
+                    foreach (var candidate in candidates)
+                        sb.Append($" [host={candidate.HostMap.uniqueID} facings={string.Join(",", candidate.FacingTiles)}]");
+                    RimExodusLog.Message(RimExodusLogModule.Combat, sb.ToString());
+                }
             }
             catch (Exception ex)
             {
                 Log.Error("[RimExodus] RaidOuterSpawn plan failed, vanilla spawn behavior kept: " + ex);
                 Current = null;
             }
+        }
+
+        private static void AddCandidate(List<SpawnMapCandidate> candidates, Map host, int facingTile)
+        {
+            var candidate = candidates.Find(c => c.HostMap == host);
+            if (candidate == null)
+            {
+                candidate = new SpawnMapCandidate { HostMap = host };
+                candidates.Add(candidate);
+            }
+            if (!candidate.FacingTiles.Contains(facingTile))
+                candidate.FacingTiles.Add(facingTile);
         }
 
         /// <summary>worker 的 TryExecuteWorker Postfix：清计划与窗口捕获。</summary>
@@ -269,29 +260,146 @@ namespace RimExodus
         }
 
         // =====================================================================
-        // 同图约束消费（Patches_CellFinder 4 参 Prefix）
+        // 入场选择：先地图、再该图外缘；全失败才回到 A 的无约束选点
         // =====================================================================
 
         /// <summary>
-        /// 本次调用是否处于"同图约束"窗口且 map 是被袭击图：把允许朝向的传送点格填入 result
-        /// （可为空——空池由调用方回落整圈池）。跨图计划/非目标图一律返回 false（不过滤）。
+        /// 由 CellFinder 的 4 参入口传入调用方原版 validator。返回 true 表示已处理本次
+        /// 选点；全部候选图失败时清掉计划并返回 false，让 CellFinder 在触发图 A 上按
+        /// 未约束的原有接缝池和同一 validator 选点。
         /// </summary>
-        internal static bool TryGetSameMapFacingCells(Map map, List<IntVec3> result)
+        internal static bool TryResolveEntry(Predicate<IntVec3> validator, Map map,
+            out IntVec3 entry, out bool found)
         {
+            entry = IntVec3.Invalid;
+            found = false;
             var plan = Current;
-            if (plan == null || plan.CrossHostMap != null || plan.AllowedFacingTiles == null) return false;
-            if (map != plan.TargetMap) return false;
-            // 时效守卫：计划生命周期 = 本次 TryExecuteWorker（同 tick）；原方法异常时 Postfix 不跑，
-            // 超窗的计划按泄漏丢弃（防陈旧约束泄漏到后续无关的边缘格查询）。
+            if (plan == null || map != plan.TargetMap || plan.CandidateMaps == null) return false;
             if (GenTicks.TicksGame - plan.CreatedTick > 120)
             {
                 Current = null;
                 return false;
             }
-            result.Clear();
-            foreach (var t in plan.AllowedFacingTiles)
-                SeamlessEdgeCells.PopulateFacingCells(map, t, result);
-            return true;
+
+            // Distributed 等 arrival mode 会多次取格。第一格确定宿主后，后续格固定同一图，
+            // 不在已经生成部分 pawn 后改宿主。
+            if (plan.EntrySelected)
+            {
+                if (plan.CrossHostMap != null)
+                    found = TryFindValidatedCell(SeamlessEdgeCells.GetSeamEdgeCellsWithBandFallback(map),
+                        validator, out entry);
+                else
+                {
+                    var facing = new List<IntVec3>();
+                    SeamlessEdgeCells.PopulateFacingCells(map, plan.SelectedFacingTile, facing);
+                    found = TryFindValidatedCell(facing, validator, out entry);
+                }
+                return true;
+            }
+
+            var tileA = SeamlessTileRegistry.GetMapWorldTile(map);
+            foreach (var candidate in plan.CandidateMaps)
+            {
+                if (!IsActive(candidate.HostMap)) continue;
+                foreach (var facingTile in candidate.FacingTiles)
+                {
+                    if (candidate.HostMap == map)
+                    {
+                        var facing = new List<IntVec3>();
+                        SeamlessEdgeCells.PopulateFacingCells(map, facingTile, facing);
+                        if (!TryFindValidatedCell(facing, validator, out entry)) continue;
+                        plan.EntrySelected = true;
+                        plan.SelectedFacingTile = facingTile;
+                        found = true;
+                        RimExodusLog.Message(RimExodusLogModule.Combat,
+                            $"Raid outer spawn: entry {entry} on target map {map.uniqueID} facing wt={facingTile}.");
+                        return true;
+                    }
+
+                    // B 图必须有可走到 A 侧缝的入口。原生 worker 仍以 A 为 target，故同时
+                    // 要在 A 找到合法临时出生格；迁移在生成后、向玩家展示前完成。
+                    var anchors = new List<IntVec3>();
+                    if (!TryBuildCrossAnchors(candidate.HostMap, facingTile, tileA, anchors)) continue;
+                    if (!TryFindValidatedCell(SeamlessEdgeCells.GetSeamEdgeCellsWithBandFallback(map),
+                            validator, out entry)) continue;
+                    plan.EntrySelected = true;
+                    plan.CrossHostMap = candidate.HostMap;
+                    plan.CrossFacingTile = facingTile;
+                    plan.CrossAnchors = anchors;
+                    found = true;
+                    RimExodusLog.Message(RimExodusLogModule.Combat,
+                        $"Raid outer spawn: entry {entry} on target map {map.uniqueID}; host map " +
+                        $"{candidate.HostMap.uniqueID} facing wt={facingTile} ({anchors.Count} anchors).");
+                    return true;
+                }
+                RimExodusLog.Message(RimExodusLogModule.Combat,
+                    $"Raid outer spawn: no valid entry on candidate map {candidate.HostMap.uniqueID}, trying next map.");
+            }
+
+            Current = null;
+            RimExodusLog.Message(RimExodusLogModule.Combat,
+                $"Raid outer spawn: all candidate maps failed for target map {map.uniqueID}, using normal target-map entry.");
+            return false;
+        }
+
+        /// <summary>
+        /// 少数 arrival mode 直接使用预设 spawnCenter、不调用 4 参边缘选点。
+        /// 原版已经成功在 A 生成了组，此时只需按相同随机地图顺序尝试 B 的入口；
+        /// 遇到 A 候选或所有 B 失败则保留原版落点。
+        /// </summary>
+        private static void SelectMapAfterVanillaEntry(Plan plan)
+        {
+            if (plan == null || plan.EntrySelected || plan.CandidateMaps == null) return;
+            var mapA = plan.TargetMap;
+            if (!IsActive(mapA)) return;
+            var tileA = SeamlessTileRegistry.GetMapWorldTile(mapA);
+            foreach (var candidate in plan.CandidateMaps)
+            {
+                if (!IsActive(candidate.HostMap)) continue;
+                if (candidate.HostMap == mapA)
+                {
+                    plan.EntrySelected = true;
+                    return;
+                }
+                foreach (var facingTile in candidate.FacingTiles)
+                {
+                    var anchors = new List<IntVec3>();
+                    if (!TryBuildCrossAnchors(candidate.HostMap, facingTile, tileA, anchors)) continue;
+                    plan.EntrySelected = true;
+                    plan.CrossHostMap = candidate.HostMap;
+                    plan.CrossFacingTile = facingTile;
+                    plan.CrossAnchors = anchors;
+                    return;
+                }
+            }
+            Current = null;
+        }
+
+        private static bool TryFindValidatedCell(List<IntVec3> cells, Predicate<IntVec3> validator,
+            out IntVec3 result)
+        {
+            result = IntVec3.Invalid;
+            if (cells == null || cells.Count == 0) return false;
+            var scratch = new List<IntVec3>(cells);
+            for (int i = scratch.Count - 1; i > 0; i--)
+            {
+                int j = Rand.Range(0, i + 1);
+                (scratch[i], scratch[j]) = (scratch[j], scratch[i]);
+            }
+            foreach (var cell in scratch)
+            {
+                try
+                {
+                    if (!validator(cell)) continue;
+                    result = cell;
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"[RimExodus] Raid outer spawn entry validation failed at {cell}: {ex}");
+                }
+            }
+            return false;
         }
 
         // =====================================================================
@@ -306,6 +414,16 @@ namespace RimExodus
         internal static bool TryRelocateToHost(IncidentParms parms, List<Pawn> pawns)
         {
             var plan = Current;
+            if (plan != null && !plan.EntrySelected)
+            {
+                try { SelectMapAfterVanillaEntry(plan); }
+                catch (Exception ex)
+                {
+                    Log.Error("[RimExodus] Raid outer spawn host selection failed; keeping target-map spawn: " + ex);
+                    Current = null;
+                    return false;
+                }
+            }
             if (plan?.CrossHostMap == null) return false;
             // 静默守卫的可诊断化（Combat 模块门控）：拒绝迁移的原因必须可见——"按设计排除"
             //（空投/围攻/工兵等）与"坏了"在日志上不可区分的话，回归排查会绕远路。
@@ -465,6 +583,16 @@ namespace RimExodus
             System.Action<Lord> onLordCreated = null)
         {
             var plan = Current;
+            if (plan != null && !plan.EntrySelected)
+            {
+                try { SelectMapAfterVanillaEntry(plan); }
+                catch (Exception ex)
+                {
+                    Log.Error("[RimExodus] Raid outer spawn host selection failed; keeping target-map spawn: " + ex);
+                    Current = null;
+                    return false;
+                }
+            }
             if (plan?.CrossHostMap == null) return false;
             try
             {
@@ -517,7 +645,7 @@ namespace RimExodus
         {
             hostMap = null;
             var plan = Current;
-            // 时效守卫（与 TryGetSameMapFacingCells 同款）：计划生命周期 = 本次 TryExecuteWorker。
+            // 时效守卫（与 TryResolveEntry 同款）：计划生命周期 = 本次 TryExecuteWorker。
             if (GenTicks.TicksGame - plan.CreatedTick > 120)
             {
                 RimExodusLog.Message(RimExodusLogModule.Combat,

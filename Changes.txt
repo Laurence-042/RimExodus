@@ -19,6 +19,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
   Fixed: with “Hide empty colonist bar groups” enabled, many empty maps (such as debris maps from Delta-V ship battles) could shrink colonist portraits and crowd them to the left of the bar. Portraits now lay out correctly for the visible groups.
 - 改进：因活跃敌人而保持全速的地图告警现在可以点击；点击会跳到对应地图并聚焦一名敌人，再次点击可依次查看其他受影响的地图（@omgmub 建议）
   Improved: the alert for maps kept at full speed by active enemies is now clickable. It jumps to the map and focuses an enemy; click again to cycle through other affected maps. (Suggested by @omgmub.)
+- 修复：沿海地区的步行袭击等事件可能选中全是深水的入场边，导致敌人无法出现；现在会继续尝试其他地图和入口，全部候选位置不可用时再尝试受袭地图的常规入口
+  Fixed: walk-in raids and similar events on coastal maps could choose an entry edge covered entirely by deep water, preventing enemies from appearing. They now try other maps and entry points, then try the attacked map's normal entry selection if all candidates fail.
 
 1.0.8
 - 修复：同时看到多张相邻地图时，早晨和黄昏的色调可能在交界处重复叠加，形成过深的色块
