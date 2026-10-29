@@ -66,6 +66,7 @@ namespace RimExodus
             {
                 result = IntVec3.Invalid;
                 __result = false;
+                Log.Warning($"[RimExodus] TryFindRandomEdgeCellWith(4-arg) seam pool empty on map {map.uniqueID}(wt={worldTile}) -> false.");
                 return false;
             }
 
@@ -100,20 +101,17 @@ namespace RimExodus
 
             result = IntVec3.Invalid;
             __result = false;
-            // 诊断插桩（2026-08 远行队"无法离开此区域"排查，verbose）：接缝候选池全灭时记录
+            // 诊断插桩（2026-08 远行队"无法离开此区域"排查）：接缝候选池全灭时记录
             // fogged/unwalkable 分布——validator 是调用方任意谓词，这两项只是提示不是精确归因。
-            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
+            var fogged = 0;
+            var unwalkable = 0;
+            for (int i = 0; i < _scratch.Count; i++)
             {
-                var fogged = 0;
-                var unwalkable = 0;
-                for (int i = 0; i < _scratch.Count; i++)
-                {
-                    if (_scratch[i].Fogged(map)) fogged++;
-                    if (!_scratch[i].Walkable(map)) unwalkable++;
-                }
-                Log.Message($"[RimExodus] TryFindRandomEdgeCellWith(4-arg) seam pool exhausted on map {map.uniqueID}: " +
-                            $"{_scratch.Count} cells ({fogged} fogged, {unwalkable} unwalkable) -> false.");
+                if (_scratch[i].Fogged(map)) fogged++;
+                if (!_scratch[i].Walkable(map)) unwalkable++;
             }
+            Log.Warning($"[RimExodus] TryFindRandomEdgeCellWith(4-arg) seam pool exhausted on map {map.uniqueID}(wt={worldTile}): " +
+                        $"{_scratch.Count} cells ({fogged} fogged, {unwalkable} unwalkable) -> false.");
             return false; // 跳过原版（已用接缝带替换候选池）
         }
 

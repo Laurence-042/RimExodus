@@ -294,6 +294,8 @@ namespace RimExodus
                     SeamlessEdgeCells.PopulateFacingCells(map, plan.SelectedFacingTile, facing);
                     found = TryFindValidatedCell(facing, validator, out entry);
                 }
+                if (!found)
+                    Log.Warning($"[RimExodus] Raid outer spawn: no valid entry for another pawn group on target map {map.uniqueID} after host selection.");
                 return true;
             }
 
@@ -337,8 +339,7 @@ namespace RimExodus
             }
 
             Current = null;
-            RimExodusLog.Message(RimExodusLogModule.Combat,
-                $"Raid outer spawn: all candidate maps failed for target map {map.uniqueID}, using normal target-map entry.");
+            Log.Warning($"[RimExodus] Raid outer spawn: all candidate maps failed for target map {map.uniqueID}, using normal target-map entry.");
             return false;
         }
 
@@ -373,6 +374,7 @@ namespace RimExodus
                 }
             }
             Current = null;
+            Log.Warning($"[RimExodus] Raid outer spawn: no usable host map for target map {mapA.uniqueID} after vanilla entry; keeping target-map spawn.");
         }
 
         private static bool TryFindValidatedCell(List<IntVec3> cells, Predicate<IntVec3> validator,

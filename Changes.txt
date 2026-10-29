@@ -14,13 +14,19 @@ If what you’re really asking is whether I’ll make more RimWorld mods in the 
 well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, I need to refocus on my own game development first. Even if it does get finished, it'll likely flop hard, and I'll just go back to being a corporate drone. Everyone knows how that life goes.
 
 
+1.0.10
+- 修复：沿海地区的步行袭击等事件可能选中全是深水的入场边，导致敌人无法出现；现在会继续尝试其他地图和入口，全部候选位置不可用时再尝试受袭地图的常规入口
+  Fixed: walk-in raids and similar events on coastal maps could choose an entry edge covered entirely by deep water, preventing enemies from appearing. They now try other maps and entry points, then try the attacked map's normal entry selection if all candidates fail.
+- 修复：受伤者的逃生舱有时会坠落在地图接缝上，导致无法救援；现在会优先落在地图内部可到达的位置
+  Fixed: escape pods carrying injured survivors could crash on a map seam, leaving them unreachable. They now favor a reachable landing spot inside the map.
+- 改进：访客、旅行者、贸易商和步行袭击者等单位找不到可用入场位置时，现在会在日志中显示警告，方便排查
+  Improved: when visitors, travelers, traders, walk-in raiders and similar pawns cannot find a usable entry point, the log now shows a warning to help diagnose the failure.
+
 1.0.9
 - 修复：开启“隐藏无人图”后，大量空地图（例如 Delta-V 飞船交战产生的残骸图）可能使殖民者头像缩小并挤在栏位左侧；现在头像会按可见分组正常排列
   Fixed: with “Hide empty colonist bar groups” enabled, many empty maps (such as debris maps from Delta-V ship battles) could shrink colonist portraits and crowd them to the left of the bar. Portraits now lay out correctly for the visible groups.
 - 改进：因活跃敌人而保持全速的地图告警现在可以点击；点击会跳到对应地图并聚焦一名敌人，再次点击可依次查看其他受影响的地图（@omgmub 建议）
   Improved: the alert for maps kept at full speed by active enemies is now clickable. It jumps to the map and focuses an enemy; click again to cycle through other affected maps. (Suggested by @omgmub.)
-- 修复：沿海地区的步行袭击等事件可能选中全是深水的入场边，导致敌人无法出现；现在会继续尝试其他地图和入口，全部候选位置不可用时再尝试受袭地图的常规入口
-  Fixed: walk-in raids and similar events on coastal maps could choose an entry edge covered entirely by deep water, preventing enemies from appearing. They now try other maps and entry points, then try the attacked map's normal entry selection if all candidates fail.
 
 1.0.8
 - 修复：同时看到多张相邻地图时，早晨和黄昏的色调可能在交界处重复叠加，形成过深的色块
