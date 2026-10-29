@@ -15,6 +15,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 
 
 1.0.10
+- 修复：安装 The Dead Man's Switch 时，任务地点的废墟及外围建筑可能刷在可玩区域外、无法到达；现在会寻找能完整容纳建筑的位置，找不到时不再生成残缺建筑
+  Fixed: with The Dead Man's Switch installed, ruins and outlying buildings at quest sites could spawn outside the playable area and be unreachable. They now seek a spot that fits the whole building; if none exists, a clipped building is no longer generated.
 - 修复：机械师从接缝离图组建远行队后，护卫机械族等自动随行者可能被送进已加载的邻图继续往外走；现在会按原版条件从接缝加入远行队，队伍已不可加入时取消入队任务
   Fixed: after a mechanitor left through a seam to form a caravan, escort mechs and other pawns automatically joining a caravan could be sent into a loaded neighboring map and keep moving away. They now join through the seam under vanilla rules, cancelling the joining job if the caravan is no longer available.
 - 修复：沿海地区的步行袭击等事件可能选中全是深水的入场边，导致敌人无法出现；现在会继续尝试其他地图和入口，全部候选位置不可用时再尝试受袭地图的常规入口

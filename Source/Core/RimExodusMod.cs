@@ -85,6 +85,10 @@ namespace RimExodus
             // GenerateMapPostfixReplay 复放机制提供，见 IncrementalMapGenerator.FinishGeneration）。
             SeamlessVEFCompat.Register(harmony);
 
+            // DMS / FFF 站点结构选点：散布建筑、卫星与主建筑完整足迹均须
+            // 避开 void 和接缝带。两者未装时零行为；绑定失败只降级并告警。
+            SeamlessDMSCompat.Register(harmony);
+
             // Combat Extended replaces both the firing verb and projectile implementation.  Its adapter is
             // entirely reflection-bound so CE remains optional; individual signature drift only disables the
             // affected CE hook and is reported without aborting RimExodus startup.
