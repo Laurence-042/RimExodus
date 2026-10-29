@@ -79,8 +79,15 @@ namespace RimExodus
             /// </summary>
             public LordJob PrevLordJob;
 
-            /// <summary>Evacuation：撤离链已访问的世界 tile（方向性 + 防回弹），跨 hop 传递复用。</summary>
+            /// <summary>Evacuation：撤离链已访问的世界 tile（防回弹），跨 hop 传递复用。</summary>
             public HashSet<int> VisitedTiles;
+
+            // 首跳记录任务起点；真正过缝时由实际出口确定方向，之后整条链保持方向。
+            // 相邻坐标系只平移，方向向量无需转换。均为随许可销毁的运行时状态。
+            public IntVec3 EvacuationOrigin = IntVec3.Invalid;
+            public IntVec3 EvacuationDirection = IntVec3.Zero;
+            public bool CanBashDoors;
+            public bool CanBashFences;
 
             /// <summary>从原撤离 job 复制的移动速度档，续程沿用。</summary>
             public LocomotionUrgency Locomotion = LocomotionUrgency.Jog;
@@ -162,6 +169,9 @@ namespace RimExodus
             if (pawn == null || pawn.Map == null) return;
             var grant = Create(pawn, GrantKind.Evacuation);
             grant.Locomotion = evacJob.locomotionUrgency;
+            grant.EvacuationOrigin = pawn.Position;
+            grant.CanBashDoors = evacJob.canBashDoors;
+            grant.CanBashFences = evacJob.canBashFences;
             grant.VisitedTiles = new HashSet<int> { SeamlessTileRegistry.GetMapWorldTile(pawn.Map) };
 
             // 2026-09 插桩（"caravans stuck on the border"排查）：记录离场者身份（lord 类型 + duty）——
@@ -216,7 +226,7 @@ namespace RimExodus
                     ContinueBridgeMove(pawn, arrivalMap, grant);
                     break;
                 case GrantKind.Evacuation:
-                    ContinueEvacuationChain(pawn, departureMap, arrivalMap, grant);
+                    ContinueEvacuationChain(pawn, departureMap, departureSpot, arrivalMap, grant);
                     break;
                 case GrantKind.Pursue:
                 case GrantKind.Follow:
@@ -414,19 +424,29 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// 撤离链续程（行为表待办②方向性）：在对端地图选一个远离来向接缝的出口——
-        /// 排除 VisitedTiles（来向 + 已访问边，防回弹/横跳），优先对端未加载的边（到达即原生离场，链终止最快），
-        /// 组内取最近可达 spot。无未访问出口 → 回退最近可达 spot + ForceExit（踩点直接原生离场）。
+        /// 撤离链续程：保留首次撤离方向，按前进距离/路径成本选择未访问出口。
+        /// 加载状态只决定踩点后的传送/离场，不参与选点。无未访问出口才 ForceExit 兜底。
         /// 续程 job 不带 exitMapOnArrival：传送落点本身常是出口格，flag job 的 pre-tick IsExitCell
         /// 检查会在落地瞬间原生离场，破坏"继续跑"；离场动作改由踩点分派（SelfDriven + !hasArrival → ExitMap）。
         /// </summary>
-        private static void ContinueEvacuationChain(Pawn pawn, Map departureMap, Map arrivalMap, Grant grant)
+        private static void ContinueEvacuationChain(Pawn pawn, Map departureMap, Thing departureSpot, Map arrivalMap, Grant grant)
         {
             var visited = grant.VisitedTiles ?? new HashSet<int>();
             visited.Add(SeamlessTileRegistry.GetMapWorldTile(departureMap));
             visited.Add(SeamlessTileRegistry.GetMapWorldTile(arrivalMap));
 
-            if (!TryFindEvacuationExit(pawn, arrivalMap, visited, out var destSpot, out var forceExit))
+            if (grant.EvacuationDirection == IntVec3.Zero)
+            {
+                if (grant.EvacuationOrigin.IsValid)
+                    grant.EvacuationDirection = departureSpot.Position - grant.EvacuationOrigin;
+                // 起点恰在出口时没有行程向量，用这次实际跨图的几何方向初始化。
+                if (grant.EvacuationDirection == IntVec3.Zero
+                    && SeamlessViewProjection.TryProject(departureMap, departureMap.Center, arrivalMap, out IntVec3 fromCenter))
+                    grant.EvacuationDirection = arrivalMap.Center - fromCenter;
+            }
+
+            if (!TryFindEvacuationExit(pawn, arrivalMap, visited, grant.EvacuationDirection,
+                grant.CanBashDoors, grant.CanBashFences, out var destSpot, out var forceExit))
             {
                 // 极端兜底：本图无任何可达出口（孤立地形）。不登记，交还原版 think tree；
                 // Grant 已消费，后续 job 启动不会误触发。
@@ -442,78 +462,96 @@ namespace RimExodus
             var next = Create(pawn, GrantKind.Evacuation);
             next.VisitedTiles = visited;
             next.Locomotion = grant.Locomotion;
+            next.EvacuationDirection = grant.EvacuationDirection;
+            next.CanBashDoors = grant.CanBashDoors;
+            next.CanBashFences = grant.CanBashFences;
             next.SelfDriven = true;
             next.BoundSpot = destSpot;
             next.ForceExit = forceExit;
 
             if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
                 Log.Message($"[RimExodus] [caravan-exit] Evacuation chain: {pawn.LabelShort} continues on map {arrivalMap.uniqueID} "
-                    + $"toward exit {destSpot} (forceExit={forceExit}, visited={visited.Count}).");
+                    + $"toward exit {destSpot} (direction={next.EvacuationDirection}, forceExit={forceExit}, visited={visited.Count}).");
 
-            IssueTransitGoto(pawn, destSpot, grant.Locomotion);
+            IssueTransitGoto(pawn, destSpot, grant.Locomotion, grant.CanBashDoors, grant.CanBashFences);
         }
 
         /// <summary>
-        /// 在 map 上为撤离链选出口 spot。
-        /// 候选过滤（按优先级）：① 对端未加载的边（未访问）；② 对端已加载的边（未访问，链继续）；
-        /// ③ 无过滤（只剩已访问边，forceExit=true）。各级内取距 pawn 最近且 pawn 可达的 spot。
+        /// 单次泛洪估算本图出口成本，再以原生/VF 可达性验证排序后的候选。
+        /// 优先未访问且向前推进效率最高的出口；无前向出口则选最便宜的侧向/后退出口，
+        /// 最后才用已访问出口 ForceExit。零方向用于尚未选过出口的游荡者，按成本初始化。
         /// </summary>
-        private static bool TryFindEvacuationExit(Pawn pawn, Map map, HashSet<int> visited, out IntVec3 destSpot, out bool forceExit)
+        private static bool TryFindEvacuationExit(Pawn pawn, Map map, HashSet<int> visited,
+            IntVec3 direction, bool canBashDoors, bool canBashFences, out IntVec3 destSpot, out bool forceExit)
         {
             destSpot = IntVec3.Invalid;
             forceExit = false;
             var spotDef = EnterSpotDef;
             if (spotDef == null) return false;
 
-            var candidates = new List<(IntVec3 cell, int tile, int distSq)>();
+            var cells = new List<IntVec3>();
+            var tiles = new List<int>();
             foreach (var thing in map.listerThings.ThingsOfDef(spotDef))
             {
                 var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
-                if (comp == null) continue;
-                candidates.Add((thing.Position, comp.targetWorldTile, pawn.Position.DistanceToSquared(thing.Position)));
+                // 脚下出口无法再触发 nextCell；候选必须是一次实际移动能进入的格。
+                if (comp == null || thing.Position == pawn.Position) continue;
+                cells.Add(thing.Position);
+                tiles.Add(comp.targetWorldTile);
             }
-            if (candidates.Count == 0) return false;
-            candidates.Sort((a, b) => a.distSq.CompareTo(b.distSq));
+            if (cells.Count == 0) return false;
 
-            var traverseParms = TraverseParms.For(pawn);
-            for (var tier = 0; tier < 3; tier++)
+            var traverseParms = TraverseParms.For(pawn, Danger.Deadly, TraverseMode.ByPawn,
+                canBashDoors, canBashFences: canBashFences);
+            var costs = SeamlessPathCostField.FloodCosts(map, pawn.Position, cells, pawn, traverseParms);
+            var candidates = new List<(IntVec3 cell, SeamlessEvacuationExitScore score)>();
+            for (var i = 0; i < cells.Count; i++)
             {
-                foreach (var (cell, tile, _) in candidates)
-                {
-                    if (tier < 2 && visited.Contains(tile)) continue;
-                    if (tier == 0 && SeamlessTileGraph.TryGetMapByWorldTile(tile, out _)) continue;
-                    if (!map.reachability.CanReach(pawn.Position, cell, PathEndMode.OnCell, traverseParms)) continue;
+                if (costs[i] <= 0 || costs[i] == int.MaxValue) continue;
+                var delta = cells[i] - pawn.Position;
+                long progress = (long)delta.x * direction.x + (long)delta.z * direction.z;
+                candidates.Add((cells[i], new SeamlessEvacuationExitScore(progress, costs[i], visited.Contains(tiles[i]))));
+            }
+            candidates.Sort((a, b) =>
+            {
+                var order = a.score.CompareTo(b.score);
+                if (order != 0) return order;
+                order = a.cell.x.CompareTo(b.cell.x);
+                return order != 0 ? order : a.cell.z.CompareTo(b.cell.z);
+            });
 
-                    destSpot = cell;
-                    forceExit = tier == 2;
-                    return true;
-                }
+            var isVehicle = SeamlessVehiclesCompat.IsVehicle(pawn);
+            foreach (var (cell, score) in candidates)
+            {
+                var reachable = isVehicle
+                    ? SeamlessVehiclesCompat.CanReachLocal(pawn, map, pawn.Position, cell)
+                    : map.reachability.CanReach(pawn.Position, cell, PathEndMode.OnCell, traverseParms);
+                if (!reachable) continue;
+                destSpot = cell;
+                forceExit = score.Visited;
+                if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
+                    Log.Message($"[RimExodus] [caravan-exit] Evacuation exit selected: {pawn.LabelShort} on map {map.uniqueID} "
+                        + $"at {pawn.Position} -> {cell}, direction={direction}, progress={score.Progress}, cost={score.PathCost}, forceExit={forceExit}.");
+                return true;
             }
 
-            // 2026-09 插桩（"caravans stuck on the border"排查）：三级候选全灭时统计口径——
-            // 区分"spot 全部从 pawn 位置不可达"（地形封闭/被围）与"仅因 visited/对端已加载被排除"。
             if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
             {
-                var unreachable = 0;
-                var standable = 0;
-                foreach (var (cell, _, _) in candidates)
-                {
-                    if (!cell.Standable(map)) continue;
-                    standable++;
-                    if (!map.reachability.CanReach(pawn.Position, cell, PathEndMode.OnCell, traverseParms)) unreachable++;
-                }
                 Log.Message($"[RimExodus] [caravan-exit] Evacuation exit search failed: no exit for {pawn.LabelShort} on map {map.uniqueID} "
-                    + $"(spots total={candidates.Count} standable={standable} standableButUnreachable={unreachable} visitedTiles={visited.Count}).");
+                    + $"(spots={cells.Count}, finiteCostCandidates={candidates.Count}, visitedTiles={visited.Count}, direction={direction}).");
             }
             return false;
         }
 
         /// <summary>下发 TransitTag Goto（Grant 驱动 job）。dutyTag 自标识使 StartJob 钩子不清除对应 Grant。</summary>
-        private static void IssueTransitGoto(Pawn pawn, IntVec3 spotCell, LocomotionUrgency locomotion)
+        private static void IssueTransitGoto(Pawn pawn, IntVec3 spotCell, LocomotionUrgency locomotion,
+            bool canBashDoors = false, bool canBashFences = false)
         {
             var job = JobMaker.MakeJob(JobDefOf.Goto, spotCell);
             job.dutyTag = TransitTag;
             job.locomotionUrgency = locomotion;
+            job.canBashDoors = canBashDoors;
+            job.canBashFences = canBashFences;
             pawn.jobs.StartJob(job, JobCondition.InterruptForced);
         }
 
@@ -662,11 +700,18 @@ namespace RimExodus
 
             var visited = new HashSet<int>();
             if (fromTile >= 0) visited.Add(fromTile);
+            visited.Add(SeamlessTileRegistry.GetMapWorldTile(map));
 
-            if (!TryFindEvacuationExit(pawn, map, visited, out var destSpot, out var forceExit)) return;
+            // 游荡者没有原生撤离起点。优先延续来图方向；来图已不可用时按成本选首出口。
+            var direction = IntVec3.Zero;
+            if (SeamlessTileGraph.TryGetMapByWorldTile(fromTile, out var fromMap)
+                && SeamlessViewProjection.TryProject(fromMap, fromMap.Center, map, out IntVec3 fromCenter))
+                direction = map.Center - fromCenter;
+            if (!TryFindEvacuationExit(pawn, map, visited, direction, false, false, out var destSpot, out var forceExit)) return;
 
             var grant = Create(pawn, GrantKind.Evacuation);
             grant.VisitedTiles = visited;
+            grant.EvacuationDirection = direction == IntVec3.Zero ? destSpot - pawn.Position : direction;
             grant.SelfDriven = true;
             grant.BoundSpot = destSpot;
             grant.ForceExit = forceExit;

@@ -17,8 +17,8 @@ namespace RimExodus
     /// - 进入格成本 ≥ ImpassableCost(10000) 时不可入；
     /// - 步进 = pawn.TicksPerMoveCardinal/Diagonal（pawn 为 null → 13/18，同 PathFinder 默认常量）；
     /// - 对角切角规则 = 两侧 cardinal 均须可入（原版另查 building/fence 位图，此处近似为成本判定）。
-    /// 刻意不复刻逐请求层：关门砸门成本、挡路 pawn +175（Cost_Blocked）、locomotion urgency、
-    /// avoid/allowed 网格——只影响"选哪个过缝传送点"的近似精度；
+    /// 默认不复刻逐请求层；撤离可传 traversal，复用原版建筑成本与破门/破栅栏权限。
+    /// 挡路 pawn +175（Cost_Blocked）、locomotion urgency、avoid/allowed 网格仍不计入估价；
     /// 段内执行仍由原版 A* 完成，合法性不受影响。
     /// </summary>
     public static class SeamlessPathCostField
@@ -26,8 +26,13 @@ namespace RimExodus
         /// <summary>
         /// 从 start 泛洪，返回与 targets 对齐的通行成本数组（不可达 = int.MaxValue）。
         /// 目标格全部 settle 或前沿耗尽即提前结束；越界的 target 保持不可达。
+        /// traversal 可选：使用将要下发的任务权限估算建筑成本，避免依赖此时仍在结束的旧 job。
         /// </summary>
         public static int[] FloodCosts(Map map, IntVec3 start, List<IntVec3> targets, Pawn pawn)
+            => FloodCosts(map, start, targets, pawn, null);
+
+        internal static int[] FloodCosts(Map map, IntVec3 start, List<IntVec3> targets, Pawn pawn,
+            TraverseParms? traversal)
         {
             var results = new int[targets.Count];
             var indices = map.cellIndices;
@@ -60,7 +65,7 @@ namespace RimExodus
 
             // 主体差异只在成本源构造处派发；Dijkstra 热循环不认识飞行、游泳或 VF 类型。
             // VF 网格若尚未生成，这里以 Urgent 同步就绪化后再读取，避免默认零值假阳性。
-            var costSource = CreateCostSource(map, pawn);
+            var costSource = CreateCostSource(map, pawn, traversal);
             if (costSource == null) return results;
 
             var heap = new List<(int cost, int index)>(1024);
@@ -138,14 +143,14 @@ namespace RimExodus
         /// 格成本提供器是第三方移动系统的维护边界：新增特殊移动主体只需在这里增加一种成本源，
         /// 泛洪、候选排序与桥接执行均无需知道其类型。
         /// </summary>
-        private static ICellCostSource CreateCostSource(Map map, Pawn pawn)
+        private static ICellCostSource CreateCostSource(Map map, Pawn pawn, TraverseParms? traversal = null)
         {
             if (pawn != null && SeamlessVehiclesCompat.IsVehicle(pawn))
             {
                 if (!SeamlessVehiclesCompat.EnsureGridsReady(pawn, map)) return null;
                 return new VehicleCellCostSource(map, pawn);
             }
-            return new PawnCellCostSource(map, pawn);
+            return new PawnCellCostSource(map, pawn, traversal);
         }
 
         private interface ICellCostSource
@@ -163,12 +168,19 @@ namespace RimExodus
             private readonly Pawn pawn;
             private readonly PathGrid pathGrid;
             private readonly int? waterCellCost;
+            private readonly TraverseParms? traversal;
 
-            internal PawnCellCostSource(Map map, Pawn pawn)
+            internal PawnCellCostSource(Map map, Pawn pawn, TraverseParms? traversal)
             {
                 this.map = map;
                 this.pawn = pawn;
-                pathGrid = pawn == null ? map.pathing.Normal.pathGrid : map.pathing.For(pawn).pathGrid;
+                this.traversal = traversal;
+                // 撤离选点发生在新 Goto 创建前，不能让旧 CurJob 决定破栅栏权限。
+                // 只校正原生 Normal/FenceBlocked 选择，保留 Flying 与第三方自定义网格。
+                var context = pawn == null ? map.pathing.Normal : map.pathing.For(pawn);
+                if (traversal.HasValue && (context == map.pathing.Normal || context == map.pathing.FenceBlocked))
+                    context = map.pathing.For(traversal.Value);
+                pathGrid = context.pathGrid;
                 waterCellCost = pawn?.WaterCellCost;
             }
 
@@ -177,9 +189,15 @@ namespace RimExodus
                 if (pawn == null) return pathGrid.Cost(to);
                 var terrain = map.terrainGrid.TerrainAt(to);
                 var waterCost = terrain != null && terrain.IsWater ? waterCellCost : null;
-                return waterCost.HasValue
+                var cost = waterCost.HasValue
                     ? pathGrid.CalculatedCostAt(to, perceivedStatic: true, from, waterCost)
                     : pathGrid.Cost(to);
+                if (cost >= PathGrid.ImpassableCost || !traversal.HasValue) return cost;
+                var building = map.edificeGrid[to];
+                if (building == null) return cost;
+                // 复用原版开门/破门/破栅栏及 IPathFindCostProvider 规则，不复制权限判断。
+                var buildingCost = PathUtility.GetBuildingCost(building, traversal.Value, pawn, null);
+                return buildingCost == ushort.MaxValue ? PathGrid.ImpassableCost : cost + buildingCost;
             }
         }
 

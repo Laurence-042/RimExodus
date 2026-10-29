@@ -15,6 +15,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 
 
 1.0.10
+- 修复：敌人和访客跨地图撤离时容易转向并贴着接缝走；现在会沿用撤离方向，结合地形选择路线，前方无路时仍能绕行，并保留原有的破门能力
+  Fixed: enemies and visitors could turn and hug map seams while leaving across multiple maps. They now retain their escape direction and account for terrain when choosing exits, with fallback routes when forward exits are unreachable and their original door-bashing ability preserved.
 - 修复：安装 The Dead Man's Switch 时，任务地点的废墟及外围建筑可能刷在可玩区域外、无法到达；现在会寻找能完整容纳建筑的位置，找不到时不再生成残缺建筑
   Fixed: with The Dead Man's Switch installed, ruins and outlying buildings at quest sites could spawn outside the playable area and be unreachable. They now seek a spot that fits the whole building; if none exists, a clipped building is no longer generated.
 - 修复：机械师从接缝离图组建远行队后，护卫机械族等自动随行者可能被送进已加载的邻图继续往外走；现在会按原版条件从接缝加入远行队，队伍已不可加入时取消入队任务
