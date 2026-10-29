@@ -20,8 +20,8 @@ namespace RimExodus
     /// 对端已加载 → 传送续链（双图缝上可见地跨缝继续跑，主计划理想场景）；对端未加载/休眠 →
     /// 在缝线上原生离场（Q4"不唤醒"决议不变，仅离场点从带内圈挪到缝线）。
     ///
-    /// 安全网（全部放行原版，勿删）：无许可 / 非 Evacuation 许可（玩家 pawn 不登记、机械族例外
-    /// 无 flag——原版语义零变化）；已站在传送点上（tier0 原生交接与"传送被拒后 flag job 的到站
+    /// 安全网（全部放行原版，勿删）：无许可 / 非 Evacuation 许可（玩家直接撤离及必须入队的
+    /// 自动离图任务不登记，保留原版语义）；已站在传送点上（tier0 原生交接与"传送被拒后 flag job 的到站
     /// 兜底"都依赖此处离场）；job 目标非传送点（出口重定向失败放行原版方形边格的兜底路径）。
     /// 许可 6000t 超时兜底（<see cref="SeamlessTransferGrants.TickSweep"/>）保证推迟态不可能永久卡死。
     /// 已知小边界（接受）：撤离 job 下发时人恰好已站在 spot 上 → 原地缝上离场，不做即席分派；
@@ -39,7 +39,7 @@ namespace RimExodus
             if (!SeamlessTransferGrants.TryGet(pawn, out var grant)
                 || grant.Kind != SeamlessTransferGrants.GrantKind.Evacuation)
             {
-                return true; // 玩家 pawn / 无撤离许可：原版语义零变化。
+                return true; // 玩家直接撤离 / 自动入队 / 无撤离许可：保留原版语义。
             }
 
             // 已站在传送点上：放行——tier0 原生交接（HandleEvacuation 的"JobDriver pre-tick 在此

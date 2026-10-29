@@ -12,7 +12,7 @@ namespace RimExodus
     ///
     /// 阶段4a：玩家强制 Goto 指令额外触发边界预加载检测（仅 playerForced，避免动物级联加载）。
     /// 阶段5：传送许可（Grant）生命周期——状态变更即登记/失效，见 <see cref="SeamlessTransferGrants"/>：
-    /// ① NPC 撤离 job（exitMapOnArrival 且非 playerForced）→ 登记 Evacuation 许可；
+    /// ① 普通撤离 job（非玩家强制、非必须入队）→ 登记 Evacuation 许可；
     /// ② 任何非 TransitTag job 启动 → 旧许可失效（驱动 job 被替换/打断/完成）。
     /// </summary>
     [HarmonyPatch(typeof(Pawn_JobTracker), nameof(Pawn_JobTracker.StartJob))]
@@ -33,11 +33,14 @@ namespace RimExodus
                 SeamlessTransferGrants.Remove(___pawn);
             }
 
-            // NPC 撤离 job 登记（撤离 duty/囚犯越狱/野性恐慌/释放访客）。
-            // playerForced 精确区分玩家征召 goto（TryTakeOrderedJob 统一设 true）：
-            // 玩家撤离不登记 → 踩传送点走原生撤离/组队（行为表行 1）。
+            // 按离图目的登记：玩家直接下令撤离，以及必须加入远行队的自动离图任务，均交还原版。
+            // failIfCantJoinOrCreateCaravan 是原版的入队契约（护卫机械族与公共自动入队子树共用）：
+            // 队伍不可加入时应取消任务。若登记 Evacuation，跨图续程会丢失这项失败条件，
+            // 把随行者当成普通撤离者一路赶出已加载区域。勿按物种/giver 类型或当前有无队伍特判。
+            // 普通撤离（撤离 duty/囚犯越狱/野性恐慌/释放访客）仍跨过已加载邻图继续跑。
             // 清理在登记前——天然处理 job 重发/队列复用（先清旧再建新）。
-            if (newJob.exitMapOnArrival && !newJob.playerForced)
+            if (newJob.exitMapOnArrival && !newJob.playerForced
+                && !newJob.failIfCantJoinOrCreateCaravan)
             {
                 SeamlessTransferGrants.RegisterEvacuation(___pawn, newJob);
             }

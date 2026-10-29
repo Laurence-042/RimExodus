@@ -132,7 +132,7 @@ RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_ref
 - Follow/FollowClose 一律不得以跨图目标原生下发（JobDriver 跨图预约/寻路必失败循环，与 AttackMelee 同教训）。拦截点在 giver 基类 `JobGiver_AIFollowPawn.TryGiveJob`（`Patches_FollowGiver`，派生含 `JobGiver_AIFollowOverseer` 经 base 调用覆盖）：邻接可桥接 → 结构化 `Goto(followee)` 经 StartPath 桥接（approach-goto 在战斗链接缺失时按几何投影放行，战斗开关不关死跟随）；非邻接/不可桥接/duty 语境 → null。duty 语境 NPC 随从只走 `MarkFollowers` 瞬间扫描（ThinkNode_Duty 会抹 think-tree job 的 dutyTag，桥接 TransitTag 自标识不安全）；Follow 许可落地以 `FollowTarget` 在本图判"有目的"免游荡清扫。
 - 跨图寻路只支持单跳。桥点选择使用双侧代价场；普通 Pawn 与 VF 载具必须使用各自的路径成本源和准入规则。
 - 外部 Mod 若用多个 spawned Pawn 表示一个移动主体，使用 `SeamlessTransferAssociations` provider 扩展；关联 Pawn 复用 `TryTransferPawnInternal(captureAssociations:false)`，不要在核心硬编码外部字段。Giddy-Up 恢复骑乘前必须结束旧图的 Mounted job，再调用其即时 GoMount。
-- NPC 撤离目标是传送点时，`JobDriver_Goto.TryExitMap` 在到达 spot 前推迟原生离场；对端活跃则跨图续链，对端未加载/休眠则在缝线上交还原生离场。不要按 lord 类型拆分这条共同链。
+- 离图按原版任务契约区分普通撤离与必须入队（见 `doc/边界行为表.md`），不要按物种、lord 或 giver 类型列例外。普通撤离目标是传送点时，`JobDriver_Goto.TryExitMap` 在到达 spot 前推迟原生离场；对端活跃则跨图续链，对端未加载/休眠则在缝线上交还原生离场。
 - 跨图战斗覆盖原版/CE 的移动 projectile（含 flyOverhead）、CE instant RayCast 与纯格目标。坐标、LOS、射程和弹道以射手图统一坐标计算，逐格阻挡按归属图路由；爆炸 AoE 只在实际落点图原生结算，休眠邻图不可参与战斗。
 - 弹丸在 `Projectile.TickInterval` Prefix 于越缝前迁移 Map，保持 origin/destination 平移和剩余飞行状态；交接后命中与爆炸交回原版目标图处理。
 - `SeamlessVirtualTeleporter` 的评估窗口必须直写并恢复 `mapIndexOrState` 与 `positionInt`，禁止用 `Position` setter 触发两图网格簿记。

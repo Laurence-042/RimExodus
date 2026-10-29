@@ -153,9 +153,8 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// NPC 撤离 job 登记（StartJob 钩子调用）：撤离 duty / 囚犯越狱 / 野性恐慌 / 释放访客——
-        /// exitMapOnArrival 且非 playerForced（playerForced 精确区分玩家征召 goto：
-        /// 原版 5 个 flag 赋值点中只有 DraftedMove.PawnGotoAction 走 TryTakeOrderedJob 设 playerForced）。
+        /// 普通撤离 job 登记（StartJob 钩子调用）：撤离 duty / 囚犯越狱 / 野性恐慌 / 释放访客。
+        /// 调用方已按 job 契约排除玩家强制撤离及必须加入远行队的任务，后者保留原版入队/失败语义。
         /// 首跳不绑具体点：首个踩到的传送点，对端已加载 → 传送续链；对端未生成 → 交还原生撤离。
         /// </summary>
         internal static void RegisterEvacuation(Pawn pawn, Job evacJob)
@@ -166,7 +165,7 @@ namespace RimExodus
             grant.VisitedTiles = new HashSet<int> { SeamlessTileRegistry.GetMapWorldTile(pawn.Map) };
 
             // 2026-09 插桩（"caravans stuck on the border"排查）：记录离场者身份（lord 类型 + duty）——
-            // 撤离链对袭击者撤退与访客/商队离场一视同仁（一切 exitMapOnArrival 且非 playerForced 的 job），
+            // 撤离链对袭击者撤退与访客/商队离场一视同仁（入队意图已在 StartJob 处排除），
             // 本行用于区分"谁在离场"：LordJob_TradeWithColony / LordJob_VisitColony / 无 lord（游荡）等。
             // 日志统一走 [caravan-exit] 标签（2026-09 规范化：玩家日志里一眼可辨是商队/访客离场链行为）。
             if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
