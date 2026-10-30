@@ -62,6 +62,7 @@ RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_ref
 - `offset` 的唯一含义是“邻居局部坐标到本地图局部坐标”的平移：`neighborLocal + offset = myLocal`。反向映射为 `neighborLocal = myLocal - offset`。
 - 邻接登记必须通过 `SeamlessNeighborRegistry` 双向维护；查询通过 `SeamlessTileGraph`。休眠图在运行时邻接/显示口径中视为不可用，但其 Map 仍存在。
 - 地图间绘制投影只使用 `SeamlessViewProjection.TryProject(sourceMap, sourceLocal, destinationMap, out projected)`。调用方必须显式给出目标坐标系；不要增加含糊的 `ToCurrent` 包装、手写 `+offset`，或在调用处自行遍历邻居。
+- 第三方离散格算法的跨图接入统一经 `SeamlessSpatialQueries` 对接 REF `MapCellSpace`。RE 提供活跃 Surface 直接邻居、多边形归属和上述投影入口；渲染可见性、战斗开关与格子可用性不得混用。结果回写真实地图，先完成各图本地重算再合并跨图贡献，避免更新顺序抹掉视野。方法论见同级 REF `doc/跨图空间查询.md`，SS 接入见 [Surveillance Shift 跨图视野](doc/SurveillanceShift跨图视野.md)。
 - 8 邻环使用 `GenAdj.AdjacentCells`，含中心 9 格使用 `GenAdj.AdjacentCellsAndInside`，切比雪夫距离使用 `SeamlessGridMath.ChebyshevDistance`。半径大于 1 的方窗若需显式循环，注释应指明同一口径。
 
 ## 6. 接缝几何、地形与生成

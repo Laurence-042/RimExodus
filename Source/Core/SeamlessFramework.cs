@@ -22,6 +22,7 @@ namespace RimExodus
 
         internal static void ConfigureGame()
         {
+            SeamlessSpatialQueries.Configure();
             if (!Enabled) return;
             SeamlessDormancyManager.ResetForGame();
             SeamlessTickThrottle.ResetForGame();

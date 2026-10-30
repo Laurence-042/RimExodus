@@ -99,6 +99,7 @@ namespace RimExodus
             // IsPawnValid 判无效导致动画启动即销毁；放行"持有者为影子且宿主图 == 动画图"。
             // 成功标志 = "Melee Animation compat: bound IsPawnValid shadow-caravan allowance"。
             SeamlessMeleeAnimationCompat.Register(harmony);
+            SeamlessSurveillanceCompat.Register(harmony);
 
             // Colony Groups replaces the visible bar with its own cache; filter that cache as well.
             SeamlessColonyGroupsCompat.Register(harmony);

@@ -14,6 +14,10 @@ test-ref:
 test-compat:
     powershell.exe -NoProfile -File build/TestCompat.ps1
 
+# Unmodified SS reference algorithms with host fixtures; no game launch.
+test-ss:
+    powershell.exe -NoProfile -File build/TestSurveillance.ps1
+
 # 构建正式版并打包到兄弟目录 ../RimExodus.release（仓库外，不含 doc/.git/源码）。
 # About.xml 去掉 Dev 标记（name 的 " Dev" 与 packageId 的 ".Dev"）后写入。
 release version="1.7":

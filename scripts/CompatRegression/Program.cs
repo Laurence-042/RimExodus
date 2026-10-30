@@ -32,7 +32,7 @@ public static class Audit
         var harmony = new Harmony("RE.Regression.Compat");
         try
         {
-            foreach (string name in new[] { "SeamlessPerspectiveShiftCompat", "SeamlessVehiclesCompat", "SeamlessVEFCompat", "SeamlessDMSCompat", "SeamlessGLRiverCompat" })
+            foreach (string name in new[] { "SeamlessPerspectiveShiftCompat", "SeamlessVehiclesCompat", "SeamlessVEFCompat", "SeamlessDMSCompat", "SeamlessGLRiverCompat", "SeamlessSurveillanceCompat" })
             {
                 assembly.GetType("RimExodus." + name, true)!.GetMethod("Register", statics)!.Invoke(null, new object[] { harmony });
                 Check(!harmony.GetPatchedMethods().Any(), "absent adapter is inert: " + name);

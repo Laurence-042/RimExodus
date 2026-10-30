@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><RimWorldVersion>1.7</RimWorldVersion></PropertyGroup>
+  <Import Project="../../build/RimWorldReferences.props" />
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType><ImplicitUsings>enable</ImplicitUsings>
+    <SSReferenceSource Condition="'$(SSReferenceSource)' == ''">../../../_references/Surveillance-Shift.installed/1.6/Source</SSReferenceSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Source/RimExodus.csproj" />
+    <ProjectReference Include="../../../RimExodusFramework/Source/RimExodus.Maps.csproj" />
+    <Compile Include="$(SSReferenceSource)/ShadowCaster.cs" Link="Reference/ShadowCaster.cs" />
+    <Compile Include="$(SSReferenceSource)/ScopeView.cs" Link="Reference/ScopeView.cs" />
+  </ItemGroup>
+</Project>
