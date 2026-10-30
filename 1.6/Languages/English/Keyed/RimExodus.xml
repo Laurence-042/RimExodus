@@ -245,4 +245,18 @@ SAVE NOW. After saving, RimExodus can be safely removed.</RimExodus_UninstallRes
   <RimExodus_SettingsFrameworkTip>Use RimExodus Framework for shared map services. Disabled by default during validation. Restart the game after changing this setting; disable and restart to return to the legacy backend. Keep the Framework mod enabled in both modes.</RimExodus_SettingsFrameworkTip>
   <RimExodus_SettingsNativeRenderingLabel>High-compatibility vanilla neighbor rendering</RimExodus_SettingsNativeRenderingLabel>
   <RimExodus_SettingsNativeRenderingTip>Enabled: render visible neighbors through their normal map update and drawing callbacks, including mod overlays. Disabled: use the selective custom renderer (default). Takes effect immediately and works with either map backend. May cost more performance; mods with private camera state or full-screen effects may still need adaptation.</RimExodus_SettingsNativeRenderingTip>
+  <RimExodus_RenderTraceStart>Capture neighbor rendering diagnostics (60 seconds)</RimExodus_RenderTraceStart>
+  <RimExodus_RenderTraceStop>Stop rendering capture</RimExodus_RenderTraceStop>
+  <RimExodus_RenderTraceTip>RimWorld 1.7, with high-compatibility neighbor rendering enabled. Close settings, move or rotate the camera along the flickering edge, then focus that same map and repeat. Samples CPU draw submissions without changing rendering; may briefly reduce frame rate. Stops automatically after 60 seconds or when the file limit is reached.</RimExodus_RenderTraceTip>
+  <RimExodus_RenderTraceUnavailable>Load a map and enable high-compatibility vanilla neighbor rendering first.</RimExodus_RenderTraceUnavailable>
+  <RimExodus_RenderTraceStarted>Rendering capture started. Close settings and reproduce the issue. File: {0}</RimExodus_RenderTraceStarted>
+  <RimExodus_RenderTraceFailed>Could not start rendering capture. See the game log for details.</RimExodus_RenderTraceFailed>
+  <RimExodus_RenderTracePath>Last rendering capture: {0}</RimExodus_RenderTracePath>
+  <RimExodus_RenderIsolationSelect>Single-map drawing comparison: {0}</RimExodus_RenderIsolationSelect>
+  <RimExodus_RenderIsolationAll>Show all maps normally</RimExodus_RenderIsolationAll>
+  <RimExodus_RenderIsolationMap>Show only map {0}</RimExodus_RenderIsolationMap>
+  <RimExodus_RenderIsolationOption>Show only map {0} ({1})</RimExodus_RenderIsolationOption>
+  <RimExodus_RenderIsolationFocus>focused</RimExodus_RenderIsolationFocus>
+  <RimExodus_RenderIsolationNeighbor>neighbor</RimExodus_RenderIsolationNeighbor>
+  <RimExodus_RenderIsolationTip>Temporary comparison: keep the selected map's position, camera and update callbacks, hiding draws from other known map sources. Global drawing and the interface remain. Applies next frame and keeps the selected source when focus changes. Normal rendering returns when capture stops, expires or the map leaves the render plans. Compare the same flickering edge with other maps hidden. This choice is not saved.</RimExodus_RenderIsolationTip>
 </LanguageData>

@@ -246,4 +246,18 @@
   <RimExodus_SettingsFrameworkTip>使用 RimExodus Framework 提供公共地图能力。验证期间默认关闭。修改后请重启游戏；关闭并重启即可回到 legacy 底层。两种模式下都需保持 Framework 前置启用。</RimExodus_SettingsFrameworkTip>
   <RimExodus_SettingsNativeRenderingLabel>高兼容性原版邻图渲染</RimExodus_SettingsNativeRenderingLabel>
   <RimExodus_SettingsNativeRenderingTip>开启：通过邻图正常的地图更新与绘制回调显示可见邻图，包括其他 Mod 的覆盖层。关闭：使用选择性自绘制路径（默认）。立即生效，与地图底层开关独立。可能增加渲染开销；依赖私有相机状态或全屏效果的 Mod 仍可能需要适配。</RimExodus_SettingsNativeRenderingTip>
+  <RimExodus_RenderTraceStart>采集邻图渲染诊断（60 秒）</RimExodus_RenderTraceStart>
+  <RimExodus_RenderTraceStop>停止渲染采集</RimExodus_RenderTraceStop>
+  <RimExodus_RenderTraceTip>用于 1.7，需开启高兼容性原版邻图渲染。关闭设置后，沿闪烁边缘平移或旋转镜头，再聚焦同一张地图重复操作。采样 CPU 绘制提交，不改变渲染行为；采样时可能短暂降低帧率。60 秒或达到文件上限后自动停止。</RimExodus_RenderTraceTip>
+  <RimExodus_RenderTraceUnavailable>请先载入地图并开启高兼容性原版邻图渲染。</RimExodus_RenderTraceUnavailable>
+  <RimExodus_RenderTraceStarted>已开始渲染采集，请关闭设置并复现问题。文件：{0}</RimExodus_RenderTraceStarted>
+  <RimExodus_RenderTraceFailed>无法开始渲染采集，详情见游戏日志。</RimExodus_RenderTraceFailed>
+  <RimExodus_RenderTracePath>最近一次渲染采集：{0}</RimExodus_RenderTracePath>
+  <RimExodus_RenderIsolationSelect>单图绘制对照：{0}</RimExodus_RenderIsolationSelect>
+  <RimExodus_RenderIsolationAll>正常显示全部地图</RimExodus_RenderIsolationAll>
+  <RimExodus_RenderIsolationMap>只显示地图 {0}</RimExodus_RenderIsolationMap>
+  <RimExodus_RenderIsolationOption>只显示地图 {0}（{1}）</RimExodus_RenderIsolationOption>
+  <RimExodus_RenderIsolationFocus>当前聚焦</RimExodus_RenderIsolationFocus>
+  <RimExodus_RenderIsolationNeighbor>邻图</RimExodus_RenderIsolationNeighbor>
+  <RimExodus_RenderIsolationTip>临时对照：保留选定地图的原位置、视角和更新流程，仅隐藏其他已知来源地图的绘制。全局绘制与界面保留。下一帧生效，切换聚焦不会更换选定来源；停止采集、到时或该图退出显示计划后恢复正常。用于观察同一段边缘的闪烁是否随其他地图隐藏而消失。不会保存此选择。</RimExodus_RenderIsolationTip>
 </LanguageData>

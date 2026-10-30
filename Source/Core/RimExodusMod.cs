@@ -308,6 +308,9 @@ namespace RimExodus
 
                 case SettingsTab.Advanced:
                     // ===== tab：高级 / 诊断 =====
+#if RIMWORLD_1_7
+                    SeamlessRenderDiagnostics.DrawControls(listing);
+#endif
                     SliderRow(listing, "RimExodus_SettingsNoiseLabel", "RimExodus_SettingsNoiseTip",
                         s.seamOverrideNoiseAmplitude, 0f, 0.5f, v => s.seamOverrideNoiseAmplitude = v, "{0:F2}");
                     // 分模块诊断日志（2026-09，取代单一 verbose 总开关）：总控 + 模块逐项。

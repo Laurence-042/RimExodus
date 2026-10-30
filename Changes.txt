@@ -15,6 +15,10 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 
 
 1.0.10
+- 修复：高兼容性邻图渲染与 IsoRim 1.7 同用时，邻图可能出现随镜头移动或缩放变化的大片灰色缺块和锯齿边界
+  Fixed: when using high-compatibility neighbor rendering with IsoRim 1.7, neighboring maps could show large gray missing regions with jagged boundaries that moved with the camera or zoom.
+- 诊断：1.7 新增限时邻图渲染日志采集按钮，方便对比邻图与直接查看时的闪烁问题；采集期间可临时只显示选定地图作对照，停止后自动恢复
+  Diagnostics: added a timed neighbor-rendering capture button for 1.7 to compare flickering in neighbor and focused views; optionally show only a selected map during capture, with normal rendering restored when capture stops.
 - 修复：高兼容性邻图渲染中，部分模组的整图迷雾可能越过地块边界，形成矩形遮挡
   Fixed: some mods' full-map fog could extend beyond tile boundaries and create rectangular obstructions with high-compatibility neighbor rendering enabled.
 - 新增：可随时切换的高兼容性邻图渲染选项，尝试显示更多原版与其他模组的地图效果；默认保留现有绘制方式，特殊相机和全屏效果仍需验证
