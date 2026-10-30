@@ -66,11 +66,14 @@ I don't consider this much of a problem.
 
 ---
 
-- 邻居地图渲染为近似实现（无阴影/水波等细节），跨天气域的邻居天色跟随当前图。
-Neighbor maps are rendered approximately (no shadows/ripples and similar details), and neighbors in another weather domain follow the current map's sky.
+- 默认的邻居地图渲染为近似实现（无阴影/水波等细节），跨天气域的邻居天色跟随当前图。
+By default, neighbor maps are rendered approximately (no shadows/ripples and similar details), and neighbors in another weather domain follow the current map's sky.
 
 都是为了性能考虑，RimWorld的天气特效说实话挺费fps的，而fps消耗过大也会影响tps
 This is all for performance: RimWorld's weather effects are honestly quite FPS-hungry, and heavy FPS load drags TPS down too.
+
+但你可以切换成兼容模式来得到原版实现，虽然性能消耗会高一些就是了。
+You can switch to compatibility mode for full vanilla map rendering, though it costs more performance.
 
 ---
 

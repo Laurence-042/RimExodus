@@ -58,6 +58,25 @@ Vanilla Expanded Framework 的地图物体刷出（ObjectSpawns，含 Vanilla Ve
 Vanilla Expanded Framework's map object spawning (ObjectSpawns — including Vanilla Vehicles Expanded wrecks, Dark Ages / Mythic Ages nests, and anything else built on this mechanism): spawn positions are now restricted to the actually playable hexagon area (no more landing in the unreachable void beyond the border), and frame-sliced tile maps receive these spawns too.
 
 ----------------------------------------------------------
+开启兼容模式后兼容 / Compatible with Compatibility Mode
+----------------------------------------------------------
+
+兼容模式是 RimExodusFramework 提供给 RimExodus 的一种使用原版的完整地图渲染机制。
+Compatibility mode uses the full vanilla map rendering pipeline provided to RimExodus by RimExodus Framework.
+
+当打开兼容模式后，因为 RimExodus 说那个原版的完整地图渲染机制，可以为一些调整了地图渲染的 mod 提供额外兼容。
+With compatibility mode enabled, RimExodus uses that full vanilla rendering pipeline, improving compatibility with some mods that change how maps are rendered.
+
+但需要注意，开启兼容模式会导致性能消耗上升，毕竟默认模式就是为了省性能才做的简化版渲染。
+Compatibility mode costs more performance; the default rendering path is simplified to keep that cost down.
+
+Surveillance Shift：核心战争迷雾机制完全兼容。只需要借助 RimExodusFramework 提供的坐标映射接口同步更新邻接图的战争迷雾即可做到正常的跨图战争迷雾
+Surveillance Shift: Its core fog-of-war system works across maps. RimExodus uses the coordinate-mapping interface provided by RimExodus Framework to update fog on neighboring maps in sync.
+
+IsoRim Waylith：核心 3d 渲染机制完全兼容。只是其一个相机补丁搞坏了 RimExodusFramework 给它准备的邻图渲染环境，所以实际上做了对这个相机补丁的额外适配
+IsoRim Waylith: Its core 3D rendering works with neighboring maps. One of its camera patches disrupted the rendering context prepared for neighboring maps by RimExodus Framework, so that patch needed an additional adaptation.
+
+----------------------------------------------------------
 天生兼容 / Naturally Compatible
 ----------------------------------------------------------
 
@@ -71,11 +90,18 @@ Diplomacy options added by mods such as [OA]Ratkin Faction: Oberonia aurea: They
 天生单图兼容 / Naturally Compatible Within a Single Map
 ----------------------------------------------------------
 
-各种 Fog of War Mod：迷雾只在聚焦地图上渲染，简化邻接地图渲染不会被影响。
-Fog of War mods: Fog only renders on the focused map; the simplified neighbor rendering is unaffected.
+各种 Fog of War Mod：对于非兼容模式，迷雾只在聚焦地图上渲染，简化邻接地图渲染不会被影响。对于兼容模式，理论上邻接图也能渲染，但是作者需要参考 RimExodusFramework 提供的接口做跨图坐标适配，这样才能跨图看穿迷雾
+Fog of War mods: Outside compatibility mode, fog renders only on the focused map; simplified neighbor rendering is unaffected. In compatibility mode, fog could in theory render on neighboring maps too, but the mod author would need to use RimExodus Framework's interfaces to adapt coordinates across maps before visibility through the fog can work correctly.
 
 各种小地图 Mod：只显示聚焦地图的小地图，邻接地图技术上不在当前地图内，自然不会被显示。
 Minimap mods: They only show the focused map; neighbor maps technically aren't inside it, so they simply aren't shown.
+
+----------------------------------------------------------
+有顺序要求 / Load Order Requirement
+----------------------------------------------------------
+
+IsoRimZ：需要在mod列表里排在RimExodus后面。@swoth 报告了反向排序会导致敌人从六边形边界之外的位置出现的问题，似乎是因为其也修改了敌人刷新选点。
+IsoRimZ: Place it after RimExodus in the mod list. @swoth reported that the reverse order can cause enemies to spawn outside the hexagonal map boundary, apparently because IsoRimZ also changes enemy spawn selection.
 
 ----------------------------------------------------------
 不兼容 / Incompatible
@@ -83,6 +109,9 @@ Minimap mods: They only show the focused map; neighbor maps technically aren't i
 
 RimSkyBlock 之类的空岛 Mod：简单来说，没有非常硬性的不兼容，但可能有各种不符合预期的渲染、天气表现。严格来说，RimSkyBlock本身有一个保护机制来避免清除RimExodus的关键设施，使RimExodus的无缝加载、移动在空岛上仍能起效。但同时也会导致其留下空心六边形的地基框架，而且其空岛移动机制也会破坏RimExodus的“地图和世界地块一一对应”的假设，导致出现各种预期之外的问题。RimExodus不承诺可以解决这些问题，所以将其视为不兼容。因为如果考虑地图脱离地块移动的场景，很多简单高效的逻辑都不得不做得臃肿低效。不过考虑到并非硬不兼容，所以没有将其和 As above, So below 2 一样在mod元信息里标注为不兼容。
 Sky-island mods such as RimSkyBlock: in short, there is no hard incompatibility, but you may see various unexpected rendering and weather behavior. Strictly speaking, RimSkyBlock itself has a protection mechanism that avoids removing RimExodus's key infrastructure, so RimExodus's seamless loading and movement still function on sky islands. However, this also leaves hollow hexagonal foundation frames behind, and its sky-island movement mechanism breaks RimExodus's assumption of a one-to-one mapping between maps and world tiles, causing all kinds of unexpected problems. RimExodus does not promise to fix these, so it is treated as incompatible — supporting maps that detach from their world tile would force a lot of simple, efficient logic to become bloated and slow. That said, since it isn't a hard incompatibility, it is not flagged in this mod's metadata as incompatible like As above, So below 2.
+
+Walk The World：理论上说RimExodus提供的能力基本是其超集，没有共同使用的必要。虽然同时使用不会立刻产生什么明显的不兼容，但是因为两个 mod 都 patch 了撤离机制，可能会产生一些预期之外的结果（比如商队卡在边界走不出去什么的），所以我十分不推荐共同使用。但是如果要用的话，出现问题后请禁用Walk The World并尝试复现问题，如果确实能复现再来报告问题。
+Walk The World: RimExodus already covers most of its features, so there is little reason to use both. Running them together may not cause an immediate, obvious conflict, but both mods patch map-exit behavior and could produce unexpected results, such as caravans getting stuck at the border. I strongly recommend against using them together. If you do and encounter a problem, disable Walk The World and try to reproduce it before reporting it here.
 
 As above, So below 2：它需要生成一个巨大的地图并切分为表示各个高度层级的区域，会把本 Mod 的六边形裁坏；且本 Mod 没有可行方案在适应其切分行为的同时保证地图过渡生成平滑。但因为 MultiFloors 使用完整的口袋地图作为层级，不动基础地图的生成，所以是适配的。
 As above, So below 2: It generates one huge map and splits it into altitude-layer regions, which breaks this mod's hexagons; and there is no feasible way to accommodate its splitting while keeping seam generation smooth. MultiFloors, however, is compatible: it uses full pocket maps as its layers and doesn't touch base map generation.
@@ -99,3 +128,6 @@ As above, So below 2: It generates one huge map and splits it into altitude-laye
 
 3. 如果一个 Mod 只是添加 POI，那么天然适配。
 3. If a mod only adds POIs, it is naturally compatible.
+
+4. 如果一个 Mod 修改了地图渲染机制，那么只要它别搞啥花活，大部分应该都能在兼容模式下适配，但是一些跨地图影响仍然需要作者自行适配。
+4. If a mod changes map rendering without unusual custom behavior, it will probably work in compatibility mode. Some cross-map effects will still need adaptation by that mod's author.
