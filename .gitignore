@@ -17,3 +17,5 @@ scripts/**/obj/
 
 # ZCode 临时计划文件
 .zcode/plans/
+
+tmp/
