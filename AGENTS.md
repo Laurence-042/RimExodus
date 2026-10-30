@@ -151,6 +151,8 @@ RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_ref
 
 ## 11. 渲染与效果
 
+- 邻图渲染设置独立于 REF/legacy 模拟底层。默认自绘制路径沿用本节下述规则；高兼容性路径由 `SeamlessNativeRendering` 选择可见图/投影/凸边界，交给 REF `MapRuntime.Rendering`。不得重复调用 `MapUpdate`、组件 Update、CameraDriver.Update 或实际 CurrentMap setter；不得在 RE 再复制绘制层清单。两条路径互斥，切换时释放旧缓冲，原版回调范围及边界见 `doc/REF接入实施与验收.md`。
+
 - `SeamlessTileRenderer` 只在合法 Surface Map 工作；口袋图/空间图必须早退，避免清色覆盖星空或载具内部背景。
 - 邻图静态层当前收集 Terrain、ThingsGeneral、LightingOverlay、FogOfWar，并把 Watergen 几何送入原版 WaterDepth 子相机。水面必须保留原 `TerrainWater` shader 与深度几何配对，禁止回退到静态 TerrainFade/Hard 贴图。
 - WaterDepth 视区使用“当前视区 + 当前缩放半屏”的保守余量，解决快速横移时 RT 边缘 Clamp 拉伸；不要改成全图提交或第二套相机/RT。

@@ -104,6 +104,7 @@ namespace RimExodus
 
         private void MapComponentDrawInner()
         {
+            if (SeamlessNativeRendering.Enabled || RimExodus.Maps.MapRenderPlan.IsNativeView) return;
             if (Find.CurrentMap != map || !WorldRendererUtility.DrawingMap)
             {
                 return;
@@ -457,6 +458,8 @@ namespace RimExodus
                 activeRenderer = null;
             }
         }
+
+        internal static void ReleaseForRenderPathChange() => activeRenderer?.ReleaseCommandBuffer();
 
         /// <summary>
         /// 收集邻居地图的地形层（SectionLayer_Terrain）、静态物层（SectionLayer_ThingsGeneral）、

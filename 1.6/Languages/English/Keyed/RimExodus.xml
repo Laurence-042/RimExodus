@@ -243,4 +243,6 @@ SAVE NOW. After saving, RimExodus can be safely removed.</RimExodus_UninstallRes
   <RimExodus_RaidOuterSpawnAlwaysLocalTip>This incident's mechanics are anchored to the map it attacks (e.g. the psychic ritual is performed at a site on your map), so it can never arrive from a neighboring map and cannot be toggled.</RimExodus_RaidOuterSpawnAlwaysLocalTip>
   <RimExodus_SettingsFrameworkLabel>Use REF map backend (restart required)</RimExodus_SettingsFrameworkLabel>
   <RimExodus_SettingsFrameworkTip>Use RimExodus Framework for shared map services. Disabled by default during validation. Restart the game after changing this setting; disable and restart to return to the legacy backend. Keep the Framework mod enabled in both modes.</RimExodus_SettingsFrameworkTip>
+  <RimExodus_SettingsNativeRenderingLabel>High-compatibility vanilla neighbor rendering</RimExodus_SettingsNativeRenderingLabel>
+  <RimExodus_SettingsNativeRenderingTip>Enabled: render visible neighbors through their normal map update and drawing callbacks, including mod overlays. Disabled: use the selective custom renderer (default). Takes effect immediately and works with either map backend. May cost more performance; mods with private camera state or full-screen effects may still need adaptation.</RimExodus_SettingsNativeRenderingTip>
 </LanguageData>

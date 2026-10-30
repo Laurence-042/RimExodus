@@ -23,6 +23,8 @@ namespace RimExodus
 
         // Latched at startup: never switch live map services halfway through a game.
         public bool frameworkBackendEnabled = false;
+        // Independent display choice; switches at the next frame boundary in either map backend.
+        public bool nativeNeighborRendering = false;
 
         /// <summary>
         /// 详细诊断日志总开关。**已退役（2026-09 分模块日志开关取代）**：字段与 Scribe 仅为旧档
@@ -307,6 +309,7 @@ namespace RimExodus
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
             Scribe_Values.Look(ref oceanMapSupportEnabled, "oceanMapSupportEnabled", true);
             Scribe_Values.Look(ref frameworkBackendEnabled, "frameworkBackendEnabled", false);
+            Scribe_Values.Look(ref nativeNeighborRendering, "nativeNeighborRendering", false);
             Scribe_Values.Look(ref verboseLogging, "verboseLogging", false); // 退役字段：仅旧档兼容
             Scribe_Values.Look(ref logGeneration, "logGeneration", false);
             Scribe_Values.Look(ref logTransfer, "logTransfer", false);

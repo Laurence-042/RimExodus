@@ -212,6 +212,8 @@ namespace RimExodus
                 case SettingsTab.Generation:
                     CheckRow(listing, "RimExodus_SettingsFrameworkLabel", "RimExodus_SettingsFrameworkTip",
                         v => s.frameworkBackendEnabled = v, s.frameworkBackendEnabled);
+                    CheckRow(listing, "RimExodus_SettingsNativeRenderingLabel", "RimExodus_SettingsNativeRenderingTip",
+                        v => s.nativeNeighborRendering = v, s.nativeNeighborRendering);
                     // ===== tab：地图生成 =====
                     SliderRow(listing, "RimExodus_SettingsBorderPreloadLabel", "RimExodus_SettingsBorderPreloadTip",
                         s.borderPreloadDistance, 0, 50, v => s.borderPreloadDistance = (int)v);
