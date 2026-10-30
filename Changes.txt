@@ -15,6 +15,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 
 
 1.1.0
+- 修复：商队等离场角色已站在接缝入口时，可能反复尝试走向脚下却无法离场；现在会再次尝试跨图，传送失败时显示提示并尽可能正常离场
+  Fixed: caravans and other departing pawns could repeatedly try to move to the seam entrance beneath them without leaving. They now retry the crossing, show a warning if it fails, and leave normally when possible.
 - 兼容：新增 Surveillance Shift 跨接缝视野，摄像头、岗哨和望远镜可读取相邻活跃地图的遮挡
   Compatibility: added cross-seam Surveillance Shift vision, allowing cameras, watchtowers and scopes to read obstacles on active neighboring maps.
 - 新增：可随时切换的高兼容性邻图渲染选项，尝试显示更多原版与其他模组的地图效果；默认保留现有绘制方式，特殊相机和全屏效果仍需验证

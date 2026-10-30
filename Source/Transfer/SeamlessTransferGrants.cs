@@ -174,14 +174,7 @@ namespace RimExodus
             grant.CanBashFences = evacJob.canBashFences;
             grant.VisitedTiles = new HashSet<int> { SeamlessTileRegistry.GetMapWorldTile(pawn.Map) };
 
-            // 2026-09 插桩（"caravans stuck on the border"排查）：记录离场者身份（lord 类型 + duty）——
-            // 撤离链对袭击者撤退与访客/商队离场一视同仁（入队意图已在 StartJob 处排除），
-            // 本行用于区分"谁在离场"：LordJob_TradeWithColony / LordJob_VisitColony / 无 lord（游荡）等。
-            // 日志统一走 [caravan-exit] 标签（2026-09 规范化：玩家日志里一眼可辨是商队/访客离场链行为）。
-            if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
-                Log.Message($"[RimExodus] [caravan-exit] Evacuation grant: {pawn.LabelShort} ({pawn.Faction?.Name ?? "no-faction"}) on map {pawn.Map.uniqueID} "
-                    + $"lord={pawn.GetLord()?.LordJob?.GetType().Name ?? "none"} duty={pawn.mindState?.duty?.def.defName ?? "none"} "
-                    + $"locomotion={evacJob.locomotionUrgency}.");
+            SeamlessEvacuationDiagnostics.OnEvacuationJobStarted(pawn, evacJob);
         }
 
         /// <summary>

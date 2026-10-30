@@ -246,4 +246,5 @@
   <RimExodus_SettingsFrameworkTip>使用 RimExodus Framework 提供公共地图能力。验证期间默认关闭。修改后请重启游戏；关闭并重启即可回到 legacy 底层。两种模式下都需保持 Framework 前置启用。</RimExodus_SettingsFrameworkTip>
   <RimExodus_SettingsNativeRenderingLabel>高兼容性原版邻图渲染</RimExodus_SettingsNativeRenderingLabel>
   <RimExodus_SettingsNativeRenderingTip>开启：通过邻图正常的地图更新与绘制回调显示可见邻图，包括其他 Mod 的覆盖层。关闭：使用选择性自绘制路径（默认）。立即生效，与地图底层开关独立。可能增加渲染开销；依赖私有相机状态或全屏效果的 Mod 仍可能需要适配。</RimExodus_SettingsNativeRenderingTip>
+  <RimExodus_SeamTransferRejected>{0} 无法从 {1} 的接缝传送到邻图。对侧落点可能受阻或不可用；若条件允许，该角色会尝试正常离场。</RimExodus_SeamTransferRejected>
 </LanguageData>

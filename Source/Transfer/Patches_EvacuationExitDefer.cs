@@ -24,7 +24,8 @@ namespace RimExodus
     /// 自动离图任务不登记，保留原版语义）；已站在传送点上（tier0 原生交接与"传送被拒后 flag job 的到站
     /// 兜底"都依赖此处离场）；job 目标非传送点（出口重定向失败放行原版方形边格的兜底路径）。
     /// 许可 6000t 超时兜底（<see cref="SeamlessTransferGrants.TickSweep"/>）保证推迟态不可能永久卡死。
-    /// 已知小边界（接受）：撤离 job 下发时人恰好已站在 spot 上 → 原地缝上离场，不做即席分派；
+    /// 同格 Goto 的即席分派由 StartJob 钩子先执行；这里对已站在 spot 上的放行仍是传送
+    /// 不可用时的原版离场兜底。
     /// JobDriver_ExitMapFlying（飞行离场）不经 JobDriver_Goto，维持原版（观察项）。
     /// </summary>
     [HarmonyPatch(typeof(JobDriver_Goto), "TryExitMap")]
@@ -44,7 +45,11 @@ namespace RimExodus
 
             // 已站在传送点上：放行——tier0 原生交接（HandleEvacuation 的"JobDriver pre-tick 在此
             // 出口格原生撤离"注释）与传送被拒后 flag job 的到站兜底都从这里离场。
-            if (SeamlessMapTransferTrigger.HasEnterSpotAt(map, pawn.Position)) return true;
+            if (SeamlessMapTransferTrigger.HasEnterSpotAt(map, pawn.Position))
+            {
+                SeamlessEvacuationDiagnostics.OnTryExitMap(pawn, __instance.job, "allow-current-spot");
+                return true;
+            }
 
             // 目标是传送点格（出口重定向成功）且人未到：推迟原生离场，让 pawn 走到 spot 交给
             // 踩点分派（进入首格传送点时：传送续链 / 缝上原生离场，见 HandleEvacuation）。
@@ -58,10 +63,12 @@ namespace RimExodus
                         Log.Message($"[RimExodus] [caravan-exit] Evacuation exit deferred: {pawn.LabelShort} at {pawn.Position} "
                             + $"on map {map.uniqueID} — en route to enter spot {__instance.job.targetA.Cell}, vanilla exit suppressed until spot.");
                 }
+                SeamlessEvacuationDiagnostics.OnTryExitMap(pawn, __instance.job, "defer-target-spot");
                 return false;
             }
 
             // 重定向失败（目标为原版边格）等其余情形：放行，保住"总能离场"安全网。
+            SeamlessEvacuationDiagnostics.OnTryExitMap(pawn, __instance.job, "allow-no-target-spot");
             return true;
         }
     }

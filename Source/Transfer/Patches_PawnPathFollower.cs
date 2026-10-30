@@ -36,6 +36,7 @@ namespace RimExodus
             }
 
             var mapBefore = ___pawn.Map;
+            SeamlessEvacuationDiagnostics.OnEnteringSpot(___pawn, nextCell, mapBefore);
             SeamlessMapTransferTrigger.TryTriggerTransfer(___pawn, nextCell, mapBefore);
 
             // 触发器把 pawn 搬离了本图（跨图传送 / ExitMap 转世界）→ 跳过原方法体：

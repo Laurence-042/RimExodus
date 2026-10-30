@@ -245,4 +245,5 @@ SAVE NOW. After saving, RimExodus can be safely removed.</RimExodus_UninstallRes
   <RimExodus_SettingsFrameworkTip>Use RimExodus Framework for shared map services. Disabled by default during validation. Restart the game after changing this setting; disable and restart to return to the legacy backend. Keep the Framework mod enabled in both modes.</RimExodus_SettingsFrameworkTip>
   <RimExodus_SettingsNativeRenderingLabel>High-compatibility vanilla neighbor rendering</RimExodus_SettingsNativeRenderingLabel>
   <RimExodus_SettingsNativeRenderingTip>Enabled: render visible neighbors through their normal map update and drawing callbacks, including mod overlays. Disabled: use the selective custom renderer (default). Takes effect immediately and works with either map backend. May cost more performance; mods with private camera state or full-screen effects may still need adaptation.</RimExodus_SettingsNativeRenderingTip>
+  <RimExodus_SeamTransferRejected>Could not transfer {0} across the seam at {1}. The arrival point may be blocked or unavailable. The pawn will use its normal exit behavior if possible.</RimExodus_SeamTransferRejected>
 </LanguageData>

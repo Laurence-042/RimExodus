@@ -24,23 +24,31 @@ namespace RimExodus
     [HarmonyPatch(typeof(RCellFinder), nameof(RCellFinder.TryFindBestExitSpot))]
     static class Patch_RCellFinder_TryFindBestExitSpot
     {
-        static bool Prefix(Pawn pawn, ref IntVec3 spot, ref bool __result, TraverseMode mode, bool canBash)
+        static bool Prefix(Pawn pawn, ref IntVec3 spot, ref bool __result, TraverseMode mode, bool canBash, out string __state)
         {
+            __state = "vanilla-no-spots";
             if (!SeamlessExitSpotFinder.HasRimExodusEnterSpots(pawn?.Map)) return true;
             var enterSpot = SeamlessExitSpotFinder.FindReachableEnterSpot(pawn);
             if (enterSpot.IsValid)
             {
+                __state = "RimExodus-spot";
                 spot = enterSpot;
                 __result = true;
                 if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] TryFindBestExitSpot patched: pawn {pawn.LabelShort} exit target -> enter spot {enterSpot} (was edge, redirected).");
                 return false;
             }
+            __state = "vanilla-no-reachable-spot";
             // 诊断插桩（2026-08 远行队"无法离开此区域"排查）：有传送点但找不到可用/可达的——
             // 记录 spot 统计定位是"全部不可站立"还是"全部不可达"。
             if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] TryFindBestExitSpot: pawn {pawn?.LabelShort} found no usable enter spot on map {pawn?.Map?.uniqueID} ({SeamlessExitSpotFinder.DescribeEnterSpots(pawn.Map)}) — passthrough vanilla.");
             return true;
+        }
+
+        static void Postfix(Pawn pawn, IntVec3 spot, bool __result, TraverseMode mode, bool canBash, string __state)
+        {
+            SeamlessEvacuationDiagnostics.RecordBestExitSelection(pawn, spot, __result, mode, canBash, __state);
         }
     }
 

@@ -45,6 +45,17 @@ namespace RimExodus
                 SeamlessTransferGrants.RegisterEvacuation(___pawn, newJob);
             }
 
+            // JobDriver_Goto 的同格 GotoCell 会在 StartJob 方法体内立即跳过移动 toil；没有
+            // TryEnterNextPathCell 事件可供踩点触发。许可已经登记、但旧 job 尚未启动时先分派：
+            // 成功跨图/离场则跳过原方法体，避免它继续给已换图的 pawn 安装旧地图 job。
+            if (newJob.def == JobDefOf.Goto && ___pawn?.Spawned == true
+                && newJob.targetA.IsValid && newJob.targetA.Cell == ___pawn.Position
+                && SeamlessMapTransferTrigger.TryTriggerStationaryGoto(___pawn))
+            {
+                JobMaker.ReturnToPool(newJob);
+                return false;
+            }
+
             // 沉浸模式（seamExitBandEnabled=false，2026-08）：玩家征召 job 的 exitMapOnArrival 清除
             // ——玩家下令走到接缝带格不再到站原生离场成远行队（隐藏接缝带后误触撤离比看不见边线
             // 严重得多）。只清 playerForced job：NPC 撤离链（上面的 grant 登记）不门控（用户定夺）。
