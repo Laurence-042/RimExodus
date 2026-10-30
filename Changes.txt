@@ -15,6 +15,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 
 
 1.0.10
+- 修复：高兼容性邻图渲染中，部分模组的整图迷雾可能越过地块边界，形成矩形遮挡
+  Fixed: some mods' full-map fog could extend beyond tile boundaries and create rectangular obstructions with high-compatibility neighbor rendering enabled.
 - 新增：可随时切换的高兼容性邻图渲染选项，尝试显示更多原版与其他模组的地图效果；默认保留现有绘制方式，特殊相机和全屏效果仍需验证
   Added: an optional high-compatibility neighbor renderer that can be switched at any time to display more vanilla and modded map effects; the existing renderer remains the default, and special camera and full-screen effects still require validation.
 - 修复：部分兼容适配失败时可能中断后续初始化；改进地图预览延迟加载识别与错误提示
