@@ -2,7 +2,7 @@
 
 Say goodbye to the disjointed "exit map → world map → reload" travel loop. RimExodus stitches adjacent world tiles' maps together, visually and functionally: colonists walk out of the base gate into the wilderness and on across invisible world-tile borders — no caravan, no loading screen.
 
-[b]⚠ Sat Oct 31 2026 01:43:17 GMT+0800: This mod has undergone a major overhaul. A toolkit designed for the simultaneous rendering of multiple maps—which can be reused by other mods—has been extracted and established as a required dependency. This toolkit is intended to assist other modders and streamline version management for the various expansions currently in development for this mod. If you encounter numerous errors upon launching the game, it is likely because you have not installed this required dependency. Sincerely apologize for any inconvenience this may cause.[/b]
+[b]⚠ A major overhaul made the reusable multi-map rendering toolkit, RimExodus Framework, a required dependency. It also helps other modders and simplifies version management for planned expansions. If startup produces many errors, check that Framework is installed and enabled. Sincerely apologize for any inconvenience this may cause.[/b]
 
 [img]https://raw.githubusercontent.com/Laurence-042/RimExodus/main/doc/img/demo.gif[/img]
 
@@ -25,7 +25,7 @@ Shooting across a seam
 
 [*][b]Raids that march in from neighboring maps[/b]: walking attackers can enter at an unseen outer seam of an adjacent map, then cross the world-tile border to advance on and attack you, instead of materializing between two maps that are already loaded.
 
-[*][b]Weapon range curve remap (off by default)[/b]: optionally stretches every ranged weapon's range along a piecewise curve, moving vanilla accuracy-band distances with it — each weapon keeps roughly its old hit performance at its new maximum range. Why it exists: even if you never roam far, you can keep several adjacent maps around your home (with their simulation throttled way down) and, combined with walking enemies arriving from the outer edge, get a far deeper defensive buffer than vanilla — and on a battlefield that open, vanilla's abstract weapon ranges (a rifle tops out around forty cells) start to feel jarringly out of place. When enabled, long-range weapons gain engagement distances that fit their role; the default curve deliberately keeps short-range weapons modest while spreading long-range ones further apart.
+[*][b]Weapon range curve remap (off by default)[/b]: optionally stretches every ranged weapon's range along a piecewise curve, moving vanilla accuracy-band distances with it so weapons keep roughly their old hit performance at the new maximum range. Several throttled maps around your home, plus walking raids from their outer edge, create a much deeper defensive buffer; vanilla rifles reaching only about 40 cells feel short there. The default curve limits gains for short-range weapons while spreading long-range weapons further apart.
 
 [img]https://raw.githubusercontent.com/Laurence-042/RimExodus/main/doc/img/range-curve.png[/img]
 The range curve editor
