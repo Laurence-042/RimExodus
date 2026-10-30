@@ -113,6 +113,9 @@ namespace RimExodus
         public List<ZoneRoofRecord> roofs = new List<ZoneRoofRecord>();
         public List<ZoneFloorRecord> floors = new List<ZoneFloorRecord>();
         public List<ZoneItemRecord> items = new List<ZoneItemRecord>();
+        // Keep the legacy sparse record during the A/B period so either backend can restore the save.
+        public string frameworkPrefabXml;
+        internal bool RestorationSucceeded;
 
         private HashSet<IntVec3> _zoneLookup;
 
@@ -136,6 +139,7 @@ namespace RimExodus
             Scribe_Collections.Look(ref roofs, "roofs", LookMode.Deep);
             Scribe_Collections.Look(ref floors, "floors", LookMode.Deep);
             Scribe_Collections.Look(ref items, "items", LookMode.Deep);
+            Scribe_Values.Look(ref frameworkPrefabXml, "frameworkPrefabXml");
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
             {
                 zoneCells ??= new List<IntVec3>();
@@ -221,6 +225,7 @@ namespace RimExodus
                     });
                 }
             }
+            if (SeamlessFramework.Enabled) rec.frameworkPrefabXml = SeamlessFrameworkArchive.Capture(map, rec).ToXml();
             return rec;
         }
 

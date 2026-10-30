@@ -1,5 +1,8 @@
+using System;
 using System.Reflection;
+using System.Threading;
 using HarmonyLib;
+using Verse;
 
 namespace RimExodus
 {
@@ -21,15 +24,73 @@ namespace RimExodus
     /// </summary>
     internal static class SeamlessMapPreviewCompat
     {
-        private static readonly PropertyInfo _isGeneratingPreview = AccessTools.Property(
-            AccessTools.TypeByName("MapPreview.MapPreviewAPI"), "IsGeneratingPreview");
-        private static readonly PropertyInfo _isGeneratingOnCurrentThread = AccessTools.Property(
-            AccessTools.TypeByName("MapPreview.MapPreviewGenerator"), "IsGeneratingOnCurrentThread");
+        private sealed class PreviewBindings
+        {
+            internal Func<bool> Global, CurrentThread;
+        }
+        private static readonly object ResolveLock = new object();
+        private static volatile PreviewBindings bindings;
+        private static int assemblyGeneration, resolvedGeneration = -1, failed;
+
+        static SeamlessMapPreviewCompat()
+        {
+            // LunarLoader may load MapPreview after the first query. The loader thread only
+            // invalidates a missing lookup; it never installs patches or touches game state.
+            AppDomain.CurrentDomain.AssemblyLoad += (_, __) => Interlocked.Increment(ref assemblyGeneration);
+        }
+
+        private static PreviewBindings Resolve()
+        {
+            if (Volatile.Read(ref failed) != 0) return null;
+            if (bindings != null) return bindings;
+            int generation = Volatile.Read(ref assemblyGeneration);
+            if (Volatile.Read(ref resolvedGeneration) == generation) return null;
+            lock (ResolveLock)
+            {
+                if (failed != 0 || bindings != null) return bindings;
+                if (resolvedGeneration == generation) return null;
+                resolvedGeneration = generation;
+                try
+                {
+                    var api = AccessTools.TypeByName("MapPreview.MapPreviewAPI");
+                    var generator = AccessTools.TypeByName("MapPreview.MapPreviewGenerator");
+                    if (api == null || generator == null) return null;
+                    bindings = new PreviewBindings
+                    {
+                        Global = Getter(api, "IsGeneratingPreview"),
+                        CurrentThread = Getter(generator, "IsGeneratingOnCurrentThread")
+                    };
+                }
+                catch (Exception error) { Disable(error); }
+                return bindings;
+            }
+        }
+
+        private static Func<bool> Getter(Type type, string name)
+        {
+            var method = AccessTools.PropertyGetter(type, name);
+            if (method == null || !method.IsStatic || method.ReturnType != typeof(bool)
+                || method.GetParameters().Length != 0)
+                throw new MissingMemberException(type.FullName, name + " (static bool getter)");
+            return (Func<bool>)Delegate.CreateDelegate(typeof(Func<bool>), method);
+        }
+
+        private static void Disable(Exception error)
+        {
+            if (Interlocked.Exchange(ref failed, 1) == 0)
+                Log.Warning("[RimExodus] MapPreview status checks unavailable; preview compatibility requires attention: " + error);
+        }
+
+        private static bool Read(bool currentThread)
+        {
+            var current = Resolve();
+            if (current == null) return false;
+            try { return current.Global() && (!currentThread || current.CurrentThread()); }
+            catch (Exception error) { Disable(error); return false; }
+        }
 
         /// <summary>当前线程是否正在生成 MapPreview 预览（未装 MapPreview 恒 false）。</summary>
-        public static bool IsGeneratingPreviewOnCurrentThread =>
-            _isGeneratingPreview?.GetValue(null) is true
-            && _isGeneratingOnCurrentThread?.GetValue(null) is true;
+        public static bool IsGeneratingPreviewOnCurrentThread => Read(true);
 
         /// <summary>
         /// 是否有任意 MapPreview 预览正在后台生成（未装 MapPreview 恒 false）。**只供主线程的
@@ -40,7 +101,6 @@ namespace RimExodus
         /// <see cref="IsGeneratingPreviewOnCurrentThread"/>（只判全局标志会把预览期间主线程的
         /// 真实生成误跳）。
         /// </summary>
-        public static bool IsPreviewInFlight =>
-            _isGeneratingPreview?.GetValue(null) is true;
+        public static bool IsPreviewInFlight => Read(false);
     }
 }

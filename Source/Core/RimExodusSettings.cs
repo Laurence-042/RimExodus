@@ -21,6 +21,9 @@ namespace RimExodus
         /// </summary>
         public bool oceanMapSupportEnabled = true;
 
+        // Latched at startup: never switch live map services halfway through a game.
+        public bool frameworkBackendEnabled = false;
+
         /// <summary>
         /// 详细诊断日志总开关。**已退役（2026-09 分模块日志开关取代）**：字段与 Scribe 仅为旧档
         /// 兼容保留，读入后忽略——无 UI、无消费点。新代码勿再读此字段，按模块用
@@ -303,6 +306,7 @@ namespace RimExodus
             Scribe_Values.Look(ref regenerateMissingSnapshots, "regenerateMissingSnapshots", true);
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
             Scribe_Values.Look(ref oceanMapSupportEnabled, "oceanMapSupportEnabled", true);
+            Scribe_Values.Look(ref frameworkBackendEnabled, "frameworkBackendEnabled", false);
             Scribe_Values.Look(ref verboseLogging, "verboseLogging", false); // 退役字段：仅旧档兼容
             Scribe_Values.Look(ref logGeneration, "logGeneration", false);
             Scribe_Values.Look(ref logTransfer, "logTransfer", false);

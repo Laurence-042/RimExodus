@@ -12,6 +12,7 @@ namespace RimExodus
     {
         public static bool IsSupportedVerb(Verb verb)
         {
+            if (SeamlessFramework.Enabled) return RimExodus.Maps.MapDirectFire.IsSupportedVerb(verb);
             if (verb == null || verb.verbProps == null || verb.verbProps.IsMeleeAttack) return false;
             if (verb is Verb_LaunchProjectile vanilla)
                 return vanilla.Projectile?.projectile != null;
@@ -24,6 +25,7 @@ namespace RimExodus
         }
 
         public static bool IsExternalProjectile(Thing thing) =>
-            SeamlessCombatExtendedCompat.IsProjectile(thing);
+            SeamlessFramework.Enabled ? RimExodus.Maps.MapDirectFire.IsExternalProjectile(thing)
+                : SeamlessCombatExtendedCompat.IsProjectile(thing);
     }
 }

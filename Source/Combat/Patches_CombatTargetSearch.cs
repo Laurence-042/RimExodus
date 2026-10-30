@@ -46,6 +46,9 @@ namespace RimExodus
     [HarmonyPatch(typeof(AttackTargetFinder), nameof(AttackTargetFinder.BestAttackTarget))]
     public static class Patch_AttackTargetFinder_BestAttackTarget
     {
+        [HarmonyPrepare]
+        private static bool UseLegacyBackend() => !SeamlessFramework.Enabled;
+
         public static void Postfix(IAttackTargetSearcher searcher, TargetScanFlags flags, Predicate<Thing> validator,
             float minDist, float maxDist, IntVec3 locus, float maxTravelRadiusFromLocus,
             bool canBashDoors, bool canTakeTargetsCloserThanEffectiveMinRange, bool canBashFences, bool onlyRanged,
@@ -174,6 +177,9 @@ namespace RimExodus
     [HarmonyPatch(typeof(AttackTargetFinder), nameof(AttackTargetFinder.CanSee))]
     public static class Patch_AttackTargetFinder_CanSee
     {
+        [HarmonyPrepare]
+        private static bool UseLegacyBackend() => !SeamlessFramework.Enabled;
+
         public static bool Prefix(Thing seer, Thing target, Func<IntVec3, bool> validator, ref bool __result)
         {
             if (seer?.Map == null || target?.Map == null || seer.Map == target.Map) return true;
@@ -198,6 +204,9 @@ namespace RimExodus
     [HarmonyPatch(typeof(JobGiver_AIFightEnemy), "TryGiveJob")]
     public static class Patch_JobGiver_AIFightEnemy_TryGiveJob_CrossMap
     {
+        [HarmonyPrepare]
+        private static bool UseLegacyBackend() => !SeamlessFramework.Enabled;
+
         public static bool Prefix(Pawn pawn, ref Job __result)
         {
             try
@@ -265,6 +274,9 @@ namespace RimExodus
     [HarmonyPatch(typeof(JobGiver_AIFightEnemy), "ShouldLoseTarget")]
     public static class Patch_JobGiver_AIFightEnemy_ShouldLoseTarget_CrossMap
     {
+        [HarmonyPrepare]
+        private static bool UseLegacyBackend() => !SeamlessFramework.Enabled;
+
         public static bool Prefix(Pawn pawn, ref bool __result)
         {
             var enemyTarget = pawn?.mindState?.enemyTarget;
@@ -303,6 +315,9 @@ namespace RimExodus
     [HarmonyPatch(typeof(JobGiver_AIGotoNearestHostile), "TryGiveJob")]
     public static class Patch_JobGiver_AIGotoNearestHostile_CrossMap
     {
+        [HarmonyPrepare]
+        private static bool UseLegacyBackend() => !SeamlessFramework.Enabled;
+
         public static void Postfix(Pawn pawn, ref Job __result)
         {
             if (__result != null) return;
@@ -382,6 +397,9 @@ namespace RimExodus
     [HarmonyPatch(typeof(JobGiver_Manhunter), "TryGiveJob")]
     public static class Patch_JobGiver_Manhunter_CrossMapMelee
     {
+        [HarmonyPrepare]
+        private static bool UseLegacyBackend() => !SeamlessFramework.Enabled;
+
         public static bool Prefix(Pawn pawn, ref Job __result)
         {
             var probeT0 = RimExodusPerfProbe.Now();

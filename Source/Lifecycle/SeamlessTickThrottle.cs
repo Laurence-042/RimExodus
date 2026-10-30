@@ -60,6 +60,8 @@ namespace RimExodus
         {
             public HashSet<IntVec3> fastCells;
             public int radius;
+            public int percent;
+            public System.Func<Thing, bool> predicate;
         }
 
         /// <summary>降频中的地图与其快速区（运行时状态，刻意不序列化——见类注释）。</summary>
@@ -68,6 +70,11 @@ namespace RimExodus
         /// <summary>0% 凝固时已从全局 tick 表摘除 thing 的图（摘表来源标记——恢复注册的唯一依据，
         /// 与 Sleep 的摘表（dormant 集合即其标记）互斥去重）。</summary>
         private static readonly HashSet<Map> tickSuspendedMaps = new HashSet<Map>();
+        internal static void ResetForGame()
+        {
+            throttled.Clear();
+            tickSuspendedMaps.Clear();
+        }
 
         /// <summary>百分比 ≤0 时的相位哨兵：永不放行（= 可见的凝固，等价休眠但保留显示与邻接）。</summary>
         private const int NeverTick = int.MaxValue;
@@ -83,11 +90,15 @@ namespace RimExodus
         /// <summary>每 tick 刷新设置缓存（governor GameComponentTick 最前调用；热路径读缓存见类注释）。</summary>
         internal static void RefreshSettingsCache()
         {
+            var previousPercent = cachedPercent;
+            var previousRadius = cachedFastRadius;
             cachedPercent = Mathf.Clamp(RimExodusMod.Settings?.dormancyThrottlePercent ?? 50, 0, 100);
             cachedN = cachedPercent >= 100 ? 1
                 : cachedPercent <= 0 ? NeverTick
                 : System.Math.Max(2, Mathf.CeilToInt(100f / cachedPercent));
             cachedFastRadius = Mathf.Clamp(RimExodusMod.Settings?.throttleSeamFastRadius ?? 15, 0, 50);
+            if (SeamlessFramework.Enabled && (previousPercent != cachedPercent || previousRadius != cachedFastRadius))
+                foreach (var map in new List<Map>(throttled.Keys)) Throttle(map, "settings changed");
         }
 
         /// <summary>map 是否处于降频（null/Disposed 安全返回 false）。</summary>
@@ -114,6 +125,7 @@ namespace RimExodus
         /// </summary>
         public static bool MapSimulatesThisTick(Map map)
         {
+            if (SeamlessFramework.Enabled) return true; // REF owns the Pre/Post opportunity.
             if (throttled.Count == 0 || !throttled.ContainsKey(map)) return true;
             var n = cachedN;
             return n <= 1 || (n != NeverTick && (GenTicks.TicksGame + map.uniqueID) % n == 0);
@@ -126,6 +138,7 @@ namespace RimExodus
         /// </summary>
         public static bool ShouldThingTick(Thing thing)
         {
+            if (SeamlessFramework.Enabled) return true;
             if (throttled.Count == 0) return true;
             var map = thing.Map;
             if (map == null || !throttled.TryGetValue(map, out var st)) return true;
@@ -155,6 +168,7 @@ namespace RimExodus
         /// </summary>
         public static float MoveCostMultiplier(Thing thing)
         {
+            if (SeamlessFramework.Enabled) return 1f; // Applied once by REF's path-follower hook.
             if (throttled.Count == 0) return 1f;
             var map = thing.Map;
             if (map == null || !throttled.TryGetValue(map, out var st)) return 1f;
@@ -172,6 +186,22 @@ namespace RimExodus
         public static void Throttle(Map map, string reason)
         {
             if (map == null || map.Disposed) return;
+            if (SeamlessFramework.Enabled)
+            {
+                if (throttled.TryGetValue(map, out var shared) && shared.radius == cachedFastRadius
+                    && shared.percent == cachedPercent) return;
+                bool wasFrozen = shared?.percent == 0;
+                var cells = BuildFastRegion(map, cachedFastRadius);
+                shared = new MapThrottleState { fastCells = cells, radius = cachedFastRadius, percent = cachedPercent };
+                shared.predicate = cells == null ? null : new System.Func<Thing, bool>(t => cells.Contains(t.Position));
+                throttled[map] = shared;
+                SeamlessFramework.Runtime.TickRates.Set(map, SeamlessFramework.Owner, cachedPercent,
+                    shared.predicate, suppressUpdateWhenStopped: false, compensateMovement: true);
+                if (cachedPercent == 0 && !wasFrozen)
+                    SeamlessWeatherClusterManager.NotifySimulationSuspended(map, "REF tick rate 0");
+                else if (cachedPercent > 0 && wasFrozen) SeamlessWeatherClusterManager.OnMapResumed(map);
+                return;
+            }
             var suspend = cachedN == NeverTick;
             if (throttled.TryGetValue(map, out var existing))
             {
@@ -203,6 +233,9 @@ namespace RimExodus
         public static void Unthrottle(Map map, string reason, bool restoreTicks = true)
         {
             if (map == null || !throttled.Remove(map)) return;
+            if (SeamlessFramework.Enabled)
+                SeamlessFramework.Runtime.TickRates.Release(map, SeamlessFramework.Owner,
+                    restoreTicks && !SeamlessDormancyManager.IsDormant(map));
             if (tickSuspendedMaps.Remove(map))
             {
                 if (restoreTicks && !SeamlessDormancyManager.IsDormant(map))

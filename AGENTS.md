@@ -37,7 +37,8 @@
 - 开工前检查工作树；用户已有改动必须保留，不能为方便而 reset、checkout 或覆盖无关文件。
 - 查询优先使用环境提供的 Grep/Glob/Read。若这些工具对已知存在内容静默失败，可用 PowerShell `Select-String` 后备；不要为普通检索混用多层 shell 转义。
 - 新源码按 `README.md` 的九个功能目录放置，Harmony patch 与所属功能域同目录，统一使用 `RimExodus` namespace；不要把文件重新平铺到 `Source/` 根。
-- 编译命令为仓库根目录下 `just build`，等价于 `dotnet build Source/RimExodus.csproj -c Debug`，产物为 `1.6/Assemblies/RimExodus.dll`。
+- 编译沿用 Delta-V：`just build` 默认 1.7 Release，`just build 1.6` 构建 1.6。先构建同级 REF、复制匹配版本编译引用，再用 dotnet build 构建 RE；REF 失败即停止，不另设直接调用编译器的备用路径。产物为对应版本的 `Assemblies/RimExodus.dll`，不得将 REF DLL 打包进 RE 的 Assemblies。
+- REF/legacy 后端在启动时锁存，设置默认 legacy。验证期间保留旧执行器；各公共机制只运行所选后端。旧前哨键继续写入，REF 另存公共文档，兼容边界见 `doc/地图滚动休眠.md`。
 
 ## 3. 外部源码与兼容性参考
 
@@ -163,6 +164,7 @@ RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_ref
 
 - 兼容层全部软检测：目标 Mod 缺失时零行为、零错误；类型或签名漂移时 Warning 并安全降级，不能让兼容诊断杀死 RimExodus 初始化。
 - 手动 `AccessTools.Method + harmony.Patch` 不受离线 PatchAll 验证器覆盖；必须 try/catch，并输出可核对的绑定成功行。
+- 自动注册只收显式 `[HarmonyPatch]` 类，手动兼容辅助类不进入自动扫描。延迟注册的异常保护必须覆盖回调执行及其反射参数求值；仅在排队处 try/catch 不足。注册模式、局部降级与离线覆盖以 `doc/兼容层注册审计.md` 为准；`just test-compat` 验证 1.7 两后端实际绑定及模拟兼容失败。
 - Geological Landforms：分帧路径复刻其 Prepare/Cleanup 上下文；RimExodus parent 必须登记进 GL 的 IgnoredWorldObjects。GL 河流通过 Path tree 钉位，不能回退到离散函数场 warp 或生成后地形修补。GL 河缝对齐 = v9 端点钉位（PathTracer.Trace Prefix，含叶段 AngleTenacity 放宽至地貌自设 AngleLimitAbs 上限内；钉位 trace 的碰撞重试上限钳 12 防不收敛循环）+ v10 `PathFinder.FindPath` Prefix 接受收紧（钉位目标 TargetAcceptRadius→0.75·步长、PlanarTargetFallback→0；最后一档重试恢复 vanilla 洪量防 null→梯度跟随降级）+ v10d/g 终端收口（Postfix 截尾后接缝线穿越点节点与缝外垂直延伸节点，偏差按构造归零；中段偏差 12–40 格的制造腿必须通过**含余量的走廊检查**——沿线圆盘采样与已成形河带保持 ~12 格净空，只查河带本体时腿贴碰撞余量带通过仍会烧循环把无辜支流 stub 掉——并可锚点回溯，全被占则放弃收口保留 GL 路线）。**禁止整体位移 A\* 结果**（v10a 全路径 smoothstep 位移与烘焙碰撞处理器互搏致误差逐轮放大直至 stub 截断、河流整体消失，已撤销）——终端单点收口是唯一允许的事后修改；亦勿用 GridValueSupplier 委托包装（Vector2d 无编译引用需 emit）或 Segment 拆段预弯（无 Target 中段落入梯度跟随模式 + 单节点越界前科）。合流/分流地貌"分支点贴边无扭转空间"为结构性边界：走廊被阻挡的支流保留 GL 原生走向；实测个别支流仍会被 GL 碰撞处理器截断、在合流图一侧整体缺失（NO-CROSS，v10g 余量走廊也救不回——剩余碰撞来自 GL 原生拓扑与钉位目标的冲突，非我方制造腿）——已接受为已知边界（用户定夺 2026-09-17，不再深入 node 操作——那等于重写 GL 河流生成）。GL 1.7.13 起主程序集经 LunarLoader 懒加载（Assemblies 只有 LunarLoader.dll，真程序集在 Lunar/Components/）——GL 类型解析必须经 `SeamlessLandformsCompat.EnsureResolved` 可重试，最终注册兜底在生成入口（`EnsureNeighborSnapshots` 漏斗 → `EnsureRegisteredForGeneration`，原生/分帧两路径全覆盖）；勿回退为 RimExodusMod 构造器时点一次性解析（2026-09 教训：ctor 时点解析对 mod 列表顺序敏感，静默失效时河流地貌 tile 两边河 mutator 都不跑、地块图无河无地貌）。
 - MapPreview：后台预览与正式生成共享 MapGenerator static，必须互斥；线程判定不能只看全局 IsGeneratingPreview。
 - Vehicle Framework：跨图前先同步就绪化目标图 VehiclePathGrid，再用整车矩形与载具自己的成本源判断落点。不得用普通 Pawn 的 Walkable 或 thingGrid Standable 预筛深水/植被。

@@ -250,6 +250,8 @@ namespace RimExodus
                 }
 
                 _initialized = true;
+                if (bound < 5)
+                    Log.Warning($"[RimExodus] VF compat: only {bound}/5 vehicle hooks bound; cross-map vehicle support is incomplete.");
                 Log.Message($"[RimExodus] VF compat: bound {bound} vehicle patches "
                     + $"(grids={_requestGridsForMethod != null}, arrivalCheck={_nonStandableBlockedMethod != null}, reachability={_canReachVehicleMethod != null}).");
             }

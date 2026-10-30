@@ -122,6 +122,7 @@ namespace RimExodus
 
         public static void Register(Harmony harmony)
         {
+            if (SeamlessFramework.Enabled) return;
             if (!ModsConfig.IsActive(PackageId)) return;
             try
             {
@@ -290,20 +291,27 @@ namespace RimExodus
                 // detour here initializes that type on the worker thread and Unity rejects the resource load.
                 // Resolve metadata now, but compile all turret-related detours at the long-event main-thread
                 // completion point.
-                LongEventHandler.ExecuteWhenFinished(() =>
-                {
-                    RegisterTurretHooks(harmony, fireArcType, turretType, nonSnapFinder);
-                    RegisterCiwsHooks(harmony);
-                });
+                LongEventHandler.ExecuteWhenFinished(() => RegisterDeferredHooks(harmony, fireArcType, turretType, nonSnapFinder));
 
                 var mod = LoadedModManager.RunningModsListForReading.Find(m => m.PackageIdPlayerFacing == PackageId);
-                Log.Message($"[RimExodus] Combat Extended compat: bound projectile hooks (CE {mod?.ModMetaData?.ModVersion ?? "unknown"}).");
+                Log.Message($"[RimExodus] Combat Extended compat: projectile hook registration finished (CE {mod?.ModMetaData?.ModVersion ?? "unknown"}); see individual bound/warning lines for availability.");
             }
             catch (Exception ex)
             {
                 initialized = false;
                 Log.Warning($"[RimExodus] Combat Extended compat disabled; CE signature/type mismatch: {ex}");
             }
+        }
+
+        private static void RegisterDeferredHooks(Harmony harmony, Type fireArcType, Type turretType, Type nonSnapFinder)
+        {
+            if (!initialized) return;
+            // Metadata lookup can throw before TryPatch is entered. Deferred work is outside
+            // Register's outer catch; isolate the optional groups at their actual execution point.
+            try { RegisterTurretHooks(harmony, fireArcType, turretType, nonSnapFinder); }
+            catch (Exception error) { Log.Warning("[RimExodus] CE turret registration incomplete: " + error); }
+            try { RegisterCiwsHooks(harmony); }
+            catch (Exception error) { Log.Warning("[RimExodus] CE CIWS registration incomplete: " + error); }
         }
 
         private static void RegisterTurretHooks(Harmony harmony, Type fireArcType, Type turretType, Type nonSnapFinder)

@@ -36,6 +36,14 @@ namespace RimExodus
         private int baseSeed;
         private Action<Map> onComplete;
         private bool finalizing;
+        private static bool executing;
+
+        private static void CompleteSynchronously()
+        {
+            if (executing || current == null)
+                throw new InvalidOperationException("Cannot start nested map generation from an active RE preparation, genStep or completion callback.");
+            while (current != null) current.TickGeneration();
+        }
 
         // ===== GenerateMap postfix 复放实参（2026-09）=====
         // 与原版 MapGenerator.GenerateMap 形参表逐位对应的实参快照（isPocketMap/stepDebugger 恒
@@ -130,7 +138,8 @@ namespace RimExodus
                 Log.Warning("[RimExodus] IncrementalMapGenerator: another generation in progress, reject.");
                 return false;
             }
-            if (MapGenerator.mapBeingGenerated != null)
+            if (MapGenerator.mapBeingGenerated != null || (SeamlessFramework.Enabled
+                && (SeamlessFramework.Runtime.Generation.IsBusy || SeamlessMapPreviewCompat.IsPreviewInFlight)))
             {
                 Log.Warning("[RimExodus] IncrementalMapGenerator: MapGenerator.mapBeingGenerated != null, reject.");
                 return false;
@@ -139,6 +148,14 @@ namespace RimExodus
             // 分帧路径不调用 MapGenerator.GenerateMap，必须在占用其进程级静态状态前显式执行
             // 与同步路径 Prefix 相同的邻图基础快照准备。
             SeamlessSnapshotRegenerator.EnsureNeighborSnapshots(mapParent.Tile);
+
+            if (SeamlessFramework.Enabled)
+            {
+                if (SeamlessFramework.Runtime.Generation.IsBusy || MapGenerator.mapBeingGenerated != null
+                    || SeamlessMapPreviewCompat.IsPreviewInFlight) return false;
+                SeamlessFramework.Runtime.Generation.Acquire(SeamlessFramework.Owner, CompleteSynchronously);
+            }
+            executing = true;
 
             var prepStartRealtime = UnityEngine.Time.realtimeSinceStartup;
             try
@@ -181,6 +198,8 @@ namespace RimExodus
                 newMap.events = new MapEvents(newMap);
 
                 MapGenerator.mapBeingGenerated = newMap;
+                if (SeamlessFramework.Enabled)
+                    SeamlessFramework.Runtime.Generation.Bind(SeamlessFramework.Owner, newMap);
                 newMap.info.Size = mapSize;
                     newMap.info.parent = mapParent;
                     newMap.generatorDef = mapGeneratorDef; // 关键：OutdoorTemp/Biome 等依赖此字段，原版 :126。
@@ -307,8 +326,10 @@ namespace RimExodus
             catch (Exception outerEx)
             {
                 Log.Error($"[RimExodus] IncrementalMapGenerator outer failure: {outerEx}");
+                CleanupFailedGeneration(MapGenerator.mapBeingGenerated);
                 return false;
             }
+            finally { executing = false; }
         }
 
         /// <summary>
@@ -320,6 +341,8 @@ namespace RimExodus
         private void TickGeneration()
         {
             if (generatingMap == null || genSteps == null) return;
+            if (executing) return;
+            executing = true;
 
             try
             {
@@ -368,6 +391,7 @@ namespace RimExodus
                 Log.Error($"[RimExodus] IncrementalMapGenerator TickGeneration failed at step {currentStepIndex}: {ex}");
                 CleanupFailedGeneration(generatingMap);
             }
+            finally { executing = false; }
         }
 
         /// <summary>判断 genStep 是否可分帧（重 genStep 跨帧执行，避免单帧卡顿）。</summary>
@@ -508,6 +532,7 @@ namespace RimExodus
             catch (Exception ex)
             {
                 Log.Error($"[RimExodus] Error in GenStep [{currentStepIndex}] {step.def}: {ex}");
+                if (SeamlessFramework.Enabled) throw; // REF failures must reach the single cleanup path.
             }
             finally
             {
@@ -649,22 +674,30 @@ namespace RimExodus
 
         private static void ResetGeneratorStatics()
         {
-            try { ClearWorkingDataStatic(); } catch { }
-            try { MapGenerator.mapBeingGenerated = null; } catch { }
-            try { gravshipField.SetValue(null, null); } catch { }
-            try { RockNoises.Reset(); } catch { }
+            Exception cleanupFailure = null;
+            try { ClearWorkingDataStatic(); } catch (Exception e) { cleanupFailure = e; }
+            MapGenerator.mapBeingGenerated = null;
+            try { gravshipField.SetValue(null, null); } catch (Exception e) { cleanupFailure = e; }
+            try { RockNoises.Reset(); } catch (Exception e) { cleanupFailure = e; }
             current = null;
+            if (cleanupFailure != null)
+            {
+                Log.Error("[RimExodus] Generator static cleanup failed. REF generation remains blocked; restart before continuing generation or saving. " + cleanupFailure);
+                if (SeamlessFramework.Enabled) return;
+            }
+            if (SeamlessFramework.Enabled && SeamlessFramework.Runtime?.Generation.IsOwnedBy(SeamlessFramework.Owner) == true)
+                SeamlessFramework.Runtime.Generation.Release(SeamlessFramework.Owner);
         }
 
-        private static void CleanupFailedGeneration(Map map, bool resetGeneratorStatics = true)
+        internal static void CleanupFailedGeneration(Map map, bool resetGeneratorStatics = true)
         {
             var parent = map?.info?.parent;
             // Start/TickGeneration 的失败没有外层 finalizer，由本收口清静态状态；FinishGeneration
             // 的 catch 后必进它自己的 finally，传 false 避免重复 reset。
-            if (resetGeneratorStatics) ResetGeneratorStatics();
             SeamlessTileManager.ReleaseIncrementalGenerationState(map);
             // GL 兼容：失败清理同样收掉 GL 静态上下文（与 FinishGeneration 正常路径语义一致）。
-            SeamlessLandformsCompat.Cleanup();
+            try { SeamlessLandformsCompat.Cleanup(); }
+            catch (Exception error) { Log.Error("[RimExodus] Generation context cleanup failed: " + error); }
             try
             {
                 // onComplete 可能已经登记了部分双向邻居，先清理半成品 parent 的反链。
@@ -689,19 +722,23 @@ namespace RimExodus
                 Log.Error($"[RimExodus] CleanupFailedGeneration DeinitAndRemoveMap error (map may leak): {ex}");
                 // 兜底：至少从 Find.Maps 移除，避免主线程继续 tick 半成品 map。
                 try { if (map != null) Find.Maps.Remove(map); } catch { }
+                if (SeamlessFramework.Enabled && map != null) SeamlessFramework.Runtime?.Forget(map);
             }
 
             try
             {
                 // 仅 onComplete 已把 parent 加入世界对象表后才需显式销毁；准备/genStep 阶段的
                 // 未注册 parent 随已移除的 Map 一起失去引用，调用 Destroy 反而会发送虚假的销毁通知。
-                if (parent != null && parent.Spawned && !parent.Destroyed)
+                if (parent != null && parent.Spawned && !parent.Destroyed
+                    && !(parent is MapParent_SeamlessTile archived && archived.preserveRecord != null))
                     parent.Destroy();
             }
             catch (Exception ex)
             {
                 Log.Error($"[RimExodus] CleanupFailedGeneration parent cleanup error: {ex}");
             }
+            // Release shared generation only after map, links, parent and GL state have been cleaned.
+            if (resetGeneratorStatics) ResetGeneratorStatics();
         }
     }
 }

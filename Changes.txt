@@ -15,6 +15,12 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 
 
 1.0.10
+- 修复：部分兼容适配失败时可能中断后续初始化；改进地图预览延迟加载识别与错误提示
+  Fixed: some compatibility failures could interrupt further initialization; improved detection of late-loaded map previews and failure diagnostics.
+- 修复：1.7 缺少对应构建目录时可能误载 1.6 文件，并与旧版 Framework 混用，导致启动时大量类型和地图定义加载失败
+  Fixed: a missing 1.7 build directory could make the game load 1.6 files alongside an older Framework, causing widespread type and map definition loading failures at startup.
+- 新增：可在地图生成设置中试用 RimExodus Framework 地图底层，重启生效；默认保留原底层，可关闭开关并重启回退。两种模式均需启用 RimExodus Framework 前置
+  Added: an optional RimExodus Framework map backend in map generation settings, applied after restart. The original backend remains the default; disable the option and restart to return to it. Both modes require RimExodus Framework.
 - 修复：敌人和访客跨地图撤离时容易转向并贴着接缝走；现在会沿用撤离方向，结合地形选择路线，前方无路时仍能绕行，并保留原有的破门能力
   Fixed: enemies and visitors could turn and hug map seams while leaving across multiple maps. They now retain their escape direction and account for terrain when choosing exits, with fallback routes when forward exits are unreachable and their original door-bashing ability preserved.
 - 修复：安装 The Dead Man's Switch 时，任务地点的废墟及外围建筑可能刷在可玩区域外、无法到达；现在会寻找能完整容纳建筑的位置，找不到时不再生成残缺建筑

@@ -34,9 +34,21 @@ namespace RimExodus
         private readonly Thing thing;
         private readonly sbyte oldMapIndex;
         private readonly IntVec3 oldPosition;
+        private readonly RimExodus.Maps.MapEvaluationPosition frameworkPosition;
+        private readonly bool framework;
 
         public SeamlessVirtualTeleporter(Thing thing, Map map, IntVec3 position = default(IntVec3))
         {
+            framework = SeamlessFramework.Enabled;
+            frameworkPosition = default;
+            if (framework)
+            {
+                this.thing = null;
+                oldMapIndex = default;
+                oldPosition = default;
+                frameworkPosition = new RimExodus.Maps.MapEvaluationPosition(thing, map, position);
+                return;
+            }
             this.thing = thing;
             oldMapIndex = MapIndexOrStateRef(thing);
             oldPosition = PositionIntRef(thing);
@@ -49,6 +61,7 @@ namespace RimExodus
 
         public void Dispose()
         {
+            if (framework) { frameworkPosition.Dispose(); return; }
             if (thing == null) return;
             MapIndexOrStateRef(thing) = oldMapIndex;
             PositionIntRef(thing) = oldPosition;

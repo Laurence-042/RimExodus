@@ -275,6 +275,7 @@ namespace RimExodus
         public override void MapGenerated()
         {
             base.MapGenerated();
+            SeamlessFramework.RegisterMap(map);
             // 原生 parent 图（家园/原生家族）统一触发开档接线（与 governor 管辖口径一致——
             // 见 SeamlessMapGovernance；2026-08 归一，此前注释自称"仅锚点图"但实际门是
             // 任意原生 parent，口径早已不一致）。
@@ -364,7 +365,7 @@ namespace RimExodus
             // 进程级静态，此时启动增量会互踩（Start 覆盖预览的占用、预览收尾 finally 又清空我们的，
             // MapGenerator static/GL 上下文双向数据竞争）——MP 对原生 GenerateMap 有 WaitUntilIdle
             // 互斥但护不到自建增量流程，故在入口对等避让。
-            if (MapGenerator.mapBeingGenerated != null || IncrementalMapGenerator.IsAnyGenerating
+            if (MapGenerator.mapBeingGenerated != null || SeamlessFramework.GenerationBusy
                 || SeamlessMapPreviewCompat.IsPreviewInFlight)
             {
                 // 忙态统一下一 tick 重排队（忙态必有尽头、重试有界；ConsumeQueued 消费前已清空
@@ -614,38 +615,47 @@ namespace RimExodus
                     Find.World.worldObjects.Add(mapParent);
                 }
                 Map syncMap = null;
-                GeneratingNativeSeamlessly = true; // Fog patch 走"从生成方向接缝洪水"分径（同 POI 分支语义）
-                NeighborGenerationSourceTile = sourceWorldTile;
-                SetGenerationTrigger(triggerCell, map);
-                MapGenerationProgressUI.BeginSyncOp("RimExodus_SyncMapGenProgress".Translate());
                 try
                 {
-                    syncMap = MapGenerator.GenerateMap(mapSize, mapParent, mapParent.MapGeneratorDef,
-                        mapParent.ExtraGenStepDefs, null, isPocketMap: false);
+                    GeneratingNativeSeamlessly = true; // Fog patch 走"从生成方向接缝洪水"分径（同 POI 分支语义）
+                    NeighborGenerationSourceTile = sourceWorldTile;
+                    SetGenerationTrigger(triggerCell, map);
+                    MapGenerationProgressUI.BeginSyncOp("RimExodus_SyncMapGenProgress".Translate());
+                    try
+                    {
+                        syncMap = MapGenerator.GenerateMap(mapSize, mapParent, mapParent.MapGeneratorDef,
+                            mapParent.ExtraGenStepDefs, null, isPocketMap: false);
+                    }
+                    finally
+                    {
+                        MapGenerationProgressUI.EndSyncOp();
+                        GeneratingNativeSeamlessly = false;
+                        NeighborGenerationSourceTile = -1;
+                        ClearGenerationTrigger();
+                    }
+                    if (syncMap != null)
+                    {
+                        // 生成后接线（= 增量路径 onComplete 回调的全部内容内联；这部分无论分帧与否都是
+                        // 我们自己的代码，不属于"复刻生成"）。
+                        SeamlessWeatherClusterManager.BindMap(syncMap);
+                        SeamlessNeighborRegistry.RegisterNeighborBidirectional(originMapCapture, mapParent,
+                            sourceWorldTileCapture, newWorldTile, hostOffset);
+                        SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(originMapCapture, sourceWorldTileCapture);
+                        SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(originMapCapture);
+                        SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(syncMap);
+                        AutoConnectWorldNeighbors(syncMap, newWorldTile);
+                        FinishZoneRestore(syncMap, mapParent, newWorldTile);
+                        Log.Message($"[RimExodus] Tile {newWorldTile} generated via vanilla synchronous MapGenerator.GenerateMap " +
+                                    $"(incremental generation disabled by setting; map {syncMap.uniqueID}).");
+                    }
                 }
-                finally
+                catch
                 {
-                    MapGenerationProgressUI.EndSyncOp();
-                    GeneratingNativeSeamlessly = false;
-                    NeighborGenerationSourceTile = -1;
-                    ClearGenerationTrigger();
+                    if (SeamlessFramework.Enabled)
+                        IncrementalMapGenerator.CleanupFailedGeneration(syncMap ?? mapParent.Map, resetGeneratorStatics: false);
+                    throw;
                 }
-                if (syncMap != null)
-                {
-                    // 生成后接线（= 增量路径 onComplete 回调的全部内容内联；这部分无论分帧与否都是
-                    // 我们自己的代码，不属于"复刻生成"）。
-                    SeamlessWeatherClusterManager.BindMap(syncMap);
-                    SeamlessNeighborRegistry.RegisterNeighborBidirectional(originMapCapture, mapParent,
-                        sourceWorldTileCapture, newWorldTile, hostOffset);
-                    SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(originMapCapture, sourceWorldTileCapture);
-                    SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(originMapCapture);
-                    SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(syncMap);
-                    AutoConnectWorldNeighbors(syncMap, newWorldTile);
-                    FinishZoneRestore(syncMap, mapParent, newWorldTile);
-                    Log.Message($"[RimExodus] Tile {newWorldTile} generated via vanilla synchronous MapGenerator.GenerateMap " +
-                                $"(incremental generation disabled by setting; map {syncMap.uniqueID}).");
-                }
-                ClearGeneratingTile(newWorldTile);
+                finally { ClearGeneratingTile(newWorldTile); }
                 // 同步生成已完成；返回 null = "未启动增量生成"，调用方（TryPreloadNeighbor）按既有
                 // 路径收尾（ClearGeneratingTile 幂等双清，无害）。
                 return null;
@@ -794,6 +804,11 @@ namespace RimExodus
         {
             var record = parent.preserveRecord;
             if (record == null) return;
+            if (!record.RestorationSucceeded)
+            {
+
+                throw new InvalidOperationException("Outpost restoration did not complete; the archive is retained for retry.");
+            }
             parent.preserveRecord = null;
             Log.Message($"[RimExodus] Dormancy RESTORE: tile {worldTile} map {map.uniqueID} restored from preserved outpost record.");
         }

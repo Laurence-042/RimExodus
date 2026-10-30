@@ -4,10 +4,16 @@ references/
 # 编译输出
 1.6/Assemblies/*.dll
 1.6/Assemblies/*.pdb
+1.6/Assemblies/*.json
+1.7/
+References/REF/
+.build-tmp/
 
 # MSBuild 中间产物
 Source/obj/
 Source/bin/
+scripts/**/bin/
+scripts/**/obj/
 
 # ZCode 临时计划文件
 .zcode/plans/

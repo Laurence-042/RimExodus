@@ -42,6 +42,13 @@ namespace RimExodus
         public static bool TryGetCombatLink(Map host, Map target, out CombatLink link)
         {
             link = default(CombatLink);
+            if (SeamlessFramework.Enabled)
+            {
+                if (!RimExodus.Maps.MapCombatCoordinates.TryGetCombatLink(host, target, out var shared)) return false;
+                link = new CombatLink { host = host, target = target, offset = shared.offset,
+                    targetWorldTile = SeamlessTileRegistry.GetMapWorldTile(target) };
+                return true;
+            }
             if (!Enabled || host == null || target == null || host == target || host.Disposed || target.Disposed) return false;
 
             var targetTile = SeamlessTileRegistry.GetMapWorldTile(target);
@@ -66,6 +73,9 @@ namespace RimExodus
         /// 与 <see cref="SeamlessTileGraph.PopulateNeighbors"/> 同口径（休眠过滤），但遍历邻居链表本身、不建列表。
         /// </summary>
         internal static bool HasActiveSeamNeighbors(Map map)
+            => SeamlessFramework.Enabled ? RimExodus.Maps.MapCombatGeometry.HasNeighbors(map) : HasActiveSeamNeighborsLegacy(map);
+
+        internal static bool HasActiveSeamNeighborsLegacy(Map map)
         {
             if (map == null) return false;
             var links = SeamlessMapData.Neighbors(map);

@@ -48,6 +48,7 @@ namespace RimExodus
             var parent = map.Parent as MapParent_SeamlessTile;
             var record = parent?.preserveRecord;
             if (record == null) return;
+            record.RestorationSucceeded = false;
             if (SeamlessMapPreviewCompat.IsGeneratingPreviewOnCurrentThread) return;
 
             if (record.mapSize != map.Size.x)
@@ -103,7 +104,9 @@ namespace RimExodus
             {
                 if (keptCells.Contains(c)) continue;
                 var cur = map.terrainGrid.TopTerrainAt(c);
-                if (floorByCell.TryGetValue(c, out var want))
+                if (SeamlessFramework.Enabled && map.terrainGrid.FoundationAt(c) != null)
+                    map.terrainGrid.RemoveFoundation(c, doLeavings: false);
+                if (!SeamlessFramework.Enabled && floorByCell.TryGetValue(c, out var want))
                 {
                     if (cur != want) map.terrainGrid.SetTerrain(c, want);
                 }
@@ -116,6 +119,17 @@ namespace RimExodus
 
             // ===== Phase B 恢复 =====
             int restored = 0, skipped = 0;
+            int itemsRestored = 0;
+            if (SeamlessFramework.Enabled)
+            {
+                var result = SeamlessFrameworkArchive.Rebuild(map, record, keptCells,
+                    cell => FindFreeCellNear(map, cell));
+                foreach (var thing in result.Things)
+                    if (thing.def.category == ThingCategory.Building) restored++; else itemsRestored++;
+                skipped = result.SkippedThings.Count;
+            }
+            else
+            {
 
             // 建筑（先于屋顶/物品：物品推移/植物清除围绕建筑 footprint 进行）。
             foreach (var b in record.buildings)
@@ -188,7 +202,6 @@ namespace RimExodus
             }
 
             // 物品（落格冲突就近推移——含被让位格上的记录物品）。
-            int itemsRestored = 0;
             foreach (var it in record.items)
             {
                 if (it.def == null) continue;
@@ -212,6 +225,7 @@ namespace RimExodus
                 else thing.Destroy(DestroyMode.Vanish); // 理论不可达（全图找不到可站格）
                 itemsRestored++;
             }
+            }
 
             // 居住区恢复（zone = 原 home area 字面快照）：不恢复 = 下次离开时 Evaluate=None 被直接
             // 删除（二次丢失 bug 的修复点）。索引器 setter 自动连带渲染/寻路/region 通知（Area.Set
@@ -228,6 +242,7 @@ namespace RimExodus
 
             // 直写铁律：批量 SetTerrain/spawn 后重算路径缓存（Walkable/Standable 读缓存数组）。
             map.pathing.RecalculateAllPerceivedPathCosts();
+            record.RestorationSucceeded = true;
 
             // 让位计数玩家反馈（不可拆结构占据 → 记录条目跳过；原 +120t 延迟清理趟的 Message
             // 随其拆除移入本处——玩家可见"哪些前哨没能完整恢复"）。

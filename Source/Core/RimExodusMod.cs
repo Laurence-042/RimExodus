@@ -15,7 +15,7 @@ namespace RimExodus
     /// </summary>
     /// <remarks>
     /// 不再使用 [StaticConstructorOnStartup]：Mod 子类的构造器由 ModHandler 在加载阶段调用，
-    /// 时序早于 StaticConstructorOnStartup，且此时 ContentParser 已加载 Def，适合做 PatchAll。
+    /// 时序早于 StaticConstructorOnStartup 与 Def 加载；此处只做设置与补丁注册，Def 消费延后。
     /// </remarks>
     public class RimExodusMod : Mod
     {
@@ -32,6 +32,7 @@ namespace RimExodus
         public RimExodusMod(ModContentPack content) : base(content)
         {
             Settings = GetSettings<RimExodusSettings>();
+            SeamlessFramework.Initialize(Settings.frameworkBackendEnabled);
 
             // 原版 Ocean 是不可进入的背景 biome，缺少地图地形/天气与陆地生成语义。按启动时设置
             // 锁存内置补全；设置中途切换只写下次启动值，避免同一会话半生效。
@@ -107,111 +108,51 @@ namespace RimExodus
             // transfer path and asks Giddy-Up to rebuild its own relationship/job after arrival.
             SeamlessGiddyUpCompat.Register();
 
-            // 绑定核对（2026-08，配合离线验证器甄别 CLR 伪迹 vs 死代码）：GetPatchedMethods 列出
-            // 本 harmony 实例实际绑定的方法（真实 Mono 运行时结果，不受离线 CLR 伪迹影响）。
-            // 离线验证器的 9 个伪迹失败 patch（GetClearRects/SelectInternal/SetTerrain/MapPreTick·MapUpdate/
-            // RecalculateAllPerceivedPathCosts/SkyManagerUpdate）若不在此列 = 游戏内也没绑上 = 真死代码。
-            var patchedCount = 0;
-            var verbose = RimExodusLog.Enabled(RimExodusLogModule.Core);
-            foreach (var method in harmony.GetPatchedMethods())
-            {
-                patchedCount++;
-                if (verbose)
-                    Log.Message("[RimExodus]   patched: " + method.DeclaringType?.FullName + "::" + method.Name);
-            }
-            Log.Message($"[RimExodus] Harmony patches applied to {patchedCount} methods"
-                + (verbose ? " (list above)" : " (enable the Core log module in settings for the list)."));
-
-            // 显式 patch CellFinder.TryFindRandomEdgeCellWith 的 4 参数重载（out 参数需 MakeByRefType()，
-            // [HarmonyPatch] 特性无法声明，故在 PatchAll 之外手动绑定）。
-            var target = AccessTools.Method(typeof(CellFinder), nameof(CellFinder.TryFindRandomEdgeCellWith),
-                new[] { typeof(System.Predicate<Verse.IntVec3>), typeof(Verse.Map), typeof(float), typeof(Verse.IntVec3).MakeByRefType() });
-            var prefix = AccessTools.Method(typeof(Patch_CellFinder_TryFindRandomEdgeCellWith), nameof(Patch_CellFinder_TryFindRandomEdgeCellWith.Prefix));
-            if (target != null && prefix != null)
-                harmony.Patch(target, prefix: new HarmonyMethod(prefix));
-            else
-                Log.Error($"[RimExodus] Failed to bind Patch_CellFinder_TryFindRandomEdgeCellWith (target={target}, prefix={prefix}).");
-
-            // 显式 patch CellFinder.TryFindRandomEdgeCellWith 的 5 参数（Rot4）重载——接缝化 Prefix
-            // （Patch_CellFinder_TryFindRandomEdgeCellWithRot4，Patches_CellFinder.cs）。组队路线规划
-            // AvailableExitTilesAt / TryFindExitSpot 的底层出口原语：原版候选格钉死方形边，倾斜六边形图
-            // 上整圈 void → 六方向全败 → "你的远行队无法离开此区域"。
-            // 历史（勿再回退）：首版落地后曾以"未倾斜图方向枚举正常（4/6 tiles）"回退为纯诊断——
-            // 那只是六边形角点恰好轴对齐触到方形边、原版靠接触格侥幸通过；2026-08 倾斜图实测复现后
-            // 重新落地。
-            // 绑定必须 try/catch（2026-08 实测教训）：按名绑定的参数拼错（方向参数是 **dir** 不是 rot）
-            // = 构造器抛异常 = mod 实例化失败、道路/河流等后续手动绑定全部丢失（离线验证器只扫
-            // [HarmonyPatch] 特性类，不覆盖手动绑定，拦不住此类错误）；绑定失败 = 5 参维持原版行为
-            // （即回退期现状），绝不杀死 mod。
-            try
-            {
-                var targetRot4 = AccessTools.Method(typeof(CellFinder), nameof(CellFinder.TryFindRandomEdgeCellWith),
-                    new[] { typeof(System.Predicate<Verse.IntVec3>), typeof(Verse.Map), typeof(Verse.Rot4), typeof(float), typeof(Verse.IntVec3).MakeByRefType() });
-                var rot4Prefix = AccessTools.Method(typeof(Patch_CellFinder_TryFindRandomEdgeCellWithRot4), nameof(Patch_CellFinder_TryFindRandomEdgeCellWithRot4.Prefix));
-                if (targetRot4 != null && rot4Prefix != null)
-                    harmony.Patch(targetRot4, prefix: new HarmonyMethod(rot4Prefix));
-                else
-                    Log.Error($"[RimExodus] Failed to bind Patch_CellFinder_TryFindRandomEdgeCellWithRot4 (target={targetRot4}, prefix={rot4Prefix}).");
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"[RimExodus] Binding Patch_CellFinder_TryFindRandomEdgeCellWithRot4 failed (mod continues, 5-arg overload stays vanilla): {ex}");
-            }
-
-            // 显式 patch GenStep_Roads.FindRoadExitCell（private 方法 + ref RoadPathingDef 参数，
-            // [HarmonyPatch] 特性无法声明 private 方法名，故手动绑定）。道路穿越点对齐到接缝锚点。
-            var roadTarget = AccessTools.Method(typeof(RimWorld.GenStep_Roads), "FindRoadExitCell",
-                new[] { typeof(Verse.Map), typeof(float), typeof(Verse.IntVec3), typeof(RimWorld.RoadPathingDef).MakeByRefType() });
-            var roadPrefix = AccessTools.Method(typeof(Patch_GenStep_Roads_FindRoadExitCell), nameof(Patch_GenStep_Roads_FindRoadExitCell.Prefix));
-            if (roadTarget != null && roadPrefix != null)
-                harmony.Patch(roadTarget, prefix: new HarmonyMethod(roadPrefix));
-            else
-                Log.Error($"[RimExodus] Failed to bind Patch_GenStep_Roads_FindRoadExitCell (target={roadTarget}, prefix={roadPrefix}).");
-
-            // 显式 patch GenStep_Roads.ApplyDistanceField（private，嵌套类型 DistanceElement[,] 参数）。
-            // 接缝锚点附近强制补铺路面材质（原版双重随机抽签在土路中线留 ~11-14% 断格）。
-            var fillTarget = AccessTools.Method(typeof(RimWorld.GenStep_Roads), "ApplyDistanceField");
-            var fillPostfix = AccessTools.Method(typeof(Patch_GenStep_Roads_ApplyDistanceField), nameof(Patch_GenStep_Roads_ApplyDistanceField.Postfix));
-            if (fillTarget != null && fillPostfix != null)
-                harmony.Patch(fillTarget, postfix: new HarmonyMethod(fillPostfix));
-            else
-                Log.Error($"[RimExodus] Failed to bind Patch_GenStep_Roads_ApplyDistanceField (target={fillTarget}, postfix={fillPostfix}).");
-
-            // 显式 patch GenStep_Roads.RefinePath（private instance，返回 List<IntVec3>）。
-            // 道路末端垂直化：接缝锚点端的折线末段替换为沿边内法线的直线（两侧共线对接，2026-08-31）。
-            var refineTarget = AccessTools.Method(typeof(RimWorld.GenStep_Roads), "RefinePath");
-            var refinePostfix = AccessTools.Method(typeof(Patch_GenStep_Roads_RefinePath), nameof(Patch_GenStep_Roads_RefinePath.Postfix));
-            if (refineTarget != null && refinePostfix != null)
-            {
-                harmony.Patch(refineTarget, postfix: new HarmonyMethod(refinePostfix));
-                var refineInfo = Harmony.GetPatchInfo(refineTarget);
-                var refineBound = refineInfo != null && refineInfo.Postfixes != null &&
-                                  refineInfo.Postfixes.Any(p => p.owner == harmony.Id);
-                Log.Message($"[RimExodus] GenStep_Roads.RefinePath manual bind: target=OK postfix={(refinePostfix != null)} postfixRegistered={refineBound}.");
-            }
-            else
-                Log.Error($"[RimExodus] Failed to bind Patch_GenStep_Roads_RefinePath (target={refineTarget}, postfix={refinePostfix}).");
-
-            // 显式 patch TileMutatorWorker_River.GetMapEdgeNodes（protected，元组返回值需显式绑定）。
-            // 河端点从"随机直线图外交点"替换为接缝边中点锚点，消除河在接缝处的随机错位。
-            var riverTarget = AccessTools.Method(typeof(RimWorld.TileMutatorWorker_River), "GetMapEdgeNodes");
-            var riverPrefix = AccessTools.Method(typeof(Patch_TileMutatorWorker_River_GetMapEdgeNodes), nameof(Patch_TileMutatorWorker_River_GetMapEdgeNodes.Prefix));
-            if (riverTarget != null && riverPrefix != null)
-            {
-                harmony.Patch(riverTarget, prefix: new HarmonyMethod(riverPrefix));
-                // 诊断（2026-08-30 河断排查）：无条件确认绑定成功——手动绑定不在离线验证器覆盖内，
-                // 游戏内权威确认 = 本行 + PatchTools.GetPatchInfo（前缀已挂）。
-                var patchInfo = Harmony.GetPatchInfo(riverTarget);
-                var prefixBound = patchInfo != null && patchInfo.Prefixes != null &&
-                                  patchInfo.Prefixes.Any(p => p.owner == harmony.Id);
-                Log.Message($"[RimExodus] River GetMapEdgeNodes manual bind: target=OK prefix={(riverPrefix != null)} prefixRegistered={prefixBound}.");
-            }
-            else
-                Log.Error($"[RimExodus] Failed to bind Patch_TileMutatorWorker_River_GetMapEdgeNodes (target={riverTarget}, prefix={riverPrefix}).");
-
-            Log.Message("[RimExodus] Harmony patches applied.");
+            RegisterManualPatches(harmony);
+            // Run after all immediate and queued CE bindings; GL's later generation retry logs itself.
+            LongEventHandler.ExecuteWhenFinished(() => ReportBindings(harmony));
+            Log.Message("[RimExodus] RimExodusMod instantiated.");
         }
 
+        internal static void RegisterManualPatches(Harmony harmony)
+        {
+            SeamlessPatchBinding.TryBind(harmony, "CellFinder.TryFindRandomEdgeCellWith/4",
+                () => AccessTools.Method(typeof(CellFinder), nameof(CellFinder.TryFindRandomEdgeCellWith),
+                    new[] { typeof(Predicate<IntVec3>), typeof(Map), typeof(float), typeof(IntVec3).MakeByRefType() }),
+                typeof(Patch_CellFinder_TryFindRandomEdgeCellWith), "Prefix");
+            SeamlessPatchBinding.TryBind(harmony, "CellFinder.TryFindRandomEdgeCellWith/5",
+                () => AccessTools.Method(typeof(CellFinder), nameof(CellFinder.TryFindRandomEdgeCellWith),
+                    new[] { typeof(Predicate<IntVec3>), typeof(Map), typeof(Rot4), typeof(float), typeof(IntVec3).MakeByRefType() }),
+                typeof(Patch_CellFinder_TryFindRandomEdgeCellWithRot4), "Prefix");
+            SeamlessPatchBinding.TryBind(harmony, "GenStep_Roads.FindRoadExitCell",
+                () => AccessTools.Method(typeof(GenStep_Roads), "FindRoadExitCell",
+                    new[] { typeof(Map), typeof(float), typeof(IntVec3), typeof(RoadPathingDef).MakeByRefType() }),
+                typeof(Patch_GenStep_Roads_FindRoadExitCell), "Prefix");
+            SeamlessPatchBinding.TryBind(harmony, "GenStep_Roads.ApplyDistanceField",
+                () => AccessTools.Method(typeof(GenStep_Roads), "ApplyDistanceField", new[] {
+                    AccessTools.Inner(typeof(GenStep_Roads), "DistanceElement").MakeArrayType(2),
+                    typeof(Map), typeof(TerrainDef), typeof(RoadDef), typeof(RoadPathingDef) }),
+                typeof(Patch_GenStep_Roads_ApplyDistanceField), "Postfix", postfix: true);
+            SeamlessPatchBinding.TryBind(harmony, "GenStep_Roads.RefinePath",
+                () => AccessTools.Method(typeof(GenStep_Roads), "RefinePath", new[] { typeof(List<IntVec3>), typeof(Map) }),
+                typeof(Patch_GenStep_Roads_RefinePath), "Postfix", postfix: true);
+            SeamlessPatchBinding.TryBind(harmony, "TileMutatorWorker_River.GetMapEdgeNodes",
+                () => AccessTools.Method(typeof(TileMutatorWorker_River), "GetMapEdgeNodes", new[] { typeof(Map), typeof(float) }),
+                typeof(Patch_TileMutatorWorker_River_GetMapEdgeNodes), "Prefix");
+        }
+
+        private static void ReportBindings(Harmony harmony)
+        {
+            int count = 0;
+            bool verbose = RimExodusLog.Enabled(RimExodusLogModule.Core);
+            foreach (var method in harmony.GetPatchedMethods())
+            {
+                count++;
+                if (verbose) Log.Message("[RimExodus]   patched: " + method.DeclaringType?.FullName + "::" + method.Name);
+            }
+            Log.Message($"[RimExodus] GetPatchedMethods: {count} methods"
+                + (verbose ? " (list above)." : " (enable the Core log module for the list)."));
+        }
         /// <summary>在 Mod 设置菜单中暴露可调节字段。</summary>
         public override string SettingsCategory()
         {
@@ -269,6 +210,8 @@ namespace RimExodus
             switch (settingsTab)
             {
                 case SettingsTab.Generation:
+                    CheckRow(listing, "RimExodus_SettingsFrameworkLabel", "RimExodus_SettingsFrameworkTip",
+                        v => s.frameworkBackendEnabled = v, s.frameworkBackendEnabled);
                     // ===== tab：地图生成 =====
                     SliderRow(listing, "RimExodus_SettingsBorderPreloadLabel", "RimExodus_SettingsBorderPreloadTip",
                         s.borderPreloadDistance, 0, 50, v => s.borderPreloadDistance = (int)v);
@@ -338,7 +281,11 @@ namespace RimExodus
                 case SettingsTab.Combat:
                     // ===== tab：跨图战斗 =====
                     CheckRow(listing, "RimExodus_SettingsCombatLabel", "RimExodus_SettingsCombatTip",
-                        v => s.crossMapCombatEnabled = v, s.crossMapCombatEnabled);
+                        v =>
+                        {
+                            s.crossMapCombatEnabled = v;
+                            if (SeamlessFramework.Enabled) Current.Game?.GetComponent<SeamlessFrameworkState>()?.SynchronizeCombatSetting();
+                        }, s.crossMapCombatEnabled);
                     // 袭击外缘生成（2026-09）：步行袭击从外侧（对侧未被看见的）接缝进场。
                     CheckRow(listing, "RimExodus_SettingsRaidOuterSpawnLabel", "RimExodus_SettingsRaidOuterSpawnTip",
                         v => s.raidOuterSpawnEnabled = v, s.raidOuterSpawnEnabled);

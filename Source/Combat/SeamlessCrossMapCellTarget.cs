@@ -11,7 +11,7 @@ namespace RimExodus
     /// the same coordinate frame without inventing a fake Thing.  Entries are weakly owned by the verb or
     /// caster and are always revalidated against the active-neighbor graph before use.
     /// </summary>
-    public static class SeamlessCrossMapCellTarget
+    internal static class LegacySeamlessCrossMapCellTarget
     {
         public sealed class Entry
         {

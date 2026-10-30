@@ -241,4 +241,6 @@ SAVE NOW. After saving, RimExodus can be safely removed.</RimExodus_UninstallRes
   <RimExodus_RaidOuterSpawnLocalToggleTip>Tick = this incident always spawns on the local map (vanilla spawn point), never from a neighboring map. Unticked = may arrive from an outer seam and march across.</RimExodus_RaidOuterSpawnLocalToggleTip>
   <RimExodus_RaidOuterSpawnAlwaysLocal>always local</RimExodus_RaidOuterSpawnAlwaysLocal>
   <RimExodus_RaidOuterSpawnAlwaysLocalTip>This incident's mechanics are anchored to the map it attacks (e.g. the psychic ritual is performed at a site on your map), so it can never arrive from a neighboring map and cannot be toggled.</RimExodus_RaidOuterSpawnAlwaysLocalTip>
+  <RimExodus_SettingsFrameworkLabel>Use REF map backend (restart required)</RimExodus_SettingsFrameworkLabel>
+  <RimExodus_SettingsFrameworkTip>Use RimExodus Framework for shared map services. Disabled by default during validation. Restart the game after changing this setting; disable and restart to return to the legacy backend. Keep the Framework mod enabled in both modes.</RimExodus_SettingsFrameworkTip>
 </LanguageData>

@@ -54,6 +54,9 @@ namespace RimExodus
             typeof(ProjectileHitFlags), typeof(bool), typeof(Thing), typeof(ThingDef) })]
     public static class Patch_Projectile_Launch
     {
+        [HarmonyPrepare]
+        private static bool UseLegacyBackend() => !SeamlessFramework.Enabled;
+
         /// <summary>
         /// 跨图发射落点归一。usedTarget 的坐标系三分支：命中/强制 miss/掩体 miss = 目标图本地；
         /// 野 miss（ShootLine.ChangeDestToMissWild 作用于我们的统一 ShootLine）= 已统一。
@@ -126,6 +129,9 @@ namespace RimExodus
     [HarmonyPatch(typeof(Projectile), nameof(Projectile.UpdateRateTicks), MethodType.Getter)]
     public static class Patch_Projectile_UpdateRateTicks
     {
+        [HarmonyPrepare]
+        private static bool UseLegacyBackend() => !SeamlessFramework.Enabled;
+
         public static void Postfix(Projectile __instance, ref int __result)
         {
             if (Patches_Projectile.IsCrossMap(__instance))
@@ -138,6 +144,9 @@ namespace RimExodus
     [HarmonyPatch(typeof(Projectile), "TickInterval")]
     public static class Patch_Projectile_TickInterval
     {
+        [HarmonyPrepare]
+        private static bool UseLegacyBackend() => !SeamlessFramework.Enabled;
+
         /// <summary>
         /// 缝交接：本步起点/终点（模拟推进算出）任一归属邻图 → 找步内首个邻图格为交接点，
         /// 字段平移 + respawn，放行原方法体在邻图原生跑完该步（拦截余段 + 结算全覆盖——

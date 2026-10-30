@@ -228,7 +228,7 @@ namespace RimExodus
             }
             catch (Exception ex)
             {
-                Log.Warning($"[RimExodus] GL river compat: Register failed (mod continues, GL rivers stay vanilla GL behavior): {ex.Message}");
+                Log.Warning($"[RimExodus] GL river compat: registration incomplete; previously confirmed hooks remain installed: {ex.Message}");
             }
         }
 

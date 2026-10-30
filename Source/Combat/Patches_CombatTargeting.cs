@@ -30,6 +30,9 @@ namespace RimExodus
     [HarmonyPatch(typeof(Verb), nameof(Verb.TryFindShootLineFromTo))]
     public static class Patch_Verb_TryFindShootLineFromTo
     {
+        [HarmonyPrepare]
+        private static bool UseLegacyBackend() => !SeamlessFramework.Enabled;
+
         /// <summary>
         /// 跨图分支接管：目标 Thing 在另一张互为活跃邻居的图上时，射击线在统一坐标
         /// （宿主=射手图）上计算；否则完全放行原版。不具备 projectile 能力的 verb
@@ -73,6 +76,9 @@ namespace RimExodus
     [HarmonyPatch(typeof(Verb_LaunchProjectile), "TryCastShot")]
     public static class Patch_Verb_LaunchProjectile_TryCastShot
     {
+        [HarmonyPrepare]
+        private static bool UseLegacyBackend() => !SeamlessFramework.Enabled;
+
         public static void Prefix(Verb_LaunchProjectile __instance, out Verb __state)
         {
             __state = SeamlessCrossMapCellTarget.BeginFiring(__instance);
@@ -129,6 +135,9 @@ namespace RimExodus
     [HarmonyPatch(typeof(Verb_CastAbility), "TryCastShot")]
     public static class Patch_Verb_CastAbility_TryCastShot_CrossMapProjectileContext
     {
+        [HarmonyPrepare]
+        private static bool UseLegacyBackend() => !SeamlessFramework.Enabled;
+
         public static void Prefix(Verb_CastAbility __instance, out Verb __state)
         {
             __state = SeamlessCrossMapCellTarget.BeginFiring(__instance);
@@ -144,6 +153,9 @@ namespace RimExodus
     [HarmonyPatch(typeof(ShotReport), nameof(ShotReport.HitReportFor))]
     public static class Patch_ShotReport_HitReportFor
     {
+        [HarmonyPrepare]
+        private static bool UseLegacyBackend() => !SeamlessFramework.Enabled;
+
         private static readonly FieldInfo DistanceField = AccessTools.Field(typeof(ShotReport), "distance");
         private static readonly FieldInfo TargetField = AccessTools.Field(typeof(ShotReport), "target");
         private static readonly FieldInfo CoversField = AccessTools.Field(typeof(ShotReport), "covers");
@@ -305,6 +317,9 @@ namespace RimExodus
     [HarmonyPatch(typeof(FloatMenuOptionProvider_DraftedAttack), "GetMultiselectAttackOption")]
     public static class Patch_DraftedAttack_MultiselectNullGuard
     {
+        [HarmonyPrepare]
+        private static bool UseLegacyBackend() => !SeamlessFramework.Enabled;
+
         public static void Postfix(Thing clickedThing, ref FloatMenuOption __result)
         {
             if (__result != null) return;
@@ -324,6 +339,9 @@ namespace RimExodus
     [HarmonyPatch(typeof(Pawn_RotationTracker), "UpdateRotation")]
     public static class Patch_PawnRotationTracker_CrossMapFacing
     {
+        [HarmonyPrepare]
+        private static bool UseLegacyBackend() => !SeamlessFramework.Enabled;
+
         private static readonly AccessTools.FieldRef<JobDriver, TargetIndex> RotateToFaceRef =
             AccessTools.FieldRefAccess<JobDriver, TargetIndex>("rotateToFace");
 

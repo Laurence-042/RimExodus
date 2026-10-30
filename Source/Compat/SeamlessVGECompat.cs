@@ -16,11 +16,26 @@ namespace RimExodus
     /// </summary>
     internal static class SeamlessVGECompat
     {
-        private static readonly System.Type ArtilleryProjectileType =
-            AccessTools.TypeByName("VanillaGravshipExpanded.Projectile_Artillery");
+        private static readonly System.Type ArtilleryProjectileType;
 
-        private static readonly FieldInfo TargetTileField =
-            ArtilleryProjectileType == null ? null : AccessTools.Field(ArtilleryProjectileType, "targetTile");
+        private static readonly FieldInfo TargetTileField;
+
+        static SeamlessVGECompat()
+        {
+            try
+            {
+                ArtilleryProjectileType = AccessTools.TypeByName("VanillaGravshipExpanded.Projectile_Artillery");
+                if (ArtilleryProjectileType == null) return;
+                var field = AccessTools.Field(ArtilleryProjectileType, "targetTile");
+                if (field == null || field.FieldType != typeof(PlanetTile) || field.IsStatic)
+                    throw new System.MissingMemberException("Projectile_Artillery.targetTile (instance PlanetTile)");
+                TargetTileField = field;
+            }
+            catch (System.Exception error)
+            {
+                Log.Warning("[RimExodus] VGE world-artillery detection unavailable: " + error);
+            }
+        }
 
         internal static bool IsWorldArtilleryLeavingMap(Projectile projectile)
         {

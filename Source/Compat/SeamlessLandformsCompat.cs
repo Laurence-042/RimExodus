@@ -85,6 +85,7 @@ namespace RimExodus
 
         /// <summary>"GL 在 mod 列表但类型解析失败"的一次性告警旗标（版本漂移检测，防刷屏）。</summary>
         private static bool warnedGlExpectedMissing;
+        private static bool warnedResolveFailure;
 
         static SeamlessLandformsCompat()
         {
@@ -118,7 +119,8 @@ namespace RimExodus
                 generatingLandformsProp = landformType.GetProperty("GeneratingLandforms", BindingFlags.Public | BindingFlags.Static);
                 customGenStepsProp = landformType.GetProperty("CustomGenSteps", BindingFlags.Public | BindingFlags.Instance);
                 if (prepareMethod == null || cleanupMethod == null || generatingTileProp == null
-                    || generatingLandformsProp == null || customGenStepsProp == null) return;
+                    || generatingLandformsProp == null || customGenStepsProp == null)
+                    throw new MissingMemberException("GL Prepare/CleanUp or generation context properties changed.");
 
                 var nodeType = AccessTools.TypeByName("GeologicalLandforms.GraphEditor.NodeRunGenStep");
                 if (nodeType != null)
@@ -149,9 +151,14 @@ namespace RimExodus
 
                 available = true;
             }
-            catch
+            catch (Exception error)
             {
-                // GL 结构不符（版本升级等）：全部保持 null，available=false，零介入。
+                available = false;
+                if (!warnedResolveFailure)
+                {
+                    warnedResolveFailure = true;
+                    Log.Warning("[RimExodus] GL context compatibility unavailable after type/signature resolution: " + error);
+                }
             }
         }
 

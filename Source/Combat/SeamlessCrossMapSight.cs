@@ -13,7 +13,7 @@ namespace RimExodus
     /// 本图多边形内 → 本图查；邻图多边形内 → 邻图查（坐标平移）；角部双 void → 本图查
     /// （void 无 edifice，判定天然透明）。两端格原版语义本就不测试（起点格由 skipFirstCell 跳过）。
     /// </summary>
-    public static class SeamlessCrossMapSight
+    internal static class LegacySeamlessCrossMapSight
     {
         private static readonly List<IntVec3> TempDestCells = new List<IntVec3>(16);
         private static readonly List<IntVec3> TempSources = new List<IntVec3>(16);

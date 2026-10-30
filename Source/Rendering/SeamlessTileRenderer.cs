@@ -68,6 +68,12 @@ namespace RimExodus
         private CommandBuffer waterDepthCommandBuffer;
         private Camera attachedWaterDepthCamera;
         private int nextSequence;
+        private RimExodus.Maps.MapDrawBackend frameworkTerrain;
+        private RimExodus.Maps.MapDrawBackend frameworkWater;
+        private readonly List<(RimExodus.Maps.MapDrawCommand command, int sequence)> frameworkCommands =
+            new List<(RimExodus.Maps.MapDrawCommand, int)>();
+        private void CollectFrameworkCommand(RimExodus.Maps.MapDrawCommand command)
+            => frameworkCommands.Add((command, frameworkCommands.Count));
 
         private struct TerrainDrawCommand
         {
@@ -116,8 +122,18 @@ namespace RimExodus
             // 收集当前地图的所有直接邻居（对称：原生图/地块图都遍历）。复用缓存列表避免每帧分配。
             cachedNeighbors.Clear();
             SeamlessTileGraph.PopulateNeighbors(map, cachedNeighbors);
+            if (SeamlessFramework.Enabled)
+            {
+                EnsureFrameworkBuffers();
+                frameworkCommands.Clear();
+                frameworkTerrain.BeginFrame(true, Color.clear);
+                frameworkTerrain.BeginGroup();
+                frameworkWater?.BeginFrame();
+                frameworkWater?.BeginGroup();
+            }
             if (cachedNeighbors.Count == 0)
             {
+                if (SeamlessFramework.Enabled) return;
                 // 1.7 的 CommandBuffer 清屏也是桩；即时路径没有待清理的相机命令。
                 if (useImmediateRendering) return;
                 // 零邻居（新档首图生成 / 孤岛地块 / 邻居全部卸载 / 读档邻居未再生成）时
@@ -133,7 +149,7 @@ namespace RimExodus
                 return;
             }
 
-            if (!useImmediateRendering)
+            if (!SeamlessFramework.Enabled && !useImmediateRendering)
             {
                 EnsureCommandBuffer();
                 commandBuffer.Clear();
@@ -153,14 +169,41 @@ namespace RimExodus
                 // 即时绘制与当前图进入同一个队列；略降邻图高度以缓解深度竞争。
                 // 1.7 透明重叠带已实测，1.6 仍由命令缓冲清深度保证覆盖顺序。
                 var offsetVec = neighbor.offset.ToVector3();
-                if (useImmediateRendering) offsetVec.y -= 0.01f;
+                if (useImmediateRendering && !SeamlessFramework.Enabled) offsetVec.y -= 0.01f;
                 CollectNeighborLayers(neighbor.map, neighbor.offset, offsetVec, hostViewRect);
-                DrawNeighborPawns(neighbor.map, hostViewRect);
-                DrawNeighborProjectiles(neighbor.map, hostViewRect);
-                DrawNeighborRealtimeThings(neighbor.map, neighbor.offset.ToVector3(), hostViewRect);
+                if (SeamlessFramework.Enabled)
+                    RimExodus.Maps.MapDrawCapture.Collect(() =>
+                    {
+                        // These RE draw selectors already supply destination coordinates, including Mote.
+                        DrawNeighborPawns(neighbor.map, hostViewRect);
+                        DrawNeighborProjectiles(neighbor.map, hostViewRect);
+                        DrawNeighborRealtimeThings(neighbor.map, neighbor.offset.ToVector3(), hostViewRect);
+                    }, Matrix4x4.identity, CollectFrameworkCommand);
+                else
+                {
+                    DrawNeighborPawns(neighbor.map, hostViewRect);
+                    DrawNeighborProjectiles(neighbor.map, hostViewRect);
+                    DrawNeighborRealtimeThings(neighbor.map, neighbor.offset.ToVector3(), hostViewRect);
+                }
             }
 
             CollectSkyTintRects();
+
+            if (SeamlessFramework.Enabled)
+            {
+                foreach (var command in drawCommands)
+                    CollectFrameworkCommand(new RimExodus.Maps.MapDrawCommand(command.mesh,
+                        command.matrix, command.material, layer: command.renderLayer));
+                frameworkCommands.Sort((a, b) =>
+                {
+                    int queue = a.command.RenderQueue.CompareTo(b.command.RenderQueue);
+                    return queue != 0 ? queue : a.sequence.CompareTo(b.sequence);
+                });
+                foreach (var command in frameworkCommands) frameworkTerrain.Draw(command.command);
+                frameworkTerrain.Finish();
+                frameworkCommands.Clear(); // Native property ranges are valid only during this frame.
+                return;
+            }
 
             if (drawCommands.Count == 0)
             {
@@ -370,8 +413,27 @@ namespace RimExodus
             activeRenderer = this;
         }
 
+        private void EnsureFrameworkBuffers()
+        {
+            if (activeRenderer != null && activeRenderer != this) activeRenderer.ReleaseCommandBuffer();
+            if (frameworkTerrain == null)
+                frameworkTerrain = new RimExodus.Maps.MapDrawBackend(false, CommandBufferName);
+            frameworkTerrain.Attach(Find.Camera);
+            var water = Current.SubcameraDriver?.GetSubcamera(SubcameraDefOf.WaterDepth);
+            if (water != null || useImmediateRendering)
+            {
+                if (frameworkWater == null)
+                    frameworkWater = new RimExodus.Maps.MapDrawBackend(false, WaterDepthCommandBufferName, preserveRenderLayer: true);
+                frameworkWater.Attach(water);
+            }
+            else { frameworkWater?.Dispose(); frameworkWater = null; }
+            activeRenderer = this;
+        }
+
         private void ReleaseCommandBuffer()
         {
+            frameworkTerrain?.Dispose(); frameworkTerrain = null;
+            frameworkWater?.Dispose(); frameworkWater = null;
             if (attachedCamera != null && commandBuffer != null)
             {
                 attachedCamera.RemoveCommandBuffer(CameraEvent.BeforeForwardOpaque, commandBuffer);
@@ -653,7 +715,8 @@ namespace RimExodus
         /// </summary>
         private void CollectNeighborWaterDepth(Section section, Matrix4x4 matrix)
         {
-            if ((!useImmediateRendering && waterDepthCommandBuffer == null) || watergenLayerType == null) return;
+            if ((SeamlessFramework.Enabled ? frameworkWater == null
+                : !useImmediateRendering && waterDepthCommandBuffer == null) || watergenLayerType == null) return;
             var layers = layersRef(section);
             if (layers == null) return;
 
@@ -664,7 +727,10 @@ namespace RimExodus
                 {
                     if (!subMesh.finalized || subMesh.disabled || subMesh.material == null) continue;
                     var material = StillWaterDepthMaterial(subMesh.material);
-                    if (useImmediateRendering)
+                    if (SeamlessFramework.Enabled)
+                        frameworkWater.Draw(new RimExodus.Maps.MapDrawCommand(subMesh.mesh, matrix,
+                            material, layer: SubcameraDefOf.WaterDepth.LayerId));
+                    else if (useImmediateRendering)
                         Graphics.DrawMesh(subMesh.mesh, matrix, material, SubcameraDefOf.WaterDepth.LayerId);
                     else
                         waterDepthCommandBuffer.DrawMesh(subMesh.mesh, matrix, material);

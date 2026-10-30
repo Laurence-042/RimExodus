@@ -242,4 +242,6 @@
   <RimExodus_RaidOuterSpawnLocalToggleTip>勾选 = 该事件固定在本图原版落点生成，不从邻图外缘进场；取消勾选 = 可从外侧接缝进场并跨缝行军。</RimExodus_RaidOuterSpawnLocalToggleTip>
   <RimExodus_RaidOuterSpawnAlwaysLocal>始终本图</RimExodus_RaidOuterSpawnAlwaysLocal>
   <RimExodus_RaidOuterSpawnAlwaysLocalTip>该事件的机制锚定在它进攻的地图上（例如灵能仪式要在你图上的固定地点举行），因此永远无法从邻图进场，也不可切换。</RimExodus_RaidOuterSpawnAlwaysLocalTip>
+  <RimExodus_SettingsFrameworkLabel>使用 REF 地图底层（重启生效）</RimExodus_SettingsFrameworkLabel>
+  <RimExodus_SettingsFrameworkTip>使用 RimExodus Framework 提供公共地图能力。验证期间默认关闭。修改后请重启游戏；关闭并重启即可回到 legacy 底层。两种模式下都需保持 Framework 前置启用。</RimExodus_SettingsFrameworkTip>
 </LanguageData>

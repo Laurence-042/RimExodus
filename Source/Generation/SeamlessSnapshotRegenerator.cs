@@ -58,7 +58,7 @@ namespace RimExodus
                 // 互斥避让：精简生成消费 MapGenerator 进程级 static（data/RockNoises/mapBeingGenerated），
                 // 与分帧增量 / 原生生成 / MapPreview 预览线程互踩。跳过本次（不重试不阻塞）——
                 // 邻图生成本身照常，混合该方向退回既有静默跳过，下次触发生成时再补。
-                if (MapGenerator.mapBeingGenerated != null || IncrementalMapGenerator.IsAnyGenerating
+                if (MapGenerator.mapBeingGenerated != null || SeamlessFramework.GenerationBusy
                     || SeamlessMapPreviewCompat.IsPreviewInFlight)
                 {
                     return;
@@ -123,12 +123,18 @@ namespace RimExodus
             }
 
             int seed = Gen.HashCombineInt(Find.World.info.Seed, planetTile.GetHashCode());
+            const string snapshotOwner = SeamlessFramework.Owner + ".Snapshot";
+            if (SeamlessFramework.Enabled)
+                SeamlessFramework.Runtime.Generation.Acquire(snapshotOwner,
+                    () => throw new InvalidOperationException("Cannot generate another map during snapshot reconstruction."));
             Map tempMap = null;
+            bool randPushed = false;
             // 进度提示（单帧冻结内 OnGUI 不重绘，本标签在入队帧已点亮、此处换成具体文案）
-            MapGenerationProgressUI.BeginSyncOp("RimExodus_SnapshotRegenProgress".Translate());
-            Rand.PushState();
             try
             {
+                MapGenerationProgressUI.BeginSyncOp("RimExodus_SnapshotRegenProgress".Translate());
+                Rand.PushState();
+                randPushed = true;
                 Rand.Seed = seed;
                 // ===== 临时 Map（复刻 IncrementalMapGenerator.Start 的准备段，但不 AddMap）=====
                 tempMap = new Map();
@@ -136,6 +142,7 @@ namespace RimExodus
                 tempMap.generationTick = GenTicks.TicksGame;
                 tempMap.events = new MapEvents(tempMap);
                 MapGenerator.mapBeingGenerated = tempMap; // 单飞持有（与原生 GenerateMap 同语义）
+                if (SeamlessFramework.Enabled) SeamlessFramework.Runtime.Generation.Bind(snapshotOwner, tempMap);
                 tempMap.info.Size = new IntVec3(sourceMap.Size.x, 1, sourceMap.Size.z);
                 tempMap.info.parent = parent; // TileInfo 读真实 WorldGrid（biome/mutators 等）
                 tempMap.generatorDef = def;
@@ -244,13 +251,25 @@ namespace RimExodus
                 {
                     Log.Error($"[RimExodus] Snapshot regen temp map disposal error (map may leak): {ex}");
                 }
-                MapGenerator.mapBeingGenerated = null;
-                gravshipField?.SetValue(null, null);
-                RockNoises.Reset();
-                SeamlessLandformsCompat.Cleanup();
-                IncrementalMapGenerator.ClearWorkingDataStatic();
-                Rand.PopState();
-                MapGenerationProgressUI.EndSyncOp(); // 无条件（勿放进 DisposeTempMap 的局部 try/catch）
+                try
+                {
+                    MapGenerator.mapBeingGenerated = null;
+                    gravshipField?.SetValue(null, null);
+                    RockNoises.Reset();
+                    SeamlessLandformsCompat.Cleanup();
+                    IncrementalMapGenerator.ClearWorkingDataStatic();
+                }
+                catch (Exception error)
+                {
+                    Log.Error("[RimExodus] Snapshot static cleanup failed. REF generation remains blocked; restart before continuing generation or saving. " + error);
+                    throw;
+                }
+                finally
+                {
+                    if (randPushed) Rand.PopState();
+                    MapGenerationProgressUI.EndSyncOp();
+                }
+                if (SeamlessFramework.Enabled) SeamlessFramework.Runtime.Generation.Release(snapshotOwner);
             }
         }
 

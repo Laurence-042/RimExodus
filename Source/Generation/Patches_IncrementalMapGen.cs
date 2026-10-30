@@ -56,7 +56,7 @@ namespace RimExodus
         {
             static bool Prefix(Dialog_SaveFileList_Save __instance, string mapName)
             {
-                if (!IncrementalMapGenerator.IsAnyGenerating) return true;
+                if (!SeamlessFramework.GenerationBusy) return true;
                 Log.Warning($"[RimExodus] Manual save '{mapName}' rejected at save dialog: incremental map generation in progress " +
                             $"({IncrementalMapGenerator.GenerationProgressDescription}).");
                 SendRejectionLetter();
@@ -96,7 +96,7 @@ namespace RimExodus
             {
                 // 影子远行队不序列化（其 pawn 是图上 pawn，Scribe_Deep 会双存）——存档前强制归还。
                 SeamlessShadowCaravan.EnsureReleasedForSave();
-                if (!IncrementalMapGenerator.IsAnyGenerating) return true;
+                if (!SeamlessFramework.GenerationBusy) return true;
                 Log.Warning($"[RimExodus] Save '{fileName}' rejected: incremental map generation in progress " +
                             $"({IncrementalMapGenerator.GenerationProgressDescription}). Retry after generation completes.");
                 SendRejectionLetter();

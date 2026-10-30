@@ -40,7 +40,9 @@ namespace RimExodus
         {
             projected = sourceLocal;
             if (!TryGetOffset(sourceMap, destinationMap, out var offset)) return false;
-            projected += new Vector3(offset.x, 0f, offset.z);
+            projected = SeamlessFramework.Enabled
+                ? RimExodus.Maps.MapTransform.Translate(sourceLocal, offset)
+                : sourceLocal + new Vector3(offset.x, 0f, offset.z);
             return true;
         }
 
@@ -48,7 +50,7 @@ namespace RimExodus
         {
             if (TryGetOffset(sourceMap, destinationMap, out var offset))
             {
-                projected = sourceLocal + offset;
+                projected = SeamlessFramework.Enabled ? RimExodus.Maps.MapTransform.Translate(sourceLocal, offset) : sourceLocal + offset;
                 return true;
             }
 

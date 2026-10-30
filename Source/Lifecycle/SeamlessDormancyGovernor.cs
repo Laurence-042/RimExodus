@@ -149,6 +149,7 @@ namespace RimExodus
         /// </summary>
         public override void LoadedGame()
         {
+            SeamlessFramework.ConfigureGame();
             // 几何进程缓存随档重置（2026-09 泄漏收口）：旧档图不经 DeinitAndRemoveMap 整体丢弃、
             // MapRemoved 不触发——同进程换档必须显式清空，否则旧档条目跨档累积（纯几何、随用随建，
             // 清空后首批消费各重建一次，无感）。开新档同理（StartedNewGame）。
@@ -167,6 +168,7 @@ namespace RimExodus
 
         public override void StartedNewGame()
         {
+            SeamlessFramework.ConfigureGame();
             // 同 LoadedGame 的缓存重置（新档开局同样可能带着主菜单前旧档的进程级几何残留）。
             SeamlessPolygonGeometry.ClearAllCaches();
         }
@@ -177,6 +179,11 @@ namespace RimExodus
             // ShouldThingTick/MoveCostMultiplier（每 thing 每 tick）不再各自读设置+Clamp；
             // 滑条即时性损失 ≤1 tick。必须先于本方法后续一切 Throttle/Unthrottle 消费。
             SeamlessTickThrottle.RefreshSettingsCache();
+            if (SeamlessFramework.Enabled)
+            {
+                SeamlessFramework.Runtime.Combat.DiagnosticLogging = RimExodusMod.Settings?.logCombatExtended ?? false;
+                Current.Game.GetComponent<SeamlessFrameworkState>().SynchronizeCombatSetting();
+            }
 
             // tick 剖析器心跳（2026-08-27）：每游戏 tick 恒调，测相邻调用墙钟差 = 每 tick 墙钟
             // 耗时 + 触发周期汇报。关闭时零开销（内部首行早退）。
@@ -472,7 +479,13 @@ namespace RimExodus
         /// </summary>
         internal void ArchiveTileMap(MapParent_SeamlessTile parent, Map map, int tile, int homeCells, string reason)
         {
-            var record = ZoneMapRecord.Capture(map, tile, nextArchiveOrdinal++, homeCells);
+            ZoneMapRecord record;
+            try { record = ZoneMapRecord.Capture(map, tile, nextArchiveOrdinal++, homeCells); }
+            catch (System.Exception error)
+            {
+                Log.Error("[RimExodus] Outpost capture failed; the live map was retained. " + error);
+                return;
+            }
             if (record == null)
             {
                 Log.Warning($"[RimExodus] Preserve archive: capture failed for map {map.uniqueID} wt={tile}, falling back to deletion.");

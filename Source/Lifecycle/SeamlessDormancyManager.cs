@@ -45,6 +45,11 @@ namespace RimExodus
         /// governor 的删除分支不受锁影响（距离 ≥ deleteHops 照常滚动删除）。
         /// </summary>
         private static readonly HashSet<Map> manualDormantMaps = new HashSet<Map>();
+        internal static void ResetForGame()
+        {
+            dormantMaps.Clear();
+            manualDormantMaps.Clear();
+        }
 
         /// <summary>map 是否处于休眠（null/Disposed 安全返回 false）。</summary>
         public static bool IsDormant(Map map)
@@ -79,7 +84,8 @@ namespace RimExodus
             // 摘除全局 Thing tick（原版 API，MapDeiniter.Deinit 同款——按 x.Map == map 从
             // tickListNormal/Rare/Long 与注册缓冲中全摘）。governor 的调用时点在 GameComponentTick
             // （TickManager.DoSingleTick 的 MapPostTick 循环之后），不会落在 thing tick 中途。
-            Find.TickManager.RemoveAllFromMap(map);
+            if (SeamlessFramework.Enabled) SeamlessFramework.Sleep(map);
+            else Find.TickManager.RemoveAllFromMap(map);
 
             // 结束该图的声音 sustainer（Deinit 同款，防休眠后幽灵音——图不 tick 但音频树还挂着；
             // 天气域"决策集中 + 执行各图"模型下这是本图自己的实例，不影响其他成员图）。
@@ -114,7 +120,8 @@ namespace RimExodus
             // 重注册全局 Thing tick：读档路径 FinalizeLoading 的重 spawn 走的就是同一 API，
             // 语义等价"这张图像刚读档一样恢复"。实现收口在 SeamlessTickThrottle.RestoreThingTicks
             //（2026-09 与 0% 凝固摘表的恢复共用——含影子陈旧条目的 Map 过滤兜底，见该方法注释）。
-            SeamlessTickThrottle.RestoreThingTicks(map);
+            if (SeamlessFramework.Enabled) SeamlessFramework.Wake(map);
+            else SeamlessTickThrottle.RestoreThingTicks(map);
 
             // 天气状态校准（2026-09 形态 B）：休眠期本图 curWeatherAge 落后于激活图（换天广播会归零
             // 自愈，两次换天间的漂移在此补齐——lerp 进度/过渡视觉与域一致）。

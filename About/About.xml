@@ -33,12 +33,19 @@ Key features:
   </supportedVersions>
   <modDependencies>
     <li>
+      <packageId>RimExodus.Framework</packageId>
+      <displayName>RimExodus Framework</displayName>
+    </li>
+    <li>
       <packageId>brrainz.harmony</packageId>
       <displayName>Harmony</displayName>
       <downloadUrl>https://github.com/pardeike/HarmonyRimWorld</downloadUrl>
       <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
     </li>
   </modDependencies>
+  <loadAfter>
+    <li>RimExodus.Framework</li>
+  </loadAfter>
   <incompatibleWith>
     <li>astryl.asabovesobelow2</li>
   </incompatibleWith>

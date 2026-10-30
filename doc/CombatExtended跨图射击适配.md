@@ -2,11 +2,15 @@
 
 ## 状态与参考版本
 
+后端选择：legacy 模式使用本文列出的 RE 实现；REF 模式由 `RimExodus.Maps.CombatExtendedBridge` 及 REF `Source/Combat/` 的 targeting、turrets、projectiles partial 文件承载同一桥接链，RE 不重复安装 CE 补丁。REF 战斗模块按需安装、地图逐张登记，关闭地图不扫描邻图、不执行弹丸交接、不改变 tick 速率。关闭时清除跨图目标侧表、弹丸标记和异图 Thing 目标引用；存量弹丸交还当前真实地图的原生规则。当前迁入结果尚需按下列矩阵游戏内回归。
+
 实现基于 `references/CombatExtended` 中的 CE 16.7.3.0 源码，采用 RimExodus 单 DLL 软反射绑定，当前状态为“已实现，待游戏内回归”。CE 未安装时不解析 CE 类型、不注册相关 patch。
 
 源码布局：`Source/Compat/SeamlessCombatExtendedCompat.cs` 只保留软检测、反射绑定、公共能力和共享缓存；`Source/Compat/CombatExtended/` 下的 partial 文件分别承载瞄准/命中报告、炮塔/CIWS、弹丸/RayCast。它们仍编译进同一个 DLL，不构成额外程序集或硬引用。
 
 ## 支持矩阵
+
+注册故障隔离与逐项日志的判读见 [兼容层注册审计](兼容层注册审计.md)。RE legacy 与 REF 的延迟炮塔/CIWS 注册都在实际回调内保护反射查找和绑定；某项失败只代表该项不可用，仍须按下列能力分组实测，不能只凭汇总注册行判定全部通过。
 
 - 支持普通 `Verb_ShootCE`、`Verb_ThrowGrenade`、`Verb_ShootMortarCE`、`VerbCIWS`，以及 one-use、changeable 和 Ability 发射路径。
 - 支持玩家 Pawn、NPC、snap 与 non-snap CE 炮塔的跨图选择、射界/射程判断和开火。
