@@ -8,6 +8,8 @@
 
 构建沿用 Delta-V 流程：`just build` 默认构建 1.7 Release，1.6 使用 `just build 1.6`。先构建同级 REF、复制匹配版本 DLL 到 `References/REF/<版本>/`，再通过 `dotnet build` 构建 RE；REF 失败即停止。运行时 REF DLL 仅由独立前置加载。1.7 成功构建后同步 Def、翻译和补丁内容。可用 `DOTNET_EXE` 指定 SDK；本机默认复用 Delta-V 的 `.local-tools/dotnet`，缺失时使用 PATH 上的 dotnet。显式 `LoadFolders.xml` 阻止 1.7 缺产物时自动加载 1.6 DLL。`just test-ref` 转调 REF 的离线测试。
 
+开发目录以 `RimExodus — Seamless World (Dev)` 和 `RimExodus.SeamlessWorld.Dev` 加载，依赖 `RimExodus.Framework.dev`。`just release` 分别尝试构建 1.6 和 1.7；缺少某版构建环境时复用不早于源码及 REF DLL 的已有产物，过时则警告并中止。成功后两版一起打包到同级 `RimExodus.release`，将名称、packageId、REF 依赖和加载顺序转换为正式版（`RimExodus.Framework`）；正式包同时声明并包含两个游戏版本，需要启用 REF 正式包。默认游戏目录为 `RimWorld_1.6`（1.6）和 `RimWorld`（1.7），可通过 `RimWorld16Dir`、`RimWorld17Dir` 或 `RimWorldDir` 覆盖。
+
 核心原则是**所有地图一视同仁**——任务地点、遭遇、派系基地、定居点、营地等一切拥有合法 `MapParent` 的地图都走同一条无缝链。RimExodus 地图本质上就是标准任务地图生成 + 我们的裁切步骤（void + 接缝带 + 传送点），将其包装成可连续通行的地块。
 
 Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 5.1），无需另装 PowerShell 7；RE 与 REF 的 `justfile` 均不依赖工具环境临时提供的 `pwsh` 路径。`just test-compat` 构建并运行 1.7 两后端的实际 Harmony 绑定及兼容故障回归，不启动游戏；覆盖范围和逐 Mod 审计见 [兼容层注册审计](doc/兼容层注册审计.md)。

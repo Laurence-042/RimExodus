@@ -3,7 +3,10 @@
     <RimWorldVersion Condition="'$(RimWorldVersion)' == ''">1.6</RimWorldVersion>
     <TargetFramework Condition="'$(RimWorldVersion)' == '1.6'">net48</TargetFramework>
     <TargetFramework Condition="'$(RimWorldVersion)' == '1.7'">net10.0</TargetFramework>
-    <RimWorldDir Condition="'$(RimWorldDir)' == ''">D:\SteamLibrary\steamapps\common\RimWorld</RimWorldDir>
+    <RimWorld16Dir Condition="'$(RimWorld16Dir)' == ''">D:\SteamLibrary\steamapps\common\RimWorld_1.6</RimWorld16Dir>
+    <RimWorld17Dir Condition="'$(RimWorld17Dir)' == ''">D:\SteamLibrary\steamapps\common\RimWorld</RimWorld17Dir>
+    <RimWorldDir Condition="'$(RimWorldDir)' == '' and '$(RimWorldVersion)' == '1.6'">$(RimWorld16Dir)</RimWorldDir>
+    <RimWorldDir Condition="'$(RimWorldDir)' == '' and '$(RimWorldVersion)' == '1.7'">$(RimWorld17Dir)</RimWorldDir>
     <HarmonyPath Condition="'$(HarmonyPath)' == ''">D:\SteamLibrary\steamapps\workshop\content\294100\2009463077\1.7\Assemblies\0Harmony.dll</HarmonyPath>
     <DefineConstants Condition="'$(RimWorldVersion)' == '1.7'">$(DefineConstants);RIMWORLD_1_7</DefineConstants>
   </PropertyGroup>

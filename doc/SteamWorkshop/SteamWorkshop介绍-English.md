@@ -2,6 +2,8 @@
 
 Say goodbye to the disjointed "exit map → world map → reload" travel loop. RimExodus stitches adjacent world tiles' maps together, visually and functionally: colonists walk out of the base gate into the wilderness and on across invisible world-tile borders — no caravan, no loading screen.
 
+[b]⚠ Sat Oct 31 2026 01:43:17 GMT+0800: This mod has undergone a major overhaul. A toolkit designed for the simultaneous rendering of multiple maps—which can be reused by other mods—has been extracted and established as a required dependency. This toolkit is intended to assist other modders and streamline version management for the various expansions currently in development for this mod. If you encounter numerous errors upon launching the game, it is likely because you have not installed this required dependency. Sincerely apologize for any inconvenience this may cause.[/b]
+
 [img]https://raw.githubusercontent.com/Laurence-042/RimExodus/main/doc/img/demo.gif[/img]
 
 [b]⚠ Before uninstalling, run "Restore vanilla compatibility" in settings and save; the first mod-free load shows harmless one-time red errors, gone after one more save. But map-generation-related limits remain — see the "About uninstalling" post.[/b]
