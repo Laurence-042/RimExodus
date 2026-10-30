@@ -15,22 +15,10 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 
 
 1.1.0
-- 修复：高兼容性邻图渲染与 IsoRim 1.7 同用时，邻图可能出现随镜头移动或缩放变化的大片灰色缺块和锯齿边界
-  Fixed: when using high-compatibility neighbor rendering with IsoRim 1.7, neighboring maps could show large gray missing regions with jagged boundaries that moved with the camera or zoom.
-- 诊断：1.7 新增限时邻图渲染日志采集按钮，方便对比邻图与直接查看时的闪烁问题；采集期间可临时只显示选定地图作对照，停止后自动恢复
-  Diagnostics: added a timed neighbor-rendering capture button for 1.7 to compare flickering in neighbor and focused views; optionally show only a selected map during capture, with normal rendering restored when capture stops.
 - 兼容：新增 Surveillance Shift 跨接缝视野，摄像头、岗哨和望远镜可读取相邻活跃地图的遮挡
   Compatibility: added cross-seam Surveillance Shift vision, allowing cameras, watchtowers and scopes to read obstacles on active neighboring maps.
-- 兼容：安装 Surveillance Shift 时，保留地图明确禁用边界遮片的配置，避免遮住地图外背景
-  Compatibility: with Surveillance Shift installed, respect maps that explicitly disable edge clippers so their outside backgrounds remain visible.
-- 修复：高兼容性邻图渲染中，部分模组的整图迷雾可能越过地块边界，形成矩形遮挡
-  Fixed: some mods' full-map fog could extend beyond tile boundaries and create rectangular obstructions with high-compatibility neighbor rendering enabled.
 - 新增：可随时切换的高兼容性邻图渲染选项，尝试显示更多原版与其他模组的地图效果；默认保留现有绘制方式，特殊相机和全屏效果仍需验证
   Added: an optional high-compatibility neighbor renderer that can be switched at any time to display more vanilla and modded map effects; the existing renderer remains the default, and special camera and full-screen effects still require validation.
-- 修复：部分兼容适配失败时可能中断后续初始化；改进地图预览延迟加载识别与错误提示
-  Fixed: some compatibility failures could interrupt further initialization; improved detection of late-loaded map previews and failure diagnostics.
-- 修复：1.7 缺少对应构建目录时可能误载 1.6 文件，并与旧版 Framework 混用，导致启动时大量类型和地图定义加载失败
-  Fixed: a missing 1.7 build directory could make the game load 1.6 files alongside an older Framework, causing widespread type and map definition loading failures at startup.
 - 新增：可在地图生成设置中试用 RimExodus Framework 地图底层，重启生效；默认保留原底层，可关闭开关并重启回退。两种模式均需启用 RimExodus Framework 前置
   Added: an optional RimExodus Framework map backend in map generation settings, applied after restart. The original backend remains the default; disable the option and restart to return to it. Both modes require RimExodus Framework.
 
