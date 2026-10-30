@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using HarmonyLib;
+using RimWorld;
+using RimWorld.Planet;
 using RimExodus.Maps;
 using UnityEngine;
 using Verse;
@@ -57,12 +59,35 @@ namespace RimExodus
                 }));
             }
         }
+        private void DrawSkyTint()
+        {
+            if (!Enabled || !WorldRendererUtility.DrawingMap || LongEventHandler.ShouldWaitForEvent) return;
+            var host = Find.CurrentMap;
+            if (host == null || SeamlessTileRegistry.GetMapWorldTile(host) < 0) return;
+            host.GetComponent<SeamlessTileRenderer>()?.DrawNativeSkyTint();
+        }
         [HarmonyPatch(typeof(Game), nameof(Game.UpdatePlay))]
         private static class PreparePatch
         {
             [HarmonyPriority(Priority.First)]
             [HarmonyBefore("RimExodus.Maps")]
             private static void Prefix() => Current.Game.GetComponent<SeamlessNativeRendering>().PrepareFrame();
+
+            // All original MapUpdate calls have finished; no REF map scope is active here.
+            private static void Postfix() => Current.Game.GetComponent<SeamlessNativeRendering>().DrawSkyTint();
+        }
+
+        [HarmonyPatch(typeof(SkyManager), nameof(SkyManager.SkyManagerUpdate))]
+        private static class NeighborSkyPatch
+        {
+            [HarmonyPriority(Priority.Last)]
+            private static void Postfix()
+            {
+                // The native neighbor callback draws its own lighting meshes. Keep their glow/roof
+                // vertex data, but let the focused map's overlay and one exterior quad own sky tint.
+                if (Enabled && MapRenderPlan.IsNativeView)
+                    MatBases.LightOverlay.color = new Color(1f, 1f, 1f, 0f);
+            }
         }
     }
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using HarmonyLib;
 using RimWorld;
 using RimWorld.Planet;
+using RimExodus.Maps;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Verse;
@@ -580,6 +581,19 @@ namespace RimExodus
             }
         }
 
+        internal void DrawNativeSkyTint()
+        {
+            if (Find.CurrentMap != map || !DebugViewSettings.drawLightingOverlay) return;
+            cachedNeighbors.Clear();
+            SeamlessTileGraph.PopulateNeighbors(map, cachedNeighbors);
+            if (cachedNeighbors.Count == 0) return;
+            drawCommands.Clear();
+            CollectSkyTintRects();
+            foreach (var command in drawCommands)
+                Graphics.DrawMesh(command.mesh, command.matrix, command.material, command.renderLayer);
+            drawCommands.Clear();
+        }
+
         /// <summary>
         /// 天色 quad：所有邻图方形的并集 − 当前图方形，拆成互不重叠的矩形，每块一个全零顶点
         /// quad 配共享 MatBases.LightOverlay（每帧被当前图 SkyManager 染天色，与当前图恒一致）。
@@ -592,14 +606,28 @@ namespace RimExodus
 
             skyTintRects.Clear();
             var host = Rect.MinMaxRect(0f, 0f, map.Size.x, map.Size.z);
+            var native = SeamlessNativeRendering.Enabled;
+            var view = native ? Find.CameraDriver.CurrentViewRect.ExpandedBy(1) : default;
             foreach (var neighbor in cachedNeighbors)
             {
+                if (native && (neighbor.map == null || neighbor.map.Disposed ||
+                    IncrementalMapGenerator.IsGenerating(neighbor.map) ||
+                    SeamlessDormancyManager.IsDormant(neighbor.map))) continue;
                 if (sectionsRef(neighbor.map.mapDrawer) == null) continue;
-                var offset = neighbor.offset;
+                var offsetX = (float)neighbor.offset.x;
+                var offsetZ = (float)neighbor.offset.z;
+                if (native)
+                {
+                    if (!SeamlessViewProjection.TryProject(neighbor.map, Vector3.zero, map, out var projected)) continue;
+                    offsetX = projected.x;
+                    offsetZ = projected.z;
+                    var localView = new MapTransform(Matrix4x4.Translate(projected)).LocalView(view);
+                    if (!localView.Overlaps(CellRect.WholeMap(neighbor.map))) continue;
+                }
                 var size = neighbor.map.Size;
                 pendingSkyTintRects.Clear();
-                pendingSkyTintRects.Add(Rect.MinMaxRect(offset.x, offset.z,
-                    offset.x + size.x, offset.z + size.z));
+                pendingSkyTintRects.Add(Rect.MinMaxRect(offsetX, offsetZ,
+                    offsetX + size.x, offsetZ + size.z));
 
                 // 先排除当前图方形，再排除已由先前邻图负责的区域。余下矩形加入并集；
                 // 每帧最多六个邻图，复用三个 List 避免热路径分配。

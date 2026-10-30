@@ -15,6 +15,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 
 
 1.1.0
+- 修复：开启高兼容性邻图渲染时，多张地图交界处的天色可能重复叠加，形成过深的暗带
+  Fixed: with high-compatibility neighbor rendering enabled, sky tint could overlap where several maps meet, creating an overly dark band.
 - 修复：商队等离场角色已站在接缝入口时，可能反复尝试走向脚下却无法离场；现在会再次尝试跨图，传送失败时显示提示并尽可能正常离场
   Fixed: caravans and other departing pawns could repeatedly try to move to the seam entrance beneath them without leaving. They now retry the crossing, show a warning if it fails, and leave normally when possible.
 - 兼容：新增 Surveillance Shift 跨接缝视野，摄像头、岗哨和望远镜可读取相邻活跃地图的遮挡
