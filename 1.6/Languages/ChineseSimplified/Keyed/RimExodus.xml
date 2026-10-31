@@ -243,7 +243,18 @@
   <RimExodus_RaidOuterSpawnAlwaysLocal>始终本图</RimExodus_RaidOuterSpawnAlwaysLocal>
   <RimExodus_RaidOuterSpawnAlwaysLocalTip>该事件的机制锚定在它进攻的地图上（例如灵能仪式要在你图上的固定地点举行），因此永远无法从邻图进场，也不可切换。</RimExodus_RaidOuterSpawnAlwaysLocalTip>
   <RimExodus_SettingsFrameworkLabel>使用 REF 地图底层（重启生效）</RimExodus_SettingsFrameworkLabel>
-  <RimExodus_SettingsFrameworkTip>使用 RimExodus Framework 提供公共地图能力。验证期间默认关闭。修改后请重启游戏；关闭并重启即可回到 legacy 底层。两种模式下都需保持 Framework 前置启用。</RimExodus_SettingsFrameworkTip>
+  <RimExodus_SettingsFrameworkTip>使用 RimExodus Framework 提供公共地图能力。今后将以 REF 为核心维护，建议新档启用。验证期间默认关闭。修改后请重启游戏；关闭并重启即可回到 legacy 底层。两种模式下都需保持 Framework 前置启用。</RimExodus_SettingsFrameworkTip>
+  <RimExodus_SettingsFrameworkRecommendation>新开存档建议启用 REF，便于获得后续支持。</RimExodus_SettingsFrameworkRecommendation>
+  <RimExodus_RefTransitionNoticeTitle>关于 REF 前置与地图底层</RimExodus_RefTransitionNoticeTitle>
+  <RimExodus_RefTransitionNoticeBody>RimExodus 已接入独立的 RimExodus Framework（REF）。地图底层现在可在设置中选择 REF 或旧版；为保持现有行为，默认仍使用旧版。两种模式都需要启用 REF 前置，否则会在加载阶段报错。\n\n接下来我会把维护重点放在 REF 上。如果进展顺利，计划在 RimWorld 1.7 正式发布时移除旧版底层。届时，旧存档里的前哨封存记录可能不再兼容。这里的封存记录，是地图卸载后留在存档中、供下次走近时重建的居住区内容，包括建筑、地板、屋顶和地面物资。\n\n请订阅并启用 REF（如果还没启用，你可能已经在加载时看到一堆报错了）。之后新开存档，建议到 Mod 设置 → 地图生成中开启“使用 REF 地图底层”，然后完整重启游戏。当前版本无论用哪个后端，都仍能读取旧封存记录。我对兼容性挺有信心，不过我脑抽的时候通常也挺有信心。所以，用旧档尝试切换后端前，请先另存一份，别覆盖原档，免得发现 REF 后端有问题时没法回头……\n\n如果遇到问题，或对通知形式有建议，欢迎在 Steam 创意工坊评论区留言。以后若要增加新前置，或调整重要开发计划，我也会提前像这样发公告。</RimExodus_RefTransitionNoticeBody>
+  <RimExodus_AnnouncementsAcknowledge>知道了</RimExodus_AnnouncementsAcknowledge>
+  <RimExodus_AnnouncementsOpenHistory>查看历史公告…</RimExodus_AnnouncementsOpenHistory>
+  <RimExodus_AnnouncementsOpenHistoryTip>查看 RimExodus 过去的游戏内公告，也可以重新弹出公告或安排下次启动时提醒。</RimExodus_AnnouncementsOpenHistoryTip>
+  <RimExodus_AnnouncementsHistoryTitle>历史公告</RimExodus_AnnouncementsHistoryTitle>
+  <RimExodus_AnnouncementsShowAgain>现在重新弹出</RimExodus_AnnouncementsShowAgain>
+  <RimExodus_AnnouncementsRemindNextStartup>下次启动再提醒</RimExodus_AnnouncementsRemindNextStartup>
+  <RimExodus_AnnouncementsRemindScheduled>已安排下次启动提醒</RimExodus_AnnouncementsRemindScheduled>
+  <RimExodus_AnnouncementsClose>关闭</RimExodus_AnnouncementsClose>
   <RimExodus_SettingsNativeRenderingLabel>高兼容性原版邻图渲染</RimExodus_SettingsNativeRenderingLabel>
   <RimExodus_SettingsNativeRenderingTip>开启：通过邻图正常的地图更新与绘制回调显示可见邻图，包括其他 Mod 的覆盖层。关闭：使用选择性自绘制路径（默认）。立即生效，与地图底层开关独立。可能增加渲染开销；依赖私有相机状态或全屏效果的 Mod 仍可能需要适配。</RimExodus_SettingsNativeRenderingTip>
   <RimExodus_SeamTransferRejected>{0} 无法从 {1} 的接缝传送到邻图。对侧落点可能受阻或不可用；若条件允许，该角色会尝试正常离场。</RimExodus_SeamTransferRejected>

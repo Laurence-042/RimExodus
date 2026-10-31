@@ -4,6 +4,8 @@
 
 当前提供 REF 与 legacy 两种地图底层。设置 → 地图生成 → **使用 REF 地图底层（重启生效）**，默认关闭；修改后完整重启游戏。两种模式都需要启用独立的 RimExodus Framework 前置。REF 已完成代码接线，仍需游戏内验收；验证与回退步骤见 [REF 接入实施与验收](doc/REF接入实施与验收.md)。
 
+首次启动会显示一次关于 REF 前置和地图底层的公告。已读公告可在 Mod 设置 → 高级 / 诊断 → **查看历史公告**中重看，也可安排下次启动再次提醒。后续公告沿用此入口。今后以 REF 为核心维护，建议新档启用 REF；如无意外，计划在 RimWorld 1.7 正式发布时移除旧底层，届时旧存档中的前哨封存数据可能不再兼容。当前版本仍可读取旧封存记录，切换前建议备份存档；具体保真边界见 [地图滚动休眠](doc/地图滚动休眠.md#ref-与-legacy-执行边界)。
+
 同一页另有 **高兼容性原版邻图渲染** 开关，默认关闭，下一帧生效，与 REF/legacy 底层选择独立。开启后由 REF 接入可见邻图正常的地图更新与绘制回调，保留原版层、Fleck、组件覆盖层及渲染队列；关闭回到现有自绘制路径。高兼容性路径沿用单次天色染色规则，避免邻图重叠处重复变暗。会增加渲染开销，尚待游戏实测；私有相机、全屏后处理和自定义 GPU 数据仍有边界，不承诺任意 Mod 与聚焦该图时完全一致。实现及验收步骤见 [REF 接入实施与验收](doc/REF接入实施与验收.md#高兼容性原版邻图渲染)。
 
 构建沿用 Delta-V 流程：`just build` 默认构建 1.7 Release，1.6 使用 `just build 1.6`。先构建同级 REF、复制匹配版本 DLL 到 `References/REF/<版本>/`，再通过 `dotnet build` 构建 RE；REF 失败即停止。运行时 REF DLL 仅由独立前置加载。1.7 成功构建后同步 Def、翻译和补丁内容。可用 `DOTNET_EXE` 指定 SDK；本机默认复用 Delta-V 的 `.local-tools/dotnet`，缺失时使用 PATH 上的 dotnet。显式 `LoadFolders.xml` 阻止 1.7 缺产物时自动加载 1.6 DLL。`just test-ref` 转调 REF 的离线测试。
@@ -178,7 +180,8 @@ Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 
 
 | 设置 | 默认 | 说明 |
 |------|------|------|
-| Use REF map backend (restart required) | 关 | 改用 REF 公共底层；完整重启后生效。关闭并重启回到 legacy，独立 REF 前置仍须启用 |
+| Use REF map backend (restart required) | 关 | 新档建议启用 REF，今后将以此底层为核心维护；完整重启后生效。关闭并重启回到 legacy，独立 REF 前置仍须启用 |
+| View past announcements | — | 高级 / 诊断页可重看游戏内公告，也可让已读公告在下次启动时重新弹出；已读状态保存在全局 Mod 设置中，不随单个存档重复提示 |
 | High-compatibility vanilla neighbor rendering | 关 | 下一帧切换自绘制/REF 原版回调绘制；与地图底层选择独立，可能增加帧开销，第三方特殊渲染仍需实测 |
 | Border preload distance | 15 | 从接缝撤离带朝地图中心计数，紧邻接缝带的第一圈为 1；普通移动按指令目标格、PS 步行与驾驶按当前位置触发邻图预加载。接缝带本身不占用距离圈数：撤离开启时不触发，关闭时也可触发。0 在两种模式下均关闭预加载；距离修改后下次查询使用新值，撤离开关立即生效，无需重新读档。越大越容易触发邻图加载：加载期间拖慢 TPS、加载后持续占用直到休眠/删除 |
 | Border no-build distance | 3 | 接缝带内侧禁建宽度 |

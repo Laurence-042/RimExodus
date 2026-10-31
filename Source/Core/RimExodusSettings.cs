@@ -23,6 +23,10 @@ namespace RimExodus
 
         // Latched at startup: never switch live map services halfway through a game.
         public bool frameworkBackendEnabled = false;
+        // Old one-time flag, read only to migrate existing ModSettings.
+        public bool refTransitionNoticeAcknowledged = false;
+        // Global announcement receipts; a stable ID survives edits to the translated text.
+        public List<string> acknowledgedAnnouncementIds = new List<string>();
         // Independent display choice; switches at the next frame boundary in either map backend.
         public bool nativeNeighborRendering = false;
 
@@ -309,6 +313,15 @@ namespace RimExodus
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
             Scribe_Values.Look(ref oceanMapSupportEnabled, "oceanMapSupportEnabled", true);
             Scribe_Values.Look(ref frameworkBackendEnabled, "frameworkBackendEnabled", false);
+            Scribe_Values.Look(ref refTransitionNoticeAcknowledged, "refTransitionNoticeAcknowledged", false);
+            Scribe_Collections.Look(ref acknowledgedAnnouncementIds, "acknowledgedAnnouncementIds", LookMode.Value);
+            if (acknowledgedAnnouncementIds == null) acknowledgedAnnouncementIds = new List<string>();
+            if (Scribe.mode == LoadSaveMode.LoadingVars && refTransitionNoticeAcknowledged)
+            {
+                if (!acknowledgedAnnouncementIds.Contains(RimExodusAnnouncements.RefTransitionId))
+                    acknowledgedAnnouncementIds.Add(RimExodusAnnouncements.RefTransitionId);
+                refTransitionNoticeAcknowledged = false;
+            }
             Scribe_Values.Look(ref nativeNeighborRendering, "nativeNeighborRendering", false);
             Scribe_Values.Look(ref verboseLogging, "verboseLogging", false); // 退役字段：仅旧档兼容
             Scribe_Values.Look(ref logGeneration, "logGeneration", false);

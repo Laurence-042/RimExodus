@@ -216,6 +216,7 @@ namespace RimExodus
                 case SettingsTab.Generation:
                     CheckRow(listing, "RimExodus_SettingsFrameworkLabel", "RimExodus_SettingsFrameworkTip",
                         v => s.frameworkBackendEnabled = v, s.frameworkBackendEnabled);
+                    listing.Label("RimExodus_SettingsFrameworkRecommendation".Translate());
                     CheckRow(listing, "RimExodus_SettingsNativeRenderingLabel", "RimExodus_SettingsNativeRenderingTip",
                         v => s.nativeNeighborRendering = v, s.nativeNeighborRendering);
                     // ===== tab：地图生成 =====
@@ -312,6 +313,11 @@ namespace RimExodus
 
                 case SettingsTab.Advanced:
                     // ===== tab：高级 / 诊断 =====
+                    if (listing.ButtonText("RimExodus_AnnouncementsOpenHistory".Translate(),
+                            "RimExodus_AnnouncementsOpenHistoryTip".Translate()))
+                    {
+                        Find.WindowStack.Add(new AnnouncementHistoryDialog());
+                    }
                     SliderRow(listing, "RimExodus_SettingsNoiseLabel", "RimExodus_SettingsNoiseTip",
                         s.seamOverrideNoiseAmplitude, 0f, 0.5f, v => s.seamOverrideNoiseAmplitude = v, "{0:F2}");
                     // 分模块诊断日志（2026-09，取代单一 verbose 总开关）：总控 + 模块逐项。
@@ -458,5 +464,13 @@ namespace RimExodus
                     s.serializeBaseSnapshots = false;
                 }, destructive: true));
         }
+    }
+
+    // Play-data callbacks can run before Root creates its UIRoot. The entry UI is ready here.
+    [HarmonyPatch(typeof(UIRoot_Entry), nameof(UIRoot_Entry.Init))]
+    internal static class Patch_UIRootEntry_Announcements
+    {
+        private static void Postfix()
+            => RimExodusAnnouncements.ShowOnStartup();
     }
 }
