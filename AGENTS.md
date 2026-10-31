@@ -37,7 +37,8 @@
 - 开工前检查工作树；用户已有改动必须保留，不能为方便而 reset、checkout 或覆盖无关文件。
 - 查询优先使用环境提供的 Grep/Glob/Read。若这些工具对已知存在内容静默失败，可用 PowerShell `Select-String` 后备；不要为普通检索混用多层 shell 转义。
 - 新源码按 `README.md` 的九个功能目录放置，Harmony patch 与所属功能域同目录，统一使用 `RimExodus` namespace；不要把文件重新平铺到 `Source/` 根。
-- 编译沿用 Delta-V：`just build` 默认 1.7 Release，`just build 1.6` 构建 1.6。先构建同级 REF、复制匹配版本编译引用，再用 dotnet build 构建 RE；REF 失败即停止，不另设直接调用编译器的备用路径。产物为对应版本的 `Assemblies/RimExodus.dll`，不得将 REF DLL 打包进 RE 的 Assemblies。
+- 编译沿用 Delta-V：`just build` 默认 1.7 Release，`just build 1.6` 构建 1.6。先构建同级 REF、复制匹配版本编译引用，再用 dotnet build 构建 RE 与不引用 REF 的缺依赖公告引导 DLL；REF 失败即停止，不另设直接调用编译器的备用路径。产物为对应版本的 `Assemblies/RimExodus.dll` 与 `Assemblies/RimExodus.Bootstrap.dll`，不得将 REF DLL 打包进 RE 的 Assemblies。
+- 缺 REF 时主 DLL 可能无法类型加载；引导 DLL 不得引用 REF 或 RE 主程序集，文件名须排在主 DLL 之前，才能独立显示同一份 REF 公告。只有 Harmony 也已加载时此公告才有执行条件。
 - REF/legacy 后端在启动时锁存，设置默认 legacy。验证期间保留旧执行器；各公共机制只运行所选后端。旧前哨键继续写入，REF 另存公共文档，兼容边界见 `doc/地图滚动休眠.md`。
 
 ## 3. 外部源码与兼容性参考

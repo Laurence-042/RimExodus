@@ -4,11 +4,11 @@
 
 当前提供 REF 与 legacy 两种地图底层。设置 → 地图生成 → **使用 REF 地图底层（重启生效）**，默认关闭；修改后完整重启游戏。两种模式都需要启用独立的 RimExodus Framework 前置。REF 已完成代码接线，仍需游戏内验收；验证与回退步骤见 [REF 接入实施与验收](doc/REF接入实施与验收.md)。
 
-首次启动会显示一次关于 REF 前置和地图底层的公告。已读公告可在 Mod 设置 → 高级 / 诊断 → **查看历史公告**中重看，也可安排下次启动再次提醒。后续公告沿用此入口。今后以 REF 为核心维护，建议新档启用 REF；如无意外，计划在 RimWorld 1.7 正式发布时移除旧底层，届时旧存档中的前哨封存数据可能不再兼容。当前版本仍可读取旧封存记录，切换前建议备份存档；具体保真边界见 [地图滚动休眠](doc/地图滚动休眠.md#ref-与-legacy-执行边界)。
+REF 启用后首次启动会显示一次关于前置和地图底层的公告；缺 REF 时独立引导 DLL 也会显示同一公告。已读公告可在 Mod 设置 → 高级 / 诊断 → **查看历史公告**中重看，也可安排下次启动再次提醒。后续公告沿用此入口。今后以 REF 为核心维护，建议新档启用 REF；如无意外，计划在 RimWorld 1.7 正式发布时移除旧底层，届时旧存档中的前哨封存数据可能不再兼容。当前版本仍可读取旧封存记录，切换前建议备份存档；具体保真边界见 [地图滚动休眠](doc/地图滚动休眠.md#ref-与-legacy-执行边界)。
 
 同一页另有 **高兼容性原版邻图渲染** 开关，默认关闭，下一帧生效，与 REF/legacy 底层选择独立。开启后由 REF 接入可见邻图正常的地图更新与绘制回调，保留原版层、Fleck、组件覆盖层及渲染队列；关闭回到现有自绘制路径。高兼容性路径沿用单次天色染色规则，避免邻图重叠处重复变暗。会增加渲染开销，尚待游戏实测；私有相机、全屏后处理和自定义 GPU 数据仍有边界，不承诺任意 Mod 与聚焦该图时完全一致。实现及验收步骤见 [REF 接入实施与验收](doc/REF接入实施与验收.md#高兼容性原版邻图渲染)。
 
-构建沿用 Delta-V 流程：`just build` 默认构建 1.7 Release，1.6 使用 `just build 1.6`。先构建同级 REF、复制匹配版本 DLL 到 `References/REF/<版本>/`，再通过 `dotnet build` 构建 RE；REF 失败即停止。运行时 REF DLL 仅由独立前置加载。1.7 成功构建后同步 Def、翻译和补丁内容。可用 `DOTNET_EXE` 指定 SDK；本机默认复用 Delta-V 的 `.local-tools/dotnet`，缺失时使用 PATH 上的 dotnet。显式 `LoadFolders.xml` 阻止 1.7 缺产物时自动加载 1.6 DLL。`just test-ref` 转调 REF 的离线测试。
+构建沿用 Delta-V 流程：`just build` 默认构建 1.7 Release，1.6 使用 `just build 1.6`。先构建同级 REF、复制匹配版本 DLL 到 `References/REF/<版本>/`，再通过 `dotnet build` 构建 RE 与不引用 REF 的缺依赖公告引导 DLL；REF 失败即停止。运行时 REF DLL 仅由独立前置加载。1.7 成功构建后同步 Def、翻译和补丁内容。可用 `DOTNET_EXE` 指定 SDK；本机默认复用 Delta-V 的 `.local-tools/dotnet`，缺失时使用 PATH 上的 dotnet。显式 `LoadFolders.xml` 阻止 1.7 缺产物时自动加载 1.6 DLL。`just test-ref` 转调 REF 的离线测试。
 
 开发目录以 `RimExodus — Seamless World (Dev)` 和 `RimExodus.SeamlessWorld.Dev` 加载，依赖 `RimExodus.Framework.dev`。`just release` 分别尝试构建 1.6 和 1.7；缺少某版构建环境时复用不早于源码及 REF DLL 的已有产物，过时则警告并中止。成功后两版一起打包到同级 `RimExodus.release`，将名称、packageId、REF 依赖和加载顺序转换为正式版（`RimExodus.Framework`）；正式包同时声明并包含两个游戏版本，需要启用 REF 正式包。默认游戏目录为 `RimWorld_1.6`（1.6）和 `RimWorld`（1.7），可通过 `RimWorld16Dir`、`RimWorld17Dir` 或 `RimWorldDir` 覆盖。
 
@@ -224,6 +224,7 @@ Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 
 
 - RimWorld 1.6 或 1.7 预览版（1.7 兼容性验证仍在进行，见上文）
 - RimExodus Framework（独立前置；加载顺序 Harmony → REF → RimExodus，legacy 模式也保留此前置）
+- 若未启用 REF，RimExodus 会在主菜单弹出 REF 公告；启用 REF 并重启后，正常公告与功能才可加载
 - [Harmony](https://github.com/pardeike/HarmonyRimWorld)（[Steam 创意工坊](https://steamcommunity.com/sharedfiles/filedetails/?id=2009463077)）
 
 ## 源码目录结构
@@ -232,7 +233,7 @@ Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 
 
 | 目录 | 职责 | 关键文件 |
 |---|---|---|
-| `Core/` | mod 入口、设置与跨域基础数据 | `RimExodusMod`（启动/PatchAll/绑定报告）、`RimExodusSettings`（设置窗口与 ModSettings）、`MapParent_SeamlessTile`（地块 WorldObject）、`SeamlessTileManager`（生成链入口 `GenerateTileMap`）、`SeamlessMapData`（邻居表/基础快照的载体分支唯一出处）、`SeamlessTileGraph`/`SeamlessTileRegistry`（邻接查询）、`SeamlessGridMath`（切比雪夫/邻格遍历统一口径）、`WorldTileGeometry`、`SeamlessMapUtility`（多边形归属解析）、`SeamlessEdgeCells`、`SeamlessBorderLookup`（边界带速查表）、`DebugActions_SeamlessTile`（Dev 菜单） |
+| `Core/` | mod 入口、设置与跨域基础数据 | `RimExodusMod`（启动/PatchAll/绑定报告）、`RimExodusMissingFrameworkNotice`（独立引导 DLL 的 REF 公告）、`RimExodusSettings`（设置窗口与 ModSettings）、`MapParent_SeamlessTile`（地块 WorldObject）、`SeamlessTileManager`（生成链入口 `GenerateTileMap`）、`SeamlessMapData`（邻居表/基础快照的载体分支唯一出处）、`SeamlessTileGraph`/`SeamlessTileRegistry`（邻接查询）、`SeamlessGridMath`（切比雪夫/邻格遍历统一口径）、`WorldTileGeometry`、`SeamlessMapUtility`（多边形归属解析）、`SeamlessEdgeCells`、`SeamlessBorderLookup`（边界带速查表）、`DebugActions_SeamlessTile`（Dev 菜单） |
 | `Generation/` | 地图生成管线：六边形裁切、void、接缝混合、分帧增量生成 | 四个注入 genStep（`GenStep_SeamlessTile` 389 备份+铺 void / `GenStep_SeamOverride` 392 接缝混合 / `GenStep_EnterSpots` 1490 铺传送点 / `GenStep_CoastalEdgeFill` 230）、`SeamlessPolygonGeometry`（接缝带几何唯一实现）、`SeamlessTerrainFill`、`SeamlessSeamOverride`（实时地图/基础快照提供器与卷积混合）、`SeamlessOceanMapSupport`（可关闭并于重启生效的原版海洋地图补全）、`SeamlessBaseSnapshotData`（原生图三层快照的序列化载体）、`SeamlessSnapshotRegenerator`（读档后为所有实际参考邻图按需补快照）、`IncrementalMapGenerator`（分帧增量生成）、`MapGenerationProgressUI`、`SeamlessEnterSpotPlacer` + `CompSeamlessTileEnterSpot`（传送点铺设与标记）、配套 patch：河流/道路对齐（`Patches_TileMutatorRiver`/`Patches_GenStepRoads`）、建筑选址（`Patches_BuildingPlacement`）、揭雾分径（`Patches_GenStepFog`）、海洋陆地步骤过滤（`Patches_OceanGeneration`）、地形守卫（`Patches_TerrainGrid`）、生成计时与互斥（`Patches_MapGenTiming`/`Patches_IncrementalMapGen`）、`Patches_GenConstruct`、远行队进图出生点（`Patches_CaravanEnterMap`） |
 | `Lifecycle/` | 地图滚动生命周期：软休眠、距离删除、天气域、原生家族/Settlement 接管 | `SeamlessDormancyGovernor`（距离策略 + 全局静态清扫）+ `Patches_Dormancy`、`SeamlessTickThrottle` + `Patches_TickThrottle`（分级休眠中间档：无玩家空图降频 tick + 接缝快速区）、`SeamlessMapGovernance`（管辖/家园特权判定唯一出处）、`SeamlessWeatherClusterManager` + `Patches_WeatherDomain`（群系连通域共享天气：决策集中在激活图、执行各图原生进行）、`Patches_CampTileMap`（营地接入生成链）、`Patches_NativeMapFamily`（"人走即删"族接管 + 败亡守卫）、`SeamlessManualDormancyGizmos`（手动休眠/删除 gizmo 唯一构造处：地块图覆写 + 原生家族 MapParent.GetGizmos Postfix）、`SeamlessSettlementTrader`/`SeamlessSettlementTalk`/`Patches_SettlementTrade`（派系基地贸易商与对话/交易） |
 | `Transfer/` | 跨缝传送机制：许可登记、触发、桥接下令 | `SeamlessMapTransferTrigger`（踩点热路径）、`SeamlessTransferGrants`（许可登记表）、`SeamlessMapTransfer`（传送执行）、`SeamlessTransferAssociations`（多 Pawn 关联随迁/恢复扩展点）、`SeamlessCrossMapOrders`（桥接下令 + 双侧代价场选点）、`SeamlessPathCostField`（Dijkstra 代价场）、`SeamlessBoundaryRules`（主体资格判定）、`Patches_Job`（StartJob 钩子：撤离登记/许可清理）、`Patches_PawnPathFollower`（nextCell 踩点触发） |

@@ -22,4 +22,6 @@ try {
     }
     & $sdk build Source/RimExodus.csproj -c $Configuration "-p:RimWorldVersion=$Version" -p:NuGetAudit=false
     if ($LASTEXITCODE -ne 0) { throw "RimExodus build failed ($LASTEXITCODE)." }
+    & $sdk build Bootstrap/RimExodus.Bootstrap.csproj -c $Configuration "-p:RimWorldVersion=$Version" -p:NuGetAudit=false
+    if ($LASTEXITCODE -ne 0) { throw "RimExodus bootstrap build failed ($LASTEXITCODE)." }
 } finally { Pop-Location }

@@ -12,6 +12,8 @@ References/REF/
 # MSBuild 中间产物
 Source/obj/
 Source/bin/
+Bootstrap/obj/
+Bootstrap/bin/
 scripts/**/bin/
 scripts/**/obj/
 

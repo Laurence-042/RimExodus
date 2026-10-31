@@ -21,6 +21,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Core/RimExodusMissingFrameworkNotice.cs" />
     <Reference Include="RimExodus.Maps">
       <HintPath>../References/REF/$(RimWorldVersion)/RimExodus.Maps.dll</HintPath>
       <Private>false</Private>

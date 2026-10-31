@@ -15,8 +15,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 
 
 1.1.1
-- 新增：首次启动时提示 REF 前置与后续地图底层计划；可在设置中查看历史公告、重新打开，或安排下次启动再次提醒
-  Added: a one-time startup notice about the REF dependency and future map backend plans. Past notices can be viewed in settings, reopened, or scheduled to appear again on the next startup.
+- 新增：首次启动时提示 REF 前置与后续地图底层计划，即使未启用 REF 也会在主菜单看到公告；启用 REF 后可在设置中查看历史公告、重新打开，或安排下次启动再次提醒
+  Added: a startup notice about the REF dependency and future map backend plans, shown at the main menu even when REF is not enabled. With REF enabled, past notices can be viewed in settings, reopened, or scheduled to appear again on the next startup.
 - 修复：与 Vehicle Map Framework 同时使用时，地面角色向载具内部目标射击可能会立即取消；现在可以正常开火
   Fixed: with Vehicle Map Framework installed, a pawn on the ground could have their shot at a target inside a vehicle cancelled immediately. They can now fire normally.
 - 修复：与 Vehicle Map Framework 同时使用时，点选武器后可能无法选择相邻地图上的目标

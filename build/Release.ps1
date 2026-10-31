@@ -9,10 +9,17 @@ foreach ($version in @('1.6', '1.7')) {
         -AssemblyName 'RimExodus.dll' -BuildScript "$PSScriptRoot/Build.ps1" -Configuration 'Release' `
         -AdditionalInputDirs @((Join-Path $frameworkRoot 'Source')) `
         -AdditionalInputFiles @((Join-Path $frameworkRoot "$version/Assemblies/RimExodus.Maps.dll"), `
-                                (Join-Path $frameworkRoot 'build/Build.ps1'))
+                                (Join-Path $frameworkRoot 'build/Build.ps1'), `
+                                (Join-Path $root 'Bootstrap/RimExodus.Bootstrap.csproj'))
 }
 if (@($results | Where-Object { !$_.Usable }).Count -gt 0) {
     throw 'Release aborted: both current game-version assemblies are required.'
+}
+foreach ($version in @('1.6', '1.7')) {
+    $bootstrap = Join-Path $root "$version/Assemblies/RimExodus.Bootstrap.dll"
+    $fresh = Test-ReleaseArtifactFresh -ProjectRoot $root -Assembly $bootstrap `
+        -AdditionalInputFiles @((Join-Path $root 'Bootstrap/RimExodus.Bootstrap.csproj'))
+    if (!$fresh.Fresh) { throw "Release aborted: missing or stale $version bootstrap assembly ($($fresh.Reason))." }
 }
 $target = [IO.Path]::GetFullPath((Join-Path $parent 'RimExodus.release'))
 if ((Split-Path $target -Parent) -ne $parent -or (Split-Path $target -Leaf) -ne 'RimExodus.release') {

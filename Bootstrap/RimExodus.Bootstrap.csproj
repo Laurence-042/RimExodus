@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../build/RimWorldReferences.props" />
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <AssemblyName>RimExodus.Bootstrap</AssemblyName>
+    <RootNamespace>RimExodus</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <OutputPath>../$(RimWorldVersion)/Assemblies/</OutputPath>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Source/Core/RimExodusMissingFrameworkNotice.cs" />
+  </ItemGroup>
+</Project>

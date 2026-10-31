@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Verse;
@@ -38,6 +39,11 @@ namespace RimExodus
         internal static void ShowOnStartup()
         {
             if (checkedThisLaunch || RimExodusMod.Settings == null) return;
+            var content = LoadedModManager.GetMod<RimExodusMod>()?.Content;
+            if (content == null) return;
+            var frameworkId = content.PackageIdPlayerFacing.EndsWith(".Dev", StringComparison.OrdinalIgnoreCase)
+                ? "RimExodus.Framework.dev" : "RimExodus.Framework";
+            if (!ModsConfig.IsActive(frameworkId)) return;
             checkedThisLaunch = true;
             ShowNextUnread();
         }
