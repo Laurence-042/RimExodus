@@ -69,6 +69,8 @@ namespace RimExodus
             // （逐格传送 / StartPath 桥接 / 右键 GoHere 桥接 / 可达性灰显放行）。
             // 软检测未装短路；手动绑定全程 try/catch（签名变更降级 Warning，绝不杀死 mod）。
             SeamlessVehiclesCompat.Register(harmony);
+            SeamlessVMFTargetingCompat.Register(harmony);
+            SeamlessVMFDisembarkDiagnostics.Register(harmony);
 
             // GL 河流接缝适配（2026-09 v9）：GL 的河流地貌替换原版河流 mutator 后，原版河四 patch
             // 全部失效（河在接缝处各 tile 种子随机错位 + 河水污染 void 侧基础快照）。补绑三个 GL 侧

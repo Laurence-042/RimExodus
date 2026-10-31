@@ -2,6 +2,8 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.Loader;
 using HarmonyLib;
+using RimWorld;
+using Verse;
 
 string game = Environment.GetEnvironmentVariable("RIMWORLD_DIR") ?? @"D:\SteamLibrary\steamapps\common\RimWorld";
 AssemblyLoadContext.Default.Resolving += (_, name) => File.Exists(Path.Combine(game, name.Name + ".dll"))
@@ -27,12 +29,13 @@ public static class Audit
         var assembly = typeof(RimExodus.RimExodusMod).Assembly;
         const BindingFlags statics = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
         var preview = assembly.GetType("RimExodus.SeamlessMapPreviewCompat", true)!;
+        if (!drift) CheckCastGateComposition(shared, Check);
         bool Read(string name) => (bool)preview.GetProperty(name, statics)!.GetValue(null)!;
         Check(!Read("IsPreviewInFlight") && !Read("IsGeneratingPreviewOnCurrentThread"), "absent MapPreview is inert");
         var harmony = new Harmony("RE.Regression.Compat");
         try
         {
-            foreach (string name in new[] { "SeamlessPerspectiveShiftCompat", "SeamlessVehiclesCompat", "SeamlessVEFCompat", "SeamlessDMSCompat", "SeamlessGLRiverCompat", "SeamlessSurveillanceCompat" })
+            foreach (string name in new[] { "SeamlessPerspectiveShiftCompat", "SeamlessVehiclesCompat", "SeamlessVMFTargetingCompat", "SeamlessVMFDisembarkDiagnostics", "SeamlessVEFCompat", "SeamlessDMSCompat", "SeamlessGLRiverCompat", "SeamlessSurveillanceCompat" })
             {
                 assembly.GetType("RimExodus." + name, true)!.GetMethod("Register", statics)!.Invoke(null, new object[] { harmony });
                 Check(!harmony.GetPatchedMethods().Any(), "absent adapter is inert: " + name);
@@ -95,6 +98,7 @@ public static class Audit
                 harmony, "injected missing target", lookup, typeof(Audit), nameof(ReadThread), false })!;
             Check(!Attempt(() => null!), "missing manual target contained");
             Check(!Attempt(() => throw new AmbiguousMatchException("Injected lookup drift")), "lookup failure contained before Patch");
+            CheckVmfTargetingHook(assembly, harmony, Check);
             foreach (var adapter in new[] { assembly.GetType("RimExodus.SeamlessCombatExtendedCompat", true)!,
                 typeof(RimExodus.Maps.MapModule).Assembly.GetType("RimExodus.Maps.CombatExtendedBridge", true)! })
             {
@@ -114,6 +118,99 @@ public static class Audit
             Console.WriteLine($"{checks} compatibility checks passed ({(shared ? "REF" : "legacy")}); automatic/manual hooks bound {gameMethods} game methods plus one preview fixture. No game launched.");
         }
         finally { harmony.UnpatchAll(harmony.Id); }
+    }
+
+    private static void CheckVmfTargetingHook(Assembly assembly, Harmony harmony, Action<bool, string> check)
+    {
+        var module = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("VMF.TargetingFixture"),
+            AssemblyBuilderAccess.Run).DefineDynamicModule("fixture");
+        var type = module.DefineType("VehicleMapFramework.GenUIOnVehicle", TypeAttributes.Public);
+        var method = type.DefineMethod("TargetsAtMouse", MethodAttributes.Public | MethodAttributes.Static,
+            typeof(IEnumerable<LocalTargetInfo>), new[] { typeof(TargetingParameters), typeof(bool), typeof(ITargetingSource) });
+        var il = method.GetILGenerator();
+        il.Emit(OpCodes.Ldnull); il.Emit(OpCodes.Ret);
+        var target = type.CreateType()!.GetMethod("TargetsAtMouse")!;
+        module.DefineType("VehicleMapFramework.JobDriverAcrossMaps", TypeAttributes.Public).CreateType();
+        check(AccessTools.TypeByName("VehicleMapFramework.GenUIOnVehicle") != null,
+            "late VMF targeting fixture resolves by type name");
+        check(AccessTools.Method(AccessTools.TypeByName("VehicleMapFramework.GenUIOnVehicle"),
+            "TargetsAtMouse", new[] { typeof(TargetingParameters), typeof(bool), typeof(ITargetingSource) }) == target,
+            "VMF alternate Targeter signature resolves");
+        var adapter = assembly.GetType("RimExodus.SeamlessVMFTargetingCompat", true)!;
+        adapter.GetMethod("Register", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, new object[] { harmony });
+        var callback = adapter.GetMethod("Prefix", BindingFlags.Static | BindingFlags.Public)!;
+        check(Harmony.GetPatchInfo(target)?.Prefixes.Any(p => p.owner == harmony.Id && p.PatchMethod == callback) == true,
+            "VMF alternate Targeter entry binds when its API is present");
+        harmony.Unpatch(target, callback);
+
+        var diagnostics = assembly.GetType("RimExodus.SeamlessVMFDisembarkDiagnostics", true)!;
+        diagnostics.GetMethod("Register", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, new object[] { harmony });
+        var genSpawn = AccessTools.Method(typeof(GenSpawn), nameof(GenSpawn.Spawn),
+            new[] { typeof(Thing), typeof(IntVec3), typeof(Map), typeof(Rot4),
+                typeof(WipeMode), typeof(bool), typeof(bool) })!;
+        var recovery = AccessTools.Method(typeof(Verse.AI.Pawn_PathFollower),
+            nameof(Verse.AI.Pawn_PathFollower.TryRecoverFromUnwalkablePosition), new[] { typeof(bool) })!;
+        var flags = BindingFlags.Static | BindingFlags.NonPublic;
+        var before = diagnostics.GetMethod("SpawnPrefix", flags)!;
+        var after = diagnostics.GetMethod("SpawnPostfix", flags)!;
+        var recover = diagnostics.GetMethod("RecoveryPrefix", flags)!;
+        check(Harmony.GetPatchInfo(genSpawn)?.Prefixes.Any(p => p.owner == harmony.Id && p.PatchMethod == before) == true
+            && Harmony.GetPatchInfo(genSpawn)?.Postfixes.Any(p => p.owner == harmony.Id && p.PatchMethod == after) == true
+            && Harmony.GetPatchInfo(recovery)?.Prefixes.Any(p => p.owner == harmony.Id && p.PatchMethod == recover) == true,
+            "VMF disembark diagnostic hooks bind when its API is present");
+        harmony.Unpatch(genSpawn, before);
+        harmony.Unpatch(genSpawn, after);
+        harmony.Unpatch(recovery, recover);
+    }
+
+    private static void CheckCastGateComposition(bool shared, Action<bool, string> check)
+    {
+        var owner = shared ? typeof(RimExodus.Maps.MapModule).Assembly : typeof(RimExodus.RimExodusMod).Assembly;
+        var name = shared ? "RimExodus.Maps.Patch_Verb_LaunchProjectile_TryCastShot"
+            : "RimExodus.Patch_Verb_LaunchProjectile_TryCastShot";
+        var transpiler = owner.GetType(name, true)!.GetMethod("Transpiler", BindingFlags.Public | BindingFlags.Static)!;
+        var original = AccessTools.Method(typeof(Verb_LaunchProjectile), "TryCastShot", Type.EmptyTypes)!;
+        var getThing = AccessTools.PropertyGetter(typeof(LocalTargetInfo), nameof(LocalTargetInfo.Thing));
+        var getMap = AccessTools.PropertyGetter(typeof(Thing), nameof(Thing.Map));
+        var module = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("VMF.CastGateFixture"), AssemblyBuilderAccess.Run)
+            .DefineDynamicModule("fixture");
+        var type = module.DefineType("VehicleMapFramework.VehicleMapUtility", TypeAttributes.Public);
+        var baseMap = type.DefineMethod("BaseMap", MethodAttributes.Public | MethodAttributes.Static,
+            typeof(Map), new[] { typeof(Thing) });
+        var il = baseMap.GetILGenerator();
+        il.Emit(OpCodes.Ldnull); il.Emit(OpCodes.Ret);
+        var vmfMap = type.CreateType()!.GetMethod("BaseMap")!;
+        List<CodeInstruction> Original() => PatchProcessor.GetOriginalInstructions(original);
+        List<CodeInstruction> Apply(List<CodeInstruction> codes)
+            => ((IEnumerable<CodeInstruction>)transpiler.Invoke(null, new object[] { codes })!).ToList();
+        int TargetRead(List<CodeInstruction> codes)
+        {
+            for (int i = 0; i + 1 < codes.Count; i++)
+                if (codes[i].Calls(getThing)
+                    && (codes[i + 1].Calls(getMap) || codes[i + 1].Calls(vmfMap))) return i;
+            return -1;
+        }
+        void FoldToVmf(List<CodeInstruction> codes)
+        {
+            int at = TargetRead(codes);
+            check(at >= 0, "original target-map read found");
+            codes[at + 1].opcode = OpCodes.Call;
+            codes[at + 1].operand = vmfMap;
+        }
+        void CheckGate(List<CodeInstruction> codes, bool vmfFirst)
+        {
+            int at = TargetRead(codes);
+            check(at >= 0, "VMF target-map read retained");
+            check(codes[at + 1].Calls(vmfMap), "VMF BaseMap retained");
+            check(codes[at + 2].opcode == OpCodes.Ldarg_0
+                && codes[at + 3].operand is MethodInfo gate
+                && gate.Name == "TargetMapForCastGate"
+                && gate.GetParameters().Select(p => p.ParameterType).SequenceEqual(new[] { typeof(Map), typeof(Verb) }),
+                "cast gate receives VMF-normalized map " + (vmfFirst ? "after VMF" : "before VMF"));
+        }
+        var afterVmf = Original(); FoldToVmf(afterVmf); CheckGate(Apply(afterVmf), true);
+        var beforeVmf = Apply(Original()); FoldToVmf(beforeVmf); CheckGate(beforeVmf, false);
     }
 
     private static MethodInfo LoadPreviewFixture(bool drift)

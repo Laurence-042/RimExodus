@@ -105,21 +105,20 @@ namespace RimExodus
         }
 
         /// <summary>
-        /// TryCastShot transpiler 的替换调用（原 currentTarget.Thing.Map 取值点）：
-        /// 跨图有效（上下文登记的目标图 == 实际目标图且仍互为活跃邻居）时返回施法者图，
-        /// 使原版 != 比较通过；否则返回真实目标图（原语义）。
+        /// TryCastShot transpiler 在原地图读取之后追加此门：跨图有效时返回施法者图，
+        /// 使原版 != 比较通过；否则原样返回已读取的地图。VMF 可先把载具内部图
+        /// 折算成地面图，车内外射击不受本门覆盖。
         /// </summary>
-        internal static Map TargetMapForCastGate(Verb verb)
+        internal static Map TargetMapForCastGate(Map targetMap, Verb verb)
         {
-            var tMap = verb.CurrentTarget.Thing?.Map;
             var cMap = VerbCaster(verb)?.Map;
-            if (tMap != null && cMap != null && tMap != cMap
-                && CrossMapCastTargets.TryGetValue(verb, out var marked) && marked == tMap
-                && TryGetCombatLink(cMap, tMap, out _))
+            if (targetMap != null && cMap != null && targetMap != cMap
+                && CrossMapCastTargets.TryGetValue(verb, out var marked) && marked == targetMap
+                && TryGetCombatLink(cMap, targetMap, out _))
             {
                 return cMap;
             }
-            return tMap;
+            return targetMap;
         }
 
         private static readonly AccessTools.FieldRef<Verb, Thing> CasterRef = AccessTools.FieldRefAccess<Verb, Thing>("caster");

@@ -14,6 +14,12 @@ If what you’re really asking is whether I’ll make more RimWorld mods in the 
 well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, I need to refocus on my own game development first. Even if it does get finished, it'll likely flop hard, and I'll just go back to being a corporate drone. Everyone knows how that life goes.
 
 
+1.1.1
+- 修复：与 Vehicle Map Framework 同时使用时，地面角色向载具内部目标射击可能会立即取消；现在可以正常开火
+  Fixed: with Vehicle Map Framework installed, a pawn on the ground could have their shot at a target inside a vehicle cancelled immediately. They can now fire normally.
+- 修复：与 Vehicle Map Framework 同时使用时，点选武器后可能无法选择相邻地图上的目标
+  Fixed: with Vehicle Map Framework installed, a weapon could fail to select a target on a neighboring map.
+
 1.1.0
 - 修复：开启高兼容性邻图渲染时，多张地图交界处的天色可能重复叠加，形成过深的暗带
   Fixed: with high-compatibility neighbor rendering enabled, sky tint could overlap where several maps meet, creating an overly dark band.

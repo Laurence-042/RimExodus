@@ -14,7 +14,7 @@ namespace RimExodus
     /// ① <see cref="Patch_Verb_TryFindShootLineFromTo"/> Prefix——跨图目标（活跃邻居）时接管为
     ///    统一坐标射击线（分段 LOS + 统一射程），并登记跨图施法上下文；
     /// ② <see cref="Patch_Verb_LaunchProjectile_TryCastShot"/> transpiler——原版开头
-    ///    "目标图 ≠ 施法者图 → return false" 的硬拒绝在跨图有效时放行（**全 mod 唯一 IL 替换点**，
+    ///    "目标图 ≠ 施法者图 → return false" 的硬拒绝在跨图有效时放行（战斗链唯一 IL 插入点，
     ///    集中此一处，勿再散加；锚点指令对匹配失败启动即红字，版本升级可即时发现）；
     /// ③ <see cref="Patch_ShotReport_HitReportFor"/> Postfix——跨图时修正距离敏感因子与掩体：
     ///    原版跑的是"目标图本地格 × 本图查询"的错位数据；重算用公开 API
@@ -94,12 +94,10 @@ namespace RimExodus
         /// 原版开头：if (currentTarget.HasThing &amp;&amp; currentTarget.Thing.Map != caster.Map) return false;
         /// 真实 IL（1.6.4871 实测解码）：[ldarg.0][ldflda currentTarget][call LocalTargetInfo::get_Thing]
         /// [callvirt Thing::get_Map]…——Roslyn 对 struct 字段调方法用 ldflda（免拷贝）而非 ldfld。
-        /// 锚定 [call get_Thing][callvirt get_Map] 指令对（方法体内唯一，"currentTarget.Thing"的
-        /// 其余消费都不接 get_Map），替换为 **栈中立**的 [pop（弃地址）][ldarg.0][call 门]：
-        /// 跨图有效时返回施法者图使 != 比较通过，否则返回真实目标图（原语义）。
-        /// 原地改写 opcode/operand + 插入无标签新指令（**勿用 new CodeInstruction 替换原对象**——
-        /// 原指令可能是分支落点，丢标签 = InvalidProgramException，见 CombatVisuals 同款教训）。
-        /// 不依赖前置指令形态（ldflda/ldfld/局部变量提升等编译器差异全部免疫）。
+        /// 锚定 get_Thing 后的地图读取，保留该读取并追加 [ldarg.0][call 门]。
+        /// VMF 也会把这里的 Thing.Map 换成它的 BaseMap(Thing)；两种形态都接受，
+        /// 门只在有效接缝目标时覆盖读取结果，其他情形原样返回 VMF/原版的地图。
+        /// 不改写原指令或其 labels，且不依赖前置指令形态。
         /// 锚点失配启动即红字（版本升级可即时发现）。
         /// </summary>
         public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
@@ -112,23 +110,29 @@ namespace RimExodus
             var found = false;
             for (var i = 0; i < codes.Count - 1; i++)
             {
-                if (codes[i].Calls(getThing) && codes[i + 1].Calls(getMap))
+                if (codes[i].Calls(getThing) && (codes[i + 1].Calls(getMap) || IsVmfBaseMap(codes[i + 1])))
                 {
-                    codes[i].opcode = OpCodes.Pop;
-                    codes[i].operand = null;
-                    codes[i + 1].opcode = OpCodes.Ldarg_0;
-                    codes[i + 1].operand = null;
-                    codes.Insert(i + 2, new CodeInstruction(OpCodes.Call, gateMethod)); // 新插入指令不可能是分支落点
+                    codes.Insert(i + 2, new CodeInstruction(OpCodes.Ldarg_0));
+                    codes.Insert(i + 3, new CodeInstruction(OpCodes.Call, gateMethod));
                     found = true;
                     break;
                 }
             }
             if (!found)
             {
-                Log.Error("[RimExodus] TryCastShot transpiler anchor (get_Thing→get_Map pair) not found; "
+                Log.Error("[RimExodus] TryCastShot transpiler anchor (get_Thing→map read) not found; "
                     + "cross-map shots will be silently rejected. Game version changed?");
             }
             return codes;
+        }
+
+        private static bool IsVmfBaseMap(CodeInstruction instruction)
+        {
+            if (!(instruction.operand is MethodInfo method) || method.Name != "BaseMap"
+                || method.DeclaringType?.FullName != "VehicleMapFramework.VehicleMapUtility"
+                || method.ReturnType != typeof(Map)) return false;
+            var parameters = method.GetParameters();
+            return parameters.Length == 1 && parameters[0].ParameterType == typeof(Thing);
         }
     }
 
