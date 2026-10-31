@@ -40,6 +40,10 @@ public static class Audit
                 assembly.GetType("RimExodus." + name, true)!.GetMethod("Register", statics)!.Invoke(null, new object[] { harmony });
                 Check(!harmony.GetPatchedMethods().Any(), "absent adapter is inert: " + name);
             }
+            var vmfTransit = assembly.GetType("RimExodus.SeamlessVMFTransitCompat", true)!;
+            vmfTransit.GetMethod("Register", statics)!.Invoke(null, null);
+            vmfTransit.GetMethod("BeforeVehicleTransfer", statics)!.Invoke(null, new object[] { null, null });
+            Check(!harmony.GetPatchedMethods().Any(), "absent VMF transfer guard is inert");
             var refPreview = typeof(RimExodus.Maps.MapModule).Assembly.GetType("RimExodus.Maps.MapPreviewGenerationPatch", true)!;
             void RegisterPreview() => refPreview.GetMethod("Register", statics)!.Invoke(null, new object[] { harmony });
             RegisterPreview();
@@ -130,7 +134,17 @@ public static class Audit
         var il = method.GetILGenerator();
         il.Emit(OpCodes.Ldnull); il.Emit(OpCodes.Ret);
         var target = type.CreateType()!.GetMethod("TargetsAtMouse")!;
-        module.DefineType("VehicleMapFramework.JobDriverAcrossMaps", TypeAttributes.Public).CreateType();
+        var vmfDriver = module.DefineType("VehicleMapFramework.JobDriverAcrossMaps", TypeAttributes.Public);
+        var destMapGetter = vmfDriver.DefineMethod("get_DestMap", MethodAttributes.Public | MethodAttributes.SpecialName,
+            typeof(Map), Type.EmptyTypes);
+        var destIl = destMapGetter.GetILGenerator();
+        destIl.Emit(OpCodes.Ldnull); destIl.Emit(OpCodes.Ret);
+        vmfDriver.DefineProperty("DestMap", PropertyAttributes.None, typeof(Map), Type.EmptyTypes)
+            .SetGetMethod(destMapGetter);
+        vmfDriver.CreateType();
+        var vmfVehicle = module.DefineType("VehicleMapFramework.VehiclePawnWithMap", TypeAttributes.Public);
+        vmfVehicle.DefineField("interiorMap", typeof(Map), FieldAttributes.Private);
+        vmfVehicle.CreateType();
         check(AccessTools.TypeByName("VehicleMapFramework.GenUIOnVehicle") != null,
             "late VMF targeting fixture resolves by type name");
         check(AccessTools.Method(AccessTools.TypeByName("VehicleMapFramework.GenUIOnVehicle"),
@@ -162,6 +176,14 @@ public static class Audit
         harmony.Unpatch(genSpawn, before);
         harmony.Unpatch(genSpawn, after);
         harmony.Unpatch(recovery, recover);
+
+        var transit = assembly.GetType("RimExodus.SeamlessVMFTransitCompat", true)!;
+        transit.GetMethod("Register", flags)!.Invoke(null, null);
+        check(transit.GetField("vehicleWithMapType", flags)!.GetValue(null) != null
+            && transit.GetField("acrossMapsDriverType", flags)!.GetValue(null) != null
+            && transit.GetField("interiorMapField", flags)!.GetValue(null) != null
+            && transit.GetField("destMapProperty", flags)!.GetValue(null) != null,
+            "VMF vehicle-transfer guard resolves late-loaded VMF members");
     }
 
     private static void CheckCastGateComposition(bool shared, Action<bool, string> check)

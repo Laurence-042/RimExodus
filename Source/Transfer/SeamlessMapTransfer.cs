@@ -106,6 +106,10 @@ namespace RimExodus
                 {
                     return false;
                 }
+                // VMF exit jobs bind their destination to this ground map, but compute the final
+                // spawn cell from the vehicle's *current* ground map after the exit animation.
+                // Stop unfinished exits before moving the vehicle to another surface map.
+                SeamlessVMFTransitCompat.BeforeVehicleTransfer(pawn, departureMap);
             }
 
             // === 转移前：保存需要跨 DeSpawn/Spawn 保留的状态 ===

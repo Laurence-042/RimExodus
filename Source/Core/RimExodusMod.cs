@@ -71,6 +71,7 @@ namespace RimExodus
             SeamlessVehiclesCompat.Register(harmony);
             SeamlessVMFTargetingCompat.Register(harmony);
             SeamlessVMFDisembarkDiagnostics.Register(harmony);
+            SeamlessVMFTransitCompat.Register();
 
             // GL 河流接缝适配（2026-09 v9）：GL 的河流地貌替换原版河流 mutator 后，原版河四 patch
             // 全部失效（河在接缝处各 tile 种子随机错位 + 河水污染 void 侧基础快照）。补绑三个 GL 侧
