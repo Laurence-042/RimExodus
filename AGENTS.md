@@ -140,6 +140,7 @@ RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_ref
 - 弹丸在 `Projectile.TickInterval` Prefix 于越缝前迁移 Map，保持 origin/destination 平移和剩余飞行状态；交接后命中与爆炸交回原版目标图处理。
 - `SeamlessVirtualTeleporter` 的评估窗口必须直写并恢复 `mapIndexOrState` 与 `positionInt`，禁止用 `Position` setter 触发两图网格簿记。
 - lord 是 map-anchored 状态，默认跨图后不续；只有与地图无关且已明确支持的行为在 `TryContinueLordOnArrival` 集中重建/合流。mental state 是 pawn-local，不要清理。
+- Pawn 真正搬到另一张 Map 时，从旧 lord 脱离统一使用 `PawnLostCondition.ExitedMap`，与原版 `JobDriver_EnterPortal` 一致；`Vanished` 属于 `Pawn.Destroy` 的消失语义，会让 Hospitality 等消费者把正常跨图误判为整团失踪。这里只通知 lord，不得调用完整 `Pawn.ExitMap`（后者会执行转世界等真实离场副作用）。
 - 武器射程映射曲线（默认关）：def 变异唯一入口是 `SeamlessRangeCurve`——启动长事件收尾快照原始射程，之后总是从原件重建式应用（幂等），关闭即还原；禁止增量二改 `range` 或绕开该入口散写。精度锚点距离的重映射只允许经 `Patches_RangeCurveAccuracy` 的两个 Prefix（`GetHitChanceFactor`/`HitFactorFromShooter` 入口逆映射），不得在调用点克隆原版插值公式或第二套映射；CE 不消费原版锚点，勿为其添加精度映射。两族精度 StatDef（武器 `Accuracy*` 与射手 `ShootingAccuracyFactor_*`）描述中的锚点距离文案同样只在 `SeamlessRangeCurve` 内快照-替换-还原——只替换独立数字 token（前后非数字），本地化措辞不动，勿在其他位置散改描述。
 
 ## 10. 原生 POI、派系基地与影子远行队

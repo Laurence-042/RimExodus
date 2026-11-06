@@ -701,7 +701,8 @@ namespace RimExodus
             for (int i = 0; i < pawns.Count; i++)
             {
                 var pawn = pawns[i];
-                pawn.GetLord()?.Notify_PawnLost(pawn, PawnLostCondition.Vanished); // 旧图 lord 清空自毁
+                // Pawn 会继续存在于宿主图：按原版 Portal 的跨图语义退出旧 lord，而不是报告 Destroy 式消失。
+                pawn.GetLord()?.Notify_PawnLost(pawn, PawnLostCondition.ExitedMap); // 旧图 lord 清空自毁
                 pawn.DeSpawn();
                 var rot = Rot4.FromAngleFlat((hostMap.Center - cells[i]).AngleFlat);
                 GenSpawn.Spawn(pawn, cells[i], hostMap, rot);

@@ -14,6 +14,10 @@ If what you’re really asking is whether I’ll make more RimWorld mods in the 
 well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, I need to refocus on my own game development first. Even if it does get finished, it'll likely flop hard, and I'll just go back to being a corporate drone. Everyone knows how that life goes.
 
 
+1.1.2
+- 修复：安装 Hospitality Continued 时，访客经已加载的相邻地图正常离开可能被误判为整团失踪，触发“派系首领震怒”并固定损失 10 点关系；现在访客跨图撤离会被正确视为离开当前地图（@Solarius Scorch 报告的问题）
+  Fixed: with Hospitality Continued installed, guests leaving normally through a loaded neighboring map could be mistaken for an entirely lost group, triggering “The chief is angered!” and a fixed 10-point goodwill loss. Cross-map guest departures are now treated as leaving the current map correctly. (Reported by @Solarius Scorch.)
+
 1.1.1
 - 新增：首次启动时提示 REF 前置与后续地图底层计划，即使未启用 REF 也会在主菜单看到公告；启用 REF 后可在设置中查看历史公告、重新打开，或安排下次启动再次提醒
   Added: a startup notice about the REF dependency and future map backend plans, shown at the main menu even when REF is not enabled. With REF enabled, past notices can be viewed in settings, reopened, or scheduled to appear again on the next startup.

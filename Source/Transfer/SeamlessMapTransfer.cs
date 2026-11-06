@@ -133,7 +133,9 @@ namespace RimExodus
             // 发狂行凶/精神崩溃/狂猎因此天然跨图可用，勿在此加清理逻辑。
             var prevLord = pawn.GetLord();
             if (grant != null) grant.PrevLordJob = prevLord?.LordJob;
-            prevLord?.Notify_PawnLost(pawn, PawnLostCondition.Vanished);
+            // 原版 JobDriver_EnterPortal 在 Pawn 已跨到另一张 Map 后同样以 ExitedMap 脱离旧 lord；
+            // Vanished 属于 Pawn.Destroy 的消失语义，会让 Hospitality 等消费者把正常离图误判为整团失踪。
+            prevLord?.Notify_PawnLost(pawn, PawnLostCondition.ExitedMap);
 
             // 影子成员的持有善后不在传送流程内做（2026-08-29 收拢架构，用户定夺）：传送只发 pawn 所在地
             // 变动事件（AfterTransfer → SeamlessPawnLocationTracker），影子名单同步/陈旧条目清扫由底座在
