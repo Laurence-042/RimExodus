@@ -96,6 +96,9 @@ namespace RimExodus
             if (!SeamlessCommandTargets.TryGet(pawn, out var ct) || ct.map == pawn.Map) return true;
             if (!SeamlessViewProjection.TryProject(ct.map, gotoLoc, pawn.Map, out _)) return true;
 
+            // 直接移动命令在这里终结 UI 阶段；后续目标已进入 Grant，Pawn 级临时登记不再保留。
+            SeamlessCommandTargets.Remove(pawn);
+
             // 不可跨图下令的主体：吞掉（对齐原版"不可对其下令移动"，不给错误的本图同坐标 job）。
             if (!SeamlessBoundaryRules.IsCrossMapOrderable(pawn)) return false;
 
@@ -356,6 +359,7 @@ namespace RimExodus
             // TransitTag 的桥接 job 自身目标是本图 spot——不会进到这里（同图）。
             if (SeamlessCrossMapOrders.TryBridgeJob(pawn, targetMap, finalCell, job))
             {
+                if (job.playerForced) SeamlessCommandTargets.Remove(pawn);
                 if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Cross-map job wrap: {pawn.LabelShort} {job.def.defName} -> map {targetMap.uniqueID}; resume after transfer.");
                 return false;

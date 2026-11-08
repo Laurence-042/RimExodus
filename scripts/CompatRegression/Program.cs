@@ -35,7 +35,7 @@ public static class Audit
         var harmony = new Harmony("RE.Regression.Compat");
         try
         {
-            foreach (string name in new[] { "SeamlessPerspectiveShiftCompat", "SeamlessVehiclesCompat", "SeamlessVMFTargetingCompat", "SeamlessVMFDisembarkDiagnostics", "SeamlessVEFCompat", "SeamlessDMSCompat", "SeamlessGLRiverCompat", "SeamlessSurveillanceCompat" })
+            foreach (string name in new[] { "SeamlessAchtungCompat", "SeamlessPerspectiveShiftCompat", "SeamlessVehiclesCompat", "SeamlessVMFTargetingCompat", "SeamlessVMFDisembarkDiagnostics", "SeamlessVEFCompat", "SeamlessDMSCompat", "SeamlessGLRiverCompat", "SeamlessSurveillanceCompat" })
             {
                 assembly.GetType("RimExodus." + name, true)!.GetMethod("Register", statics)!.Invoke(null, new object[] { harmony });
                 Check(!harmony.GetPatchedMethods().Any(), "absent adapter is inert: " + name);
@@ -102,6 +102,7 @@ public static class Audit
                 harmony, "injected missing target", lookup, typeof(Audit), nameof(ReadThread), false })!;
             Check(!Attempt(() => null!), "missing manual target contained");
             Check(!Attempt(() => throw new AmbiguousMatchException("Injected lookup drift")), "lookup failure contained before Patch");
+            CheckAchtungHook(assembly, harmony, Check);
             CheckVmfTargetingHook(assembly, harmony, Check);
             foreach (var adapter in new[] { assembly.GetType("RimExodus.SeamlessCombatExtendedCompat", true)!,
                 typeof(RimExodus.Maps.MapModule).Assembly.GetType("RimExodus.Maps.CombatExtendedBridge", true)! })
@@ -122,6 +123,44 @@ public static class Audit
             Console.WriteLine($"{checks} compatibility checks passed ({(shared ? "REF" : "legacy")}); automatic/manual hooks bound {gameMethods} game methods plus one preview fixture. No game launched.");
         }
         finally { harmony.UnpatchAll(harmony.Id); }
+    }
+
+    private static void CheckAchtungHook(Assembly assembly, Harmony harmony, Action<bool, string> check)
+    {
+        var module = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("Achtung.ControllerFixture"),
+            AssemblyBuilderAccess.Run).DefineDynamicModule("fixture");
+        var type = module.DefineType("AchtungMod.Controller", TypeAttributes.Public);
+        var method = type.DefineMethod("MouseDown", MethodAttributes.Public,
+            typeof(bool), new[] { typeof(UnityEngine.Vector3), typeof(int), typeof(bool) });
+        var il = method.GetILGenerator();
+        var cell = il.DeclareLocal(typeof(IntVec3));
+        il.Emit(OpCodes.Ldloca_S, cell);
+        il.Emit(OpCodes.Initobj, typeof(IntVec3));
+        il.Emit(OpCodes.Ldloc, cell);
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Call, AccessTools.Method(typeof(GenGrid), nameof(GenGrid.Standable),
+            new[] { typeof(IntVec3), typeof(Map) })!);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ldloc, cell);
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Call, AccessTools.Method(typeof(GenGrid), nameof(GenGrid.Walkable),
+            new[] { typeof(IntVec3), typeof(Map) })!);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ldloc, cell);
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Call, AccessTools.Method(typeof(GridsUtility), nameof(GridsUtility.Fogged),
+            new[] { typeof(IntVec3), typeof(Map) })!);
+        il.Emit(OpCodes.Ret);
+        var target = type.CreateType()!.GetMethod("MouseDown")!;
+
+        var adapter = assembly.GetType("RimExodus.SeamlessAchtungCompat", true)!;
+        adapter.GetMethod("Register", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, new object[] { harmony });
+        var transpiler = adapter.GetMethod("MouseDownTranspiler", BindingFlags.Static | BindingFlags.NonPublic)!;
+        check(Harmony.GetPatchInfo(target)?.Transpilers
+            .Any(p => p.owner == harmony.Id && p.PatchMethod == transpiler) == true,
+            "Achtung MouseDown REF cell-space hooks bind against expected signature and IL anchors");
+        harmony.Unpatch(target, transpiler);
     }
 
     private static void CheckVmfTargetingHook(Assembly assembly, Harmony harmony, Action<bool, string> check)

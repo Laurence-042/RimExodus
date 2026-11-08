@@ -48,6 +48,7 @@ Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 
 | **Combat Extended**（参考 16.7.3.0） | 适配（特殊弹道已实现，待游戏内回归）：普通枪械、手雷、迫击炮、瞬发射线、制导弹、CIWS、纯格压制与 Ability 发射路径可跨图工作；Pawn/NPC 与 snap/non-snap 炮塔的射程、索敌、CE 命中报告和弹道交接按真实两图数据计算。软检测、无 CE 编译依赖；CE 世界炮击仍交还 CE 原生流程。详见 [Combat Extended 跨图射击适配](doc/CombatExtended跨图射击适配.md)。 |
 | **Melee Animation**（co.uk.epicguru.meleeanimation，2026-09） | 适配：据点图上的殖民者在"常驻远行队投影"持有期间会被其动画参与者校验误判为"在运输容器中"，导致决斗、处决等近战动画启动即失败；现已放行——站在本图上的殖民者照常参与全部近战动画。软检测、无运行时依赖；未安装时不启用兼容逻辑。 |
 | **Colony Groups**（1.6 程序集参考，待游戏内验证） | 其自绘殖民者栏现在同步隐藏休眠图和已开启“隐藏无人分组”时的空图，并重新计算图标位置；未安装时无行为。 |
+| **Achtung × Alien \| RimWorld**（1.7，待游戏内回归） | Achtung 会把复合视图点击格直接交给当前图的格网；邻图地面与当前图 void 重叠时会被误分流到 Alien 提供的 `Climb To / Hibernate` 菜单，而普通 Pawn 因没有这些选项会从 Achtung 的移动 fallback 侥幸通过。现通过 REF `MapCellSpace` 先把点击格解析为真实地图与局部格，再统一执行可站立、可通行和迷雾查询；属于当前图的格仍留在当前图，邻图拥有的格直接查询邻图。随后纯 Goto 会在排队时保留真实目标图、执行前桥接。无需调整 Mod 排序，其他 HAR、Shift 排队和非移动命令不受影响。 |
 
 ### 共存（无运行时依赖）
 

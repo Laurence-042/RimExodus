@@ -13,6 +13,9 @@ If what you’re really asking is whether I’ll make more RimWorld mods in the 
 我猜，也许，大概……会？说实话，制作 RimWorld mod 有时甚至比玩游戏本身更有意思，我也确实还有一些进一步利用RimExodus中催熟的跨地图机制的想法。不过别抱太大期望，毕竟我得先把重点放回我的游戏开发；就算开发完成了，也大概率会暴死，然后我继续回去当社畜。社畜的生活大家都懂
 well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, I need to refocus on my own game development first. Even if it does get finished, it'll likely flop hard, and I'll just go back to being a corporate drone. Everyone knows how that life goes.
 
+1.1.3
+- 修复：同时安装 Achtung 与 Alien | RimWorld 时，Xenomorph 可能无法移动到相邻地图与当前地图虚空重叠的区域，反而只显示攀爬与休眠命令；Achtung 的队形移动现在会按真实目标地图判断地面并保留跨图目标，无需调整 Mod 排序（@ErikRedbeard 报告的问题）
+  Fixed: with Achtung and Alien | RimWorld installed together, Xenomorphs could fail to move into areas where a neighboring map overlaps the current map's void and show only climb and hibernate commands instead. Achtung formation movement now checks the real target map and retains the cross-map destination, without requiring a load-order change. (Reported by @ErikRedbeard.)
 
 1.1.2
 - 修复：安装 Hospitality Continued 时，访客经已加载的相邻地图正常离开可能被误判为整团失踪，触发“派系首领震怒”并固定损失 10 点关系；现在访客跨图撤离会被正确视为离开当前地图（@Solarius Scorch 报告的问题）

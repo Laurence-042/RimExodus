@@ -18,9 +18,11 @@ namespace RimExodus
         /// 跨图移动下发：单跳联合最优选点（<see cref="TryFindBestBridgeSpot"/>）+ Bridge 许可
         /// （绑定 exitSpot + 携带最终目的地）+ TransitTag Goto（踩点凭许可传送，传送后由
         /// 许可携带的最终目的地/NextJob 续程）。失败 = 本图无任何可达桥接点，调用方据此禁用选项。
-        /// nextJob 非空 = StartPath 跨图包装路径（传送后续跑原 job，玩家点击下令的任意 job 通用）。
+        /// nextJob 非空 = StartPath 跨图包装路径（传送后续跑原 job，玩家点击下令的任意 job 通用）；
+        /// gotoContinuation 非空 = 具体 Goto 在 StartJob 前已桥接，落地按值语义重建本图 Goto。
         /// </summary>
-        internal static bool TryBridgeJob(Pawn pawn, Map targetMap, IntVec3 targetLocalCell, Job nextJob = null)
+        internal static bool TryBridgeJob(Pawn pawn, Map targetMap, IntVec3 targetLocalCell, Job nextJob = null,
+            SeamlessGotoContinuation gotoContinuation = null)
         {
             // NPC 战斗桥接的空间聚类选点共享（2026-09 perf probe 定向优化，见 SeamlessBridgeCluster
             // 类头）：nextJob 非 playerForced = NPC 战斗 job 的 StartPath 包装（AttackMelee/
@@ -63,6 +65,7 @@ namespace RimExodus
             grant.FinalDestMap = targetMap;
             grant.FinalDestCell = targetLocalCell;
             grant.NextJob = nextJob;
+            grant.GotoContinuation = gotoContinuation;
 
             // 已站在 spot/goto 格上（联合选点 C1=0 的退化情形，2026-08 实测）：Goto 目标即当前格 →
             // JobDriver 即时完成、不产生任何 pather 步进 → 触发器永不运行 → 许可被 think tree
@@ -89,6 +92,7 @@ namespace RimExodus
 
             var job = JobMaker.MakeJob(JobDefOf.Goto, gotoCell);
             job.dutyTag = SeamlessTransferGrants.TransitTag;
+            gotoContinuation?.ApplyToTransit(job);
             pawn.jobs.StartJob(job, JobCondition.InterruptForced);
 
             if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection.Emit;
+using System.Text;
 using HarmonyLib;
 using RimWorld;
 using UnityEngine;
@@ -78,6 +79,10 @@ namespace RimExodus
                 if (pawn?.Map == null || pawn.Map == SeamlessReplayContext.Target) continue;
                 SeamlessCommandTargets.Set(pawn, SeamlessReplayContext.Target, SeamlessReplayContext.TargetCell);
                 SeamlessSelectionTracker.Register(pawn);
+                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
+                    Log.Message($"[RimExodus] Cross-map command target registered: {pawn.LabelShort} "
+                        + $"on map {pawn.Map.uniqueID} -> {SeamlessReplayContext.TargetCell} "
+                        + $"on map {SeamlessReplayContext.Target.uniqueID}.");
             }
         }
     }
@@ -142,6 +147,29 @@ namespace RimExodus
     {
         /// <summary>VMF 的 GetOptions InBounds 替换方法（软反射，VMF 缺席 = null）。</summary>
         private static System.Reflection.MethodInfo _vmfInBoundsVec;
+
+        public static void Postfix(List<FloatMenuOption> __result)
+        {
+            if (!SeamlessReplayContext.Active || !RimExodusLog.Enabled(RimExodusLogModule.Transfer)) return;
+
+            var options = new StringBuilder();
+            if (__result != null)
+            {
+                foreach (var option in __result)
+                {
+                    if (options.Length > 0) options.Append("; ");
+                    var label = option?.Label?.Replace('\n', ' ').Replace('\r', ' ') ?? "<null>";
+                    options.Append('\'').Append(label).Append('\'')
+                        .Append("[disabled=").Append(option?.Disabled ?? true)
+                        .Append(", isGoto=").Append(option?.isGoto ?? false)
+                        .Append(", autoTakeable=").Append(option?.autoTakeable ?? false)
+                        .Append(']');
+                }
+            }
+            Log.Message($"[RimExodus] Cross-map replay options for map "
+                + $"{SeamlessReplayContext.Target?.uniqueID ?? -1} cell {SeamlessReplayContext.TargetCell}: "
+                + $"count={__result?.Count ?? 0}; {options}.");
+        }
 
         public static void Finalizer()
         {

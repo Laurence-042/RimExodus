@@ -49,6 +49,11 @@ namespace RimExodus
             harmony.PatchAll();
             SeamlessWaylithMapRenderCompat.Register(harmony);
 
+            // Achtung 的自定义站位把复合视图参考系格直接配给 CurrentMap 网格；邻图地面若与宿主
+            // void 重叠，会在队形移动前被误分流到 Alien 等 Mod 的非 Goto 菜单。软反射把 MouseDown
+            // 的 Standable/Walkable/Fogged 统一接到 REF MapCellSpace，先解析真实 MapCellAddress 再查询。
+            SeamlessAchtungCompat.Register(harmony);
+
             // GL 白名单注册（2026-08）：无派系的 RimExodus_SeamlessTileMap parent 会被 GL 的
             // CheckWorldObject 当外来 site 过滤掉该 tile 全部 landform（营地图生成时缺失且被
             // CommitDirectly 毒化永久失效；地块图存在期间 MapPreview 预览丢 GL）。必须在任何

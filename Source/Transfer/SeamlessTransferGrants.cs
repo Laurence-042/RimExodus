@@ -65,6 +65,12 @@ namespace RimExodus
             public Job NextJob;
 
             /// <summary>
+            /// 玩家纯 Goto 在 StartJob 前被桥接时的值语义快照。与 NextJob 互斥：不持有尚未启动的
+            /// Job 对象，桥接被取消时没有回池所有权；落地后据此重建目标图本地 Goto。
+            /// </summary>
+            public SeamlessGotoContinuation GotoContinuation;
+
+            /// <summary>
             /// Follow：跟随目标引用（登记时的 leader）。落地判定"目标已在本图 → 有目的，免游荡
             /// 清扫"用——机械族等非动物跟随者此前落地即进 StrayNpcs，600 ticks 后被误转撤离链
             /// 赶出地图（2026-09 修复）。运行时引用，Grant 不序列化故无存档负担。
@@ -413,7 +419,9 @@ namespace RimExodus
             // 载具与 pawn 同路：传送前已同步就绪化 VF 网格（TryTransferPawn 车辆分支①），
             // StartJob 立即可走，无需任何等待/重试机制（v1 的推迟队列/看护踢发已删，教训见
             // SeamlessVehiclesCompat 类注释）。
-            pawn.jobs.StartJob(JobMaker.MakeJob(JobDefOf.Goto, finalCell), JobCondition.InterruptForced);
+            var finalJob = JobMaker.MakeJob(JobDefOf.Goto, finalCell);
+            grant.GotoContinuation?.ApplyToFinal(finalJob);
+            pawn.jobs.StartJob(finalJob, JobCondition.InterruptForced);
         }
 
         /// <summary>

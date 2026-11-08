@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using UnityEngine;
 using Verse;
+using Verse.AI;
 
 namespace RimExodus
 {
@@ -62,8 +63,9 @@ namespace RimExodus
     /// 命令目标登记表（VMF TargetMapUtility 同构）：菜单生成时（ctor Finalizer）为每个选中 pawn
     /// 登记"本次命令的目标图+格"；下游公共函数 patch（PawnGotoAction / StartPath 包装 /
     /// BestOrderedGotoDestNear）据此识别"这个格/目标是邻图框架"，无需依赖坐标数值反推。
-    /// 生命周期：菜单写入 → pawn StartJob 时清除（job 已带真实目标）；菜单被弃用则残留在下次
-    /// 覆盖/清除前无害（读取方都会二次校验图活跃性）。
+    /// 生命周期：菜单写入 → 直接消费（PawnGotoAction），或 TryTakeOrderedJob 时转交给具体 Job；
+    /// 菜单被弃用则残留到下次本图菜单清除。执行期不要再把它当权威来源：排队后的 Map 身份
+    /// 由 <see cref="SeamlessJobCommandTargets"/> 跟随具体 Job，避免 Pawn 后续点击覆盖旧命令。
     /// </summary>
     public static class SeamlessCommandTargets
     {
@@ -103,6 +105,82 @@ namespace RimExodus
         public static void Remove(Pawn pawn)
         {
             if (pawn != null) Targets.Remove(pawn);
+        }
+    }
+
+    /// <summary>
+    /// 玩家纯 Goto 从菜单语境进入 Job 队列后的目标图载体。Job.targetA 只能保存 LocalTargetInfo，
+    /// Achtung 等命令提供者会把邻图局部格直接写入 Goto，Map 身份若仍只挂在 Pawn 上，排队期间
+    /// 会被下一次点击覆盖，执行期也只能等 StartPath 再猜回来。
+    ///
+    /// 绑定发生在 TryTakeOrderedJob（命令尚未排队前），消费发生在该 Job 真正 StartJob 时；Job
+    /// 回池的 Clear 负责移除未消费绑定，防对象池复用把旧目标带给新 Job。ConditionalWeakTable
+    /// 只解决 GC 生命周期，不能替代 Clear 的对象池生命周期清理。
+    /// </summary>
+    internal static class SeamlessJobCommandTargets
+    {
+        internal sealed class CommandTarget
+        {
+            internal Map Map;
+            internal IntVec3 Cell;
+        }
+
+        private static readonly ConditionalWeakTable<Job, CommandTarget> Targets =
+            new ConditionalWeakTable<Job, CommandTarget>();
+
+        internal static bool TryBindGoto(Pawn pawn, Job job)
+        {
+            if (pawn?.Map == null || job?.def != RimWorld.JobDefOf.Goto
+                || job.targetA.HasThing || !job.targetA.IsValid)
+            {
+                return false;
+            }
+            if (!SeamlessCommandTargets.TryGet(pawn, out var command)
+                || command.map == pawn.Map || command.cell != job.targetA.Cell)
+            {
+                return false;
+            }
+            if (!SeamlessBoundaryRules.IsCrossMapOrderable(pawn)
+                || !SeamlessViewProjection.TryProject(command.map, command.cell, pawn.Map, out _))
+            {
+                return false;
+            }
+
+            Targets.Remove(job);
+            Targets.Add(job, new CommandTarget { Map = command.map, Cell = command.cell });
+            return true;
+        }
+
+        internal static bool TryConsume(Job job, out CommandTarget target)
+        {
+            target = null;
+            if (job == null || !Targets.TryGetValue(job, out var bound)) return false;
+            Targets.Remove(job);
+            if (bound.Map == null || bound.Map.Disposed) return false;
+            target = bound;
+            return true;
+        }
+
+        internal static bool Contains(Job job)
+        {
+            return job != null && Targets.TryGetValue(job, out _);
+        }
+
+        /// <summary>
+        /// TryTakeOrderedJob 会在 Job 真正执行前调用 JobDriver_Goto 的预约，把邻图局部格错误登记
+        /// 到源图。绑定仍在表示 Job 只是排队、尚未执行；逐图按 Job 精确释放，避免排队期间占住
+        /// 无关源图格。执行期桥接成功也调用同一入口收尾同步启动路径的预约。
+        /// </summary>
+        internal static void ReleaseGotoDestinationReservations(Pawn pawn, Job job)
+        {
+            if (pawn == null || job == null) return;
+            foreach (var map in Find.Maps)
+                map.pawnDestinationReservationManager.ReleaseClaimedBy(pawn, job);
+        }
+
+        internal static void Remove(Job job)
+        {
+            if (job != null) Targets.Remove(job);
         }
     }
 }
