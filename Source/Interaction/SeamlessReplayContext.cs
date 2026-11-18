@@ -9,7 +9,7 @@ namespace RimExodus
     /// 跨图点击重放的会话上下文（2026-08 架构重构，VMF 同构，勿回退为 GetOptions 整方法接管）。
     ///
     /// 生命周期 = 一次 <c>FloatMenuMakerMap.GetOptions</c> 调用：FloatMenuContext 构造函数
-    /// Prefix 里命中判定（L0 = SeamlessMapUtility.TryResolveMapPosition 多边形归属）解析到邻图时
+    /// Prefix 里命中判定（SeamlessMapUtility.TryResolveMapPosition）解析到邻图时
     /// Begin（点击坐标已改写为邻图局部、map 已换真邻图），GetOptions 的 Finalizer 里 End。
     /// 消费方：SeamlessGenUI.ThingsUnderMouseReplay（ctor 体内 GenUI 镜像）、
     /// GetOptions 体内两处 InBounds 重定向（见 Patches_ClickReplay）。

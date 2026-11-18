@@ -15,9 +15,8 @@ namespace RimExodus
     /// 会把合法邻图地面误判为不可站立；普通 Pawn 因无额外选项可从 EveryoneHasGoto 兜底，
     /// Alien 的 Climb To / Hibernate 则会让 Achtung 提前弹菜单，队形移动根本没有开始。
     ///
-    /// MouseDown 内同组的三个格查询统一先经 REF MapCellSpace.TryResolve，把参考系格解析为真实
-    /// MapCellAddress，再读取对应 Map 网格。归属判定来自公共多边形 provider：属于当前图就留在
-    /// 当前图，当前图 void 且邻图拥有则落到邻图；不依赖 Pawn 命令侧表，也不按 Mod/种族特判。
+    /// MouseDown 内同组的三个格查询共用鼠标拾取规则：当前图实地形优先，void 或界外再经
+    /// REF MapCellSpace 解析邻图的真实 MapCellAddress，再读取对应 Map 网格。
     /// 未解析时 fail-open 保留 Achtung 原查询。后续坐标归一继续由公共 RCellFinder 补丁完成。
     /// </summary>
     internal static class SeamlessAchtungCompat
@@ -118,11 +117,11 @@ namespace RimExodus
         private static void Resolve(Map referenceMap, IntVec3 referenceCell, out MapCellAddress address)
         {
             address = default(MapCellAddress);
-            if (referenceMap == null || referenceMap.Disposed
-                || !SeamlessSpatialQueries.TryCapture(referenceMap, out var space)
-                || !space.TryResolve(referenceCell, out address)) return;
+            if (!SeamlessMapUtility.TryResolveNeighborCell(referenceCell, referenceMap,
+                    out var targetMap, out var targetCell)) return;
 
-            if (address.Map != referenceMap && RimExodusLog.Enabled(RimExodusLogModule.Transfer))
+            address = new MapCellAddress(targetMap, targetCell);
+            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] Achtung cell-space resolve: {referenceCell} in map "
                     + $"{referenceMap.uniqueID} frame -> {address.Cell} on map {address.Map.uniqueID}.");
         }

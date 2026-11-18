@@ -385,10 +385,18 @@ namespace RimExodus
             // FinalDest 续链（行为等价：Goto 到目标格，同图 think 接管）。
             if (grant.NextJob != null && grant.NextJob.def != null)
             {
+                var pickupOrder = SeamlessPawnPickupOrders.IsPickupOrder(grant.NextJob);
+                if (pickupOrder && !SeamlessPawnPickupOrders.TargetsOnMap(grant.NextJob, arrivalMap))
+                {
+                    JobMaker.ReturnToPool(grant.NextJob);
+                    return;
+                }
+
                 if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     Log.Message($"[RimExodus] Bridge continuation: resuming wrapped job {grant.NextJob.def.defName} "
                         + $"for {pawn.LabelShort} on map {arrivalMap.uniqueID}.");
-                pawn.jobs.StartJob(grant.NextJob, JobCondition.InterruptForced);
+                pawn.jobs.StartJob(grant.NextJob, JobCondition.InterruptForced,
+                    preToilReservationsCanFail: pickupOrder);
                 return;
             }
             if (grant.NextJob != null)

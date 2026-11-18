@@ -91,7 +91,7 @@ namespace RimExodus
     /// <summary>
     /// 统一的 Job 生命周期钩子。原版 PawnGotoAction 仍直连 TryBridgeJob；绕过该 action、直接
     /// TryTakeOrderedJob 的第三方纯 Goto 在这里消费 Job 级目标并桥接，避免先按源图 SetupToils，
-    /// 再依赖 StartPath 找回 Map。其他玩家 job 仍由公共 StartPath 包装兜底。
+    /// 再依赖 StartPath 找回 Map。搬人任务在预约前也要先桥接，其余玩家 job 由 StartPath 兜底。
     ///
     /// 阶段4a：玩家强制 Goto 指令额外触发边界预加载检测（仅 playerForced，避免动物级联加载）。
     /// 阶段5：传送许可（Grant）生命周期——状态变更即登记/失效，见 <see cref="SeamlessTransferGrants"/>：
@@ -130,6 +130,12 @@ namespace RimExodus
                         + $"replaced by job {newJob.def?.defName}.");
                 }
                 SeamlessTransferGrants.Remove(___pawn);
+            }
+
+            if (SeamlessPawnPickupOrders.HasForeignTarget(___pawn, newJob))
+            {
+                SeamlessPawnPickupOrders.BridgeOrReject(___pawn, newJob);
+                return false;
             }
 
             // Achtung 等命令提供者绕过 PawnGotoAction，直接把邻图局部格写入 playerForced Goto。

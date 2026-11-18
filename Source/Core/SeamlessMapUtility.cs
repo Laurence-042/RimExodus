@@ -4,8 +4,7 @@ using Verse;
 namespace RimExodus
 {
     /// <summary>
-    /// 无缝地块地图的坐标转换工具。离散格归属以 REF MapCellSpace 为事实源：调用方提供
-    /// 参考 Map，TryResolve 返回真实 Map + 局部格；runtime/provider 尚未就绪时才回落旧注册表。
+    /// 无缝地块地图的鼠标拾取入口。优先使用当前图的实地形，邻图归属由 REF MapCellSpace 解析。
     /// 与 VMF 的 VehicleMapUtility 不同，静态地块地图没有旋转项，只保留水平整数平移。
     ///
     /// 偏移语义：邻居本地坐标 + offset = 当前地图坐标系的坐标。
@@ -14,16 +13,24 @@ namespace RimExodus
     public static class SeamlessMapUtility
     {
         /// <summary>
-        /// 把当前地图坐标解析成实际应操作的 Map + 局部坐标。
-        /// MapCellSpace 的 provider 用同一接缝多边形裁决当前图 + 活跃直接邻居：cell 在当前地块
-        /// 多边形内则归当前图；宿主 void 而邻图多边形拥有则归邻图。返回 true 仅表示解析到
-        /// 另一张图；当前图拥有、未解析或服务尚未就绪均返回 false 并保留当前参考系语义。
+        /// 点击当前图界内的实地形时保留本地操作，包括多边形外的接缝格。
+        /// 只有点击 void 或界外时才查邻图，成功解析到邻图则返回 true。
         /// </summary>
         public static bool TryResolveMapPosition(Vector3 mouseMapPosition, Map currentMap, out Map targetMap, out IntVec3 targetLocalCell)
-        {
-            var currentCell = IntVec3.FromVector3(mouseMapPosition);
+            => TryResolveNeighborCell(IntVec3.FromVector3(mouseMapPosition), currentMap, out targetMap, out targetLocalCell);
 
-            if (currentMap != null && SeamlessSpatialQueries.TryCapture(currentMap, out var space)
+        internal static bool TryResolveNeighborCell(IntVec3 currentCell, Map currentMap, out Map targetMap, out IntVec3 targetLocalCell)
+        {
+            targetMap = currentMap;
+            targetLocalCell = currentCell;
+            if (currentMap == null || currentMap.Disposed) return false;
+
+            if (currentCell.InBounds(currentMap)
+                && currentMap.terrainGrid?.TerrainAt(currentCell) is TerrainDef terrain
+                && terrain.defName != "RimExodus_Void")
+                return false;
+
+            if (SeamlessSpatialQueries.TryCapture(currentMap, out var space)
                 && space.TryResolve(currentCell, out var address))
             {
                 targetMap = address.Map;
@@ -32,16 +39,13 @@ namespace RimExodus
             }
 
             // MapRuntime/provider 在换档或初始化极早期可能尚不可用；旧入口仅作行为等价后备。
-            if (currentMap != null
-                && SeamlessTileRegistry.TryGetOwnerNeighbor(currentMap, currentCell, out var ownerMap, out var ownerLocalCell))
+            if (SeamlessTileRegistry.TryGetOwnerNeighbor(currentMap, currentCell, out var ownerMap, out var ownerLocalCell))
             {
                 targetMap = ownerMap;
                 targetLocalCell = ownerLocalCell;
                 return true;
             }
 
-            targetMap = currentMap;
-            targetLocalCell = currentCell;
             return false;
         }
     }
