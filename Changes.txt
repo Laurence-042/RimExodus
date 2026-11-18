@@ -14,10 +14,10 @@ If what you’re really asking is whether I’ll make more RimWorld mods in the 
 well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, I need to refocus on my own game development first. Even if it does get finished, it'll likely flop hard, and I'll just go back to being a corporate drone. Everyone knows how that life goes.
 
 1.1.4
-- 修复：倒在接缝上的角色可能无法被正确点选，右键反而指向相邻地图；现在优先点选当前地图上的实际地面和角色，关闭接缝显示时同样生效
-  Fixed: pawns downed on a seam could be missed by clicks, with right-click orders targeting the neighboring map instead. Clicks now prioritize real ground and pawns on the current map, including when seam display is hidden.
-- 修复：跨地图右键可能不显示救援选项，搬起倒地者或拘捕时可能报出预约失败；现在角色会先走到目标所在地图，再执行救援、搬起、俘虏或拘捕
-  Fixed: right-clicking across maps could omit the rescue option, while carrying a downed pawn or arresting someone could fail with a reservation error. Pawns now cross to the target's map before rescuing, carrying, capturing or arresting them.
+- 修复：倒在接缝上的角色可能无法被正确点选，右键反而指向相邻地图；现在优先点选当前地图上的实际地面和角色，关闭接缝显示时同样生效（@王里豪 报告的问题）
+  Fixed: pawns downed on a seam could be missed by clicks, with right-click orders targeting the neighboring map instead. Clicks now prioritize real ground and pawns on the current map, including when seam display is hidden. (Reported by @王里豪.)
+- 修复：跨地图右键可能不显示救援选项，搬起倒地者或拘捕时可能报出预约失败；现在角色会先走到目标所在地图，再执行救援、搬起、俘虏或拘捕（@王里豪 报告的问题）
+  Fixed: right-clicking across maps could omit the rescue option, while carrying a downed pawn or arresting someone could fail with a reservation error. Pawns now cross to the target's map before rescuing, carrying, capturing or arresting them. (Reported by @王里豪.)
 - 修复：休眠的营地等地点仍可能定时刷出援军，并把敌人留在邻图原地站立；现在原版援军倒计时会随地点休眠暂停。其他模组若仍让敌人抵达休眠地点，敌人会留在当地，原有通知照常，并追加“远处的烟尘”信件提醒回程风险（@Solarius Scorch 报告的问题）
   Fixed: dormant camps and other sites could keep spawning timed reinforcements and leave enemies standing on a neighboring map. Vanilla reinforcement countdowns now pause while the site is dormant. If another mod still sends enemies to a dormant site, they remain there, the usual notifications are preserved, and an extra “Smoke in the distance” letter warns about returning. (Reported by @Solarius Scorch.)
 
