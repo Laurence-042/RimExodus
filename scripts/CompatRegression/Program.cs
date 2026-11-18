@@ -13,7 +13,8 @@ AssemblyLoadContext.Default.Resolving += (_, name) => name.Name == "0Harmony"
         ?? @"D:\SteamLibrary\steamapps\workshop\content\294100\2009463077\1.7\Assemblies\0Harmony.dll") : null;
 // The game host is already loaded during real startup; the offline console must load it explicitly.
 AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.Combine(game, "RimWorld.dll"));
-Audit.Run(args.Contains("preview-drift"), args.Contains("ref-backend"));
+if (args.Contains("dormant-raids")) DormantRaidChecks.Run();
+else Audit.Run(args.Contains("preview-drift"), args.Contains("ref-backend"));
 
 public static class Audit
 {

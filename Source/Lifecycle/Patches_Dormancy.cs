@@ -26,6 +26,18 @@ namespace RimExodus
     /// </summary>
     public static class Patches_Dormancy
     {
+        [HarmonyPatch(typeof(TimedDetectionRaids), nameof(TimedDetectionRaids.CompTickInterval))]
+        static class Patch_TimedDetectionRaids_Dormancy
+        {
+            static bool Prefix(TimedDetectionRaids __instance)
+            {
+                var map = (__instance.parent as MapParent)?.Map;
+                // Pause before either countdown changes. No-map cleanup and other world components stay native.
+                return !SeamlessDormancyManager.IsDormant(map)
+                    || SeamlessTileRegistry.GetMapWorldTile(map) < 0;
+            }
+        }
+
         [HarmonyPatch(typeof(Map), nameof(Map.MapPreTick))]
         static class Patch_Map_MapPreTick_Dormancy
         {

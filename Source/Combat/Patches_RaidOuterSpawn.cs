@@ -47,8 +47,10 @@ namespace RimExodus
                     __instance.GetType());
             }
 
-            static void Postfix()
+            static void Postfix(IncidentParms parms)
             {
+                // Run once at the existing incident boundary, including strategies overriding MakeLords.
+                SeamlessRaidOuterSpawn.KeepDormantRaidLocal(parms, SeamlessRaidOuterSpawn.WindowPawns);
                 SeamlessRaidOuterSpawn.End();
             }
         }

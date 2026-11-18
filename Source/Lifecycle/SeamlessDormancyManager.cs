@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using RimWorld;
+using RimWorld.Planet;
 using Verse;
 
 namespace RimExodus
@@ -45,10 +47,20 @@ namespace RimExodus
         /// governor 的删除分支不受锁影响（距离 ≥ deleteHops 照常滚动删除）。
         /// </summary>
         private static readonly HashSet<Map> manualDormantMaps = new HashSet<Map>();
+        // Name of the nearest player pawn when this sleep session began; no Pawn reference or save data.
+        private static readonly Dictionary<Map, string> sleepObservers = new Dictionary<Map, string>();
+
+        internal static string GetSleepObserver(Map map)
+        {
+            sleepObservers.TryGetValue(map, out var name);
+            return name;
+        }
+
         internal static void ResetForGame()
         {
             dormantMaps.Clear();
             manualDormantMaps.Clear();
+            sleepObservers.Clear();
         }
 
         /// <summary>map 是否处于休眠（null/Disposed 安全返回 false）。</summary>
@@ -75,6 +87,8 @@ namespace RimExodus
             SeamlessTickThrottle.Unthrottle(map, "sleeping (dormancy supersedes throttle)", restoreTicks: false);
 
             dormantMaps.Add(map);
+            if (SeamlessTileRegistry.GetMapWorldTile(map) >= 0)
+                sleepObservers[map] = FindClosestObserver(map)?.LabelShortCap.ToString();
             if (manual)
             {
                 manualDormantMaps.Add(map);
@@ -114,6 +128,7 @@ namespace RimExodus
 
             SeamlessTickThrottle.Unthrottle(map, "waking (dormant → full speed)");
             dormantMaps.Remove(map);
+            sleepObservers.Remove(map);
             if (manualDormantMaps.Remove(map)) // 任意来源的唤醒都解除手动锁（含 CurrentMap/预加载带）。
                 SyncManualTile(map, register: false);
 
@@ -167,6 +182,7 @@ namespace RimExodus
             {
                 SeamlessTickThrottle.Forget(map);
                 dormantMaps.Remove(map);
+                sleepObservers.Remove(map);
                 if (manualDormantMaps.Remove(map))
                     SyncManualTile(map, register: false); // 图销毁：残留 tile id 一并清出持久化集合。
                 // 删图 = 该图全体 pawn 所在地批量变动 → 统一追踪底座（2026-08-29 收拢架构）：影子消费为
@@ -174,6 +190,37 @@ namespace RimExodus
                 // DecrementMapIndex 索引补偿与持有链遍历永跑干净列表——不 patch MapDeiniter。
                 SeamlessPawnLocationTracker.NotifyMapRemoving(map);
             }
+        }
+
+        private static Pawn FindClosestObserver(Map sleepingMap)
+        {
+            Pawn closest = null;
+            var bestDistance = float.MaxValue;
+            var player = Faction.OfPlayerSilentFail;
+            if (player == null) return null;
+
+            // Narrative witness only: snapshot geographic distance, using the same pawn sources as dormancy.
+            void Consider(Pawn pawn, PlanetTile tile)
+            {
+                if (pawn == null || pawn.Dead || pawn.Faction != player) return;
+                var distance = Find.WorldGrid.ApproxDistanceInTiles(sleepingMap.Tile, tile);
+                if (distance >= bestDistance) return;
+                closest = pawn;
+                bestDistance = distance;
+            }
+
+            foreach (var map in Find.Maps)
+            {
+                if (map == null || map.Disposed || map.mapPawns == null
+                    || SeamlessTileRegistry.GetMapWorldTile(map) < 0) continue;
+                foreach (var pawn in map.mapPawns.SpawnedPawnsInFaction(player)) Consider(pawn, map.Tile);
+            }
+            foreach (var caravan in Find.WorldObjects.Caravans)
+            {
+                if (caravan.Faction != player || caravan.Tile.LayerDef != PlanetLayerDefOf.Surface) continue;
+                foreach (var pawn in caravan.PawnsListForReading) Consider(pawn, caravan.Tile);
+            }
+            return closest;
         }
 
         /// <summary>

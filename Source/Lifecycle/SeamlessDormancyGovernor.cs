@@ -58,7 +58,7 @@ namespace RimExodus
         /// 发现敌人 → 注册 + Unthrottle（豁免降频/休眠/删除 = 保活第四条）；独立轮询段按
         /// <c>threatKeepalivePollIntervalTicks</c> 复查，敌人清零/图休眠/销毁 → 注销，回落交给
         /// 下轮 Sweep 按距离收敛（0% 图重新摘表走既有幂等路径）。**休眠图刻意不注册**（休眠冻结
-        /// 防级联语义保留——袭击打不进休眠图，唯一残留 = 玩家撤离留追兵后图休眠，冻着属预期）。
+        /// 防级联语义保留——残留追兵与第三方绕过计时暂停后生成的敌人均留在休眠图，醒图后再行动）。
         /// 告警读取展示快照；暂停期间尚未经过 tick 同步时，由快照单独屏蔽已关闭的保护。
         /// </summary>
         private readonly HashSet<Map> threatKeepaliveMaps = new HashSet<Map>();

@@ -109,14 +109,14 @@ namespace RimExodus
         /// 外缘计划窗口内经 PawnGenerator 生成的 pawn（发狂动物/食尸鬼/奇美拉三个**不走
         /// RaidStrategyWorker.MakeLords** 的 worker 由此捕获生成组——它们的 worker 直接
         /// GenSpawn.Spawn + LordMaker.MakeNewLord，没有携带 pawn 列表的公共执行点可挂）。
-        /// Begin 前/End 时清空；raid 族不消费（MakeLords Postfix 自带 pawn 列表）。
+        /// Begin 前/End 时清空；raid 族只在休眠目标的事件收尾使用此列表。
         /// </summary>
         internal static readonly List<Pawn> WindowPawns = new List<Pawn>();
 
         /// <summary>PawnGenerator.GeneratePawn Postfix 的捕获入口（仅外缘计划窗口内生效）。</summary>
         internal static void NotifyWindowPawnGenerated(Pawn pawn)
         {
-            if (Current?.CandidateMaps != null && pawn != null) WindowPawns.Add(pawn);
+            if (Current != null && pawn != null) WindowPawns.Add(pawn);
         }
 
         /// <summary>读 LordJob_AssaultColony 私有旗标；专用工作只在被袭击图启动。</summary>
@@ -139,15 +139,20 @@ namespace RimExodus
             System.Type workerType = null)
         {
             End(); // 防御性清陈旧（上一次异常泄漏的窗口）
-            if (!Enabled) return;
-            if (IsLocalOnlyIncident(incidentDefName)) return;
-            if (IsStructurallyLocalWorker(workerType)) return;
             try
             {
                 if (!(parms?.target is Map mapA) || mapA.Disposed) return;
-                if (!SeamlessEdgeCells.HasSeamEdge(mapA)) return; // 无缝语义不在场（异常态）→ 原版
                 var tileA = SeamlessTileRegistry.GetMapWorldTile(mapA);
                 if (tileA < 0) return; // 口袋/空间层图（GetMapWorldTile 收口口径）
+                if (SeamlessDormancyManager.IsDormant(mapA))
+                {
+                    // Retain only the existing generation window for dormant incident cleanup.
+                    // Null candidates leave native entry selection untouched; the group stays on this map.
+                    Current = new Plan { TargetMap = mapA, CreatedTick = GenTicks.TicksGame };
+                    return;
+                }
+                if (!Enabled || IsLocalOnlyIncident(incidentDefName) || IsStructurallyLocalWorker(workerType)) return;
+                if (!SeamlessEdgeCells.HasSeamEdge(mapA)) return; // 无缝语义不在场（异常态）→ 原版
 
                 // 跨图资格的 parms 层守卫（仅查调用前已稳定的字段）：faction 故意不查——raid 族
                 // worker 在 TryExecuteWorker **内部**才解析 faction（TryGenerateRaidInfo →
@@ -275,6 +280,7 @@ namespace RimExodus
             found = false;
             var plan = Current;
             if (plan == null || map != plan.TargetMap || plan.CandidateMaps == null) return false;
+            if (SeamlessDormancyManager.IsDormant(map)) return false;
             if (GenTicks.TicksGame - plan.CreatedTick > 120)
             {
                 Current = null;
@@ -415,8 +421,10 @@ namespace RimExodus
         /// </summary>
         internal static bool TryRelocateToHost(IncidentParms parms, List<Pawn> pawns)
         {
+            if (SeamlessDormancyManager.IsDormant(parms?.target as Map)) return false;
             var plan = Current;
-            if (plan != null && !plan.EntrySelected)
+            if (plan?.CandidateMaps == null) return false;
+            if (!plan.EntrySelected)
             {
                 try { SelectMapAfterVanillaEntry(plan); }
                 catch (Exception ex)
@@ -426,7 +434,7 @@ namespace RimExodus
                     return false;
                 }
             }
-            if (plan?.CrossHostMap == null) return false;
+            if (plan.CrossHostMap == null) return false;
             // 静默守卫的可诊断化（Combat 模块门控）：拒绝迁移的原因必须可见——"按设计排除"
             //（空投/围攻/工兵等）与"坏了"在日志上不可区分的话，回归排查会绕远路。
             bool Decline(string reason)
@@ -573,6 +581,46 @@ namespace RimExodus
         /// </summary>
         internal delegate LordJob LordJobFactory(Pawn firstPawn);
 
+        internal static bool KeepDormantRaidLocal(IncidentParms parms, List<Pawn> pawns)
+        {
+            if (!(parms?.target is Map map) || !SeamlessDormancyManager.IsDormant(map)
+                || SeamlessTileRegistry.GetMapWorldTile(map) < 0) return false;
+            try
+            {
+                var enemies = 0;
+                if (pawns != null)
+                {
+                    foreach (var pawn in pawns)
+                    {
+                        if (pawn == null || !pawn.Spawned || pawn.Map != map || pawn.Dead) continue;
+                        // Sleep removed the old contents once. These new pawns registered during SpawnSetup.
+                        // Native deregistration is buffered, so this is safe even inside a Thing tick.
+                        Find.TickManager.DeRegisterAllTickabilityFor(pawn);
+                        if (pawn.HostileTo(Faction.OfPlayer)) enemies++;
+                    }
+                }
+                if (enemies > 0)
+                {
+                    var observer = SeamlessDormancyManager.GetSleepObserver(map);
+                    var coordinates = Find.WorldGrid.LongLatOf(map.Tile);
+                    var position = coordinates.y.ToStringLatitude() + " " + coordinates.x.ToStringLongitude();
+                    var place = map.Parent.LabelCap;
+                    var body = observer != null
+                        ? "RimExodus_DormantRaidBody".Translate(observer, position, place)
+                        : "RimExodus_DormantRaidBodyUnobserved".Translate(position, place);
+                    Find.LetterStack.ReceiveLetter("RimExodus_DormantRaidLabel".Translate(), body,
+                        LetterDefOf.ThreatBig, map.Parent);
+                    RimExodusLog.Message(RimExodusLogModule.Combat,
+                        $"Raid outer spawn: {enemies} enemies stay on dormant map {map.uniqueID}; distant smoke warning sent.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[RimExodus] Dormant raid handling failed; group kept on target map: " + ex);
+            }
+            return true;
+        }
+
         /// <summary>
         /// 非 raid 族跨图迁移（发狂动物/食尸鬼/奇美拉 worker 的 TryExecuteWorker Postfix 入口）：
         /// 取窗口捕获组（仍在被袭击图上者）→ 共享迁移核心 → 按需在宿主图重建 lord。
@@ -584,8 +632,10 @@ namespace RimExodus
         internal static bool TryRelocateWindowGroup(IncidentParms parms, LordJobFactory lordFactory,
             System.Action<Lord> onLordCreated = null)
         {
+            if (KeepDormantRaidLocal(parms, WindowPawns)) return false;
             var plan = Current;
-            if (plan != null && !plan.EntrySelected)
+            if (plan?.CandidateMaps == null) return false;
+            if (!plan.EntrySelected)
             {
                 try { SelectMapAfterVanillaEntry(plan); }
                 catch (Exception ex)
@@ -595,7 +645,7 @@ namespace RimExodus
                     return false;
                 }
             }
-            if (plan?.CrossHostMap == null) return false;
+            if (plan.CrossHostMap == null) return false;
             try
             {
                 if (!(parms?.target is Map mapA)) return false;
