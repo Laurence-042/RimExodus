@@ -18,8 +18,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
   Fixed: pawns downed on a seam could be missed by clicks, with right-click orders targeting the neighboring map instead. Clicks now prioritize real ground and pawns on the current map, including when seam display is hidden.
 - 修复：跨地图右键可能不显示救援选项，搬起倒地者或拘捕时可能报出预约失败；现在角色会先走到目标所在地图，再执行救援、搬起、俘虏或拘捕
   Fixed: right-clicking across maps could omit the rescue option, while carrying a downed pawn or arresting someone could fail with a reservation error. Pawns now cross to the target's map before rescuing, carrying, capturing or arresting them.
-- 修复：休眠的营地等地点仍可能定时刷出援军，并把敌人留在邻图原地站立；现在原版援军倒计时会随地点休眠暂停。其他模组若仍让敌人抵达休眠地点，敌人会留在当地，原有通知照常，并追加“远处的烟尘”信件提醒回程风险
-  Fixed: dormant camps and other sites could keep spawning timed reinforcements and leave enemies standing on a neighboring map. Vanilla reinforcement countdowns now pause while the site is dormant. If another mod still sends enemies to a dormant site, they remain there, the usual notifications are preserved, and an extra “Smoke in the distance” letter warns about returning.
+- 修复：休眠的营地等地点仍可能定时刷出援军，并把敌人留在邻图原地站立；现在原版援军倒计时会随地点休眠暂停。其他模组若仍让敌人抵达休眠地点，敌人会留在当地，原有通知照常，并追加“远处的烟尘”信件提醒回程风险（@Solarius Scorch 报告的问题）
+  Fixed: dormant camps and other sites could keep spawning timed reinforcements and leave enemies standing on a neighboring map. Vanilla reinforcement countdowns now pause while the site is dormant. If another mod still sends enemies to a dormant site, they remain there, the usual notifications are preserved, and an extra “Smoke in the distance” letter warns about returning. (Reported by @Solarius Scorch.)
 
 1.1.3
 - 修复：同时安装 Achtung 与 Alien | RimWorld 时，Xenomorph 可能无法移动到相邻地图与当前地图虚空重叠的区域，反而只显示攀爬与休眠命令；Achtung 的队形移动现在会按真实目标地图判断地面并保留跨图目标，无需调整 Mod 排序（@ErikRedbeard 报告的问题）
