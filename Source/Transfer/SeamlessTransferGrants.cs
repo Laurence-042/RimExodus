@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using RimWorld.Planet;
 using RimWorld;
 using Verse;
 using Verse.AI;
@@ -86,7 +87,7 @@ namespace RimExodus
             public LordJob PrevLordJob;
 
             /// <summary>Evacuation：撤离链已访问的世界 tile（防回弹），跨 hop 传递复用。</summary>
-            public HashSet<int> VisitedTiles;
+            public HashSet<PlanetTile> VisitedTiles;
 
             // 首跳记录任务起点；真正过缝时由实际出口确定方向，之后整条链保持方向。
             // 相邻坐标系只平移，方向向量无需转换。均为随许可销毁的运行时状态。
@@ -121,7 +122,7 @@ namespace RimExodus
         private struct StrayInfo
         {
             public int DeadlineTick;
-            public int FromWorldTile;
+            public PlanetTile FromWorldTile;
         }
 
         private static readonly Dictionary<Pawn, StrayInfo> StrayNpcs = new Dictionary<Pawn, StrayInfo>();
@@ -178,7 +179,7 @@ namespace RimExodus
             grant.EvacuationOrigin = pawn.Position;
             grant.CanBashDoors = evacJob.canBashDoors;
             grant.CanBashFences = evacJob.canBashFences;
-            grant.VisitedTiles = new HashSet<int> { SeamlessTileRegistry.GetMapWorldTile(pawn.Map) };
+            grant.VisitedTiles = new HashSet<PlanetTile> { SeamlessTileRegistry.GetMapWorldTile(pawn.Map) };
 
             SeamlessEvacuationDiagnostics.OnEvacuationJobStarted(pawn, evacJob);
         }
@@ -220,7 +221,7 @@ namespace RimExodus
                     // The seam spot is only a marching target. On the attacked map the
                     // rebuilt sapper/breacher lord must choose its own duty immediately.
                     if (continuedLord && grant.PrevLordJob is LordJob_SeamlessRaidMarch raidMarch
-                        && SeamlessTileRegistry.GetMapWorldTile(arrivalMap) == raidMarch.TargetWorldTile)
+                        && SeamlessTileRegistry.GetMapWorldTile(arrivalMap) == raidMarch.TargetTile)
                         break;
                     ContinueBridgeMove(pawn, arrivalMap, grant);
                     break;
@@ -266,8 +267,8 @@ namespace RimExodus
         /// 追击链可跨多图延续；同批落地（600 ticks 内）同图同阵营的追击者编入同一 lord。
         /// 盟友追击兵不建袭击 lord（对玩家阵营敌对性不成立），维持游荡宽限兜底。
         /// </summary>
-        private static readonly Dictionary<int, (Faction faction, Lord lord, int createdTick)> RecentAssaultLords
-            = new Dictionary<int, (Faction, Lord, int)>();
+        private static readonly Dictionary<PlanetTile, (Faction faction, Lord lord, int createdTick)> RecentAssaultLords
+            = new Dictionary<PlanetTile, (Faction, Lord, int)>();
 
         private static bool TryAttachAssaultLord(Pawn pawn, Map arrivalMap)
         {
@@ -347,7 +348,7 @@ namespace RimExodus
         {
             var manager = arrivalMap.lordManager;
             if (manager == null || pawn.Faction == null) return false;
-            var onTarget = SeamlessTileRegistry.GetMapWorldTile(arrivalMap) == previous.TargetWorldTile;
+            var onTarget = SeamlessTileRegistry.GetMapWorldTile(arrivalMap) == previous.TargetTile;
             foreach (var lord in manager.lords)
             {
                 if (lord.LordJob is LordJob_SeamlessRaidMarch candidate
@@ -440,7 +441,7 @@ namespace RimExodus
         /// </summary>
         private static void ContinueEvacuationChain(Pawn pawn, Map departureMap, Thing departureSpot, Map arrivalMap, Grant grant)
         {
-            var visited = grant.VisitedTiles ?? new HashSet<int>();
+            var visited = grant.VisitedTiles ?? new HashSet<PlanetTile>();
             visited.Add(SeamlessTileRegistry.GetMapWorldTile(departureMap));
             visited.Add(SeamlessTileRegistry.GetMapWorldTile(arrivalMap));
 
@@ -490,7 +491,7 @@ namespace RimExodus
         /// 优先未访问且向前推进效率最高的出口；无前向出口则选最便宜的侧向/后退出口，
         /// 最后才用已访问出口 ForceExit。零方向用于尚未选过出口的游荡者，按成本初始化。
         /// </summary>
-        private static bool TryFindEvacuationExit(Pawn pawn, Map map, HashSet<int> visited,
+        private static bool TryFindEvacuationExit(Pawn pawn, Map map, HashSet<PlanetTile> visited,
             IntVec3 direction, bool canBashDoors, bool canBashFences, out IntVec3 destSpot, out bool forceExit)
         {
             destSpot = IntVec3.Invalid;
@@ -499,14 +500,14 @@ namespace RimExodus
             if (spotDef == null) return false;
 
             var cells = new List<IntVec3>();
-            var tiles = new List<int>();
+            var tiles = new List<PlanetTile>();
             foreach (var thing in map.listerThings.ThingsOfDef(spotDef))
             {
                 var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
                 // 脚下出口无法再触发 nextCell；候选必须是一次实际移动能进入的格。
                 if (comp == null || thing.Position == pawn.Position) continue;
                 cells.Add(thing.Position);
-                tiles.Add(comp.targetWorldTile);
+                tiles.Add(comp.TargetTile);
             }
             if (cells.Count == 0) return false;
 
@@ -702,13 +703,13 @@ namespace RimExodus
         }
 
         /// <summary>游荡 NPC 超时转入撤离链：当撤离者处理，排除来向 tile（防立刻传回原地图）。</summary>
-        private static void StartEvacuationForStray(Pawn pawn, int fromTile)
+        private static void StartEvacuationForStray(Pawn pawn, PlanetTile fromTile)
         {
             var map = pawn.Map;
             if (map == null) return;
 
-            var visited = new HashSet<int>();
-            if (fromTile >= 0) visited.Add(fromTile);
+            var visited = new HashSet<PlanetTile>();
+            if (fromTile.Valid) visited.Add(fromTile);
             visited.Add(SeamlessTileRegistry.GetMapWorldTile(map));
 
             // 游荡者没有原生撤离起点。优先延续来图方向；来图已不可用时按成本选首出口。

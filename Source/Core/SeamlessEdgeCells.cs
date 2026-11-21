@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using RimWorld.Planet;
 using RimWorld;
 using Verse;
 
@@ -84,7 +85,7 @@ namespace RimExodus
             if (spotCells != null) return spotCells;
 
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return null;
+            if (!worldTile.Valid) return null;
 
             var transportRing = SeamlessPolygonGeometry.BuildSeamBand(worldTile, map.Size.x).TransportRing;
             if (transportRing.Count == 0) return null;
@@ -119,15 +120,15 @@ namespace RimExodus
         /// hasArrival=false 不影响取格），故按 <c>targetWorldTile</c> 过滤即得该侧格集，
         /// 无需几何锚点。无缓存（袭击低频；def 索引 O(1)）。
         /// </summary>
-        internal static void PopulateFacingCells(Map map, int worldTile, List<IntVec3> result)
+        internal static void PopulateFacingCells(Map map, PlanetTile worldTile, List<IntVec3> result)
         {
             result.Clear();
-            if (map == null || EnterSpotDef == null || worldTile < 0) return;
+            if (map == null || EnterSpotDef == null || !worldTile.Valid) return;
             var spots = map.listerThings.ThingsOfDef(EnterSpotDef);
             for (int i = 0; i < spots.Count; i++)
             {
                 var comp = spots[i].TryGetComp<CompSeamlessTileEnterSpot>();
-                if (comp != null && comp.targetWorldTile == worldTile) result.Add(spots[i].Position);
+                if (comp != null && comp.TargetTile == worldTile) result.Add(spots[i].Position);
             }
         }
 

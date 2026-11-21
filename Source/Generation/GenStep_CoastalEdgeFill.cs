@@ -28,7 +28,7 @@ namespace RimExodus
         public override void Generate(Map map, GenStepParams parms)
         {
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return;
+            if (!worldTile.Valid || SeamlessMapProviders.For(map.Tile) != null) return;
 
             CoastalEdgeFill.Apply(map, worldTile);
         }

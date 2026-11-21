@@ -27,7 +27,8 @@ namespace RimExodus
         static bool Prefix(Reachability __instance, IntVec3 c, TraverseParms traverseParms, Map ___map, ref bool __result)
         {
             if (___map == null) return true;
-            if (!SeamlessEdgeCells.HasSeamEdge(___map)) return true; // 非 RimExodus 地块放行原版
+            var exits = SeamlessMapTopology.ExitCells(___map, entireBand: false);
+            if (exits == null && !SeamlessEdgeCells.HasSeamEdge(___map)) return true;
 
             // 复刻原版的前置守门（pawn 必须生成在本地图）。
             if (traverseParms.pawn != null)
@@ -46,10 +47,14 @@ namespace RimExodus
             }
 
             // 用接缝格（传送点）替换"地图边缘"语义：从 c 能否到达任一接缝格。
-            SeamlessEdgeCells.PopulateSeamEdgeCells(___map, _seamCellsScratch);
-            for (int i = 0; i < _seamCellsScratch.Count; i++)
+            if (exits == null)
             {
-                if (__instance.CanReach(c, _seamCellsScratch[i], PathEndMode.OnCell, traverseParms))
+                SeamlessEdgeCells.PopulateSeamEdgeCells(___map, _seamCellsScratch);
+                exits = _seamCellsScratch;
+            }
+            for (int i = 0; i < exits.Count; i++)
+            {
+                if (__instance.CanReach(c, exits[i], PathEndMode.OnCell, traverseParms))
                 {
                     __result = true;
                     return false;
@@ -59,7 +64,7 @@ namespace RimExodus
             // 区分"接缝格全不可达"与"根本没有接缝格"。
             if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
                 Log.Message($"[RimExodus] [diag] CanReachMapEdge(seam) = false on map {___map.uniqueID} from {c} " +
-                            $"({_seamCellsScratch.Count} seam cells, {SeamlessExitSpotFinder.DescribeEnterSpots(___map)}).");
+                            $"({exits.Count} seam cells, {SeamlessExitSpotFinder.DescribeEnterSpots(___map)}).");
             __result = false;
             return false; // 跳过原版
         }

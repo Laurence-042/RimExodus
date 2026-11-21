@@ -175,7 +175,7 @@ namespace RimExodus
                 if (comp == null) continue;
 
                 // 对端未加载：无事（不触发生成）。
-                if (!comp.hasArrival || !SeamlessTileGraph.TryGetMapByWorldTile(comp.targetWorldTile, out var arrivalMap))
+                if (!comp.hasArrival || !SeamlessTileGraph.TryGetMapByWorldTile(comp.TargetTile, out var arrivalMap))
                 {
                     return false;
                 }
@@ -216,9 +216,9 @@ namespace RimExodus
         /// <summary>Bridge/Pursue/Follow：对端已加载 → 传送 + 传送完成事件；对端卸载 → 许可作废。</summary>
         private static void HandleBoundTransfer(Pawn pawn, Map map, Thing thing, CompSeamlessTileEnterSpot comp, SeamlessTransferGrants.Grant grant)
         {
-            if (!comp.hasArrival || !SeamlessTileGraph.TryGetMapByWorldTile(comp.targetWorldTile, out var arrivalMap))
+            if (!comp.hasArrival || !SeamlessTileGraph.TryGetMapByWorldTile(comp.TargetTile, out var arrivalMap))
             {
-                if (!comp.hasArrival && SeamlessTileGraph.TryGetMapByWorldTile(comp.targetWorldTile, out _))
+                if (!comp.hasArrival && SeamlessTileGraph.TryGetMapByWorldTile(comp.TargetTile, out _))
                     WarnTransferRejected(pawn, map, thing.Position);
                 // 对端已卸载/休眠，或对端仍在但 arrival 缓存尚未就绪：许可作废。
                 // 2026-09 插桩：作废后 TransitGoto 走到终点即站住，靠 think tree 自谋出路——
@@ -259,7 +259,7 @@ namespace RimExodus
         /// </summary>
         private static void HandleEvacuation(Pawn pawn, Map map, Thing thing, CompSeamlessTileEnterSpot comp, SeamlessTransferGrants.Grant grant)
         {
-            if (comp.hasArrival && !grant.ForceExit && SeamlessTileGraph.TryGetMapByWorldTile(comp.targetWorldTile, out var arrivalMap))
+            if (comp.hasArrival && !grant.ForceExit && SeamlessTileGraph.TryGetMapByWorldTile(comp.TargetTile, out var arrivalMap))
             {
                 if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
                     Log.Message($"[RimExodus] [caravan-exit] Evacuation transfer: pawn {pawn.LabelShort} at {thing.Position} "
@@ -286,7 +286,7 @@ namespace RimExodus
             }
 
             if (!grant.ForceExit && !comp.hasArrival
-                && SeamlessTileGraph.TryGetMapByWorldTile(comp.targetWorldTile, out _))
+                && SeamlessTileGraph.TryGetMapByWorldTile(comp.TargetTile, out _))
                 WarnTransferRejected(pawn, map, thing.Position);
 
             if (grant.SelfDriven || grant.ForceExit)

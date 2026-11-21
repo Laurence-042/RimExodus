@@ -28,10 +28,7 @@ namespace RimExodus
                 return true;
             }
 
-            var sourceTile = SeamlessTileRegistry.GetMapWorldTile(sourceMap);
-            if (sourceTile < 0
-                || !SeamlessTileGraph.TryGetNeighborLinkByWorldTile(destinationMap, sourceTile, out var link)
-                || link.map != sourceMap) return false;
+            if (!SeamlessTileGraph.TryGetNeighborLink(destinationMap, sourceMap, out var link)) return false;
             offset = link.offset;
             return true;
         }

@@ -102,9 +102,17 @@ namespace RimExodus
             {
                 if (map == null || map.Disposed) continue;
                 if (map.Parent is MapParent_SeamlessTile) continue; // 地块图走删除，不恢复。
-                if (!HasRimExodusFootprint(map)) continue;
+                var manager = map.GetComponent<SeamlessTileManager>();
+                if (manager?.ProviderMapPrepared != true && !HasRimExodusFootprint(map)) continue;
 
                 var usedFallback = RestoreNativeMap(map);
+                if (manager?.ProviderMapPrepared == true)
+                {
+                    SeamlessNeighborRegistry.CleanupNeighborLinks(map.Parent);
+                    SeamlessMapTopology.InvalidateExitCells(map);
+                    manager.ProviderMapPrepared = false;
+                    map.exitMapGrid.Notify_LOSBlockerDespawned();
+                }
                 if (usedFallback) fallbackMaps++; else restoredMaps++;
                 if (verbose)
                     Log.Message($"[RimExodus] Uninstall restore: map wt={SeamlessTileRegistry.GetMapWorldTile(map)} " +

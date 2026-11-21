@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using RimWorld.Planet;
 using HarmonyLib;
 using RimWorld;
 using Verse;
@@ -122,8 +123,8 @@ namespace RimExodus
                 : gridDirty ? "pending-rebuild" : targetExit;
             bool currentSpot = SeamlessMapTransferTrigger.HasEnterSpotAt(map, current);
             bool targetSpot = SeamlessMapTransferTrigger.HasEnterSpotAt(map, target);
-            int worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            var band = worldTile >= 0 ? SeamlessPolygonGeometry.BuildSeamBand(worldTile, map.Size.x) : null;
+            PlanetTile worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
+            var band = worldTile.Valid ? SeamlessPolygonGeometry.BuildSeamBand(worldTile, map.Size.x) : null;
             string targetReachable = selectionMatches && target.InBounds(map)
                 ? map.reachability.CanReach(current, target, PathEndMode.OnCell,
                     TraverseParms.For(pawn, Danger.Deadly, state.SelectionMode, state.SelectionCanBash)).ToString()
@@ -188,12 +189,12 @@ namespace RimExodus
             }
             bool hasGrant = SeamlessTransferGrants.TryGet(pawn, out var grant);
             bool arrivalLoaded = comp != null && comp.hasArrival
-                && SeamlessTileGraph.TryGetMapByWorldTile(comp.targetWorldTile, out _);
+                && SeamlessTileGraph.TryGetMapByWorldTile(comp.TargetTile, out _);
             Log.Message($"[RimExodus] [caravan-exit] Entering spot: {pawn.LabelShort} "
                 + $"tick={tick} map={map.uniqueID} from={pawn.Position} to={cell} "
                 + $"job={pawn.CurJob?.def?.defName ?? "none"} exitMapOnArrival={pawn.CurJob?.exitMapOnArrival.ToString() ?? "null"} "
                 + $"grant={(hasGrant ? grant.Kind.ToString() : "none")} "
-                + $"targetWorldTile={comp?.targetWorldTile.ToString() ?? "null"} "
+                + $"targetWorldTile={comp?.TargetTile.ToString() ?? "null"} "
                 + $"hasArrival={comp?.hasArrival.ToString() ?? "null"} arrivalLoaded={arrivalLoaded}.");
         }
 

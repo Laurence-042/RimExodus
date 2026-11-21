@@ -372,8 +372,7 @@ namespace RimExodus
             if (map == null || !SeamlessCombatCoords.HasActiveSeamNeighbors(map)) return;
             if (!SeamlessTileRegistry.TryGetOwnerNeighbor(map, __result.ToIntVec3(), out var ownerMap, out var ownerLocal)) return;
             if (ownerMap == null || !ownerLocal.InBounds(ownerMap)) return;
-            var tile = SeamlessTileRegistry.GetMapWorldTile(ownerMap);
-            if (!SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, tile, out var info)) return;
+            if (!SeamlessTileGraph.TryGetNeighborLink(map, ownerMap, out var info)) return;
 
             try
             {

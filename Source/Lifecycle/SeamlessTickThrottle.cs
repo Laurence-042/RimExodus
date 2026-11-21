@@ -315,17 +315,11 @@ namespace RimExodus
             if (radius <= 0) return null;
 
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return null;
+            if (!worldTile.Valid) return null;
 
-            var worldNeighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
-            var neighborWorldTiles = new List<int>(worldNeighbors.Count);
-            foreach (var nt in worldNeighbors)
-            {
-                neighborWorldTiles.Add(nt.tileId);
-            }
+            var neighborWorldTiles = SeamlessMapTopology.NeighborTiles(worldTile, map.Size.x);
 
-            var band = new Dictionary<IntVec3, int>();
+            var band = new Dictionary<IntVec3, PlanetTile>();
             SeamlessPolygonGeometry.ComputeVoidBand(map, radius, neighborWorldTiles, band);
             var cells = new HashSet<IntVec3>(band.Count);
             foreach (var kv in band)

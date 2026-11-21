@@ -54,7 +54,7 @@ namespace RimExodus
         private const int RefreshIntervalTicks = 60;
 
         /// <summary>tile → 影子。每 tile 至多一个（据点图唯一）。</summary>
-        private static readonly Dictionary<int, Caravan> shadows = new();
+        private static readonly Dictionary<PlanetTile, Caravan> shadows = new();
 
         /// <summary>影子 → 据点图（GetRootMap patch 的持有链解析用；建影子/同步时写入、拆除时清除）。
         /// 2026-08 教训：影子成员 holdingOwner 指影子后，其 inventory 物品的 MapHeld 走
@@ -197,7 +197,7 @@ namespace RimExodus
             shadow = null;
             if (map == null) return false;
             var tile = SeamlessTileRegistry.GetMapWorldTile(map);
-            return tile >= 0 && shadows.TryGetValue(tile, out shadow) && shadow != null && !shadow.Destroyed;
+            return tile.Valid && shadows.TryGetValue(tile, out shadow) && shadow != null && !shadow.Destroyed;
         }
 
         /// <summary>影子的据点图（GetRootMap patch 用）：图仍在且未 Disposed 才有效。</summary>
@@ -237,19 +237,19 @@ namespace RimExodus
         private static void Refresh(List<Map> maps)
         {
             // 期望集：tile → 据点图（原生 Settlement parent、表面层、有玩家自由殖民者）。
-            var desired = new Dictionary<int, Map>();
+            var desired = new Dictionary<PlanetTile, Map>();
             foreach (var map in maps)
             {
                 if (map == null || map.Disposed) continue;
                 if (map.Parent is not Settlement) continue;
                 var tile = SeamlessTileRegistry.GetMapWorldTile(map);
-                if (tile < 0) continue; // 口袋图/空间层（GetMapWorldTile 对其返回 -1）
+                if (!tile.Valid) continue; // 口袋图/空间层（GetMapWorldTile 对其返回 -1）
                 if (map.mapPawns.FreeColonistsSpawned.Count == 0) continue;
                 desired[tile] = map;
             }
 
             // 拆除失去条件的影子（图没了 / 无玩家 pawn / parent 换类型）。
-            var toRemove = new List<int>();
+            var toRemove = new List<PlanetTile>();
             foreach (var kv in shadows)
             {
                 if (!desired.ContainsKey(kv.Key)) toRemove.Add(kv.Key);
@@ -326,7 +326,7 @@ namespace RimExodus
         }
 
         /// <summary>拆除指定 tile 的影子（还 holdingOwner、清列表、摘出世界）。</summary>
-        private static void DismantleAt(int tile, string reason)
+        private static void DismantleAt(PlanetTile tile, string reason)
         {
             if (!shadows.TryGetValue(tile, out var shadow) || shadow == null) return;
             try
@@ -359,7 +359,7 @@ namespace RimExodus
         /// Caravan.ExposeData 的 Scribe_Deep(pawns) 会把它们双存成远行队成员。读档后由位置刷新段首轮重建。</summary>
         public static void EnsureReleasedForSave()
         {
-            var tiles = new List<int>(shadows.Keys);
+            var tiles = new List<PlanetTile>(shadows.Keys);
             foreach (var tile in tiles) DismantleAt(tile, "save");
         }
 

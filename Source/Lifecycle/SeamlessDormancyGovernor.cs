@@ -92,7 +92,8 @@ namespace RimExodus
         /// Manager 的 Sleep(manual)/Wake/Forget 桥接增删；读档后图全活跃（休眠不序列化），首轮 Sweep
         /// 对 tile ∈ 本集合的图 Sleep 时传 manual:true，锁跨档续期。
         /// </summary>
-        private HashSet<int> manualDormantTiles = new HashSet<int>();
+        private HashSet<PlanetTile> manualDormantTiles = new HashSet<PlanetTile>();
+        private List<PlanetTile> savedManualDormantTiles = new();
 
         /// <summary>
         /// 前哨封存序号分配器（2026-09 前哨保留，持久化）：每次封存递增，写入记录的 archiveOrdinal
@@ -105,7 +106,7 @@ namespace RimExodus
         {
             public Map map;
             public MapParent_SeamlessTile parent;
-            public int tile;
+            public PlanetTile tile;
             public int homeCells;
         }
 
@@ -115,20 +116,20 @@ namespace RimExodus
 
         public override void ExposeData()
         {
-            Scribe_Collections.Look(ref manualDormantTiles, "manualDormantTiles", LookMode.Value);
-            if (Scribe.mode == LoadSaveMode.LoadingVars && manualDormantTiles == null)
-                manualDormantTiles = new HashSet<int>();
+            if (Scribe.mode == LoadSaveMode.Saving)
+                savedManualDormantTiles = new List<PlanetTile>(manualDormantTiles);
+            SeamlessTileScribe.Look(ref savedManualDormantTiles, "manualDormantTiles");
             Scribe_Values.Look(ref nextArchiveOrdinal, "nextArchiveOrdinal", 0);
         }
 
         /// <summary>手动休眠登记（Manager 的 Sleep(manual:true) 桥接调用）。</summary>
-        internal void RecordManualDormant(int worldTile)
+        internal void RecordManualDormant(PlanetTile worldTile)
         {
-            if (worldTile >= 0) manualDormantTiles.Add(worldTile);
+            if (worldTile.Valid) manualDormantTiles.Add(worldTile);
         }
 
         /// <summary>手动休眠解除（Manager 的 Wake/Forget 桥接调用——任意钥匙唤醒都解除锁）。</summary>
-        internal void ClearManualDormant(int worldTile)
+        internal void ClearManualDormant(PlanetTile worldTile)
         {
             manualDormantTiles.Remove(worldTile);
         }
@@ -149,6 +150,9 @@ namespace RimExodus
         /// </summary>
         public override void LoadedGame()
         {
+            foreach (var tile in savedManualDormantTiles)
+                if (SeamlessTileScribe.HasWorldLayer(tile)) manualDormantTiles.Add(tile);
+            savedManualDormantTiles.Clear();
             SeamlessFramework.ConfigureGame();
             // 几何进程缓存随档重置（2026-09 泄漏收口）：旧档图不经 DeinitAndRemoveMap 整体丢弃、
             // MapRemoved 不触发——同进程换档必须显式清空，否则旧档条目跨档累积（纯几何、随用随建，
@@ -293,7 +297,7 @@ namespace RimExodus
             var snapshot = new List<Map>(Find.Maps);
 
             // 源 = 有玩家阵营 spawned pawn 的图的 tile 集合（判定唯一出处 = SeamlessMapGovernance.HasPlayerPawn）。
-            var sources = new HashSet<int>();
+            var sources = new HashSet<PlanetTile>();
             foreach (var m in snapshot)
             {
                 if (m == null || m.Disposed) continue;
@@ -311,7 +315,7 @@ namespace RimExodus
             {
                 if (caravans[i].Faction == Faction.OfPlayer)
                 {
-                    sources.Add(caravans[i].Tile.tileId);
+                    sources.Add(caravans[i].Tile);
                 }
             }
 
@@ -320,25 +324,26 @@ namespace RimExodus
             if (sources.Count == 0) return;
 
             // 世界网格 BFS：源出发的跳数表（纯拓扑——路径可以穿过任何图，与加载状态无关）。
-            var dist = new Dictionary<int, int>();
-            var queue = new Queue<int>();
+            var dist = new Dictionary<PlanetTile, int>();
+            var queue = new Queue<PlanetTile>();
             foreach (var t in sources)
             {
-                if (t < 0 || dist.ContainsKey(t)) continue;
+                if (!t.Valid || dist.ContainsKey(t)) continue;
                 dist[t] = 0;
                 queue.Enqueue(t);
             }
-            var neighbors = new List<PlanetTile>();
+            var mapSize = Find.World.info.initialMapSize.x;
+            var neighborTiles = new List<PlanetTile>();
             while (queue.Count > 0)
             {
                 var cur = queue.Dequeue();
                 if (dist[cur] >= deleteHops) continue;
-                Find.WorldGrid.GetTileNeighbors(cur, neighbors);
-                foreach (var n in neighbors)
+                SeamlessMapTopology.PopulateNeighborTiles(cur, mapSize, neighborTiles);
+                foreach (var next in neighborTiles)
                 {
-                    if (dist.ContainsKey(n.tileId)) continue;
-                    dist[n.tileId] = dist[cur] + 1;
-                    queue.Enqueue(n.tileId);
+                    if (!next.Valid || dist.ContainsKey(next)) continue;
+                    dist[next] = dist[cur] + 1;
+                    queue.Enqueue(next);
                 }
             }
 
@@ -477,10 +482,10 @@ namespace RimExodus
         ///（2026-09 单一入口收拢后 governor sweep 与 gizmo/Dev 显式删除同路）与本类弹窗"保留"。
         /// 捕获失败（居住区突然变空等竞态）回落普通删除。
         /// </summary>
-        internal void ArchiveTileMap(MapParent_SeamlessTile parent, Map map, int tile, int homeCells, string reason)
+        internal void ArchiveTileMap(MapParent_SeamlessTile parent, Map map, PlanetTile tile, int homeCells, string reason)
         {
             ZoneMapRecord record;
-            try { record = ZoneMapRecord.Capture(map, tile, nextArchiveOrdinal++, homeCells); }
+            try { record = ZoneMapRecord.Capture(map, tile.tileId, nextArchiveOrdinal++, homeCells); }
             catch (System.Exception error)
             {
                 Log.Error("[RimExodus] Outpost capture failed; the live map was retained. " + error);
@@ -514,7 +519,7 @@ namespace RimExodus
         /// 所有删除路径——距离删除/gizmo/Dev——统一触发）。同 tile 去重；返回 true = 已入队或已在队
         ///（= 调用方应视为"本次不删"）。
         /// </summary>
-        internal bool QueuePreservePrompt(MapParent_SeamlessTile parent, Map map, int tile, int homeCells)
+        internal bool QueuePreservePrompt(MapParent_SeamlessTile parent, Map map, PlanetTile tile, int homeCells)
         {
             for (int i = 0; i < preservePrompts.Count; i++)
             {

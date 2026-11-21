@@ -51,7 +51,7 @@ namespace RimExodus
         /// <summary>per-邻居参考（offset 现算与邻居表登记同公式恒等；map 为 null = 未生成或已封存）。</summary>
         private struct NeighborRef
         {
-            public int worldTile;
+            public PlanetTile worldTile;
             public IntVec3 offset;
             public Map map;
         }
@@ -62,9 +62,9 @@ namespace RimExodus
         /// 392 末调用（<see cref="GenStep_SeamOverride.Generate"/> 混合完成后——
         /// 挂点理由见类注释：392 照抄才 spawn 的接缝带岩石是"4 邻含岩石"条件的主角）。
         /// </summary>
-        public static void PlaceAfterSeamOverride(Map map, int worldTile)
+        public static void PlaceAfterSeamOverride(Map map, PlanetTile worldTile)
         {
-            if (map == null || worldTile < 0) return;
+            if (map == null || !worldTile.Valid) return;
             if (SeamlessMapPreviewCompat.IsGeneratingPreviewOnCurrentThread) return; // 预览图不 spawn thing
             var linkDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_VoidRockLink");
             if (linkDef == null) return;
@@ -138,15 +138,15 @@ namespace RimExodus
         /// 收集全部世界邻居到 <see cref="_neighborRefs"/>（顺序与多边形边环绕一致，索引即边索引）。
         /// 与 EnterSpotPlacer 的邻居枚举同款；无实际 Map（未生成或封存）保留 null 占位。
         /// </summary>
-        private static bool CollectNeighborRefs(Map map, int worldTile)
+        private static bool CollectNeighborRefs(Map map, PlanetTile worldTile)
         {
             _neighborRefs.Clear();
-            var worldNeighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
+            var worldNeighbors = SeamlessMapTopology.NeighborTiles(worldTile, map.Size.x);
             if (worldNeighbors.Count == 0) return false;
             foreach (var nt in worldNeighbors)
             {
-                var neighborTile = nt.tileId;
+                var neighborTile = nt;
+                if (!neighborTile.Valid) continue;
                 if (neighborTile == worldTile) { _neighborRefs.Clear(); return false; } // 防御：序结构异常
                 Map neighborMap = null;
                 foreach (var candidate in Find.Maps)

@@ -1,4 +1,5 @@
 using RimWorld;
+using RimWorld.Planet;
 using Verse;
 using Verse.AI;
 
@@ -24,7 +25,7 @@ namespace RimExodus
             var map = pawn.Map;
             if (map == null) return;
             var sourceWorldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (sourceWorldTile < 0) return;
+            if (!sourceWorldTile.Valid) return;
 
             var lookup = map.GetComponent<SeamlessBorderLookup>();
             if (lookup == null)
@@ -35,13 +36,13 @@ namespace RimExodus
                 return;
             }
 
-            if (!lookup.TryGetPreloadTarget(targetCell, out int worldTile))
+            if (!lookup.TryGetPreloadTargetOnLayer(targetCell, out var worldTile))
             {
                 // 诊断：目标格不在边界带内。
                 if (RimExodusLog.Enabled(RimExodusLogModule.Transfer)) Log.Message($"[RimExodus] CheckPawnGoto: pawn {pawn.LabelShort} target {targetCell} not in border band, skip.");
                 return;
             }
-            if (worldTile < 0) return;
+            if (!worldTile.Valid) return;
 
             // 接缝带的撤离开关与距离 0 规则统一由 lookup 处理，与 PS 保持一致。
 

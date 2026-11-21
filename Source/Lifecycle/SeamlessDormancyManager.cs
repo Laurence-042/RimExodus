@@ -87,7 +87,7 @@ namespace RimExodus
             SeamlessTickThrottle.Unthrottle(map, "sleeping (dormancy supersedes throttle)", restoreTicks: false);
 
             dormantMaps.Add(map);
-            if (SeamlessTileRegistry.GetMapWorldTile(map) >= 0)
+            if (SeamlessTileRegistry.GetMapWorldTile(map).Valid)
                 sleepObservers[map] = FindClosestObserver(map)?.LabelShortCap.ToString();
             if (manual)
             {
@@ -156,9 +156,12 @@ namespace RimExodus
         /// 守卫不得按 parent 类型区分处理）。
         /// </summary>
         public static bool TryWakeByWorldTile(int worldTile, string reason)
+            => TryWakeByWorldTile(new PlanetTile(worldTile, -1), reason);
+
+        internal static bool TryWakeByWorldTile(PlanetTile worldTile, string reason)
         {
-            if (worldTile < 0 || Find.World == null) return false;
-            var parent = Find.World.worldObjects.MapParentAt(new RimWorld.Planet.PlanetTile(worldTile));
+            if (!worldTile.Valid || Find.World == null) return false;
+            var parent = Find.World.worldObjects.MapParentAt(worldTile);
             var map = parent?.Map;
             if (map == null || map.Disposed) return false;
             if (!IsDormant(map))
@@ -212,12 +215,12 @@ namespace RimExodus
             foreach (var map in Find.Maps)
             {
                 if (map == null || map.Disposed || map.mapPawns == null
-                    || SeamlessTileRegistry.GetMapWorldTile(map) < 0) continue;
+                    || !SeamlessTileRegistry.GetMapWorldTile(map).Valid) continue;
                 foreach (var pawn in map.mapPawns.SpawnedPawnsInFaction(player)) Consider(pawn, map.Tile);
             }
             foreach (var caravan in Find.WorldObjects.Caravans)
             {
-                if (caravan.Faction != player || caravan.Tile.LayerDef != PlanetLayerDefOf.Surface) continue;
+                if (caravan.Faction != player || !SeamlessMapProviders.Accepts(caravan.Tile)) continue;
                 foreach (var pawn in caravan.PawnsListForReading) Consider(pawn, caravan.Tile);
             }
             return closest;
@@ -230,7 +233,7 @@ namespace RimExodus
         private static void SyncManualTile(Map map, bool register)
         {
             var tile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (tile < 0) return;
+            if (!tile.Valid) return;
             var governor = Current.Game?.GetComponent<SeamlessDormancyGovernor>();
             if (governor == null) return;
             if (register) governor.RecordManualDormant(tile);

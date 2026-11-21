@@ -11,7 +11,7 @@ namespace RimExodus
         private static readonly Func<Map, MapCellSpace> Provider = Capture;
         internal static void Configure() => MapRuntime.Current?.Spatial.SetProvider(SeamlessFramework.Owner, Provider);
         internal static bool Available(Map map) => map != null && !map.Disposed
-            && SeamlessTileRegistry.GetMapWorldTile(map) >= 0
+            && SeamlessTileRegistry.GetMapWorldTile(map).Valid
             && !SeamlessDormancyManager.IsDormant(map) && !IncrementalMapGenerator.IsGenerating(map);
 
         internal static bool TryCapture(Map map, out MapCellSpace space)

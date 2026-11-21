@@ -32,8 +32,11 @@ namespace RimExodus
         /// order 200 patch 提前清岩，外条带原生岩体在备份前丢失 → 新图照抄区岩壁整齐切断。
         /// </summary>
         public static void BackupSnapshotAndApplyVoid(Map map, int worldTile)
+            => BackupSnapshotAndApplyVoid(map, SeamlessTileRegistry.InMapLayer(map, worldTile));
+
+        internal static void BackupSnapshotAndApplyVoid(Map map, PlanetTile worldTile)
         {
-            if (map == null || worldTile < 0) return;
+            if (map == null || !worldTile.Valid) return;
 
             SeamlessMapData.SetBaseSnapshots(map,
                 (TerrainDef[])map.terrainGrid.topGrid.Clone(),
@@ -89,8 +92,11 @@ namespace RimExodus
         /// （连续边中点对齐的取整残差）落在对侧带内/带外圈，不会传送到 void。
         /// </summary>
         public static void ApplyPolygonTerrain(Map map, int worldTile)
+            => ApplyPolygonTerrain(map, SeamlessTileRegistry.InMapLayer(map, worldTile));
+
+        internal static void ApplyPolygonTerrain(Map map, PlanetTile worldTile)
         {
-            if (map == null || worldTile < 0) return;
+            if (map == null || !worldTile.Valid) return;
 
             var voidDef = DefDatabase<TerrainDef>.GetNamedSilentFail("RimExodus_Void");
             if (voidDef == null)

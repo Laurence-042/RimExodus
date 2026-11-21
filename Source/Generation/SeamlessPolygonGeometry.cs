@@ -35,14 +35,14 @@ namespace RimExodus
         /// 生命周期（2026-09 收口，勿回退为"永不失效"）：图删除时经 <see cref="ReleaseTileCaches"/> 释放、
         /// 同进程换档时 <see cref="ClearAllCaches"/> 全清——旧假设"开新档是新进程"不成立（主菜单开新档同进程）。
         /// </summary>
-        private static readonly Dictionary<(int worldTile, int mapSize), List<Vector2>> polygonCache = new();
+        private static readonly Dictionary<(PlanetTile worldTile, int mapSize), List<Vector2>> polygonCache = new();
 
         /// <summary>
         /// 接缝带几何信息进程级缓存（键 = (worldTile, mapSize)，生命周期同 polygonCache：
         /// 图删除释放 + 换档全清）。每条 <see cref="SeamBandInfo"/> 把全图格装进 7 个集合
         /// （250 图推算 ≈4 MB/tile，2026-09 内存盘点），不随图删释放会长会话无界累积。
         /// </summary>
-        private static readonly Dictionary<(int worldTile, int mapSize), SeamBandInfo> seamBandCache = new();
+        private static readonly Dictionary<(PlanetTile worldTile, int mapSize), SeamBandInfo> seamBandCache = new();
 
         /// <summary>
         /// 接缝带几何信息（权威定义见 doc/接缝带定义.md）。以离散边为锚的方向词：
@@ -88,6 +88,9 @@ namespace RimExodus
         /// 传送圈铺设（SeamlessEnterSpotPlacer）、SeamOverride 混合范围与邻居参考判定、Dev 探针。
         /// </summary>
         public static SeamBandInfo BuildSeamBand(int worldTile, int mapSize)
+            => BuildSeamBand(new PlanetTile(worldTile, -1), mapSize);
+
+        internal static SeamBandInfo BuildSeamBand(PlanetTile worldTile, int mapSize)
         {
             var key = (worldTile, mapSize);
             if (seamBandCache.TryGetValue(key, out var cached)) return cached;
@@ -190,8 +193,11 @@ namespace RimExodus
         /// （同一 tile 只有一种 mapSize，按 tile 匹配可覆盖假设外的尺寸残留）。
         /// </summary>
         public static void ReleaseTileCaches(int worldTile)
+            => ReleaseTileCaches(new PlanetTile(worldTile, -1));
+
+        internal static void ReleaseTileCaches(PlanetTile worldTile)
         {
-            if (worldTile < 0) return;
+            if (!worldTile.Valid) return;
             RemoveTileKeys(polygonCache, worldTile);
             RemoveTileKeys(seamBandCache, worldTile);
         }
@@ -203,13 +209,13 @@ namespace RimExodus
             seamBandCache.Clear();
         }
 
-        private static void RemoveTileKeys<TKey>(Dictionary<(int worldTile, int mapSize), TKey> cache, int worldTile)
+        private static void RemoveTileKeys<TKey>(Dictionary<(PlanetTile worldTile, int mapSize), TKey> cache, PlanetTile worldTile)
         {
-            List<(int, int)> stale = null;
+            List<(PlanetTile, int)> stale = null;
             foreach (var key in cache.Keys)
             {
                 if (key.worldTile != worldTile) continue;
-                stale ??= new List<(int, int)>();
+                stale ??= new List<(PlanetTile, int)>();
                 stale.Add(key);
             }
             if (stale == null) return;
@@ -221,6 +227,9 @@ namespace RimExodus
         /// 凸多边形下与旧"中心或 4 角任一在内"角检测防孤岛等价：角在内的格必属 {中心在内} ∪ 离散边圈（⊆ B）。
         /// </summary>
         public static bool IsVoidCell(SeamBandInfo band, int worldTile, int mapSize, IntVec3 cell)
+            => IsVoidCell(band, new PlanetTile(worldTile, -1), mapSize, cell);
+
+        internal static bool IsVoidCell(SeamBandInfo band, PlanetTile worldTile, int mapSize, IntVec3 cell)
         {
             if (band.Band.Contains(cell)) return false;
             return !ContainsPointAt(BuildPolygonVertices(worldTile, mapSize), cell.x + 0.5f, cell.z + 0.5f);
@@ -280,33 +289,56 @@ namespace RimExodus
         /// 结果经进程级缓存，单局内重复调用零重算。
         /// </summary>
         public static List<Vector2> BuildPolygonVertices(int worldTile, int mapSize)
+            => BuildPolygonVertices(new PlanetTile(worldTile, -1), mapSize);
+
+        internal static List<Vector2> BuildPolygonVertices(PlanetTile worldTile, int mapSize)
         {
             var result = new List<Vector2>();
             PopulatePolygonVerticesCached(worldTile, mapSize, result);
             return result;
         }
 
-        /// <summary>填入版（带缓存）。调用方负责 Clear。命中缓存直接填充，未命中计算后存拷贝。</summary>
+        /// <summary>填入版（带缓存）。调用方可修改自己的列表。</summary>
         public static void PopulatePolygonVerticesCached(int worldTile, int mapSize, List<Vector2> result)
+            => PopulatePolygonVerticesCached(new PlanetTile(worldTile, -1), mapSize, result);
+
+        internal static void PopulatePolygonVerticesCached(PlanetTile worldTile, int mapSize, List<Vector2> result)
         {
             if (result == null) return;
+            result.Clear();
+            result.AddRange(GetCachedPolygonVertices(worldTile, mapSize));
+        }
+
+        internal static IReadOnlyList<Vector2> GetCachedPolygonVertices(PlanetTile worldTile, int mapSize)
+        {
             var key = (worldTile, mapSize);
-            if (polygonCache.TryGetValue(key, out var cached))
+            if (!polygonCache.TryGetValue(key, out var vertices))
             {
-                result.Clear();
-                result.AddRange(cached);
-                return;
+                vertices = new List<Vector2>();
+                PopulatePolygonVertices(worldTile, mapSize, vertices);
+                polygonCache[key] = vertices;
             }
-            PopulatePolygonVertices(worldTile, mapSize, result);
-            // 存一份拷贝，防调用方修改污染缓存。
-            polygonCache[key] = new List<Vector2>(result);
+            return vertices;
         }
 
         /// <summary>填入版（无缓存，实际计算）。调用方负责 Clear。</summary>
         public static void PopulatePolygonVertices(int worldTile, int mapSize, List<Vector2> result)
+            => PopulatePolygonVertices(new PlanetTile(worldTile, -1), mapSize, result);
+
+        internal static void PopulatePolygonVertices(PlanetTile worldTile, int mapSize, List<Vector2> result)
         {
             if (result == null) return;
             result.Clear();
+
+            var tile = worldTile;
+            var custom = SeamlessMapProviders.For(tile) == null ? null
+                : SeamlessMapProviders.Invoke(tile, p => p.GetFootprint(tile, mapSize), Array.Empty<Vector2>());
+            if (custom != null)
+            {
+                if (IsValidFootprint(custom, mapSize)) result.AddRange(custom);
+                else Log.WarningOnce($"[RimExodus] Invalid seamless footprint for {tile}.", worldTile.GetHashCode());
+                return;
+            }
 
             var dirs = new List<Vector2>();
             WorldTileGeometry.PopulateVertexDirections(worldTile, dirs);
@@ -329,6 +361,29 @@ namespace RimExodus
             {
                 result.Add(center + dir * radius);
             }
+        }
+
+        private static bool IsValidFootprint(IReadOnlyList<Vector2> vertices, int mapSize)
+        {
+            if (vertices.Count < 3) return false;
+            for (var edge = 0; edge < vertices.Count; edge++)
+            {
+                var a = vertices[edge];
+                var b = vertices[(edge + 1) % vertices.Count];
+                if (!(a.x >= 0f && a.y >= 0f && a.x <= mapSize && a.y <= mapSize) || a == b) return false;
+                var sign = 0;
+                for (var i = 0; i < vertices.Count; i++)
+                {
+                    if (i == edge || i == (edge + 1) % vertices.Count) continue;
+                    var c = vertices[i];
+                    var turn = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+                    if (Mathf.Abs(turn) < 0.0001f) return false;
+                    var current = turn > 0f ? 1 : -1;
+                    if (sign != 0 && sign != current) return false;
+                    sign = current;
+                }
+            }
+            return true;
         }
 
         /// <summary>
@@ -429,6 +484,16 @@ namespace RimExodus
         {
             if (result == null || map == null || bandWidth <= 0) return;
             result.Clear();
+            var neighbors = neighborWorldTiles.ConvertAll(tile => SeamlessTileRegistry.InMapLayer(map, tile));
+            var cells = new Dictionary<IntVec3, PlanetTile>();
+            ComputeVoidBand(map, bandWidth, neighbors, cells, distances);
+            foreach (var pair in cells) result[pair.Key] = pair.Value.tileId;
+        }
+
+        internal static void ComputeVoidBand(Map map, int bandWidth, List<PlanetTile> neighborWorldTiles, Dictionary<IntVec3, PlanetTile> result, Dictionary<IntVec3, int> distances = null)
+        {
+            if (result == null || map == null || bandWidth <= 0) return;
+            result.Clear();
             distances?.Clear();
 
             var voidDef = DefDatabase<TerrainDef>.GetNamedSilentFail("RimExodus_Void");
@@ -481,7 +546,7 @@ namespace RimExodus
                     var d = distArr[idx];
                     if (d <= 0) continue; // void 或带外。
                     var edgeIdx = FindClosestEdgeIndex(verts, x + 0.5f, z + 0.5f);
-                    var wt = edgeIdx >= 0 && edgeIdx < neighborWorldTiles.Count ? neighborWorldTiles[edgeIdx] : -1;
+                    var wt = edgeIdx >= 0 && edgeIdx < neighborWorldTiles.Count ? neighborWorldTiles[edgeIdx] : PlanetTile.Invalid;
                     if (wt >= 0)
                     {
                         var cell = new IntVec3(x, 0, z);
@@ -516,7 +581,7 @@ namespace RimExodus
         /// 过滤后匹配池为空返回 -1，调用方放行原版（与道路同款失败语义）。
         /// </summary>
         /// <returns>边索引（=-1 无邻居/匹配失败）。</returns>
-        internal static int FindEdgeByWorldHeading(int worldTile, float worldAngle,
+        internal static int FindEdgeByWorldHeading(PlanetTile worldTile, float worldAngle,
             Func<PlanetTile, bool> linkFilter = null)
         {
             var neighbors = new List<PlanetTile>();
@@ -552,7 +617,7 @@ namespace RimExodus
         /// <see cref="FindEdgeByWorldHeading"/>。河的上下游 = 两次调用（angle / angle+180°），
         /// 路的单次调用。过滤后匹配池空返回 -1，调用方放行原版。
         /// </summary>
-        internal static int FindSeamEdge(int worldTile, float worldAngle, SeamLink linkKind)
+        internal static int FindSeamEdge(PlanetTile worldTile, float worldAngle, SeamLink linkKind)
         {
             return linkKind == SeamLink.River
                 ? FindEdgeByWorldHeading(worldTile, worldAngle, n => Find.WorldGrid.GetRiverDef(worldTile, n) != null)
@@ -589,7 +654,7 @@ namespace RimExodus
         ///   本地 v0 还是 v1 决定 t 折算为 t 或 1−t——不依赖任何绕序/投影方向假设。
         /// </summary>
         /// <returns>穿越点（本地 2D 连续坐标，落在边上）；几何异常返回边中点。</returns>
-        internal static Vector2 SeamCrossingPoint(int worldTile, int edgeIdx, int mapSize, SeamLink linkKind)
+        internal static Vector2 SeamCrossingPoint(PlanetTile worldTile, int edgeIdx, int mapSize, SeamLink linkKind)
         {
             var verts = BuildPolygonVertices(worldTile, mapSize);
             if (edgeIdx < 0 || edgeIdx >= verts.Count) return Vector2.zero;
@@ -601,15 +666,15 @@ namespace RimExodus
             var neighbors = new List<PlanetTile>();
             Find.WorldGrid.GetTileNeighbors(worldTile, neighbors);
             if (edgeIdx >= neighbors.Count) return (v0 + v1) * 0.5f;
-            var other = neighbors[edgeIdx].tileId;
+            var other = neighbors[edgeIdx];
 
             // 对称哈希 → u ∈ [−1,1)。
             // **固定 FNV-1a，勿换 System.HashCode**——后者带进程随机种子，跨会话/读档后再生成
             // 会得出不同穿越点（2026-08-31 用户实测"读档后端点错位"的根因）。此哈希是跨存档
             // 契约：算法与常数永不更改。
             var salt = (int)linkKind * 7919 + 49297;
-            var a = (uint)Math.Min(worldTile, other);
-            var b = (uint)Math.Max(worldTile, other);
+            var a = (uint)Math.Min(worldTile.tileId, other.tileId);
+            var b = (uint)Math.Max(worldTile.tileId, other.tileId);
             var h = 2166136261u;
             foreach (var v in new[] { a, b, (uint)salt })
             {
@@ -669,7 +734,7 @@ namespace RimExodus
             var outward = EdgeOutwardNormal(verts, edgeIdx); // 真·边外法线
 
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return IntVec3.Invalid;
+            if (!worldTile.Valid) return IntVec3.Invalid;
             var band = BuildSeamBand(worldTile, mapSize);
 
             // 从穿越点向外步进，记录最后一个非 void 格（新 void 边界内侧第一格）。

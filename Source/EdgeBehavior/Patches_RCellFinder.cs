@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using HarmonyLib;
 using RimWorld;
 using Verse;
@@ -118,6 +119,8 @@ namespace RimExodus
         internal static bool HasRimExodusEnterSpots(Map map)
         {
             if (map == null) return false;
+            if (SeamlessTileRegistry.GetMapWorldTile(map).Valid && SeamlessMapProviders.For(map.Tile) != null)
+                return true;
             var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
             if (enterSpotDef == null) return false;
             return map.listerThings.ThingsOfDef(enterSpotDef).Any();
@@ -152,24 +155,35 @@ namespace RimExodus
         {
             if (map == null) return IntVec3.Invalid;
 
-            var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
-            if (enterSpotDef == null) return IntVec3.Invalid;
-
-            Thing bestSpot = null;
-            float bestDist = float.MaxValue;
-            foreach (var spot in map.listerThings.ThingsOfDef(enterSpotDef))
+            var providerExits = SeamlessMapTopology.ExitCells(map, entireBand: false);
+            List<Thing> enterSpots = null;
+            if (providerExits == null)
             {
-                if (!spot.Position.Standable(map)) continue;
-                if (pawn != null && !map.reachability.CanReach(pawn.Position, spot, PathEndMode.OnCell, TraverseParms.For(pawn, Danger.Deadly))) continue;
-                if (requireReachableFromRoot && !map.reachability.CanReach(root, spot, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) continue;
-                float d = (spot.Position - root).LengthHorizontalSquared;
+                var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
+                if (enterSpotDef == null) return IntVec3.Invalid;
+                enterSpots = map.listerThings.ThingsOfDef(enterSpotDef);
+            }
+
+            var bestSpot = IntVec3.Invalid;
+            float bestDist = float.MaxValue;
+            int count = providerExits?.Count ?? enterSpots.Count;
+            for (int i = 0; i < count; i++)
+            {
+                var target = providerExits != null
+                    ? new LocalTargetInfo(providerExits[i])
+                    : new LocalTargetInfo(enterSpots[i]);
+                var cell = target.Cell;
+                if (!cell.Standable(map)) continue;
+                if (pawn != null && !map.reachability.CanReach(pawn.Position, target, PathEndMode.OnCell, TraverseParms.For(pawn, Danger.Deadly))) continue;
+                if (requireReachableFromRoot && !map.reachability.CanReach(root, target, PathEndMode.OnCell, TraverseParms.For(TraverseMode.PassDoors))) continue;
+                float d = (cell - root).LengthHorizontalSquared;
                 if (d < bestDist)
                 {
                     bestDist = d;
-                    bestSpot = spot;
+                    bestSpot = cell;
                 }
             }
-            return bestSpot?.Position ?? IntVec3.Invalid;
+            return bestSpot;
         }
     }
 }

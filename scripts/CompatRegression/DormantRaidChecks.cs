@@ -36,6 +36,7 @@ internal static class DormantRaidChecks
             Current.Game = game;
             var parent = (MapParent_SeamlessTile)RuntimeHelpers.GetUninitializedObject(typeof(MapParent_SeamlessTile));
             parent.worldTile = 123;
+            AccessTools.Field(typeof(WorldObject), "tile").SetValue(parent, new PlanetTile(123, -1));
             var map = (Map)RuntimeHelpers.GetUninitializedObject(typeof(Map));
             map.info = new MapInfo { parent = parent };
             maps.Add(map);

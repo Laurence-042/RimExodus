@@ -1,4 +1,5 @@
 using System;
+using RimWorld.Planet;
 using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
@@ -200,10 +201,10 @@ namespace RimExodus
                 if (comp == null) continue;
 
                 // 对端未生成/未加载：不即席生成（与 avatar 步行/战斗踩点资格同口径）。
-                if (!comp.hasArrival || !SeamlessTileGraph.TryGetMapByWorldTile(comp.targetWorldTile, out _)) return;
+                if (!comp.hasArrival || !SeamlessTileGraph.TryGetMapByWorldTile(comp.TargetTile, out _)) return;
 
                 // 方向意图门（与 avatar 步行同款，rev4 定稿；方向用 postfix 现成的 inputDir 参数，零反射）。
-                if (TryGetCrossSeamDot(map, comp.targetWorldTile, inputDir, out var vCrossDot)
+                if (TryGetCrossSeamDot(map, comp.TargetTile, inputDir, out var vCrossDot)
                     && vCrossDot < MinCrossSeamDot)
                 {
                     if (RimExodusLog.Enabled(RimExodusLogModule.Compat))
@@ -265,11 +266,11 @@ namespace RimExodus
         private static void TryPreloadAt(Pawn pawn, Map map, IntVec3 cell)
         {
             var sourceWorldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (sourceWorldTile < 0) return;
+            if (!sourceWorldTile.Valid) return;
 
             var lookup = map.GetComponent<SeamlessBorderLookup>();
             if (lookup == null) return;
-            if (!lookup.TryGetPreloadTarget(cell, out int worldTile) || worldTile < 0) return;
+            if (!lookup.TryGetPreloadTargetOnLayer(cell, out var worldTile) || !worldTile.Valid) return;
 
             // lookup 在撤离关闭时允许接缝带触发，距离 0 时仍完全关闭预加载。
 
@@ -325,7 +326,7 @@ namespace RimExodus
         /// 旧行为振荡，不引入"卡死过不了缝"的新失败面）。开销：踩上 spot 的那一格一次邻居链字典
         /// 查询 + 一次点积，仅主控 avatar/驾驶载具触达。
         /// </summary>
-        private static bool TryGetCrossSeamDot(Map map, int targetWorldTile, Vector3 moveInput, out float dot)
+        private static bool TryGetCrossSeamDot(Map map, PlanetTile targetWorldTile, Vector3 moveInput, out float dot)
         {
             dot = 0f;
             var moveDir = new Vector2(moveInput.x, moveInput.z);
@@ -354,14 +355,14 @@ namespace RimExodus
                 if (comp == null) continue;
 
                 // 对端未生成/未加载：不即席生成（与 TryRegisterCombatStepTransfer 同口径）。
-                if (!comp.hasArrival || !SeamlessTileGraph.TryGetMapByWorldTile(comp.targetWorldTile, out _)) return;
+                if (!comp.hasArrival || !SeamlessTileGraph.TryGetMapByWorldTile(comp.TargetTile, out _)) return;
 
                 // 方向意图门（防镜像第二层，2026-09 rev4 定稿）：命令方向与 offsetDir（本图中心
                 // →对侧中心）同向的点积 ≥ MinCrossSeamDot（噪声地板）才传送。镜像对称下对侧
                 // offsetDir 为本侧相反向量 → 同一恒定方向的点积两侧互为相反数，一侧过门另一侧
                 // 必被拦——恒定方向连环弹射在数学上不可能；真掉头立即放行；沿缝平行（dot≈0）
                 // 不触发。数据不可用 → 放行（fail-open，见 TryGetCrossSeamDot）。
-                if (TryGetCrossSeamDot(map, comp.targetWorldTile, ReadAvatarMoveInput(avatarInstance), out var crossDot)
+                if (TryGetCrossSeamDot(map, comp.TargetTile, ReadAvatarMoveInput(avatarInstance), out var crossDot)
                     && crossDot < MinCrossSeamDot)
                 {
                     if (RimExodusLog.Enabled(RimExodusLogModule.Compat))

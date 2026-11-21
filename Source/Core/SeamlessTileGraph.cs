@@ -11,7 +11,7 @@ namespace RimExodus
     /// 所有上层逻辑（渲染/转移/交互）通过本类查邻居。
     ///
     /// 阶段3：邻居方向改为基于世界地块真实顶点角度（动态），不再用固定 0-5 编号。
-    /// 查询主键改为 worldTile（稳定，无角度歧义）。OppositeDirection 已移除（双向登记保证反向关系）。
+    /// 有目标图时按地图实例查找；预加载时按带层的地块键查找。
     /// </summary>
     public static class SeamlessTileGraph
     {
@@ -20,14 +20,38 @@ namespace RimExodus
         {
             public Map map;
             public IntVec3 offset;
+            /// <summary>Tile index on the neighbor's layer.</summary>
             public int worldTile;
         }
 
-        /// <summary>获取 map 上指向 worldTile 的邻居连接信息。返回 false 表示无此邻居。</summary>
+        /// <summary>Look up a direct neighbor by its tile index on the source map's layer.</summary>
         public static bool TryGetNeighborLinkByWorldTile(Map map, int worldTile, out NeighborInfo info)
+            => TryGetNeighborLinkByWorldTile(map, SeamlessTileRegistry.InMapLayer(map, worldTile), out info);
+
+        /// <summary>Look up a live direct neighbor using the two map instances.</summary>
+        public static bool TryGetNeighborLink(Map source, Map target, out NeighborInfo info)
         {
             info = default;
-            if (map == null) return false;
+            if (!CanReadLinks(source) || target == null) return false;
+            var parent = target.Parent;
+            if (parent == null) return false;
+            var links = SeamlessMapData.Neighbors(source);
+            if (links == null) return false;
+            foreach (var link in links)
+            {
+                if (link?.neighbor == parent && TryReadNeighbor(source, link, out var result) && result.map == target)
+                {
+                    info = result;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        internal static bool TryGetNeighborLinkByWorldTile(Map map, PlanetTile worldTile, out NeighborInfo info)
+        {
+            info = default;
+            if (!CanReadLinks(map) || !worldTile.Valid) return false;
 
             NeighborLink link = null;
             var links = SeamlessMapData.Neighbors(map);
@@ -35,7 +59,7 @@ namespace RimExodus
             {
                 foreach (var l in links)
                 {
-                    if (l != null && l.worldTile == worldTile && l.neighbor != null)
+                    if (l?.neighbor != null && l.worldTile == worldTile.tileId && l.neighbor.Tile == worldTile)
                     {
                         link = l;
                         break;
@@ -43,12 +67,20 @@ namespace RimExodus
                 }
             }
 
-            if (link?.neighbor == null) return false;
+            return TryReadNeighbor(map, link, out info);
+        }
 
-            var neighborMap = link.neighbor.Map;
+        private static bool CanReadLinks(Map map)
+            => map != null && !map.Disposed && SeamlessTileRegistry.GetMapWorldTile(map).Valid;
+
+        private static bool TryReadNeighbor(Map source, NeighborLink link, out NeighborInfo info)
+        {
+            info = default;
+            var neighborMap = link?.neighbor?.Map;
             // 休眠过滤（2026-08 软休眠）：休眠邻居不算"有效邻接"——渲染不画其背景、
             // 传送点坐标缓存（hasArrival）失效、跨图菜单关闭。link 本身保留（唤醒后即恢复）。
-            if (neighborMap == null || neighborMap.Disposed || SeamlessDormancyManager.IsDormant(neighborMap)) return false;
+            if (!CanReadLinks(neighborMap) || SeamlessDormancyManager.IsDormant(neighborMap)
+                || neighborMap.Tile.Layer != source.Tile.Layer) return false;
 
             info = new NeighborInfo
             {
@@ -70,36 +102,23 @@ namespace RimExodus
         /// <summary>把 map 的所有有效直接邻居填入已有的列表（避免每帧分配）。调用方负责 Clear。</summary>
         public static void PopulateNeighbors(Map map, List<NeighborInfo> result)
         {
-            if (map == null || result == null) return;
+            if (result == null || !CanReadLinks(map)) return;
 
             var links = SeamlessMapData.Neighbors(map);
             if (links == null) return;
 
             foreach (var link in links)
             {
-                if (link?.neighbor == null) continue;
-                var neighborMap = link.neighbor.Map;
-                // 休眠过滤：见 TryGetNeighborLinkByWorldTile——休眠邻居不进枚举（渲染/相机/选中随之退化）。
-                if (neighborMap == null || neighborMap.Disposed || SeamlessDormancyManager.IsDormant(neighborMap)) continue;
-                result.Add(new NeighborInfo
-                {
-                    map = neighborMap,
-                    offset = link.offset,
-                    worldTile = link.worldTile
-                });
+                if (TryReadNeighbor(map, link, out var info)) result.Add(info);
             }
         }
 
         /// <summary>判断 b 是否为 a 的直接邻居（对称：a 是 b 的邻居 ⟺ b 是 a 的邻居）。</summary>
-        public static bool AreNeighbors(Map a, Map b)
-        {
-            if (a == null || b == null) return false;
-            foreach (var info in GetAllNeighbors(a))
-            {
-                if (info.map == b) return true;
-            }
-            return false;
-        }
+        public static bool AreNeighbors(Map a, Map b) => TryGetNeighborLink(a, b, out _);
+
+        /// <summary>Find an active map by tile index on the root surface.</summary>
+        public static bool TryGetMapByWorldTile(int worldTile, out Map existing)
+            => TryGetMapByWorldTile(new PlanetTile(worldTile, -1), out existing);
 
         /// <summary>
         /// 全局查询：指定 worldTile 是否已有任意**活跃**的地图（含玩家家园与所有受管辖图），不限于直接邻居。
@@ -111,10 +130,10 @@ namespace RimExodus
         /// 消费方若需要感知休眠图的存在（如生成守卫防重复 WorldObject），请直接查
         /// Find.World.worldObjects.MapParentAt 或 <see cref="SeamlessDormancyManager.TryWakeByWorldTile"/>。
         /// </summary>
-        public static bool TryGetMapByWorldTile(int worldTile, out Map existing)
+        internal static bool TryGetMapByWorldTile(PlanetTile worldTile, out Map existing)
         {
             existing = null;
-            if (worldTile < 0) return false;
+            if (!worldTile.Valid) return false;
             foreach (var map in Find.Maps)
             {
                 if (SeamlessTileRegistry.GetMapWorldTile(map) == worldTile)

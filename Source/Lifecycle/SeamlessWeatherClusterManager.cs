@@ -47,7 +47,7 @@ namespace RimExodus
         {
             public readonly List<Map> members = new List<Map>();
             public Map activeMap;
-            public int activeTile;
+            public PlanetTile activeTile;
         }
 
         // 成员 → 域；TransitionTo 广播 / 接任 / 唤醒校准的入口查询。
@@ -73,10 +73,10 @@ namespace RimExodus
 
         // 激活记录本体（2026-09-02 第三案）：每域一条激活 tile，运行时只在三种事件写入、随档保存。
         // 存档键 weatherDomainActiveTiles（沿用旧键，存档兼容）。
-        private static HashSet<int> activeTiles = new HashSet<int>();
+        private static HashSet<PlanetTile> activeTiles = new HashSet<PlanetTile>();
 
-        // ExposeData 的 List 中转（Scribe_Collections 需要 ref List<int>）。
-        private static List<int> savedActiveTiles = new List<int>();
+        // ExposeData 的 List 中转（Scribe_Collections 需要 ref List<PlanetTile>）。
+        private static List<PlanetTile> savedActiveTiles = new List<PlanetTile>();
 
         // 决策门控翻转日志的上次判定缓存（logWeather 诊断埋点）：只在判定变化时打一拍
         // （重算/接任时各一次，无每 tick spam）。弱键同幂等守卫先例，不阻碍 GC。
@@ -92,8 +92,8 @@ namespace RimExodus
         public SeamlessWeatherClusterManager(Game game)
         {
             // 每次游戏实例化（新档/读档）都清空：读档随后由 ExposeData 回填，新档从零登记。
-            activeTiles = new HashSet<int>();
-            savedActiveTiles = new List<int>();
+            activeTiles = new HashSet<PlanetTile>();
+            savedActiveTiles = new List<PlanetTile>();
         }
 
         public override void ExposeData()
@@ -105,17 +105,14 @@ namespace RimExodus
                 RimExodusLog.Message(RimExodusLogModule.Weather,
                     $"Save: weatherDomainActiveTiles=[{string.Join(",", savedActiveTiles)}]");
             }
-            Scribe_Collections.Look(ref savedActiveTiles, "weatherDomainActiveTiles", LookMode.Value);
-            if (Scribe.mode == LoadSaveMode.LoadingVars)
-            {
-                activeTiles = savedActiveTiles != null ? new HashSet<int>(savedActiveTiles) : new HashSet<int>();
-                RimExodusLog.Message(RimExodusLogModule.Weather,
-                    $"Load: weatherDomainActiveTiles=[{string.Join(",", activeTiles)}] (resolved at FinalizeInit)");
-            }
+            SeamlessTileScribe.Look(ref savedActiveTiles, "weatherDomainActiveTiles");
         }
 
         public override void FinalizeInit()
         {
+            foreach (var tile in savedActiveTiles)
+                if (SeamlessTileScribe.HasWorldLayer(tile)) activeTiles.Add(tile);
+            savedActiveTiles.Clear();
             // 读档/新档后：重算成员结构 + 记录落位（in 判断——记录编号落在哪片区域即哪片的激活）。
             RebindAll();
         }
@@ -129,7 +126,7 @@ namespace RimExodus
         {
             if (map == null || map.Disposed) return;
             var tile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (tile < 0 || Find.WorldGrid == null) return;
+            if (!tile.Valid || Find.WorldGrid == null) return;
 
             RebuildDomains(map);
             if (!domainOf.TryGetValue(map, out var d))
@@ -198,13 +195,13 @@ namespace RimExodus
             if (map == null || map.Disposed || !domainOf.TryGetValue(map, out var d) || d.activeMap != map) return;
 
             Map best = null;
-            var bestTile = int.MaxValue;
+            var bestTile = PlanetTile.Invalid;
             for (int i = 0; i < d.members.Count; i++)
             {
                 var m = d.members[i];
                 if (m == map || m.Disposed || SeamlessDormancyManager.IsDormant(m) || SeamlessTickThrottle.IsFrozen(m)) continue;
                 var t = SeamlessTileRegistry.GetMapWorldTile(m);
-                if (t < bestTile)
+                if (t.Valid && (!bestTile.Valid || t.tileId < bestTile.tileId))
                 {
                     bestTile = t;
                     best = m;
@@ -235,7 +232,7 @@ namespace RimExodus
                 if (d != null && d.activeMap != null)
                 {
                     // 本图 tile：成员中 decider == 本实例者（翻转时才跑一次小循环，非热路径）。
-                    var own = -1;
+                    PlanetTile own = PlanetTile.Invalid;
                     for (int i = 0; i < d.members.Count; i++)
                     {
                         if (d.members[i].weatherDecider == decider)
@@ -361,7 +358,7 @@ namespace RimExodus
                     $"Activate: wt={newTile} ({reason}, keeps own state)");
             }
 
-            if (d.activeTile >= 0) activeTiles.Remove(d.activeTile);
+            if (d.activeTile.Valid) activeTiles.Remove(d.activeTile);
             d.activeMap = newActive;
             d.activeTile = newTile;
             activeTiles.Add(newTile);
@@ -396,15 +393,15 @@ namespace RimExodus
             if (Find.WorldGrid == null) return;
 
             // tile → 分量 id（同群系连通）。只为有图的 tile 沿分量展开（一次 BFS 标记整分量）。
-            var componentOf = new Dictionary<int, int>();
+            var componentOf = new Dictionary<PlanetTile, int>();
             var nextId = 0;
-            var mapsByTile = new Dictionary<int, Map>();
+            var mapsByTile = new Dictionary<PlanetTile, Map>();
             var skippedMaps = 0;
             foreach (var m in Find.Maps)
             {
                 if (m.Disposed) continue;
                 var t = SeamlessTileRegistry.GetMapWorldTile(m);
-                if (t >= 0)
+                if (t.Valid)
                 {
                     mapsByTile[t] = m;
                     continue;
@@ -415,7 +412,7 @@ namespace RimExodus
             if (log) logSb.Append($"maps={mapsByTile.Count} ");
 
             // 失效记录清除（指向已删图——成员判定再也匹配不上）。
-            var pruned = new List<int>();
+            var pruned = new List<PlanetTile>();
             foreach (var t in activeTiles)
             {
                 if (!mapsByTile.ContainsKey(t)) pruned.Add(t);
@@ -426,7 +423,7 @@ namespace RimExodus
             foreach (var root in mapsByTile.Keys)
             {
                 if (componentOf.ContainsKey(root)) continue;
-                MarkBiomeComponent(root, nextId++, componentOf);
+                MarkBiomeComponent(root, nextId++, componentOf, mapsByTile);
             }
 
             // 分量 id → 成员图列表。
@@ -446,16 +443,17 @@ namespace RimExodus
                 d.members.AddRange(members);
 
                 // 记录落位（in 判断）：本分量内的记录条目（多条防御取最小并去重）。
-                var activeTile = int.MaxValue;
+                var activeTile = PlanetTile.Invalid;
                 foreach (var t in activeTiles)
                 {
-                    if (mapsByTile.ContainsKey(t) && componentOf[t] == kv.Key && t < activeTile) activeTile = t;
+                    if (mapsByTile.ContainsKey(t) && componentOf[t] == kv.Key
+                        && (!activeTile.Valid || t.tileId < activeTile.tileId)) activeTile = t;
                 }
                 string source;
-                if (activeTile != int.MaxValue)
+                if (activeTile.Valid)
                 {
                     source = "record";
-                    var snapshot = new List<int>(activeTiles);
+                    var snapshot = new List<PlanetTile>(activeTiles);
                     for (int i = 0; i < snapshot.Count; i++)
                     {
                         var t = snapshot[i];
@@ -476,7 +474,7 @@ namespace RimExodus
                     // 无源兜底（删图后重算 / 读档缺记录的极罕见态）：最小编号 + 全新随机窗口。
                     foreach (var mkv in mapsByTile)
                     {
-                        if (componentOf[mkv.Key] != kv.Key || mkv.Key >= activeTile) continue;
+                        if (componentOf[mkv.Key] != kv.Key || (activeTile.Valid && mkv.Key.tileId >= activeTile.tileId)) continue;
                         activeTile = mkv.Key;
                     }
                     source = "fallback";
@@ -509,22 +507,24 @@ namespace RimExodus
         }
 
         /// <summary>从 root 出发 BFS 标记同群系连通分量（result[tile]=id；跨群系切断；穿越无图 tile）。</summary>
-        private static void MarkBiomeComponent(int root, int id, Dictionary<int, int> result)
+        private static void MarkBiomeComponent(PlanetTile root, int id, Dictionary<PlanetTile, int> result, Dictionary<PlanetTile, Map> mapsByTile)
         {
-            var biome = Find.WorldGrid[new PlanetTile(root)].PrimaryBiome;
-            var queue = new Queue<int>();
+            var tile = root;
+            var biome = Find.WorldGrid[tile].PrimaryBiome;
+            var provider = SeamlessMapProviders.For(tile);
+            var queue = new Queue<PlanetTile>();
             queue.Enqueue(root);
             result[root] = id;
-            var neighbors = new List<PlanetTile>();
+            var mapSize = Find.World.info.initialMapSize.x;
+            var neighborTiles = new List<PlanetTile>();
             while (queue.Count > 0)
             {
                 var cur = queue.Dequeue();
-                Find.WorldGrid.GetTileNeighbors(cur, neighbors);
-                foreach (var n in neighbors)
+                SeamlessMapTopology.PopulateNeighborTiles(cur, mapSize, neighborTiles);
+                foreach (var nt in neighborTiles)
                 {
-                    var nt = n.tileId;
-                    if (result.ContainsKey(nt)) continue;
-                    if (Find.WorldGrid[new PlanetTile(nt)].PrimaryBiome != biome) continue; // 跨群系切断传递
+                    if (!nt.Valid || result.ContainsKey(nt) || (provider != null && !mapsByTile.ContainsKey(nt))) continue;
+                    if (Find.WorldGrid[nt].PrimaryBiome != biome) continue; // 跨群系切断传递
                     result[nt] = id;
                     queue.Enqueue(nt);
                 }

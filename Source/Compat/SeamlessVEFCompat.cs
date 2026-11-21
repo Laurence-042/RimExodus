@@ -1,4 +1,5 @@
 using System;
+using RimWorld.Planet;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
@@ -93,7 +94,7 @@ namespace RimExodus
             try
             {
                 var worldTile = SeamlessTileRegistry.GetMapWorldTile(__1);
-                if (worldTile < 0) return;
+                if (!worldTile.Valid) return;
 
                 var blocked = GetOrBuildBlockedCells(__1, worldTile);
                 if (blocked != null && blocked[__1.cellIndices.CellToIndex(__0)])
@@ -112,7 +113,7 @@ namespace RimExodus
         /// 惰性构建 per-map 屏蔽布尔表：接缝带 B 三圈 ∪ 全部 void 格（IsVoidCell 与 389 铺 void 同
         /// 口径的纯几何）。DoMapSpawns 逐格逐 def 高频调用，表建一次后每次查询 = 一次数组读。
         /// </summary>
-        private static bool[] GetOrBuildBlockedCells(Map map, int worldTile)
+        private static bool[] GetOrBuildBlockedCells(Map map, PlanetTile worldTile)
         {
             if (BlockedCells.TryGetValue(map, out var cached)) return cached;
 

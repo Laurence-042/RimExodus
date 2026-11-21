@@ -65,7 +65,7 @@ namespace RimExodus
             if (!e.ExitSpot.Spawned || e.ExitSpot.Destroyed || e.ExitSpot.Map != pawn.Map) return false;
             // spot 的 arrival 缓存可能刷新指向他图，命中时必须仍指向 toMap。
             var comp = e.ExitSpot.TryGetComp<CompSeamlessTileEnterSpot>();
-            if (comp == null || !comp.hasArrival || comp.targetWorldTile != SeamlessTileRegistry.GetMapWorldTile(toMap)) return false;
+            if (comp == null || !comp.hasArrival || comp.TargetTile != SeamlessTileRegistry.GetMapWorldTile(toMap)) return false;
             exitSpot = e.ExitSpot;
             gotoCell = e.GotoCell;
             return true;

@@ -76,13 +76,16 @@ namespace RimExodus
         private const int ChamberMinDistToEndpoint = 10;
 
         public static void Apply(Map map, int worldTile)
+            => Apply(map, SeamlessTileRegistry.InMapLayer(map, worldTile));
+
+        internal static void Apply(Map map, PlanetTile worldTile)
         {
             var verbose = RimExodusLog.Enabled(RimExodusLogModule.Generation);
             var sw = verbose ? Stopwatch.StartNew() : null;
 
             // 枚举 B 的已生成邻居（含休眠——region 随档序列化、软休眠不卸载，分组查询安全）。
             var worldNeighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(new PlanetTile(worldTile), worldNeighbors);
+            Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
 
             var caves = MapGenerator.Caves;
             var elevation = MapGenerator.Elevation;
@@ -91,7 +94,7 @@ namespace RimExodus
             var endpoints = new List<IntVec3>();
             foreach (var nt in worldNeighbors)
             {
-                var neighborTile = nt.tileId;
+                var neighborTile = nt;
                 if (neighborTile == worldTile) continue;
                 var mapN = FindNeighborMap(neighborTile);
                 if (mapN == null) continue;
@@ -162,7 +165,7 @@ namespace RimExodus
         /// N 侧代表格选取：接缝带（朝 B 的边）非岩格按 region 分集合 → 每集合随机代表 →
         /// 可达目标者中随机取一。返回 <see cref="IntVec3.Invalid"/> = 无合格代表（不为该邻居挖洞）。
         /// </summary>
-        private static IntVec3 PickRepresentative(Map map, int worldTile, Map mapN, int neighborTile, IntVec3 target)
+        private static IntVec3 PickRepresentative(Map map, PlanetTile worldTile, Map mapN, PlanetTile neighborTile, IntVec3 target)
         {
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(neighborTile, mapN.Size.x);
             var edgeIdx = WorldTileGeometry.FindNeighborIndex(neighborTile, worldTile);
@@ -208,7 +211,7 @@ namespace RimExodus
         }
 
         /// <summary>邻居图查找（数据查询口径：含休眠图——软休眠不卸载、region 网格仍可读）。</summary>
-        private static Map FindNeighborMap(int neighborTile)
+        private static Map FindNeighborMap(PlanetTile neighborTile)
         {
             foreach (var m in Find.Maps)
             {
@@ -232,7 +235,7 @@ namespace RimExodus
         /// 多端点走廊（星形，汇于 B 中心）+ 全局唯一深山洞室。返回写入 Caves 的"将来会有岩石"格数。
         /// 噪声 seed 由世界 seed ⊕ worldTile ⊕ endpoint 派生（同 tile 重生成走廊形态一致）。
         /// </summary>
-        private static int CarveCorridors(Map map, MapGenFloatGrid caves, MapGenFloatGrid elevation, List<IntVec3> endpoints, int worldTile, HashSet<IntVec3> footprint, out IntVec3 chamberCenter, out bool chamberDug)
+        private static int CarveCorridors(Map map, MapGenFloatGrid caves, MapGenFloatGrid elevation, List<IntVec3> endpoints, PlanetTile worldTile, HashSet<IntVec3> footprint, out IntVec3 chamberCenter, out bool chamberDug)
         {
             chamberCenter = IntVec3.Invalid;
             chamberDug = false;
@@ -264,7 +267,7 @@ namespace RimExodus
                     var frac = t / total;
                     // 端点正弦包络：起终点偏移归零，走廊精确落在中心与端点上。
                     var envelope = Mathf.Sin(frac * Mathf.PI);
-                    var meander = (float)meanderNoise.GetValue(t, worldTile * 0.13f, 0f) * MeanderAmplitude * envelope;
+                    var meander = (float)meanderNoise.GetValue(t, worldTile.tileId * 0.13f, 0f) * MeanderAmplitude * envelope;
                     var p = start + dirVec * t + perp * meander;
                     var pCell = p.ToIntVec3();
 
@@ -319,7 +322,7 @@ namespace RimExodus
         }
 
         /// <summary>洞室盘宽噪声（与走廊宽度噪声同族，独立小函数避免主循环持引用）。</summary>
-        private static float widthNoiseForChamber(int worldTile, IntVec3 center)
+        private static float widthNoiseForChamber(PlanetTile worldTile, IntVec3 center)
         {
             var noise = new Perlin(0.05f, 2.0, 0.5, 4,
                 Gen.HashCombineInt(Gen.HashCombineInt(Find.World.info.Seed, worldTile.GetHashCode()), 0x51ed), QualityMode.Medium);

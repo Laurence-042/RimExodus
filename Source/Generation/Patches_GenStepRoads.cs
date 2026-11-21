@@ -84,7 +84,7 @@ namespace RimExodus
             ref RoadPathingDef pathingDef, ref IntVec3 __result)
         {
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return true; // 防御性：异常态放行原版
+            if (!worldTile.Valid) return true; // 防御性：异常态放行原版
 
             var mapSize = map.Size.x;
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize);
@@ -155,7 +155,7 @@ namespace RimExodus
             TerrainDef rockDef, RoadDef roadDef, RoadPathingDef pathingDef)
         {
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return; // 防御性：异常态跳过
+            if (!worldTile.Valid) return; // 防御性：异常态跳过
 
             // 主路面材质：roadGenSteps 里第一个 place 为 TerrainDef 的 Place 步骤。
             TerrainDef placeTerrain = null;
@@ -250,7 +250,7 @@ namespace RimExodus
         internal static void Postfix(List<IntVec3> __result, Map map)
         {
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0 || __result == null || __result.Count < StraightenCells + 4) return;
+            if (!worldTile.Valid || __result == null || __result.Count < StraightenCells + 4) return;
 
             var mapSize = map.Size.x;
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize);
@@ -281,7 +281,7 @@ namespace RimExodus
         /// 垂直化折线一端。端点 = 锚点格时，把端点到第 <see cref="StraightenCells"/> 格之间的节点
         /// 替换为沿边内法线的直线格序列；任一直线格越界/落 void 则整个端点放弃（保持原折线）。
         /// </summary>
-        private static bool StraightenEnd(List<IntVec3> path, Map map, int worldTile, int mapSize,
+        private static bool StraightenEnd(List<IntVec3> path, Map map, PlanetTile worldTile, int mapSize,
             SeamlessPolygonGeometry.SeamBandInfo band, List<(IntVec3 cell, Vector2 inward)> anchors, bool fromStart)
         {
             var endIdx = fromStart ? 0 : path.Count - 1;

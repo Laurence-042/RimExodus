@@ -20,7 +20,7 @@ namespace RimExodus
         /// <summary>采样半径（切比雪夫，覆盖接缝带 3 圈 + 余量）。</summary>
         private const int ScanRadius = 10;
 
-        internal static void Report(Map map, int worldTile, string phase)
+        internal static void Report(Map map, PlanetTile worldTile, string phase)
         {
             if (!(RimExodusLog.Enabled(RimExodusLogModule.Generation))) return;
 
@@ -39,7 +39,7 @@ namespace RimExodus
                 any = true;
                 // 探测中心 = 本图实际穿越点记录（river Prefix 写入；无记录回落对称哈希）。
                 var rec = map.GetComponent<SeamlessRiverCrossings>();
-                var mid = rec != null && rec.crossings.TryGetValue(neighbors[j].tileId, out var recorded)
+                var mid = rec != null && rec.crossings.TryGetValue(neighbors[j], out var recorded)
                     ? recorded
                     : SeamlessPolygonGeometry.SeamCrossingPoint(worldTile, j, mapSize, SeamlessPolygonGeometry.SeamLink.River);
                 var normal = -SeamlessPolygonGeometry.EdgeOutwardNormal(

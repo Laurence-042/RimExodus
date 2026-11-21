@@ -45,19 +45,18 @@ namespace RimExodus
         {
             var currentMap = Find.CurrentMap;
             var currentWorldTile = SeamlessTileRegistry.GetMapWorldTile(currentMap);
-            if (currentWorldTile < 0)
+            if (!currentWorldTile.Valid)
             {
                 Log.Warning("[RimExodus] Current map has no valid world tile.");
                 return;
             }
 
-            var worldNeighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(currentWorldTile, worldNeighbors);
+            var worldNeighbors = SeamlessMapTopology.NeighborTiles(currentWorldTile, currentMap.Size.x);
             var queued = 0;
             foreach (var neighborTile in worldNeighbors)
             {
-                if (neighborTile.tileId == currentWorldTile) continue;
-                SeamlessTilePreloader.QueuePreload(currentMap, neighborTile.tileId);
+                if (!neighborTile.Valid || neighborTile == currentWorldTile) continue;
+                SeamlessTilePreloader.QueuePreload(currentMap, neighborTile);
                 queued++;
             }
             Log.Message($"[RimExodus] Queued generation for {queued} seamless neighbor tiles (consumed one per tick via preloader).");
@@ -180,7 +179,7 @@ namespace RimExodus
             var sb = new System.Text.StringBuilder();
             sb.AppendLine($"[RimExodus-SnapshotInspect] map={map.uniqueID} cell=({cell.x},{cell.z}) wt={worldTile}");
 
-            if (worldTile < 0)
+            if (!worldTile.Valid)
             {
                 sb.AppendLine("  (no valid worldTile, no polygon/neighbor info)");
             }
@@ -223,7 +222,7 @@ namespace RimExodus
         {
             var map = Find.CurrentMap;
             if (map == null) return;
-            if (SeamlessTileRegistry.GetMapWorldTile(map) < 0)
+            if (!SeamlessTileRegistry.GetMapWorldTile(map).Valid)
             {
                 Log.Warning("[RimExodus][mesh-probe] Current map has no valid world tile.");
                 return;

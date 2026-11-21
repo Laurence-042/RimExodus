@@ -34,16 +34,14 @@ namespace RimExodus
         }
         private void CollectViews(Map host, List<MapRenderPlan> output)
         {
-            if (!Enabled || SeamlessTileRegistry.GetMapWorldTile(host) < 0) return;
+            if (!Enabled) return;
+            var hostTile = SeamlessTileRegistry.GetMapWorldTile(host);
+            if (!hostTile.Valid) return;
             neighbors.Clear();
             SeamlessTileGraph.PopulateNeighbors(host, neighbors);
             var view = Find.CameraDriver.CurrentViewRect.ExpandedBy(1);
             // The focused map's full-rectangle mod overlays must not cover the neighboring polygons either.
-            output.Add(new MapRenderPlan(host, Matrix4x4.identity, view, new MapRenderOptions
-            {
-                OverlayFootprint = SeamlessPolygonGeometry.BuildPolygonVertices(
-                    SeamlessTileRegistry.GetMapWorldTile(host), host.Size.x)
-            }));
+            output.Add(CreateView(host, hostTile, Matrix4x4.identity, view));
             foreach (var neighbor in neighbors)
             {
                 if (neighbor.map == null || neighbor.map.Disposed || IncrementalMapGenerator.IsGenerating(neighbor.map)
@@ -52,18 +50,21 @@ namespace RimExodus
                 var transform = Matrix4x4.Translate(offset);
                 var localView = new MapTransform(transform).LocalView(view);
                 if (!localView.Overlaps(CellRect.WholeMap(neighbor.map))) continue;
-                output.Add(new MapRenderPlan(neighbor.map, transform, view, new MapRenderOptions
-                {
-                    OverlayFootprint = SeamlessPolygonGeometry.BuildPolygonVertices(
-                        SeamlessTileRegistry.GetMapWorldTile(neighbor.map), neighbor.map.Size.x)
-                }));
+                output.Add(CreateView(neighbor.map, neighbor.map.Tile, transform, view));
             }
         }
+
+        private static MapRenderPlan CreateView(Map map, PlanetTile tile, Matrix4x4 transform, CellRect view)
+            => new MapRenderPlan(map, transform, view, new MapRenderOptions
+            {
+                OverlayFootprint = SeamlessPolygonGeometry.GetCachedPolygonVertices(tile, map.Size.x),
+                OverlayClipSelector = SeamlessGravTideCompat.GetOverlayClipSelector(tile)
+            });
         private void DrawSkyTint()
         {
             if (!Enabled || !WorldRendererUtility.DrawingMap || LongEventHandler.ShouldWaitForEvent) return;
             var host = Find.CurrentMap;
-            if (host == null || SeamlessTileRegistry.GetMapWorldTile(host) < 0) return;
+            if (host == null || !SeamlessTileRegistry.GetMapWorldTile(host).Valid) return;
             host.GetComponent<SeamlessTileRenderer>()?.DrawNativeSkyTint();
         }
         [HarmonyPatch(typeof(Game), nameof(Game.UpdatePlay))]

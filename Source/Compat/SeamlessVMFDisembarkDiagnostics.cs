@@ -113,7 +113,7 @@ namespace RimExodus
             => vmfDriverType != null && vmfDriverType.IsInstanceOfType(pawn.jobs?.curDriver);
 
         private static bool IsSurface(Map map)
-            => map != null && !map.Disposed && SeamlessTileRegistry.GetMapWorldTile(map) >= 0;
+            => map != null && !map.Disposed && SeamlessTileRegistry.GetMapWorldTile(map).Valid;
 
         private static string Describe(string stage, Pawn pawn, Map map, IntVec3 cell)
         {

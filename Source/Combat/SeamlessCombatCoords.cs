@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using RimWorld.Planet;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
 using Verse;
@@ -46,19 +47,19 @@ namespace RimExodus
             {
                 if (!RimExodus.Maps.MapCombatCoordinates.TryGetCombatLink(host, target, out var shared)) return false;
                 link = new CombatLink { host = host, target = target, offset = shared.offset,
-                    targetWorldTile = SeamlessTileRegistry.GetMapWorldTile(target) };
+                    targetWorldTile = SeamlessTileRegistry.GetMapWorldTile(target).tileId };
                 return true;
             }
             if (!Enabled || host == null || target == null || host == target || host.Disposed || target.Disposed) return false;
 
             var targetTile = SeamlessTileRegistry.GetMapWorldTile(target);
-            if (targetTile < 0 || !SeamlessViewProjection.TryProject(target, IntVec3.Zero, host, out var offset)) return false;
+            if (!targetTile.Valid || !SeamlessViewProjection.TryProject(target, IntVec3.Zero, host, out var offset)) return false;
 
             link = new CombatLink
             {
                 host = host,
                 target = target,
-                targetWorldTile = targetTile,
+                targetWorldTile = targetTile.tileId,
                 offset = offset
             };
             return true;

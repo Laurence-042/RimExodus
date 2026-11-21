@@ -35,7 +35,7 @@ namespace RimExodus
 
         internal static void RegisterMap(Map map)
         {
-            if (!Enabled || SeamlessTileRegistry.GetMapWorldTile(map) < 0) return;
+            if (!Enabled || !SeamlessTileRegistry.GetMapWorldTile(map).Valid) return;
             Runtime.Combat.Enable(map, Current.Game.GetComponent<SeamlessFrameworkState>().Combat);
         }
 
@@ -63,7 +63,7 @@ namespace RimExodus
             Combat = new MapCombatPolicy(SeamlessFramework.Owner)
             {
                 Available = map => (RimExodusMod.Settings?.crossMapCombatEnabled ?? true)
-                    && SeamlessTileRegistry.GetMapWorldTile(map) >= 0 && !SeamlessDormancyManager.IsDormant(map)
+                    && SeamlessTileRegistry.GetMapWorldTile(map).Valid && !SeamlessDormancyManager.IsDormant(map)
                     && !IncrementalMapGenerator.IsGenerating(map),
                 Offset = (host, target) => SeamlessViewProjection.TryProject(target, IntVec3.Zero, host, out var offset)
                     ? (IntVec3?)offset : null,

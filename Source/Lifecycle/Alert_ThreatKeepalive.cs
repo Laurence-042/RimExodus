@@ -69,9 +69,9 @@ namespace RimExodus
                 {
                     var latLong = "?";
                     var tile = SeamlessTileRegistry.GetMapWorldTile(m);
-                    if (tile >= 0 && Find.WorldGrid != null)
+                    if (tile.Valid && Find.WorldGrid != null)
                     {
-                        var v = Find.WorldGrid.LongLatOf(new PlanetTile(tile));
+                        var v = Find.WorldGrid.LongLatOf(tile);
                         latLong = $"{v.x:0.0}, {v.y:0.0}";
                     }
 

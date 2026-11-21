@@ -34,7 +34,7 @@ namespace RimExodus
                 var map = (__instance.parent as MapParent)?.Map;
                 // Pause before either countdown changes. No-map cleanup and other world components stay native.
                 return !SeamlessDormancyManager.IsDormant(map)
-                    || SeamlessTileRegistry.GetMapWorldTile(map) < 0;
+                    || !SeamlessTileRegistry.GetMapWorldTile(map).Valid;
             }
         }
 

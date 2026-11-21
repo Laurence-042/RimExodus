@@ -18,7 +18,7 @@ namespace RimExodus
     public class SeamlessBorderLookup : MapComponent
     {
         /// <summary>边界带格 → 最近边对应的邻居 worldTile（不在表 = 非边界带，不触发预加载）。</summary>
-        private Dictionary<IntVec3, int> borderCells;
+        private Dictionary<IntVec3, PlanetTile> borderCells;
 
         /// <summary>
         /// 不可建造带格集合（阶段4 安全约束）。
@@ -84,7 +84,14 @@ namespace RimExodus
         /// <summary>普通移动与 PS 共用的预加载资格查询；撤离开启时排除接缝带，距离 0 全部关闭。</summary>
         public bool TryGetPreloadTarget(IntVec3 cell, out int worldTile)
         {
-            worldTile = -1;
+            var found = TryGetPreloadTargetOnLayer(cell, out var tile);
+            worldTile = tile.tileId;
+            return found;
+        }
+
+        internal bool TryGetPreloadTargetOnLayer(IntVec3 cell, out PlanetTile worldTile)
+        {
+            worldTile = PlanetTile.Invalid;
             // 按需刷新：暂停时下令、休眠后唤醒及 PS 移动均使用当前距离；拖滑条不逐帧重扫地图。
             // 首次构建仍由原有首 tick 路径负责，避免在生成尚未铺 void 时提前构建。
             if (built && builtPreloadBandWidth != (RimExodusMod.Settings?.borderPreloadDistance ?? 15))
@@ -92,7 +99,7 @@ namespace RimExodus
                 BuildBorderLookup(force: true);
             }
             if (borderCells == null || borderCells.Count == 0) return false;
-            if (!borderCells.TryGetValue(cell, out worldTile) || worldTile < 0) return false;
+            if (!borderCells.TryGetValue(cell, out worldTile) || !worldTile.Valid) return false;
 
             // 开关实时读取，不参与建表：暂停时切换也立即生效，无需重新扫描地图。
             // 本图接缝带（含传送点兜底）只在允许撤离时表示离场意图；沉浸模式下允许预加载。
@@ -102,7 +109,7 @@ namespace RimExodus
                         .Band.Contains(cell)
                     || SeamlessEdgeCells.IsSeamEdgeCell(map, cell)))
             {
-                worldTile = -1;
+                worldTile = PlanetTile.Invalid;
                 return false;
             }
             return true;
@@ -133,7 +140,7 @@ namespace RimExodus
                 ? System.Diagnostics.Stopwatch.StartNew() : null;
 
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0)
+            if (!worldTile.Valid)
             {
                 return;
             }
@@ -142,13 +149,7 @@ namespace RimExodus
             var noBuildBandWidth = RimExodusMod.Settings?.borderNoBuildDistance ?? 3;
 
             // 取世界邻居列表（顺序与多边形顶点环绕一致）。
-            var worldNeighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
-            var neighborWorldTiles = new List<int>(worldNeighbors.Count);
-            foreach (var nt in worldNeighbors)
-            {
-                neighborWorldTiles.Add(nt.tileId);
-            }
+            var neighborWorldTiles = SeamlessMapTopology.NeighborTiles(worldTile, map.Size.x);
 
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, map.Size.x);
             if (verts.Count < 3)
@@ -161,7 +162,7 @@ namespace RimExodus
             // 构建预加载带（borderCells：格 → 最近边对应的邻居 worldTile）。
             // 从接缝带核心侧起算，不能从 void 起算再排除 Band：后者会吞掉设置值的前三圈。
             // 直接复用权威几何的深度，避免固定 +3 在斜边/顶角处与真实接缝厚度不一致。
-            borderCells = new Dictionary<IntVec3, int>();
+            borderCells = new Dictionary<IntVec3, PlanetTile>();
             if (preloadBandWidth > 0)
             {
                 var seamBand = SeamlessPolygonGeometry.BuildSeamBand(worldTile, map.Size.x);
@@ -186,7 +187,7 @@ namespace RimExodus
             noBuildBandCells = new HashSet<IntVec3>();
             if (noBuildBandWidth > 0)
             {
-                var tmpDict = new Dictionary<IntVec3, int>();
+                var tmpDict = new Dictionary<IntVec3, PlanetTile>();
                 SeamlessPolygonGeometry.ComputeVoidBand(map, noBuildBandWidth, neighborWorldTiles, tmpDict);
                 foreach (var kv in tmpDict)
                 {

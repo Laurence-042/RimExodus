@@ -43,7 +43,7 @@ namespace RimExodus
         {
             if (map == null) return true;
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return true; // 非 RimExodus 表面图放行原版
+            if (!worldTile.Valid) return true; // 非 RimExodus 表面图放行原版
 
             // 袭击外缘事件先按随机宿主图逐个尝试入口。每张图的候选格都用调用方
             // 原版 validator 检验；全失败时不留朝向约束，走下面的本图正常接缝选点。
@@ -139,7 +139,7 @@ namespace RimExodus
         internal static bool Prefix(Predicate<IntVec3> validator, Map map, Rot4 dir, ref IntVec3 result, ref bool __result)
         {
             if (map == null) return true;
-            if (SeamlessTileRegistry.GetMapWorldTile(map) < 0) return true; // 非 RimExodus 表面图放行原版
+            if (!SeamlessTileRegistry.GetMapWorldTile(map).Valid) return true; // 非 RimExodus 表面图放行原版
 
             var cells = SeamlessEdgeCells.GetSeamEdgeCellsWithBandFallback(map);
             if (cells == null || cells.Count == 0)
@@ -225,7 +225,7 @@ namespace RimExodus
         static void Postfix(Map map, ref IntVec3 __result)
         {
             if (map == null) return;
-            if (SeamlessTileRegistry.GetMapWorldTile(map) < 0) return;
+            if (!SeamlessTileRegistry.GetMapWorldTile(map).Valid) return;
             // 无点窗口经几何回落取随机接缝格（GetSeamEdgeCellsWithBandFallback），有点时与
             // RandomSeamEdgeCell 同池；非空守卫保留（几何异常时不覆盖原版结果）。
             var cells = SeamlessEdgeCells.GetSeamEdgeCellsWithBandFallback(map);

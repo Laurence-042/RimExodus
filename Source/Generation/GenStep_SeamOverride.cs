@@ -27,7 +27,7 @@ namespace RimExodus
         public override void Generate(Map map, GenStepParams parms)
         {
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return;
+            if (!worldTile.Valid) return;
 
             // 诊断（2026-08-30 河歪排查，verbose 门控）：混合前/后各报一次缝处水带实测位置，
             // 区分"生成期就歪"vs"混合期弄歪"。

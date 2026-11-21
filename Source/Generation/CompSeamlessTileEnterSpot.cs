@@ -1,4 +1,5 @@
 using Verse;
+using RimWorld.Planet;
 
 namespace RimExodus
 {
@@ -22,6 +23,9 @@ namespace RimExodus
         /// </summary>
         public int targetWorldTile = -1;
 
+        // A seam stays on one world layer, so the owning map supplies the destination layer.
+        internal PlanetTile TargetTile => SeamlessTileRegistry.InMapLayer(parent?.Map, targetWorldTile);
+
         /// <summary>
         /// 本格在对端地图的对应坐标（缓存）。由 <see cref="ComputeAndCacheArrival"/> 算出：
         /// <c>cachedArrivalCell = Position - offset</c>（NeighborLink 契约 cellNeighbor + offset = cellMy 的逆）。
@@ -36,7 +40,16 @@ namespace RimExodus
         public override void PostExposeData()
         {
             base.PostExposeData();
-            Scribe_Values.Look(ref targetWorldTile, "targetWorldTile", -1);
+            if (Scribe.mode == LoadSaveMode.LoadingVars)
+            {
+                var tile = PlanetTile.Invalid;
+                SeamlessTileScribe.Look(ref tile, "targetWorldTile");
+                targetWorldTile = tile.tileId;
+            }
+            else
+            {
+                Scribe_Values.Look(ref targetWorldTile, "targetWorldTile", -1);
+            }
             // cachedArrivalCell/hasArrival 不序列化：邻居关系建立后刷新即可。
         }
 

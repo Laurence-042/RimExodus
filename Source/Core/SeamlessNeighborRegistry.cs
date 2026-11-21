@@ -23,7 +23,7 @@ namespace RimExodus
         /// 存储载体由 <see cref="SeamlessMapData"/> 统一屏蔽（地块图存自身字段，原生图存组件）。
         /// </summary>
         public static void RegisterNeighborBidirectional(Map originMap, MapParent newParent,
-            int sourceWorldTile, int newWorldTile, IntVec3 offset)
+            PlanetTile sourceWorldTile, PlanetTile newWorldTile, IntVec3 offset)
         {
             var sourceParent = originMap.info.parent;
             var newMap = newParent.Map;
@@ -43,16 +43,16 @@ namespace RimExodus
         }
 
         /// <summary>在 map 上登记一条邻居连接（存储载体由 <see cref="SeamlessMapData"/> 屏蔽：地块图存自身字段，原生图存组件）。</summary>
-        public static void SetNeighborOnMap(Map map, int worldTile, MapParent neighbor, IntVec3 offset)
+        public static void SetNeighborOnMap(Map map, PlanetTile worldTile, MapParent neighbor, IntVec3 offset)
         {
             if (map == null || neighbor == null) return;
             if (map.Parent is MapParent_SeamlessTile tileParent)
             {
-                tileParent.SetNeighbor(worldTile, neighbor, offset);
+                tileParent.SetNeighbor(worldTile.tileId, neighbor, offset);
             }
             else
             {
-                map.GetComponent<SeamlessTileManager>()?.SetNeighbor(worldTile, neighbor, offset);
+                map.GetComponent<SeamlessTileManager>()?.SetNeighbor(worldTile.tileId, neighbor, offset);
             }
         }
 
@@ -79,25 +79,10 @@ namespace RimExodus
         /// <param name="newWorldTile">邻居的世界 tile。</param>
         /// <param name="originMap">本地图（提供本端尺寸）。</param>
         /// <param name="newMap">邻居地图（提供对端尺寸；多跳补登记场景两端图都在。null 时假设与本端同尺寸）。</param>
-        public static IntVec3 ComputeNeighborOffset(int sourceWorldTile, int newWorldTile, Map originMap, Map newMap = null)
+        public static IntVec3 ComputeNeighborOffset(PlanetTile sourceWorldTile, PlanetTile newWorldTile, Map originMap, Map newMap = null)
         {
-            var sourceSize = originMap.Size.x;
-            var newSize = newMap?.Size.x ?? sourceSize;
-
-            var sourceVerts = SeamlessPolygonGeometry.BuildPolygonVertices(sourceWorldTile, sourceSize);
-            var newVerts = SeamlessPolygonGeometry.BuildPolygonVertices(newWorldTile, newSize);
-            if (sourceVerts.Count < 3 || newVerts.Count < 3) return IntVec3.Zero;
-
-            // 共享边在各自多边形中的边索引（"边 j ↔ 邻居 j"，FindNeighborIndex 返回邻居序号即边索引）。
-            var edgeIdxSource = WorldTileGeometry.FindNeighborIndex(sourceWorldTile, newWorldTile);
-            var edgeIdxNew = WorldTileGeometry.FindNeighborIndex(newWorldTile, sourceWorldTile);
-            if (edgeIdxSource < 0 || edgeIdxNew < 0) return IntVec3.Zero;
-
-            var midSource = (sourceVerts[edgeIdxSource] + sourceVerts[(edgeIdxSource + 1) % sourceVerts.Count]) * 0.5f;
-            var midNew = (newVerts[edgeIdxNew] + newVerts[(edgeIdxNew + 1) % newVerts.Count]) * 0.5f;
-
-            var offsetVec = midSource - midNew;
-            return new IntVec3(Mathf.RoundToInt(offsetVec.x), 0, Mathf.RoundToInt(offsetVec.y));
+            return SeamlessMapTopology.TryOffset(sourceWorldTile, originMap.Size.x, newWorldTile,
+                newMap?.Size.x ?? originMap.Size.x, out var offset) ? offset : IntVec3.Zero;
         }
 
         /// <summary>

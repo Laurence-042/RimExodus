@@ -372,11 +372,11 @@ namespace RimExodus
     /// 一条直接邻居连接：邻居地块引用 + 该邻居相对本地块的偏移 + 对应世界邻居 tile。
     /// 偏移语义：邻居本地坐标 + offset = 本地块坐标系的坐标（绘制邻居内容时平移用）。
     /// neighbor 类型为 MapParent 基类，可容纳原生 parent 地图（如家园 Settlement）和无缝地块 MapParent_SeamlessTile。
-    /// worldTile 是该邻居在世界地图上的 tile id，作为邻居表主键（稳定，无角度歧义）。
+    /// worldTile 是来源图所在层内的邻居编号，完整地址可从 neighbor.Tile 读取。
     /// </summary>
     public class NeighborLink : IExposable
     {
-        /// <summary>该邻居在世界地图上的 tile id（主键）。</summary>
+        /// <summary>该邻居在来源图所在层的 tile id。</summary>
         public int worldTile;
 
         /// <summary>邻居地块的 MapParent 引用（原生 parent 图或无缝地块）。</summary>
@@ -396,7 +396,14 @@ namespace RimExodus
 
         public void ExposeData()
         {
-            Scribe_Values.Look(ref worldTile, "worldTile", -1);
+            if (Scribe.mode == LoadSaveMode.LoadingVars)
+            {
+                var destination = PlanetTile.Invalid;
+                SeamlessTileScribe.Look(ref destination, "worldTile");
+                worldTile = destination.tileId;
+            }
+            else
+                Scribe_Values.Look(ref worldTile, "worldTile", -1);
             Scribe_References.Look(ref neighbor, "neighbor");
             Scribe_Values.Look(ref offset, "offset");
         }

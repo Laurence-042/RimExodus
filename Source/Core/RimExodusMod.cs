@@ -47,6 +47,7 @@ namespace RimExodus
             var harmony = new Harmony("RimExodus.SeamlessWorld");
             HarmonyInstance = harmony;
             harmony.PatchAll();
+            LongEventHandler.ExecuteWhenFinished(() => SeamlessGravTideCompat.Register(harmony));
             SeamlessWaylithMapRenderCompat.Register(harmony);
 
             // Achtung 的自定义站位把复合视图参考系格直接配给 CurrentMap 网格；邻图地面若与宿主
@@ -233,6 +234,9 @@ namespace RimExodus
                         v => s.incrementalGenerationEnabled = v, s.incrementalGenerationEnabled);
                     CheckRow(listing, "RimExodus_SettingsOceanSupportLabel", "RimExodus_SettingsOceanSupportTip",
                         v => s.oceanMapSupportEnabled = v, s.oceanMapSupportEnabled);
+                    if (ModsConfig.IsActive("gravtide.mod"))
+                        CheckRow(listing, "RimExodus_SettingsGravTideLabel", "RimExodus_SettingsGravTideTip",
+                            v => s.gravTideSeamlessEnabled = v, s.gravTideSeamlessEnabled);
                     SliderRow(listing, "RimExodus_SettingsBatchSizeLabel", "RimExodus_SettingsBatchSizeTip",
                         s.generationBatchSize, 16, 512, v => s.generationBatchSize = (int)v);
                     break;

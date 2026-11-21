@@ -204,7 +204,7 @@ namespace RimExodus
         static bool Prefix(IntVec3 loc, Map map, ref bool __result)
         {
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return true; // 防御性：异常态放行原版
+            if (!worldTile.Valid) return true; // 防御性：异常态放行原版
 
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, map.Size.x);
             if (verts.Count < 3) return true; // 几何异常放行原版
@@ -244,7 +244,7 @@ namespace RimExodus
             if (map == null) return; // 防御性：非生成期调用（原方法此时也会 Error）放行
 
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return;
+            if (!worldTile.Valid) return;
 
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, map.Size.x);
             if (verts.Count < 3) return;
@@ -275,7 +275,7 @@ namespace RimExodus
         static void Postfix(int minEdgeDistance, Map map, ref IntVec3 __result)
         {
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return;
+            if (!worldTile.Valid) return;
 
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, map.Size.x);
             if (verts.Count < 3) return;
@@ -307,7 +307,7 @@ namespace RimExodus
         {
             if (!__result) return; // 失败路径：worker 自己的中心兜底（六边形安全），不动
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return;
+            if (!worldTile.Valid) return;
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, map.Size.x);
             if (verts.Count < 3) return;
 

@@ -351,7 +351,7 @@ namespace RimExodus
 
                 // 反查邻居 link：inflow/tributary/tertiary 的角度都是裸 heading
                 // （GetHeadingFromTo(neighbor, tileId)，无 clamp——GL 只 clamp Outflow），同式重算精确匹配。
-                var neighborTile = -1;
+                var neighborTile = PlanetTile.Invalid;
                 foreach (var link in rivers)
                 {
                     if (Mathf.Abs(Mathf.DeltaAngle(grid.GetHeadingFromTo(link.neighbor, tileId), angle)) < 0.05f)
@@ -360,7 +360,7 @@ namespace RimExodus
                         break;
                     }
                 }
-                if (neighborTile < 0) return; // 匹配失败（GL 分类变化？）：保留原值
+                if (!neighborTile.Valid) return; // 匹配失败（GL 分类变化？）：保留原值
 
                 // RimExodus 共享边几何：邻居 → 边索引（GetTileNeighbors 序 = 多边形顶点序）→ 对称穿越点。
                 var neighbors = new List<PlanetTile>();
@@ -408,7 +408,7 @@ namespace RimExodus
                 _snapMap = null;
                 try
                 {
-                    if (map == null || SeamlessTileRegistry.GetMapWorldTile(map) < 0) return;
+                    if (map == null || !SeamlessTileRegistry.GetMapWorldTile(map).Valid) return;
                     _snapTopGrid = (TerrainDef[])map.terrainGrid.topGrid.Clone();
                     _snapMap = map;
                 }
@@ -434,7 +434,7 @@ namespace RimExodus
                 try
                 {
                     var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-                    if (worldTile < 0) return;
+                    if (!worldTile.Valid) return;
 
                     // 复刻 GL 首行守卫：GL 自己早退（上下文丢失/不含本 landform）时零介入。
                     var landform = _workerLandformField.GetValue(__instance);

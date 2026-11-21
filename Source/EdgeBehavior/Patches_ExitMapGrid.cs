@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using HarmonyLib;
 using RimWorld;
 using RimWorld.Planet;
@@ -47,7 +48,8 @@ namespace RimExodus
             // 对所有有 RimExodus 传送点的地图生效（玩家家园图是原生 MapParent，也是无缝世界一员）。
             // 之前只判断 MapParent_SeamlessTile，导致家园图的传送点未被标为出口格，远行队走不到。
             if (___map == null) return true; // 放行原版
-            if (!SeamlessEdgeCells.HasSeamEdge(___map)) return true; // 非 RimExodus 地块放行原版
+            var providerExitCells = SeamlessMapTopology.ExitCells(___map, entireBand: true);
+            if (providerExitCells == null && !SeamlessEdgeCells.HasSeamEdge(___map)) return true;
             // 沉浸模式（seamExitBandEnabled=false）下本 patch 照常标记接缝带：IsExitCell 是 NPC
             // 离场链（逃窜动物/离场访客经 RCellFinder 出口重定向到传送点）的功能依赖，只藏视觉
             // 不废功能——玩家侧撤离由 Patch_Pawn_Job 清 exitMapOnArrival + 组队出口门控精确关闭。
@@ -75,12 +77,13 @@ namespace RimExodus
             // 接缝两侧的撤离带在 Band 全宽上镜像连续，切换地图时不再跳变）∪ 传送点格兜底
             // （防几何/铺点异常态漏标）。
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(___map);
-            var band = worldTile >= 0
+            var band = worldTile.Valid
                 ? SeamlessPolygonGeometry.BuildSeamBand(worldTile, ___map.Size.x)
                 : null;
-            if (band != null)
+            var bandCells = providerExitCells ?? (IEnumerable<IntVec3>)band?.Band;
+            if (bandCells != null)
             {
-                foreach (var cell in band.Band)
+                foreach (var cell in bandCells)
                 {
                     int idx = ___map.cellIndices.CellToIndex(cell);
                     if (idx >= 0 && idx < maxIdx && !grid[idx])
@@ -91,7 +94,8 @@ namespace RimExodus
                 }
             }
             // 遍历地图上所有传送点（沿六边形接缝带铺设，~100 个），把它们的格标为 exit cell（兜底）。
-            SeamlessEdgeCells.PopulateSeamEdgeCells(___map, _spotCellsScratch);
+            _spotCellsScratch.Clear();
+            if (providerExitCells == null) SeamlessEdgeCells.PopulateSeamEdgeCells(___map, _spotCellsScratch);
             for (int i = 0; i < _spotCellsScratch.Count; i++)
             {
                 var cell = _spotCellsScratch[i];
@@ -186,7 +190,7 @@ namespace RimExodus
             if (!SeamlessEdgeCells.HasSeamEdge(map)) return;
             if (!SeamExitBandGating.Enabled) return; // 沉浸模式（2026-08）：隐藏接缝中心划线。
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return;
+            if (!worldTile.Valid) return;
 
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, map.Size.x);
             if (verts.Count < 3) return;

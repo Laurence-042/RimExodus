@@ -33,14 +33,17 @@ namespace RimExodus
         public override void Generate(Map map, GenStepParams parms)
         {
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0)
+            if (!worldTile.Valid)
             {
                 Log.Warning("[RimExodus] GenStep_SeamlessTile: map has no valid worldTile, skipping polygon void fill.");
                 return;
             }
 
+            var provided = SeamlessMapProviders.For(map.Tile) != null;
+            if (provided && SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, map.Size.x).Count < 3) return;
             // 备份基础地形（void 裁切前的完整矩形 topGrid）+ 按六边形挖虚空。
             SeamlessTerrainFill.BackupSnapshotAndApplyVoid(map, worldTile);
+            if (provided) map.GetComponent<SeamlessTileManager>().ProviderMapPrepared = true;
         }
     }
 }

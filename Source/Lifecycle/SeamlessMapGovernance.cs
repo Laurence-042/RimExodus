@@ -37,8 +37,8 @@ namespace RimExodus
             if (parent == null || parent is MapParent_SeamlessTile || parent.Destroyed) return false;
             // 表面层守卫：轨道层 Site 等（有效 tileId 但 layer ≠ Surface）不打表面 WorldGrid——
             // 纳入管辖会用空间 tileId 查表面邻居表（距离/几何全错），且其删除语义应保持原版。
-            var tile = parent.Tile;
-            if (!tile.Valid || tile.LayerDef != PlanetLayerDefOf.Surface) return false;
+            if (!SeamlessTileRegistry.GetMapWorldTile(parent.Map).Valid) return false;
+            if (SeamlessMapProviders.For(parent.Tile) != null) return true;
             return parent is Settlement || parent is Site || parent is Camp
                 || parent is CaravansBattlefield || parent is DestroyedSettlement;
         }

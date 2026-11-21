@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using RimWorld.Planet;
 using Verse;
 
 namespace RimExodus
@@ -19,7 +20,7 @@ namespace RimExodus
         private static readonly List<PreloadRequest> pendingQueue = new List<PreloadRequest>();
 
         /// <summary>已入队的 (originMap, targetWorldTile) 集合，防重复入队。</summary>
-        private static readonly HashSet<int> queuedHashes = new HashSet<int>();
+        private static readonly HashSet<(Map origin, PlanetTile target)> queued = new();
 
         /// <summary>
         /// 进度提示预热帧门（2026-08-31）：上次入队帧 +2 之前不消费。重操作（快照精简重生成 /
@@ -34,7 +35,7 @@ namespace RimExodus
         private struct PreloadRequest
         {
             public Map originMap;
-            public int targetWorldTile;
+            public PlanetTile targetWorldTile;
             // 触发位置（2026-08-30，中心走廊端点算法）：玩家 goto 的目标格——走廊在触发图 A 侧的
             // 可达性锚点（"代表格须可达触发位置"，比 A 中心更贴场景：pawn 就在那）。null = 未知
             // （Dev / governor 兜底触发），走廊算法回落 A 中心。
@@ -46,11 +47,12 @@ namespace RimExodus
         /// 幂等：同一 (originMap, targetWorldTile) 重复入队只保留一条。
         /// </summary>
         public static void QueuePreload(Map originMap, int targetWorldTile, IntVec3? triggerCell = null)
+            => QueuePreload(originMap, SeamlessTileRegistry.InMapLayer(originMap, targetWorldTile), triggerCell);
+
+        internal static void QueuePreload(Map originMap, PlanetTile targetWorldTile, IntVec3? triggerCell = null)
         {
-            if (originMap == null || targetWorldTile < 0) return;
-            var hash = HashKey(originMap, targetWorldTile);
-            if (queuedHashes.Contains(hash)) return;
-            queuedHashes.Add(hash);
+            if (originMap == null || !targetWorldTile.Valid) return;
+            if (!queued.Add((originMap, targetWorldTile))) return;
             pendingQueue.Add(new PreloadRequest { originMap = originMap, targetWorldTile = targetWorldTile, triggerCell = triggerCell });
             // 进度提示点亮（2026-08-31）+ 帧门（标签须先渲染过一帧，见 minConsumeFrame 注释）。
             MapGenerationProgressUI.NotifyQueued();
@@ -73,7 +75,7 @@ namespace RimExodus
             // 快照后清空（消费过程中可能因绑定/刷新产生新的间接请求，下一 tick 再处理）。
             var snapshot = new List<PreloadRequest>(pendingQueue);
             pendingQueue.Clear();
-            queuedHashes.Clear();
+            queued.Clear();
 
             foreach (var req in snapshot)
             {
@@ -87,16 +89,10 @@ namespace RimExodus
         /// <summary>同步预加载入口（保留供 Dev 命令等需要立即生成的场景使用）。</summary>
         public static bool TryPreload(Map originMap, int targetWorldTile)
         {
-            if (originMap == null) return false;
-            var manager = originMap.GetComponent<SeamlessTileManager>();
+            var manager = originMap?.GetComponent<SeamlessTileManager>();
             if (manager == null) return false;
             return manager.TryPreloadNeighbor(targetWorldTile);
         }
 
-        private static int HashKey(Map originMap, int targetWorldTile)
-        {
-            var mapId = originMap?.uniqueID ?? 0;
-            return (mapId * 73856093) ^ (targetWorldTile * 19349663);
-        }
     }
 }

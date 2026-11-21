@@ -149,7 +149,7 @@ namespace RimExodus
             foreach (var thing in fromMap.listerThings.ThingsOfDef(enterSpotDef))
             {
                 var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
-                if (comp == null || !comp.hasArrival || comp.targetWorldTile != toMapWorldTile)
+                if (comp == null || !comp.hasArrival || comp.TargetTile != toMapWorldTile)
                 {
                     continue;
                 }
@@ -389,7 +389,7 @@ namespace RimExodus
             {
                 var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
                 // 对端已缓存可用坐标 + targetWorldTile 指向 toMap。
-                if (comp == null || !comp.hasArrival || comp.targetWorldTile != toMapWorldTile)
+                if (comp == null || !comp.hasArrival || comp.TargetTile != toMapWorldTile)
                 {
                     continue;
                 }

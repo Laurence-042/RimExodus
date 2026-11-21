@@ -1,4 +1,5 @@
 using RimWorld;
+using RimWorld.Planet;
 using Verse;
 using Verse.AI;
 using Verse.AI.Group;
@@ -12,7 +13,7 @@ namespace RimExodus
     /// </summary>
     public sealed class LordJob_SeamlessRaidMarch : LordJob_AssaultColony
     {
-        private int targetWorldTile = -1;
+        private PlanetTile targetWorldTile = PlanetTile.Invalid;
         private string raidIdentity;
         private bool originalSappers;
         private bool originalBreachers;
@@ -22,7 +23,8 @@ namespace RimExodus
         private bool marching;
         private bool targetUnavailableLogged;
 
-        public int TargetWorldTile => targetWorldTile;
+        public int TargetWorldTile => targetWorldTile.tileId;
+        internal PlanetTile TargetTile => targetWorldTile;
         public string RaidIdentity => raidIdentity;
         public bool Marching => marching;
 
@@ -31,6 +33,13 @@ namespace RimExodus
         }
 
         public LordJob_SeamlessRaidMarch(Faction faction, int targetWorldTile, string raidIdentity,
+            bool sappers, bool breachers, bool canKidnap, bool canTimeoutOrFlee, bool canSteal, bool marching)
+            : this(faction, new PlanetTile(targetWorldTile, -1), raidIdentity,
+                sappers, breachers, canKidnap, canTimeoutOrFlee, canSteal, marching)
+        {
+        }
+
+        internal LordJob_SeamlessRaidMarch(Faction faction, PlanetTile targetWorldTile, string raidIdentity,
             bool sappers, bool breachers, bool canKidnap, bool canTimeoutOrFlee, bool canSteal, bool marching)
             : base(faction, canKidnap, canTimeoutOrFlee,
                 sappers: !marching && sappers, useAvoidGridSmart: false, canSteal: canSteal,
@@ -78,7 +87,7 @@ namespace RimExodus
             foreach (var spot in targetMap.listerThings.ThingsOfDef(spotDef))
             {
                 var comp = spot.TryGetComp<CompSeamlessTileEnterSpot>();
-                if (comp == null || comp.targetWorldTile != fromTile) continue;
+                if (comp == null || comp.TargetTile != fromTile) continue;
                 var distance = projected.DistanceToSquared(spot.Position);
                 if (distance >= bestDistance) continue;
                 best = spot;
@@ -95,7 +104,7 @@ namespace RimExodus
         public override void ExposeData()
         {
             base.ExposeData();
-            Scribe_Values.Look(ref targetWorldTile, "rimExodusTargetWorldTile", -1);
+            SeamlessTileScribe.Look(ref targetWorldTile, "rimExodusTargetWorldTile");
             Scribe_Values.Look(ref raidIdentity, "rimExodusRaidIdentity");
             Scribe_Values.Look(ref originalSappers, "rimExodusOriginalSappers");
             Scribe_Values.Look(ref originalBreachers, "rimExodusOriginalBreachers");

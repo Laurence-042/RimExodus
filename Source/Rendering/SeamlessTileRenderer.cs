@@ -116,7 +116,7 @@ namespace RimExodus
             // depth 0/1）先画好、主地图相机只清深度叠加——本 renderer 的全屏
             // ClearRenderTarget 会把星球背景整屏擦成黑（2026-08 太空背景变黑实测根因）。
             // 口袋图（VMF 载具内部图）同理排除。
-            if (SeamlessTileRegistry.GetMapWorldTile(map) < 0)
+            if (!SeamlessTileRegistry.GetMapWorldTile(map).Valid)
             {
                 return;
             }

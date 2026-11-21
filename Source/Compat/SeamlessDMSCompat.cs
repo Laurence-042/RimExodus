@@ -127,7 +127,7 @@ namespace RimExodus
                 && tag.StartsWith("DMS_", StringComparison.Ordinal);
         }
 
-        private static bool IsSurface(Map map) => map != null && SeamlessTileRegistry.GetMapWorldTile(map) >= 0;
+        private static bool IsSurface(Map map) => map != null && SeamlessTileRegistry.GetMapWorldTile(map).Valid;
 
         private static void OpenGroundPostfix(Map map, CellRect rect, ref bool __result)
         {

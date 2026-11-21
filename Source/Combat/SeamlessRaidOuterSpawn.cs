@@ -84,7 +84,7 @@ namespace RimExodus
         internal sealed class SpawnMapCandidate
         {
             public Map HostMap;
-            public readonly List<int> FacingTiles = new();
+            public readonly List<PlanetTile> FacingTiles = new();
         }
 
         /// <summary>
@@ -96,9 +96,9 @@ namespace RimExodus
             public Map TargetMap;
             public List<SpawnMapCandidate> CandidateMaps;
             public bool EntrySelected;
-            public int SelectedFacingTile = -1;
+            public PlanetTile SelectedFacingTile = PlanetTile.Invalid;
             public Map CrossHostMap;
-            public int CrossFacingTile;
+            public PlanetTile CrossFacingTile;
             public List<IntVec3> CrossAnchors;
             public int CreatedTick;
         }
@@ -143,7 +143,7 @@ namespace RimExodus
             {
                 if (!(parms?.target is Map mapA) || mapA.Disposed) return;
                 var tileA = SeamlessTileRegistry.GetMapWorldTile(mapA);
-                if (tileA < 0) return; // 口袋/空间层图（GetMapWorldTile 收口口径）
+                if (!tileA.Valid) return; // 口袋/空间层图（GetMapWorldTile 收口口径）
                 if (SeamlessDormancyManager.IsDormant(mapA))
                 {
                     // Retain only the existing generation window for dormant incident cleanup.
@@ -164,27 +164,24 @@ namespace RimExodus
                     && (parms.attackTargets == null || parms.attackTargets.Count == 0);
 
                 // ---- 枚举候选宿主图：同一图的可入场方向归在一起 ----
-                var ring1 = new List<PlanetTile>();
-                Find.WorldGrid.GetTileNeighbors(tileA, ring1);
-                var ring2 = new List<PlanetTile>();
+                var ring1 = SeamlessMapTopology.NeighborTiles(tileA, mapA.Size.x);
                 var candidates = new List<SpawnMapCandidate>();
                 foreach (var n in ring1)
                 {
-                    var mapB = MapAt(n.tileId);
+                    if (!n.Valid) continue;
+                    var mapB = MapAt(n);
                     if (!IsActive(mapB))
                     {
                         // 无图或休眠的邻居不能作为宿主：从 A 朝该邻居的一侧进场。
-                        AddCandidate(candidates, mapA, n.tileId);
+                        AddCandidate(candidates, mapA, n);
                         continue;
                     }
                     if (!crossAllowed) continue;
                     // 活跃邻图 B 可作宿主，入口朝向尚未加载或休眠的 C。
-                    ring2.Clear();
-                    Find.WorldGrid.GetTileNeighbors(n, ring2);
-                    foreach (var u in ring2)
+                    foreach (var u in SeamlessMapTopology.NeighborTiles(n, mapB.Size.x))
                     {
-                        if (u.tileId == tileA) continue;
-                        if (!IsActive(MapAt(u.tileId))) AddCandidate(candidates, mapB, u.tileId);
+                        if (!u.Valid || u == tileA) continue;
+                        if (!IsActive(MapAt(u))) AddCandidate(candidates, mapB, u);
                     }
                 }
                 var fallback = candidates.Count == 0;
@@ -193,13 +190,12 @@ namespace RimExodus
                     // 一跳、二跳都活跃时，允许活跃 B 的任意非 A 外边。
                     foreach (var n in ring1)
                     {
-                        var mapB = MapAt(n.tileId);
+                        if (!n.Valid) continue;
+                        var mapB = MapAt(n);
                         if (!IsActive(mapB)) continue;
-                        ring2.Clear();
-                        Find.WorldGrid.GetTileNeighbors(n, ring2);
-                        foreach (var u in ring2)
+                        foreach (var u in SeamlessMapTopology.NeighborTiles(n, mapB.Size.x))
                         {
-                            if (u.tileId != tileA) AddCandidate(candidates, mapB, u.tileId);
+                            if (u.Valid && u != tileA) AddCandidate(candidates, mapB, u);
                         }
                     }
                 }
@@ -245,7 +241,7 @@ namespace RimExodus
             }
         }
 
-        private static void AddCandidate(List<SpawnMapCandidate> candidates, Map host, int facingTile)
+        private static void AddCandidate(List<SpawnMapCandidate> candidates, Map host, PlanetTile facingTile)
         {
             var candidate = candidates.Find(c => c.HostMap == host);
             if (candidate == null)
@@ -514,7 +510,7 @@ namespace RimExodus
 
                 var raidIdentity = pawns[0].GetLord()?.GetUniqueLoadID() ?? pawns[0].GetUniqueLoadID();
                 var targetWorldTile = SeamlessTileRegistry.GetMapWorldTile((Map)parms.target);
-                if ((wasSappers || wasBreachers) && targetWorldTile < 0)
+                if ((wasSappers || wasBreachers) && !targetWorldTile.Valid)
                     return Decline("sapper/breacher target has no surface world tile");
                 if (!TryTransferGroupToHost(parms, pawns, out var hostMap)) return false;
 
@@ -584,7 +580,7 @@ namespace RimExodus
         internal static bool KeepDormantRaidLocal(IncidentParms parms, List<Pawn> pawns)
         {
             if (!(parms?.target is Map map) || !SeamlessDormancyManager.IsDormant(map)
-                || SeamlessTileRegistry.GetMapWorldTile(map) < 0) return false;
+                || !SeamlessTileRegistry.GetMapWorldTile(map).Valid) return false;
             try
             {
                 var enemies = 0;
@@ -766,9 +762,9 @@ namespace RimExodus
         // =====================================================================
 
         /// <summary>取世界 tile 上的 MapParent 图（原生口径，不过滤休眠——勿用 TryGetMapByWorldTile）。</summary>
-        private static Map MapAt(int worldTile)
+        private static Map MapAt(PlanetTile worldTile)
         {
-            var map = Find.World.worldObjects.MapParentAt(new PlanetTile(worldTile))?.Map;
+            var map = Find.World.worldObjects.MapParentAt(worldTile)?.Map;
             return map != null && !map.Disposed ? map : null;
         }
 
@@ -782,7 +778,7 @@ namespace RimExodus
         /// 跨图候选的锚点集：hostMap 朝 facingTile 的传送点格中，可站且能走到"朝 A 侧缝"的格
         /// （防把袭击者放进密封口袋——行军必须能到达 host→A 的接缝）。通过 anchors 返回。
         /// </summary>
-        private static bool TryBuildCrossAnchors(Map hostMap, int facingTile, int tileA, List<IntVec3> anchors)
+        private static bool TryBuildCrossAnchors(Map hostMap, PlanetTile facingTile, PlanetTile tileA, List<IntVec3> anchors)
         {
             anchors.Clear();
             var facing = new List<IntVec3>();

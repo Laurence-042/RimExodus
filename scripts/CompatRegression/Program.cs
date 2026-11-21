@@ -1,8 +1,12 @@
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using HarmonyLib;
 using RimWorld;
+using RimWorld.Planet;
+using Unity.Collections;
+using UnityEngine;
 using Verse;
 
 string game = Environment.GetEnvironmentVariable("RIMWORLD_DIR") ?? @"D:\SteamLibrary\steamapps\common\RimWorld";
@@ -29,6 +33,7 @@ public static class Audit
         void Check(bool ok, string label) { checks++; if (!ok) throw new Exception(label); }
         var assembly = typeof(RimExodus.RimExodusMod).Assembly;
         const BindingFlags statics = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+        CheckSeamlessLayerTopology(assembly, statics, Check);
         var preview = assembly.GetType("RimExodus.SeamlessMapPreviewCompat", true)!;
         if (!drift) CheckCastGateComposition(shared, Check);
         bool Read(string name) => (bool)preview.GetProperty(name, statics)!.GetValue(null)!;
@@ -124,6 +129,114 @@ public static class Audit
             Console.WriteLine($"{checks} compatibility checks passed ({(shared ? "REF" : "legacy")}); automatic/manual hooks bound {gameMethods} game methods plus one preview fixture. No game launched.");
         }
         finally { harmony.UnpatchAll(harmony.Id); }
+    }
+
+    private static void CheckSeamlessLayerTopology(Assembly assembly, BindingFlags statics, Action<bool, string> check)
+    {
+        var previous = Current.Game;
+        T Allocate<T>() where T : class => (T)RuntimeHelpers.GetUninitializedObject(typeof(T));
+        void Set<T>(T instance, string field, object value) where T : class
+            => AccessTools.Field(typeof(T), field).SetValue(instance, value);
+
+        Map MakeMap(PlanetTile tile, MapParent parent)
+        {
+            Set<WorldObject>(parent, "tile", tile);
+            var map = Allocate<Map>();
+            map.info = new MapInfo { parent = parent, Size = new IntVec3(32, 1, 32) };
+            var manager = new RimExodus.SeamlessTileManager(map);
+            map.components = new List<MapComponent> { manager };
+            Set(manager, "ProviderMapPrepared", true);
+            return map;
+        }
+
+        try
+        {
+            var game = Allocate<Game>();
+            var world = Allocate<World>();
+            var grid = Allocate<WorldGrid>();
+            var surface = Allocate<SurfaceLayer>();
+            var seabed = Allocate<SurfaceLayer>();
+            var layerDef = new PlanetLayerDef { defName = "Regression_Seabed" };
+            using var offsets = new NativeArray<int>(2, Allocator.Persistent);
+            Set<PlanetLayer>(seabed, "tileIDToNeighbors_offsets", offsets);
+            Set<PlanetLayer>(surface, "isRootSurface", true);
+            Set<PlanetLayer>(seabed, "layerId", 2);
+            Set<PlanetLayer>(seabed, "def", layerDef);
+            Set(grid, "surface", surface);
+            Set(grid, "planetLayers", new Dictionary<int, PlanetLayer> { [0] = surface, [2] = seabed });
+            world.grid = grid;
+            world.worldObjects = new WorldObjectsHolder();
+            Set(game, "worldInt", world);
+            Current.Game = game;
+
+            var surfaceMap = MakeMap(new PlanetTile(1, surface), Allocate<RimExodus.MapParent_SeamlessTile>());
+            var source = MakeMap(new PlanetTile(0, seabed), Allocate<MapParent>());
+            var target = MakeMap(new PlanetTile(1, seabed), Allocate<MapParent>());
+            Set(game, "maps", new List<Map> { surfaceMap, source, target });
+            var provider = new RegressionLayerProvider();
+            check(RimExodus.SeamlessMapProviders.Register(layerDef, provider), "custom layer can register");
+            source.GetComponent<RimExodus.SeamlessTileManager>().SetNeighbor(1, target.Parent, provider.Offset);
+
+            var parse = assembly.GetType("RimExodus.SeamlessTileScribe", true)!.GetMethod("Parse", statics)!
+                .CreateDelegate<Func<string, PlanetTile>>();
+            check(parse("1") == surfaceMap.Tile && parse("1,2") == target.Tile, "released integer and native layered addresses load");
+            var findLayeredMap = typeof(RimExodus.SeamlessTileGraph).GetMethod("TryGetMapByWorldTile", statics,
+                null, new[] { typeof(PlanetTile), typeof(Map).MakeByRefType() }, null)!;
+            var lookup = new object[] { target.Tile, null };
+            check(RimExodus.SeamlessTileGraph.TryGetMapByWorldTile(1, out var root) && root == surfaceMap
+                && (bool)findLayeredMap.Invoke(null, lookup)! && (Map)lookup[1] == target,
+                "global tile lookup distinguishes equal indices on separate layers");
+            check(RimExodus.SeamlessTileGraph.TryGetNeighborLink(source, target, out var link)
+                && link.map == target && link.offset == provider.Offset
+                && !RimExodus.SeamlessTileGraph.TryGetNeighborLink(source, surfaceMap, out _),
+                "a two-map query resolves exactly the linked neighbor");
+            check(RimExodus.SeamlessTileGraph.TryGetNeighborLinkByWorldTile(source, 1, out link)
+                && link.map == target && link.worldTile == 1, "legacy neighbor indices are scoped to the source layer");
+
+            source.info.isPocketMap = true;
+            check(!RimExodus.SeamlessTileGraph.TryGetNeighborLink(source, target, out _), "a pocket map cannot expose outgoing links");
+            source.info.isPocketMap = false;
+            target.info.isPocketMap = true;
+            check(!(bool)findLayeredMap.Invoke(null, lookup)!
+                && !RimExodus.SeamlessTileGraph.TryGetNeighborLink(source, target, out _)
+                && RimExodus.SeamlessTileGraph.GetAllNeighbors(source).Count == 0
+                && !RimExodus.SeamlessViewProjection.TryProject(target, IntVec3.Zero, source, out _),
+                "a stale pocket destination cannot be looked up, enumerated or projected");
+            target.info.isPocketMap = false;
+
+            var topology = assembly.GetType("RimExodus.SeamlessMapTopology", true)!;
+            var edges = topology.GetMethod("Edges", statics)!.CreateDelegate<Func<PlanetTile, int, List<RimExodus.SeamlessMapEdge>>>();
+            var tryOffset = topology.GetMethod("TryOffset", statics)!;
+            var connection = new object[] { source.Tile, 32, target.Tile, 32, IntVec3.Zero };
+            check(edges(source.Tile, 32)[1].Destination == target.Tile && (bool)tryOffset.Invoke(null, connection)!
+                && (IntVec3)connection[4] == provider.Offset, "an aligned edge is advertised and resolves to its offset");
+            provider.Offset = new IntVec3(100, 0, 0);
+            check(!edges(source.Tile, 32)[1].Destination.Valid && !edges(target.Tile, 32)[3].Destination.Valid
+                && !(bool)tryOffset.Invoke(null, connection)!, "a misaligned reciprocal edge is closed at both ends and cannot link");
+        }
+        finally
+        {
+            RimExodus.SeamlessPolygonGeometry.ClearAllCaches();
+            Current.Game = previous;
+        }
+    }
+
+    private sealed class RegressionLayerProvider : RimExodus.SeamlessMapProvider
+    {
+        internal IntVec3 Offset = new IntVec3(24, 0, 0);
+
+        public override bool Accepts(PlanetTile tile, MapParent parent) => true;
+        public override WorldObjectDef GetMapParentDef(PlanetTile tile) => null!;
+        public override IReadOnlyList<Vector2> GetFootprint(PlanetTile tile, int mapSize)
+            => new[] { new Vector2(4, 4), new Vector2(28, 4), new Vector2(28, 28), new Vector2(4, 28) };
+
+        public override RimExodus.SeamlessMapEdge GetEdge(PlanetTile tile, int edge, PlanetTile nativeNeighbor)
+            => (tile.tileId, edge) switch
+            {
+                (0, 1) => new RimExodus.SeamlessMapEdge(new PlanetTile(1, tile.Layer), Offset),
+                (1, 3) => new RimExodus.SeamlessMapEdge(new PlanetTile(0, tile.Layer), -Offset),
+                _ => default
+            };
     }
 
     private static void CheckAchtungHook(Assembly assembly, Harmony harmony, Action<bool, string> check)

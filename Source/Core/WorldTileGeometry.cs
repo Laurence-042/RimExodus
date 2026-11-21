@@ -24,6 +24,9 @@ namespace RimExodus
         /// 顺序与 <see cref="WorldGrid.GetTileVertices"/> 返回的顶点环绕顺序一致。
         /// </summary>
         public static List<Vector2> ComputeVertexDirections(int worldTile)
+            => ComputeVertexDirections(new PlanetTile(worldTile, -1));
+
+        internal static List<Vector2> ComputeVertexDirections(PlanetTile worldTile)
         {
             var result = new List<Vector2>();
             PopulateVertexDirections(worldTile, result);
@@ -32,6 +35,9 @@ namespace RimExodus
 
         /// <summary>填入版（避免调用方分配）。调用方负责 Clear。</summary>
         public static void PopulateVertexDirections(int worldTile, List<Vector2> result)
+            => PopulateVertexDirections(new PlanetTile(worldTile, -1), result);
+
+        internal static void PopulateVertexDirections(PlanetTile worldTile, List<Vector2> result)
         {
             if (result == null) return;
             result.Clear();
@@ -69,6 +75,9 @@ namespace RimExodus
         /// 返回该邻居在 GetTileNeighbors 中的序号（对应边 j），找不到返回 -1。
         /// </summary>
         public static int FindNeighborIndex(int worldTile, int targetWorldTile)
+            => FindNeighborIndex(new PlanetTile(worldTile, -1), new PlanetTile(targetWorldTile, -1));
+
+        internal static int FindNeighborIndex(PlanetTile worldTile, PlanetTile targetWorldTile)
         {
             var grid = Find.WorldGrid;
             if (grid == null) return -1;
@@ -77,7 +86,7 @@ namespace RimExodus
             grid.GetTileNeighbors(worldTile, neighbors);
             for (var j = 0; j < neighbors.Count; j++)
             {
-                if (neighbors[j].tileId == targetWorldTile) return j;
+                if (neighbors[j] == targetWorldTile) return j;
             }
             return -1;
         }

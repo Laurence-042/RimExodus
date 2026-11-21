@@ -202,7 +202,7 @@ namespace RimExodus
             }
 
             if (ownerMap == null) return;
-            if (!SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, SeamlessTileRegistry.GetMapWorldTile(ownerMap), out var info))
+            if (!SeamlessTileGraph.TryGetNeighborLink(map, ownerMap, out var info))
             {
                 return; // owner 解析与邻居表不一致（防御）：不动，交原版出界自毁兜底
             }

@@ -16,7 +16,7 @@ namespace RimExodus
         {
             if (map == null || info == null || !c.InBounds(map)) return;
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return;
+            if (!worldTile.Valid) return;
 
             var band = SeamlessPolygonGeometry.BuildSeamBand(worldTile, map.Size.x);
             if (!band.Band.Contains(c) && !SeamlessPolygonGeometry.IsVoidCell(band, worldTile, map.Size.x, c))

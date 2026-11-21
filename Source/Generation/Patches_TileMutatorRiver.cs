@@ -14,7 +14,7 @@ namespace RimExodus
     /// </summary>
     public class SeamlessRiverCrossings : MapComponent
     {
-        internal readonly Dictionary<int, Vector2> crossings = new();
+        internal readonly Dictionary<PlanetTile, Vector2> crossings = new();
 
         public SeamlessRiverCrossings(Map map) : base(map) { }
 
@@ -91,13 +91,13 @@ namespace RimExodus
         /// worldTile 变更时清空。MapPreview 预览图（worldTile&lt;0 fallback）不写入。
         /// </summary>
         internal static readonly List<(Vector2 s, Vector2 e, float tA, float tB)> riverChords = new();
-        internal static int chordsTile = -1;
+        internal static PlanetTile chordsTile = PlanetTile.Invalid;
 
         internal static bool Prefix(TileMutatorWorker_River __instance, Map map, float angle,
             ref (Vector3 start, Vector3 end) __result)
         {
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return true; // 防御性：异常态/预览图放行原版
+            if (!worldTile.Valid) return true; // 防御性：异常态/预览图放行原版
 
             var mapSize = map.Size.x;
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize);
@@ -142,8 +142,8 @@ namespace RimExodus
             if (downEdge >= neighbors.Count || upEdge >= neighbors.Count) return true;
 
             // 两端穿越点（三级来源）。
-            var downCrossing = ResolveCrossing(map, worldTile, mapSize, verts, downEdge, neighbors[downEdge].tileId, out var downSource);
-            var upCrossing = ResolveCrossing(map, worldTile, mapSize, verts, upEdge, neighbors[upEdge].tileId, out var upSource);
+            var downCrossing = ResolveCrossing(map, worldTile, mapSize, verts, downEdge, neighbors[downEdge], out var downSource);
+            var upCrossing = ResolveCrossing(map, worldTile, mapSize, verts, upEdge, neighbors[upEdge], out var upSource);
             if (downCrossing == null || upCrossing == null)
             {
                 if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
@@ -167,8 +167,8 @@ namespace RimExodus
 
             // 记录本图穿越点（键 = 对端 tile id，幂等；供后生成邻图读取）。
             var comp = SeamlessRiverCrossings.Ensure(map);
-            comp.crossings[neighbors[downEdge].tileId] = downCrossing.Value;
-            comp.crossings[neighbors[upEdge].tileId] = upCrossing.Value;
+            comp.crossings[neighbors[downEdge]] = downCrossing.Value;
+            comp.crossings[neighbors[upEdge]] = upCrossing.Value;
 
             // 登记弦上下文（端点 + 穿越点弦参），供 GetDisplacedPoint Postfix 做缝附近蜿蜒归零。
             if (chordsTile != worldTile) { chordsTile = worldTile; riverChords.Clear(); }
@@ -191,8 +191,8 @@ namespace RimExodus
         /// 解析一条共享边的穿越点（本图坐标），三级来源（见类注释）。
         /// 返回 null = 无法解析（调用方放行原版）。
         /// </summary>
-        private static Vector2? ResolveCrossing(Map map, int worldTile, int mapSize, List<Vector2> verts,
-            int edgeIdx, int neighborTileId, out string source)
+        private static Vector2? ResolveCrossing(Map map, PlanetTile worldTile, int mapSize, List<Vector2> verts,
+            int edgeIdx, PlanetTile neighborTileId, out string source)
         {
             // ③ 兜底：对称哈希（两侧同值）。
             var hashCrossing = SeamlessPolygonGeometry.SeamCrossingPoint(worldTile, edgeIdx, mapSize,
@@ -324,7 +324,7 @@ namespace RimExodus
         internal static bool IsFutureVoidCell(Map map, IntVec3 cell)
         {
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return false;
+            if (!worldTile.Valid) return false;
             var band = SeamlessPolygonGeometry.BuildSeamBand(worldTile, map.Size.x);
             return SeamlessPolygonGeometry.IsVoidCell(band, worldTile, map.Size.x, cell);
         }

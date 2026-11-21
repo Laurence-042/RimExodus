@@ -20,6 +20,7 @@ namespace RimExodus
         /// 海洋 mod 完整接管 Ocean 地图表现，无缝裁切与跨图框架本身仍然生效。
         /// </summary>
         public bool oceanMapSupportEnabled = true;
+        internal bool gravTideSeamlessEnabled;
 
         // Latched at startup: never switch live map services halfway through a game.
         public bool frameworkBackendEnabled = false;
@@ -312,6 +313,7 @@ namespace RimExodus
             Scribe_Values.Look(ref regenerateMissingSnapshots, "regenerateMissingSnapshots", true);
             Scribe_Values.Look(ref borderPreloadDistance, "borderPreloadDistance", 15);
             Scribe_Values.Look(ref oceanMapSupportEnabled, "oceanMapSupportEnabled", true);
+            Scribe_Values.Look(ref gravTideSeamlessEnabled, "gravTideSeamlessEnabled");
             Scribe_Values.Look(ref frameworkBackendEnabled, "frameworkBackendEnabled", false);
             Scribe_Values.Look(ref refTransitionNoticeAcknowledged, "refTransitionNoticeAcknowledged", false);
             Scribe_Collections.Look(ref acknowledgedAnnouncementIds, "acknowledgedAnnouncementIds", LookMode.Value);

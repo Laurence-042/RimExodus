@@ -78,7 +78,7 @@ namespace RimExodus
         {
             return EnabledForSession
                 && map != null
-                && SeamlessTileRegistry.GetMapWorldTile(map) >= 0
+                && SeamlessTileRegistry.GetMapWorldTile(map).Valid
                 // 不依赖 BiomeDefOf 初始化时序；正常路径引用相等，defName 是纯防御 fallback。
                 && (map.TileInfo.PrimaryBiome == oceanBiome || map.TileInfo.PrimaryBiome?.defName == "Ocean");
         }

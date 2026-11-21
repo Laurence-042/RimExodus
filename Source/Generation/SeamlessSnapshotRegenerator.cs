@@ -43,11 +43,11 @@ namespace RimExodus
         /// 生成邻接地图前调用：参考图缺内存基础快照时同步精简重生成（幂等；已有快照零成本早退）。
         /// 任何失败只出警告，绝不抛出——该图非 void 当前实况仍可参考，缺失的 void 侧格跳过。
         /// </summary>
-        internal static void EnsureSourceSnapshot(Map sourceMap, int worldTile)
+        internal static void EnsureSourceSnapshot(Map sourceMap, PlanetTile worldTile)
         {
             try
             {
-                if (sourceMap == null || worldTile < 0) return;
+                if (sourceMap == null || !worldTile.Valid) return;
                 if (!(RimExodusMod.Settings?.regenerateMissingSnapshots ?? true)) return;
                 // 三层必须成套可用；旧档/异常数据只有 terrain 时也要补，不能把缺失的岩体/屋顶层
                 // 误当成“明确为空”。
@@ -78,7 +78,8 @@ namespace RimExodus
         /// </summary>
         internal static void EnsureNeighborSnapshots(PlanetTile targetTile)
         {
-            if (!targetTile.Valid || targetTile.LayerDef != PlanetLayerDefOf.Surface) return;
+            if (!targetTile.Valid || !SeamlessMapProviders.Accepts(targetTile, Find.WorldObjects.MapParentAt(targetTile))) return;
+            if (SeamlessMapProviders.For(targetTile) != null && !SeamlessMapProviders.Invoke(targetTile, p => p.EnableNewMaps, false)) return;
             if (SeamlessMapPreviewCompat.IsGeneratingPreviewOnCurrentThread) return;
 
             // GL 懒加载兜底（2026-09-16"邻图没生成河流"定案）：GL 1.7.13 主程序集经 LunarLoader
@@ -87,25 +88,25 @@ namespace RimExodus
             // patch + landform 上下文复刻能力）。必须置于上方守卫之后：预览线程不做 Harmony 绑定。
             SeamlessLandformsCompat.EnsureRegisteredForGeneration();
 
-            var neighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(targetTile, neighbors);
-            foreach (var neighbor in neighbors)
+            var key = targetTile;
+            foreach (var neighbor in SeamlessMapTopology.NeighborTiles(key, Find.World.info.initialMapSize.x))
             {
+                if (!neighbor.Valid) continue;
                 Map live = null;
                 foreach (var candidate in Find.Maps)
                 {
                     if (candidate == null || candidate.Disposed) continue;
-                    if (SeamlessTileRegistry.GetMapWorldTile(candidate) == neighbor.tileId)
+                    if (SeamlessTileRegistry.GetMapWorldTile(candidate) == neighbor)
                     {
                         live = candidate;
                         break;
                     }
                 }
-                if (live != null) EnsureSourceSnapshot(live, neighbor.tileId);
+                if (live != null) EnsureSourceSnapshot(live, neighbor);
             }
         }
 
-        private static void Regenerate(Map sourceMap, int worldTile)
+        private static void Regenerate(Map sourceMap, PlanetTile worldTile)
         {
             var startRealtime = UnityEngine.Time.realtimeSinceStartup;
             var parent = sourceMap.Parent;

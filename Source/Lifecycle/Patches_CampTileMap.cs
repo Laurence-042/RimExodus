@@ -32,7 +32,7 @@ namespace RimExodus
             IEnumerable<GenStepWithParams> extraGenStepDefs, bool stepDebugger, ref Map __result)
         {
             if (suggestedMapParentDef != WorldObjectDefOf.Camp) return true; // 只接管营地；任务 site 等其他 def 不碰。
-            if (!tile.Valid) return true; // 无效 tile 交还原版（pocket 路径等）。
+            if (!tile.Valid || SeamlessMapProviders.For(tile) != null) return true; // 无效 tile 交还原版（pocket 路径等）。
 
             // 防御放行：已有图（含休眠图——软休眠仍在 Find.Maps）或已有 parent 时原版走复用/报错路径。
             if (Current.Game.FindMap(tile) != null || Find.WorldObjects.MapParentAt(tile) != null) return true;
@@ -57,9 +57,9 @@ namespace RimExodus
 
             // 生成后集成（对齐 GenerateTileMap 的 onComplete 子集；无源图，跳过源端邻居登记/补铺）。
             SeamlessWeatherClusterManager.BindMap(map);
-            SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(map, tile.tileId); // 1490 已铺，幂等防御
+            SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(map, tile); // 1490 已铺，幂等防御
             SeamlessEnterSpotPlacer.RefreshEnterSpotArrivals(map);
-            SeamlessTileManager.AutoConnectWorldNeighbors(map, tile.tileId); // 紧邻已加载图时自动接线
+            SeamlessTileManager.AutoConnectWorldNeighbors(map, tile); // 紧邻已加载图时自动接线
 
             if (RimExodusLog.Enabled(RimExodusLogModule.Generation)) Log.Message($"[RimExodus] Camp at tile {tile.tileId} generated as seamless tile map {map.uniqueID} " +
                         "(vanilla Camp auto-dissolution bypassed; lifecycle now governed by dormancy governor).");

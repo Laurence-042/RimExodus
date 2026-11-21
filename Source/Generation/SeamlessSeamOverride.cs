@@ -70,7 +70,7 @@ namespace RimExodus
         /// <summary>邻居参考源（生成期预收集，静态复用避免分配）。规则轴=本端圈层，对端带几何不参与。</summary>
         private struct NeighborRef
         {
-            public int worldTile;
+            public PlanetTile worldTile;
             public IntVec3 offset;
             public Map map;
             public SeamlessPolygonGeometry.SeamBandInfo band;
@@ -161,8 +161,11 @@ namespace RimExodus
         /// Settlement 400 与 Fog 1500 之前）。
         /// </summary>
         public static void ApplyOneWay(Map map, int worldTile)
+            => ApplyOneWay(map, SeamlessTileRegistry.InMapLayer(map, worldTile));
+
+        internal static void ApplyOneWay(Map map, PlanetTile worldTile)
         {
-            if (map == null || worldTile < 0) return;
+            if (map == null || !worldTile.Valid) return;
             EnsureScratchBuffers();
 
             var mapSize = map.Size.x;
@@ -174,7 +177,7 @@ namespace RimExodus
             Perlin weightNoise = null;
             if (noiseAmp > 0f)
             {
-                weightNoise = new Perlin(0.04f, 2.0, 0.5, 4, worldTile * 31 + 7919, QualityMode.Medium);
+                weightNoise = new Perlin(0.04f, 2.0, 0.5, 4, unchecked(worldTile.tileId * 31 + 7919), QualityMode.Medium);
             }
 
             var band = SeamlessPolygonGeometry.BuildSeamBand(worldTile, mapSize);
@@ -293,14 +296,14 @@ namespace RimExodus
         /// 预收集参考源到 <see cref="neighborRefs"/>：C 的每个世界邻居中实际有 Map 的邻居，
         /// 附 offset（现算，与邻居表登记同公式恒等）、邻居带几何和完整基础快照。
         /// </summary>
-        private static void CollectNeighborRefs(Map map, int worldTile)
+        private static void CollectNeighborRefs(Map map, PlanetTile worldTile)
         {
             neighborRefs.Clear();
-            var worldNeighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
+            var worldNeighbors = SeamlessMapTopology.NeighborTiles(worldTile, map.Size.x);
             foreach (var nt in worldNeighbors)
             {
-                var neighborTile = nt.tileId;
+                var neighborTile = nt;
+                if (!neighborTile.Valid) continue;
                 if (neighborTile == worldTile) continue;
                 Map neighborMap = null;
                 foreach (var candidate in Find.Maps)
@@ -314,8 +317,7 @@ namespace RimExodus
                 }
                 if (neighborMap == null) continue;
 
-                var offset = SeamlessNeighborRegistry.ComputeNeighborOffset(worldTile, neighborTile, map, neighborMap);
-                if (offset == IntVec3.Zero) continue;
+                if (!SeamlessMapTopology.TryOffset(worldTile, map.Size.x, neighborTile, neighborMap.Size.x, out var offset)) continue;
 
                 neighborRefs.Add(new NeighborRef
                 {
@@ -488,7 +490,7 @@ namespace RimExodus
                 : null;
         }
 
-        internal static bool TryReadRockReference(Map neighborMap, int neighborWorldTile, IntVec3 cell,
+        internal static bool TryReadRockReference(Map neighborMap, PlanetTile neighborWorldTile, IntVec3 cell,
             out ThingDef rockDef)
         {
             rockDef = null;
@@ -696,6 +698,9 @@ namespace RimExodus
         /// 会怎样"。
         /// </summary>
         public static string DescribeCellReport(Map map, int worldTile, IntVec3 cell)
+            => DescribeCellReport(map, SeamlessTileRegistry.InMapLayer(map, worldTile), cell);
+
+        internal static string DescribeCellReport(Map map, PlanetTile worldTile, IntVec3 cell)
         {
             EnsureScratchBuffers();
             var sb = new System.Text.StringBuilder();
@@ -724,7 +729,7 @@ namespace RimExodus
             var noiseAmp = RimExodusMod.Settings?.seamOverrideNoiseAmplitude ?? 0.15f;
             Perlin weightNoise = null;
             if (noiseAmp > 0f)
-                weightNoise = new Perlin(0.04f, 2.0, 0.5, 4, worldTile * 31 + 7919, QualityMode.Medium);
+                weightNoise = new Perlin(0.04f, 2.0, 0.5, 4, unchecked(worldTile.tileId * 31 + 7919), QualityMode.Medium);
             CollectNeighborRefs(map, worldTile);
             var hasRefs = neighborRefs.Count > 0 && CollectCellRefs(cell, isCopyZone, weightNoise, noiseAmp);
 

@@ -34,7 +34,7 @@ namespace RimExodus
         {
             var isNeighborGeneration = IncrementalMapGenerator.IsGenerating(map)
                 || SeamlessTileManager.GeneratingNativeSeamlessly;
-            if (!isNeighborGeneration) return true; // 初始地图/原生入口：原版中心揭雾。
+            if (!isNeighborGeneration || !SeamlessTileRegistry.GetMapWorldTile(map).Valid) return true; // 初始地图/原生入口：原版中心揭雾。
 
             // ===== 接管原版体（邻接生成：fog 只从生成方向的接缝开始揭）=====
             // 等价原版首行 SetAllFogged（internal 不可访问，用公开的 Refog(WholeMap) 替代）。
@@ -64,36 +64,36 @@ namespace RimExodus
             var rootCount = 0;
             var cellsUnfoggedFromRoots = 0;
             var roots = new List<IntVec3>();
-            if (worldTile >= 0)
+            if (worldTile.Valid)
             {
                 var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, map.Size.x);
                 if (verts != null && verts.Count >= 3)
                 {
-                    var worldNeighbors = new List<PlanetTile>();
-                    Find.WorldGrid.GetTileNeighbors(new PlanetTile(worldTile), worldNeighbors);
+                    var worldNeighbors = SeamlessMapTopology.NeighborTiles(worldTile, map.Size.x);
 
                     var sourceTile = SeamlessTileManager.NeighborGenerationSourceTile;
                     var sourceValid = false;
                     foreach (var n in worldNeighbors)
                     {
-                        if (n.tileId == sourceTile)
+                        if (n == sourceTile)
                         {
                             sourceValid = true;
                             break;
                         }
                     }
 
-                    foreach (var neighborTile in worldNeighbors)
+                    for (int edgeIdx = 0; edgeIdx < worldNeighbors.Count; edgeIdx++)
                     {
-                        if (neighborTile.tileId == worldTile) continue;
+                        var neighborTile = worldNeighbors[edgeIdx];
+                        if (!neighborTile.Valid) continue;
+                        if (neighborTile == worldTile) continue;
                         // 优先只揭生成方向；static source 失效（异常悬挂/非本图）时回退：对端活跃的边都发根。
                         if (sourceValid)
                         {
-                            if (neighborTile.tileId != sourceTile) continue;
+                            if (neighborTile != sourceTile) continue;
                         }
-                        else if (!SeamlessTileGraph.TryGetMapByWorldTile(neighborTile.tileId, out _)) continue;
+                        else if (!SeamlessTileGraph.TryGetMapByWorldTile(neighborTile, out _)) continue;
 
-                        var edgeIdx = WorldTileGeometry.FindNeighborIndex(worldTile, neighborTile.tileId);
                         if (edgeIdx < 0 || edgeIdx >= verts.Count) continue;
                         CollectRootsOnEdge(map, verts[edgeIdx], verts[(edgeIdx + 1) % verts.Count], roots);
                     }
@@ -107,11 +107,12 @@ namespace RimExodus
                     if (cellsUnfoggedFromRoots == 0 && sourceValid)
                     {
                         roots.Clear();
-                        foreach (var neighborTile in worldNeighbors)
+                        for (int edgeIdx = 0; edgeIdx < worldNeighbors.Count; edgeIdx++)
                         {
-                            if (neighborTile.tileId == worldTile || neighborTile.tileId == sourceTile) continue;
-                            if (!SeamlessTileGraph.TryGetMapByWorldTile(neighborTile.tileId, out _)) continue;
-                            var edgeIdx = WorldTileGeometry.FindNeighborIndex(worldTile, neighborTile.tileId);
+                            var neighborTile = worldNeighbors[edgeIdx];
+                            if (!neighborTile.Valid) continue;
+                            if (neighborTile == worldTile || neighborTile == sourceTile) continue;
+                            if (!SeamlessTileGraph.TryGetMapByWorldTile(neighborTile, out _)) continue;
                             if (edgeIdx < 0 || edgeIdx >= verts.Count) continue;
                             CollectRootsOnEdge(map, verts[edgeIdx], verts[(edgeIdx + 1) % verts.Count], roots);
                         }

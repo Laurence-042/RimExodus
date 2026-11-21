@@ -41,8 +41,11 @@ namespace RimExodus
         /// 对 map 的所有海洋邻居边铺海岸海水。幂等（重铺时水覆盖水）。
         /// </summary>
         public static void Apply(Map map, int worldTile)
+            => Apply(map, SeamlessTileRegistry.InMapLayer(map, worldTile));
+
+        internal static void Apply(Map map, PlanetTile worldTile)
         {
-            if (map == null || worldTile < 0) return;
+            if (map == null || !worldTile.Valid) return;
 
             // Ocean 本体已经由内置补全铺成深海。若继续按“朝 Ocean 邻居的陆地海岸”处理，六条边会
             // 各铺一轮深→浅→沙梯度，在纯海中形成河流状浅水条带。关闭内置补全后放行，交给海洋

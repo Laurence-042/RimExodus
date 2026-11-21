@@ -37,6 +37,7 @@ namespace RimExodus
 
         /// <summary>是否已完成开档接线（预铺传送点；void 已由 genStep 阶段铺设，不在此处）。邻居生成为事件驱动边界预加载，无开档批量生成（原 preloadAllNeighborsOnStart 已删，2026-08）。</summary>
         private bool setupOnStartDone;
+        internal bool ProviderMapPrepared;
 
         /// <summary>
         /// 原生 parent 图的基础地形快照（阶段4 接缝覆写）：void 裁切前的完整矩形 topGrid。
@@ -89,7 +90,7 @@ namespace RimExodus
         /// 的接缝洪水揭雾取根（"只从生成方向的接缝开始 unfog"）；-1 或非本图邻居（异常悬挂容错）
         /// 时回退"全部活跃边"。GenerateTileMap 两路径设置，onComplete/失败分支/finally 复位。
         /// </summary>
-        internal static int NeighborGenerationSourceTile = -1;
+        internal static PlanetTile NeighborGenerationSourceTile = PlanetTile.Invalid;
 
         /// <summary>
         /// 触发本次邻接生成的 goto 目标格与源图 uniqueID（2026-08-30，中心走廊端点算法）：
@@ -125,7 +126,7 @@ namespace RimExodus
         /// 生成地图是重操作（MapGenerator.GenerateMap），生成过程中若再次请求同一 worldTile 的生成会被拒绝。
         /// RimWorld 单线程 tick，无需锁。
         /// </summary>
-        private readonly HashSet<int> generatingTiles = new HashSet<int>();
+        private readonly HashSet<PlanetTile> generatingTiles = new HashSet<PlanetTile>();
 
         public SeamlessTileManager(Map map) : base(map)
         {
@@ -135,6 +136,7 @@ namespace RimExodus
         {
             base.ExposeData();
             Scribe_Values.Look(ref setupOnStartDone, "setupOnStartDone");
+            Scribe_Values.Look(ref ProviderMapPrepared, "seamlessProviderMapPrepared");
             Scribe_Values.Look(ref pendingAutoGenerateTicks, "pendingAutoGenerateTicks", -1);
 
             // 基础三层快照序列化（仅原生 parent 图；捕获受 serializeBaseSnapshots 门控，
@@ -246,7 +248,7 @@ namespace RimExodus
                 foreach (var m in Find.Maps)
                 {
                     if (m == null || m.Disposed || m.Parent is PocketMapParent) continue;
-                    if (SeamlessTileRegistry.GetMapWorldTile(m) == link.worldTile)
+                    if (SeamlessTileRegistry.GetMapWorldTile(m) == new PlanetTile(link.worldTile, map.Tile.Layer))
                     {
                         real = m.Parent;
                         break;
@@ -321,7 +323,7 @@ namespace RimExodus
             // 表现 = 邻图上不再显示家园地形、跨缝目标指向车内）。GetMapWorldTile 统一排除
             // 口袋图（PocketMapParent）与空间层，一处收口。
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (worldTile < 0) return;
+            if (!worldTile.Valid) return;
 
             SeamlessWeatherClusterManager.BindMap(map);
             SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(map, worldTile);
@@ -342,8 +344,11 @@ namespace RimExodus
         /// </summary>
         /// <returns>是否触发了生成（false = 已存在/正在生成/源无效）。</returns>
         public bool TryPreloadNeighbor(int targetWorldTile, IntVec3? triggerCell = null)
+            => TryPreloadNeighbor(SeamlessTileRegistry.InMapLayer(map, targetWorldTile), triggerCell);
+
+        internal bool TryPreloadNeighbor(PlanetTile targetWorldTile, IntVec3? triggerCell = null)
         {
-            if (targetWorldTile < 0 || map == null) return false;
+            if (!targetWorldTile.Valid || map == null) return false;
 
             // 防重入：正在生成中则拒绝。
             if (generatingTiles.Contains(targetWorldTile))
@@ -358,7 +363,7 @@ namespace RimExodus
             }
 
             var sourceWorldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (sourceWorldTile < 0) return false;
+            if (!sourceWorldTile.Valid) return false;
 
             // 防递归守卫（分帧增量生成全程持有 mapBeingGenerated；IsAnyGenerating 兜底理论上的窗口差）。
             // MapPreview 预览在飞也避让（2026-08）：预览线程占用 MapGenerator.mapBeingGenerated 等
@@ -395,7 +400,7 @@ namespace RimExodus
         }
 
         /// <summary>分帧生成完成后清理防重入锁（被 GenerateTileMap 的 onComplete 回调调用）。</summary>
-        private static void ClearGeneratingTile(int worldTile)
+        private static void ClearGeneratingTile(PlanetTile worldTile)
         {
             foreach (var m in Find.Maps)
             {
@@ -412,15 +417,15 @@ namespace RimExodus
         {
             try
             {
-                var worldTile = map?.info?.parent?.Tile.tileId ?? -1;
-                if (worldTile >= 0) ClearGeneratingTile(worldTile);
+                var worldTile = (map?.Parent?.Tile ?? PlanetTile.Invalid);
+                if (worldTile.Valid) ClearGeneratingTile(worldTile);
             }
             catch (Exception ex)
             {
                 Log.Error($"[RimExodus] Failed to release incremental generation lock: {ex}");
             }
 
-            NeighborGenerationSourceTile = -1;
+            NeighborGenerationSourceTile = PlanetTile.Invalid;
             ClearGenerationTrigger();
         }
 
@@ -436,7 +441,7 @@ namespace RimExodus
         /// 调用方：分帧增量生成全程持有 mapBeingGenerated，直调方撞入口忙守卫被拒
         /// （曾致 Dev action "只生成了一个图"，原 GenerateForNeighbor 病灶已删）。
         /// </summary>
-        private MapParent_SeamlessTile GenerateTileMap(int sourceWorldTile, int newWorldTile, IntVec3 mapSize, IntVec3? triggerCell = null)
+        private MapParent_SeamlessTile GenerateTileMap(PlanetTile sourceWorldTile, PlanetTile newWorldTile, IntVec3 mapSize, IntVec3? triggerCell = null)
         {
             // 入口防御（TryPreloadNeighbor 已带同款判据并重排队；此处兜底其他调用方——如
             // TrySetupOnStart）：预览在飞时启动增量同样互踩（见 TryPreloadNeighbor 注释）。
@@ -466,12 +471,27 @@ namespace RimExodus
             // RemoveTileMap 残留孤儿）→ 销毁后继续生成（原防御）；其余原生 parent 占位（Settlement/
             // Site 等一切 POI）→ 原生单帧生成（2026-08 全 POI 泛化，见下）；非表面层占位 → 跳过。
             MapParent_SeamlessTile restoreParent = null;
-            var existingParent = Find.World.worldObjects.MapParentAt(new PlanetTile(newWorldTile));
+            var targetTile = newWorldTile;
+            var existingParent = Find.World.worldObjects.MapParentAt(targetTile);
+            if (!SeamlessMapProviders.Accepts(targetTile, existingParent)) return null;
+            if (existingParent?.HasMap != true && SeamlessMapProviders.For(targetTile) != null
+                && !SeamlessMapProviders.Invoke(targetTile, p => p.EnableNewMaps && p.CanGenerate(targetTile, existingParent), false)) return null;
+            if (!SeamlessMapTopology.TryOffset(sourceWorldTile, map.Size.x, newWorldTile,
+                existingParent?.Map?.Size.x ?? mapSize.x, out var hostOffset)) return null;
+            if (existingParent == null && SeamlessMapProviders.For(targetTile) != null)
+            {
+                var parentDef = SeamlessMapProviders.Invoke(targetTile, provider => provider.GetMapParentDef(targetTile), null);
+                if (parentDef?.worldObjectClass != null && typeof(MapParent).IsAssignableFrom(parentDef.worldObjectClass)
+                    && !typeof(PocketMapParent).IsAssignableFrom(parentDef.worldObjectClass))
+                    GenerateNativeNeighbor(sourceWorldTile, newWorldTile, mapSize, triggerCell, parentDef);
+                return null;
+            }
             if (existingParent != null)
             {
                 var liveMap = existingParent.Map;
                 if (liveMap != null && !liveMap.Disposed)
                 {
+                    if (SeamlessTileRegistry.GetMapWorldTile(liveMap) != newWorldTile) return null;
                     if (RimExodusLog.Enabled(RimExodusLogModule.Core))
                         Log.Message($"[RimExodus] World tile {newWorldTile} already has a live map {liveMap.uniqueID} "
                             + $"(parent {existingParent.def.defName}), waking/skipping instead of generating.");
@@ -513,11 +533,6 @@ namespace RimExodus
                     // 生命周期归原生家族滚动接管（≥2 眠 ≥3 删、删图按各自 def 语义决定是否留对象）。
                     // 尺寸用调用方 mapSize（=源图尺寸，接缝六边形几何按 mapSize 计算，必须与邻图一致）。
                     // 表面层守卫（与 SetupNativeParentMap 同族）：空间层 parent 不生成（轨道 tileId 恒撞号）。
-                    if (new PlanetTile(newWorldTile).LayerDef != RimWorld.PlanetLayerDefOf.Surface)
-                    {
-                        Log.Warning($"[RimExodus] World tile {newWorldTile} is occupied by non-surface {existingParent.def.defName} without a live map, skip generation.");
-                        return null;
-                    }
                     // 方法入口的 mapBeingGenerated 守卫已防与分帧增量生成交错（营地先例同款）；
                     // 此处再查 IsAnyGenerating 兜底（TryPreloadNeighbor 已拦，防御 Dev 直调路径）。
                     if (IncrementalMapGenerator.IsAnyGenerating)
@@ -529,41 +544,12 @@ namespace RimExodus
                     // Settlement.PostMapGenerate 的 patch 撤销 TimedDetectionRaids 倒计时（中立据点预加载
                     // 不该启动"被发现报复"计时，见 Patches_NativeMapFamily）；site parts 的 PostMapGenerate
                     // 原版照走（用户定夺纯原版语义，不做 per-part patch）。
-                    Map nativeMap;
-                    GeneratingNativeSeamlessly = true;
-                    NeighborGenerationSourceTile = sourceWorldTile; // 生成方向（Fog patch 接缝揭雾取根）
-                    SetGenerationTrigger(triggerCell, map);
-                    MapGenerationProgressUI.BeginSyncOp("RimExodus_SyncMapGenProgress".Translate());
-                    try
-                    {
-                        nativeMap = GetOrGenerateMapUtility.GetOrGenerateMap(new PlanetTile(newWorldTile), mapSize, null);
-                    }
-                    finally
-                    {
-                        MapGenerationProgressUI.EndSyncOp();
-                        GeneratingNativeSeamlessly = false;
-                        NeighborGenerationSourceTile = -1;
-                        ClearGenerationTrigger();
-                    }
-                    if (nativeMap != null)
-                    {
-                        // 源图↔POI 图即时登记（双向邻居表 + 两端传送点补铺 + arrivals 刷新，幂等）；天气域绑定
-                        // 与 AutoConnect 由 SetupNativeParentMap（MapGenerated 延迟 1 tick）幂等补齐其余接线。
-                        EnsureNeighborRegistered(map, sourceWorldTile, nativeMap, newWorldTile);
-                        // Settlement 专属额外处理（三层架构第三层）：贸易商指定（其余 POI 无 TraderKind 概念）。
-                        if (existingParent is Settlement settlementParent)
-                        {
-                            SeamlessSettlementTrader.EnsureTraderAssigned(settlementParent);
-                        }
-                        Log.Message($"[RimExodus] Native POI at tile {newWorldTile} ({existingParent.def.defName}) generated natively " +
-                                    $"for seamless access (map {nativeMap.uniqueID}).");
-                    }
+                    GenerateNativeNeighbor(sourceWorldTile, newWorldTile, mapSize, triggerCell, null);
                     // 同步生成已完成；null 表示"未启动增量生成"，调用方按既有路径收尾（ClearGeneratingTile）。
                     return null;
                 }
             }
 
-            var hostOffset = SeamlessNeighborRegistry.ComputeNeighborOffset(sourceWorldTile, newWorldTile, map);
             var sourceWorldTileCapture = sourceWorldTile;
             var originMapCapture = map;
 
@@ -585,11 +571,11 @@ namespace RimExodus
                 }
 
                 mapParent = (MapParent_SeamlessTile)WorldObjectMaker.MakeWorldObject(def);
-                mapParent.worldTile = newWorldTile;
+                mapParent.worldTile = newWorldTile.tileId;
                 // 阶段4前置：基础地图。mapParent.Tile 必须设为真实 PlanetTile，
                 // 这样 map.TileInfo 自动读 Find.WorldGrid[Tile]（含真实 biome/hillness/mutators/rivers），
                 // 原生 Coast/River/Delta 等 TileMutator 自然生效，无需 InjectRealTileInfo。
-                mapParent.Tile = new PlanetTile(newWorldTile);
+                mapParent.Tile = newWorldTile;
 
                 // 计算 new tile 在全局平面坐标系的原点（阶段4 接缝覆写预留）。
                 // tileOrigin = 源 tile 的 tileOrigin + hostOffset（源→新的平面偏移）。
@@ -630,7 +616,7 @@ namespace RimExodus
                     {
                         MapGenerationProgressUI.EndSyncOp();
                         GeneratingNativeSeamlessly = false;
-                        NeighborGenerationSourceTile = -1;
+                        NeighborGenerationSourceTile = PlanetTile.Invalid;
                         ClearGenerationTrigger();
                     }
                     if (syncMap != null)
@@ -720,7 +706,7 @@ namespace RimExodus
             if (!started)
             {
                 Log.Warning($"[RimExodus] IncrementalMapGenerator.Start failed for tile {newWorldTile}.");
-                NeighborGenerationSourceTile = -1;
+                NeighborGenerationSourceTile = PlanetTile.Invalid;
                 ClearGenerationTrigger();
                 return null;
             }
@@ -734,15 +720,44 @@ namespace RimExodus
         /// 遍历 map 对应 worldTile 的世界邻居列表，对每个已加载（TryGetMapByWorldTile 命中）但尚未与 map 建立直接邻居关系的地图，
         /// 调 EnsureNeighborRegistered 补登记。使新地块加载时自动与所有相邻的已加载地块连接（渲染/寻路即用）。
         /// </summary>
-        internal static void AutoConnectWorldNeighbors(Map map, int worldTile)
+        private void GenerateNativeNeighbor(PlanetTile source, PlanetTile target, IntVec3 mapSize,
+            IntVec3? triggerCell, WorldObjectDef newParentDef)
         {
-            if (map == null || worldTile < 0) return;
-            var worldNeighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
-            foreach (var neighborTile in worldNeighbors)
+            var tile = target;
+            GeneratingNativeSeamlessly = true;
+            NeighborGenerationSourceTile = source;
+            SetGenerationTrigger(triggerCell, map);
+            MapGenerationProgressUI.BeginSyncOp("RimExodus_SyncMapGenProgress".Translate());
+            try
             {
-                var neighborWorldTile = neighborTile.tileId;
-                if (neighborWorldTile == worldTile) continue;
+                var generated = GetOrGenerateMapUtility.GetOrGenerateMap(tile, mapSize, newParentDef);
+                if (SeamlessTileRegistry.GetMapWorldTile(generated) != target) return;
+                EnsureNeighborRegistered(map, source, generated, target);
+                if (generated.Parent is Settlement settlement)
+                    SeamlessSettlementTrader.EnsureTraderAssigned(settlement);
+            }
+            catch (Exception ex) when (SeamlessMapProviders.For(tile) != null)
+            {
+                if (newParentDef != null && Find.WorldObjects.MapParentAt(tile) is MapParent parent
+                    && parent.def == newParentDef && !parent.HasMap)
+                    parent.Destroy();
+                Log.Warning($"[RimExodus] Seamless neighbor generation failed for {tile}: {ex}");
+            }
+            finally
+            {
+                MapGenerationProgressUI.EndSyncOp();
+                GeneratingNativeSeamlessly = false;
+                NeighborGenerationSourceTile = PlanetTile.Invalid;
+                ClearGenerationTrigger();
+            }
+        }
+
+        internal static void AutoConnectWorldNeighbors(Map map, PlanetTile worldTile)
+        {
+            if (map == null || !worldTile.Valid) return;
+            foreach (var neighborWorldTile in SeamlessMapTopology.NeighborTiles(worldTile, map.Size.x))
+            {
+                if (!neighborWorldTile.Valid || neighborWorldTile == worldTile) continue;
                 // 已是直接邻居则跳过。
                 if (SeamlessTileGraph.TryGetNeighborLinkByWorldTile(map, neighborWorldTile, out _)) continue;
                 // 该世界邻居已有加载的地图则补登记。
@@ -758,12 +773,15 @@ namespace RimExodus
         /// 补登记双向邻居表 + 补铺两端传送点 + 互绑。使 C 可以直接走到 A 而非生成 A 的副本。
         /// 若已是直接邻居则跳过（幂等）。
         /// </summary>
-        private static void EnsureNeighborRegistered(Map originMap, int sourceWorldTile, Map existingMap, int existingWorldTile)
+        private static void EnsureNeighborRegistered(Map originMap, PlanetTile sourceWorldTile, Map existingMap, PlanetTile existingWorldTile)
         {
+            if (SeamlessTileRegistry.GetMapWorldTile(existingMap) != existingWorldTile) return;
+            if (!SeamlessMapTopology.TryOffset(sourceWorldTile, originMap.Size.x, existingWorldTile,
+                existingMap.Size.x, out var offset)) return;
             if (originMap == null || existingMap == null || originMap == existingMap) return;
 
             // 若已是直接邻居则无需补登记。
-            if (SeamlessTileGraph.TryGetNeighborLinkByWorldTile(originMap, existingWorldTile, out _))
+            if (SeamlessTileGraph.TryGetNeighborLink(originMap, existingMap, out _))
             {
                 return;
             }
@@ -773,7 +791,6 @@ namespace RimExodus
                     $"with existing map {existingMap.uniqueID}(wt={existingWorldTile}) as direct neighbors.");
 
             // 计算 offset（existing 相对 origin）。两端须在世界网格上互为邻居。
-            var offset = SeamlessNeighborRegistry.ComputeNeighborOffset(sourceWorldTile, existingWorldTile, originMap, existingMap);
             var existingParent = existingMap.info.parent;
 
             // 双向登记邻居表（复用 RegisterNeighborBidirectional 逻辑）。
@@ -800,7 +817,7 @@ namespace RimExodus
         /// （order 1100 已覆盖 genStep 期全部常规建筑生成源，无需延迟冲突清理趟——
         /// 首版 +120t ZoneRestoreConflictCleaner 已随 order 后置整体拆除。）
         /// </summary>
-        private static void FinishZoneRestore(Map map, MapParent_SeamlessTile parent, int worldTile)
+        private static void FinishZoneRestore(Map map, MapParent_SeamlessTile parent, PlanetTile worldTile)
         {
             var record = parent.preserveRecord;
             if (record == null) return;
@@ -942,7 +959,7 @@ namespace RimExodus
                 return;
             }
 
-            var tile = parent.Tile.tileId;
+            var tile = parent.Tile;
             var mapId = interiorMap.uniqueID;
             // Forget 经统一追踪底座触发删前清扫（同 RemoveTileMap 路径，见 SeamlessDormancyManager.Forget）。
             SeamlessDormancyManager.Forget(interiorMap);

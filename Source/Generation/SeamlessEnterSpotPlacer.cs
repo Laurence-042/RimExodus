@@ -35,9 +35,10 @@ namespace RimExodus
         ///
         /// **调用时机**：任意时刻可调（不读 terrainGrid）；现状调用点在生成完成后（幂等）。
         /// </summary>
-        public static void PlaceEnterSpotsAllNeighbors(Map targetMap, int worldTile)
+        public static void PlaceEnterSpotsAllNeighbors(Map targetMap, PlanetTile worldTile)
         {
-            if (targetMap == null || worldTile < 0) return;
+            if (targetMap == null || !worldTile.Valid) return;
+            SeamlessMapTopology.InvalidateExitCells(targetMap);
 
             var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
             if (enterSpotDef == null)
@@ -47,13 +48,7 @@ namespace RimExodus
             }
 
             // 取世界邻居列表（顺序与多边形顶点环绕一致，边 j ↔ 邻居 j）。
-            var worldNeighbors = new List<PlanetTile>();
-            Find.WorldGrid.GetTileNeighbors(worldTile, worldNeighbors);
-            if (worldNeighbors.Count == 0) return;
-
-            // 预解析每个边 j 对应的世界邻居 tileId（避免内层循环重复访问）。
-            var neighborWorldTiles = new List<int>(worldNeighbors.Count);
-            foreach (var nt in worldNeighbors) neighborWorldTiles.Add(nt.tileId);
+            var neighborWorldTiles = SeamlessMapTopology.NeighborTiles(worldTile, targetMap.Size.x);
 
             var mapSize = targetMap.Size.x;
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize);
@@ -68,8 +63,8 @@ namespace RimExodus
             {
                 // 按最近多边形边分组确定目标邻居。
                 var edgeIdx = SeamlessPolygonGeometry.FindClosestEdgeIndex(verts, cell.x + 0.5f, cell.z + 0.5f);
-                var neighborWorldTile = edgeIdx >= 0 && edgeIdx < neighborWorldTiles.Count ? neighborWorldTiles[edgeIdx] : -1;
-                if (neighborWorldTile < 0) continue;
+                var neighborWorldTile = edgeIdx >= 0 && edgeIdx < neighborWorldTiles.Count ? neighborWorldTiles[edgeIdx] : PlanetTile.Invalid;
+                if (!neighborWorldTile.Valid) continue;
 
                 // **不做任何可通行性预判（勿加 Standable/地形 passability 过滤）**：
                 // 传送点只是连接两个地图的逻辑设施，能不能走由地形运行时决定——不能走 pawn
@@ -91,7 +86,7 @@ namespace RimExodus
                 var spawned = GenSpawn.Spawn(spot, cell, targetMap);
                 if (spawned != null && comp != null)
                 {
-                    comp.targetWorldTile = neighborWorldTile;
+                    comp.targetWorldTile = neighborWorldTile.tileId;
                     // hasArrival 默认 false：预铺时不缓存对端坐标，待邻居加载、
                     // RegisterNeighborBidirectional → RefreshEnterSpotArrivals 时算出。
                     placed++;
