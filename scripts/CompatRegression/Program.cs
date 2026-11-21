@@ -102,6 +102,7 @@ public static class Audit
             typeof(RimExodus.RimExodusMod).GetMethod("RegisterManualPatches", statics)!.Invoke(null, new object[] { harmony });
             foreach (string name in new[] { "FindRoadExitCell", "ApplyDistanceField", "RefinePath", "GetMapEdgeNodes" })
                 Check(harmony.GetPatchedMethods().Any(m => m.Name == name), "manual hook bound: " + name);
+            RiverSeamChecks.Run(assembly, harmony, Check);
             Check(harmony.GetPatchedMethods().Count(m => m.Name == "TryFindRandomEdgeCellWith") == 2, "both manual edge overloads bound");
             var binder = assembly.GetType("RimExodus.SeamlessPatchBinding", true)!.GetMethod("TryBind", statics)!;
             bool Attempt(Func<MethodBase> lookup) => (bool)binder.Invoke(null, new object[] {

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using HarmonyLib;
 using RimWorld;
 using RimWorld.Planet;
@@ -15,6 +16,9 @@ namespace RimExodus
     public class SeamlessRiverCrossings : MapComponent
     {
         internal readonly Dictionary<PlanetTile, Vector2> crossings = new();
+        internal readonly List<(Vector2 start, Vector2 end, float tA, float tB)> riverChords = new();
+        internal readonly Dictionary<RiverNode, float> singleAnchors = new();
+        internal readonly HashSet<RiverNode> loggedNodes = new();
 
         public SeamlessRiverCrossings(Map map) : base(map) { }
 
@@ -75,129 +79,232 @@ namespace RimExodus
     /// 河生成时不向将来 void 格铺水/岸（void 侧基础快照干净，根治参考互盖），实际修改格记入
     /// <see cref="SeamlessRiverCells"/> 供 SeamOverride 跳过。
     ///
-    /// 【守卫】<c>worldTile &lt; 0</c> 是防御性放行（防异常态/MapPreview 预览图），正常地图一律
-    /// 走接缝对齐（见 AGENTS.md 铁律）。**GL 1.7 河流地貌 = 本 patch 的盲区**：GL 用自有地貌系统
-    /// 替换原版河流 mutator，GetMapEdgeNodes 不会被调用——需在 GL 设置禁用全部河流地貌（详见 README）。
+    /// GL 生成的河使用 TerrainGraph 的端点钉位，见 <see cref="GLRiverWarp"/>。
     /// </summary>
     static class Patch_TileMutatorWorker_River_GetMapEdgeNodes
     {
         /// <summary>方形 rect 越界余量（格，对齐原版 GetMapEdgeNodes 的 Oversample=25 窗口）。</summary>
         private const float RectMargin = 25f;
 
-        /// <summary>
-        /// 每条已锚定河弦的上下文（端点 + 两个穿越点的弦参位置），供
-        /// <see cref="Patch_TileMutatorWorker_River_GetDisplacedPoint"/> 做缝附近蜿蜒归零。
-        /// 生成期单图顺序执行，static 安全；Confluence 多次调用累加（每 node 一条），
-        /// worldTile 变更时清空。MapPreview 预览图（worldTile&lt;0 fallback）不写入。
-        /// </summary>
-        internal static readonly List<(Vector2 s, Vector2 e, float tA, float tB)> riverChords = new();
-        internal static PlanetTile chordsTile = PlanetTile.Invalid;
-
         internal static bool Prefix(TileMutatorWorker_River __instance, Map map, float angle,
             ref (Vector3 start, Vector3 end) __result)
         {
-            var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
-            if (!worldTile.Valid) return true; // 防御性：异常态/预览图放行原版
+            var context = Patch_TileMutatorWorker_River_Generation.Current;
+            if (context?.Worker != __instance || context.Map != map) return true;
+            context.OrderedEndpoints = null;
 
+            bool firstRequest = !context.RequestedEndpoints;
+            context.RequestedEndpoints = true;
+            var workerType = __instance.GetType();
+            bool isDelta = workerType == typeof(TileMutatorWorker_RiverDelta);
+            bool isConfluence = workerType == typeof(TileMutatorWorker_RiverConfluence);
+            if ((isDelta || isConfluence) && !firstRequest) return true;
+
+            var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
             var mapSize = map.Size.x;
             var verts = SeamlessPolygonGeometry.BuildPolygonVertices(worldTile, mapSize);
             if (verts.Count < 3) return true; // 几何异常放行
 
-            // 下游边 + 上游边：统一接缝边匹配（SeamLink.River = 匹配池缩到 river-link 邻居）。
-            // angle = far→near 流向 ≈ me→near → 下游邻居；angle+180 → 上游。
-            // **匹配池只遍历有 river link 的邻居（GetRiverDef != null）**——angle 只是流向近似、
-            // 河链可弯折，全邻居池最近角匹配会锚到错误边（与道路同款纪律）。
-            var downEdge = SeamlessPolygonGeometry.FindSeamEdge(worldTile, angle, SeamlessPolygonGeometry.SeamLink.River);
-            var upEdge = SeamlessPolygonGeometry.FindSeamEdge(worldTile, angle + 180f, SeamlessPolygonGeometry.SeamLink.River);
-            if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
-            {
-                var cand = new List<string>();
-                var nb = new List<PlanetTile>();
-                Find.WorldGrid.GetTileNeighbors(worldTile, nb);
-                for (var j = 0; j < nb.Count; j++)
-                {
-                    if (Find.WorldGrid.GetRiverDef(worldTile, nb[j]) == null) continue;
-                    var heading = Find.WorldGrid.GetHeadingFromTo(worldTile, nb[j]);
-                    cand.Add($"edge{j}->tile{nb[j]} heading={heading:F1}° diff={GenGeo.AngleDifferenceBetween(heading, angle):F1}°");
-                }
-                Log.Message($"[RimExodus] River edge match: map={map.uniqueID} tile={worldTile} angle={angle:F1}° " +
-                            $"candidates=[{string.Join("; ", cand)}] => downEdge={downEdge} upEdge={upEdge}");
-            }
-            if (downEdge < 0 || upEdge < 0 || downEdge >= verts.Count || upEdge >= verts.Count)
-            {
-                if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
-                    Log.Message($"[RimExodus] River GetMapEdgeNodes: FALLBACK vanilla (edge match failed: " +
-                                $"downEdge={downEdge} upEdge={upEdge} angle={angle:F1}°).");
-                return true;
-            }
-            if (downEdge == upEdge)
-            {
-                if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
-                    Log.Message($"[RimExodus] River GetMapEdgeNodes: FALLBACK vanilla (degenerate downEdge==upEdge={downEdge}).");
-                return true;
-            }
-
             var neighbors = new List<PlanetTile>();
             Find.WorldGrid.GetTileNeighbors(worldTile, neighbors);
-            if (downEdge >= neighbors.Count || upEdge >= neighbors.Count) return true;
+            bool ordered = isConfluence || workerType == typeof(TileMutatorWorker_River) ||
+                workerType == typeof(TileMutatorWorker_RiverIsland);
+            if (isDelta)
+                return !TryAnchorDelta(context, worldTile, verts, neighbors, angle, ref __result);
 
-            // 两端穿越点（三级来源）。
-            var downCrossing = ResolveCrossing(map, worldTile, mapSize, verts, downEdge, neighbors[downEdge], out var downSource);
-            var upCrossing = ResolveCrossing(map, worldTile, mapSize, verts, upEdge, neighbors[upEdge], out var upSource);
-            if (downCrossing == null || upCrossing == null)
+            PlanetTile upNeighbor;
+            PlanetTile downNeighbor;
+            List<PlanetTile> confluenceInlets = null;
+            if (ordered)
             {
-                if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
-                    Log.Message($"[RimExodus] River GetMapEdgeNodes: FALLBACK vanilla (crossing unresolved: down={downCrossing} up={upCrossing}).");
-                return true;
+                if (!(map.TileInfo is SurfaceTile surface) || surface.Rivers.Count < 2) return true;
+
+                // World generation builds from the outlet inland, so greater riverDist denotes upstream.
+                if (isConfluence)
+                {
+                    var links = surface.Rivers.ToList();
+                    var outlet = links.OrderBy(link => ((SurfaceTile)link.neighbor.Tile).riverDist).First();
+                    links.Remove(outlet);
+                    var land = links.Where(link => !link.neighbor.Tile.WaterCovered).ToList();
+                    if (land.Count == 0) return true;
+
+                    var inlet = land.MaxBy(link => link.river.widthOnMap);
+                    land.Remove(inlet);
+                    upNeighbor = inlet.neighbor;
+                    downNeighbor = outlet.neighbor;
+                    confluenceInlets = land.Select(link => link.neighbor).ToList();
+                }
+                else
+                {
+                    var links = surface.Rivers.OrderByDescending(link => ((SurfaceTile)link.neighbor.Tile).riverDist).ToList();
+                    upNeighbor = links[0].neighbor;
+                    downNeighbor = links[links.Count - 1].neighbor;
+                }
+            }
+            else
+            {
+                // Keep the angle-based contract for other river workers.
+                var upEdge = SeamlessPolygonGeometry.FindSeamEdge(worldTile, angle + 180f, SeamlessPolygonGeometry.SeamLink.River);
+                var downEdge = SeamlessPolygonGeometry.FindSeamEdge(worldTile, angle, SeamlessPolygonGeometry.SeamLink.River);
+                if (upEdge < 0 || downEdge < 0 || upEdge >= neighbors.Count || downEdge >= neighbors.Count) return true;
+                upNeighbor = neighbors[upEdge];
+                downNeighbor = neighbors[downEdge];
             }
 
-            // 中线 = 两穿越点连线，延伸到方形 rect（±RectMargin）边界。
-            var dir = upCrossing.Value - downCrossing.Value;
-            if (dir.sqrMagnitude < 1e-6f)
-            {
-                if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
-                    Log.Message("[RimExodus] River GetMapEdgeNodes: FALLBACK vanilla (degenerate line).");
-                return true;
-            }
-            var (endA, endB) = ExtendToRect(downCrossing.Value, dir, mapSize);
-            // 近 up 穿越点者为 up 端。返回 (start=up, end=down)：调用方 IsFlowingAToB 决定流向标记，
-            // 河形由对称 bell 决定不受交换影响。
-            var upEnd = Vector2.Distance(endA, upCrossing.Value) <= Vector2.Distance(endB, upCrossing.Value) ? endA : endB;
-            var downEnd = upEnd == endA ? endB : endA;
+            if (upNeighbor == downNeighbor ||
+                !TryResolveAnchor(map, worldTile, verts, neighbors, upNeighbor, out var up) ||
+                !TryResolveAnchor(map, worldTile, verts, neighbors, downNeighbor, out var down) ||
+                !TryGetChordEndpoints(up, down, mapSize, out __result)) return true;
 
-            // 记录本图穿越点（键 = 对端 tile id，幂等；供后生成邻图读取）。
-            var comp = SeamlessRiverCrossings.Ensure(map);
-            comp.crossings[neighbors[downEdge]] = downCrossing.Value;
-            comp.crossings[neighbors[upEdge]] = upCrossing.Value;
-
-            // 登记弦上下文（端点 + 穿越点弦参），供 GetDisplacedPoint Postfix 做缝附近蜿蜒归零。
-            if (chordsTile != worldTile) { chordsTile = worldTile; riverChords.Clear(); }
-            Patch_TileMutatorWorker_River_GetDisplacedPoint.loggedNodes.Clear(); // verbose 日志随图重置
-            var chord = upEnd - downEnd;
-            var chordLenSqr = chord.sqrMagnitude;
-            float CrossT(Vector2 x) => Vector2.Dot(x - downEnd, chord) / chordLenSqr;
-            riverChords.Add((downEnd, upEnd, CrossT(downCrossing.Value), CrossT(upCrossing.Value)));
-
-            __result = (new Vector3(upEnd.x, 0f, upEnd.y), new Vector3(downEnd.x, 0f, downEnd.y));
+            RegisterChord(context, up, down, __result.start, __result.end);
+            if (ordered) context.OrderedEndpoints = __result;
+            context.ConfluenceInlets = confluenceInlets;
             if (RimExodusLog.Enabled(RimExodusLogModule.Generation))
-                Log.Message($"[RimExodus] River GetMapEdgeNodes: SEAM-ANCHORED tile={worldTile} " +
-                            $"downEdge={downEdge} crossing=({downCrossing.Value.x:F1},{downCrossing.Value.y:F1}) src={downSource} " +
-                            $"upEdge={upEdge} crossing=({upCrossing.Value.x:F1},{upCrossing.Value.y:F1}) src={upSource} " +
-                            $"endpoints=({downEnd.x:F0},{downEnd.y:F0})/({upEnd.x:F0},{upEnd.y:F0}) start=up end=down.");
-            return false; // 跳过原版（不再用随机直线交点）
+                Log.Message($"[RimExodus] River GetMapEdgeNodes: SEAM-ANCHORED tile={worldTile} angle={angle:F1} " +
+                            $"upTile={up.Neighbor} crossing={up.Crossing} downTile={down.Neighbor} crossing={down.Crossing} " +
+                            $"start={__result.start} end={__result.end}");
+            return false;
+        }
+
+        internal static float RegisterChord(RiverGenerationContext context, RiverSeamAnchor up, RiverSeamAnchor down,
+            Vector3 start, Vector3 end)
+        {
+            var upEnd = start.ToVector2();
+            var downEnd = end.ToVector2();
+            var chord = downEnd - upEnd;
+            var chordLenSqr = chord.sqrMagnitude;
+            float upT = Vector2.Dot(up.Crossing - upEnd, chord) / chordLenSqr;
+            float downT = Vector2.Dot(down.Crossing - upEnd, chord) / chordLenSqr;
+
+            var comp = context.GetAnchors();
+            comp.crossings[up.Neighbor] = up.Crossing;
+            comp.crossings[down.Neighbor] = down.Crossing;
+            comp.riverChords.Add((upEnd, downEnd, upT, downT));
+            return (upT + downT) * 0.5f;
+        }
+
+        internal static bool TryGetChordEndpoints(RiverSeamAnchor up, RiverSeamAnchor down, int mapSize,
+            out (Vector3 start, Vector3 end) endpoints)
+        {
+            endpoints = default;
+            var direction = down.Crossing - up.Crossing;
+            if (direction.sqrMagnitude < 1e-6f) return false;
+
+            var (upEnd, downEnd) = ExtendToRect(up.Crossing, direction, mapSize);
+            endpoints = (new Vector3(upEnd.x, 0f, upEnd.y), new Vector3(downEnd.x, 0f, downEnd.y));
+            return true;
+        }
+
+        private static bool TryAnchorDelta(RiverGenerationContext context, PlanetTile worldTile,
+            List<Vector2> verts, List<PlanetTile> neighbors, float angle, ref (Vector3 start, Vector3 end) result)
+        {
+            var map = context.Map;
+            if (!(map.TileInfo is SurfaceTile surface)) return false;
+
+            var land = surface.Rivers.Where(link => !link.neighbor.Tile.WaterCovered).ToList();
+            if (land.Count == 0) return false;
+
+            var upstream = land.Where(link => link.neighbor.Tile is SurfaceTile neighbor &&
+                neighbor.riverDist > surface.riverDist).ToList();
+            var primary = (upstream.Count > 0 ? upstream : land).MaxBy(link => link.river.widthOnMap);
+            if (!TryResolveAnchor(map, worldTile, verts, neighbors, primary.neighbor, out var inlet)) return false;
+
+            var tributaries = new List<(RiverSeamAnchor anchor, float width)>();
+            foreach (var link in upstream)
+            {
+                if (link.neighbor == primary.neighbor ||
+                    !TryResolveAnchor(map, worldTile, verts, neighbors, link.neighbor, out var tributary)) continue;
+
+                tributaries.Add((tributary, link.river.widthOnMap));
+            }
+
+            bool singleOutlet = false;
+            // Every land connection must be a confirmed inlet and the only other link must drain into water.
+            // A coastal junction of this shape has one downstream channel even when its worker is RiverDelta.
+            if (tributaries.Count > 0 && tributaries.Count == upstream.Count - 1 &&
+                upstream.Count == land.Count && surface.Rivers.Count == upstream.Count + 1)
+            {
+                var downstream = surface.Rivers.First(link => link.neighbor.Tile.WaterCovered).neighbor;
+                if (downstream.Tile is SurfaceTile outletTile && outletTile.riverDist < surface.riverDist &&
+                    TryResolveAnchor(map, worldTile, verts, neighbors, downstream, out var outlet) &&
+                    TryGetChordEndpoints(inlet, outlet, map.Size.x, out result))
+                {
+                    singleOutlet = true;
+                    context.DeltaSingleOutlet = (outlet, result.start, result.end);
+                }
+            }
+
+            if (!singleOutlet)
+            {
+                var radians = angle * Mathf.Deg2Rad;
+                var direction = new Vector2(Mathf.Sin(radians), Mathf.Cos(radians));
+                // Vanilla still uses its coastal bearing for all later splits.
+                if (Vector2.Dot(direction, inlet.Inward) < 0.5f) direction = inlet.Inward;
+                if (!TryBuildDeltaGuide(verts, map.Size.x, inlet, direction, out result)) return false;
+            }
+
+            context.OrderedEndpoints = result;
+            context.DeltaInlet = inlet;
+            context.DeltaTributaries = tributaries;
+            return true;
+        }
+
+        internal static bool TryBuildDeltaGuide(List<Vector2> verts, int mapSize, RiverSeamAnchor inlet,
+            Vector2 direction, out (Vector3 start, Vector3 end) result)
+        {
+            var (_, end) = ExtendToRect(inlet.Crossing, direction, mapSize);
+            if (TryGuideTo(end, out result)) return true;
+
+            // Near a corner the coastal bearing can leave the polygon before the first split.
+            // Aim the initial segment toward the center; SplitRiver still gets the original bearing.
+            return TryGuideTo(new Vector2(mapSize * 0.5f, mapSize * 0.5f), out result);
+
+            bool TryGuideTo(Vector2 guideEnd, out (Vector3 start, Vector3 end) guide)
+            {
+                guide = default;
+                var ahead = guideEnd - inlet.Crossing;
+                float length = ahead.magnitude;
+                if (length <= 1f || Vector2.Dot(ahead, inlet.Inward) <= 0f) return false;
+
+                // Vanilla picks 20–50% of the guide. Put the start far enough outside the crossing
+                // to approach through the seam band, while keeping both extremes inside the convex map.
+                float lead = Mathf.Min(RectMargin, length * 0.125f);
+                var start = inlet.Crossing - ahead * (lead / length);
+                var shortest = Vector2.Lerp(start, guideEnd, 0.2f);
+                var longest = Vector2.Lerp(start, guideEnd, 0.5f);
+                if (!SeamlessPolygonGeometry.ContainsPointAt(verts, shortest.x, shortest.y) ||
+                    !SeamlessPolygonGeometry.ContainsPointAt(verts, longest.x, longest.y)) return false;
+
+                guide = (new Vector3(start.x, 0f, start.y), new Vector3(guideEnd.x, 0f, guideEnd.y));
+                return true;
+            }
+        }
+
+        internal static bool TryResolveAnchor(Map map, PlanetTile worldTile, List<Vector2> verts,
+            List<PlanetTile> neighbors, PlanetTile neighbor, out RiverSeamAnchor anchor)
+        {
+            anchor = default;
+            int edge = neighbors.IndexOf(neighbor);
+            if (edge < 0 || edge >= verts.Count) return false;
+
+            var crossing = ResolveCrossing(map, worldTile, map.Size.x, verts, edge, neighbor);
+            var inward = -SeamlessPolygonGeometry.EdgeOutwardNormal(verts, edge);
+            if (inward.sqrMagnitude < 0.5f) return false;
+
+            if (crossing.x < 0f || crossing.x > map.Size.x || crossing.y < 0f || crossing.y > map.Size.z) return false;
+            anchor = new RiverSeamAnchor(neighbor, crossing, inward);
+            return true;
         }
 
         /// <summary>
         /// 解析一条共享边的穿越点（本图坐标），三级来源（见类注释）。
-        /// 返回 null = 无法解析（调用方放行原版）。
         /// </summary>
-        private static Vector2? ResolveCrossing(Map map, PlanetTile worldTile, int mapSize, List<Vector2> verts,
-            int edgeIdx, PlanetTile neighborTileId, out string source)
+        private static Vector2 ResolveCrossing(Map map, PlanetTile worldTile, int mapSize, List<Vector2> verts,
+            int edgeIdx, PlanetTile neighborTileId)
         {
             // ③ 兜底：对称哈希（两侧同值）。
             var hashCrossing = SeamlessPolygonGeometry.SeamCrossingPoint(worldTile, edgeIdx, mapSize,
                 SeamlessPolygonGeometry.SeamLink.River);
-            source = "hash";
 
             // 找对侧图（数据查询：直接遍历 Find.Maps 按 worldTile 匹配，绕过 SeamlessTileGraph
             // 的休眠过滤——休眠图的 riverGraph/crossings 组件照常可读，图量 ≤37）。
@@ -216,10 +323,7 @@ namespace RimExodus
             // ① 邻图记录。
             var rec = neighborMap.GetComponent<SeamlessRiverCrossings>();
             if (rec != null && rec.crossings.TryGetValue(worldTile, out var recorded))
-            {
-                source = "neighbor-record";
                 return recorded + offset;
-            }
 
             // ② 邻图 riverGraph 直线求交（对侧 fallback vanilla 时跟随其实际穿越位置）。
             var graph = neighborMap.waterInfo?.riverGraph;
@@ -240,16 +344,13 @@ namespace RimExodus
                     }
                 }
                 if (best != null)
-                {
-                    source = "neighbor-intersect";
-                    return best;
-                }
+                    return best.Value;
                 // 对侧河与共享边无交（斜出别边）→ 回落哈希（该缝不齐，不劣于现状）。
             }
             return hashCrossing;
         }
 
-        /// <summary>线段 v0→v1 与直线 a→b 求交；返回交点且须落在线段内（t∈[0,1]）。</summary>
+        /// <summary>共享边线段与邻图实际河段求交。</summary>
         private static bool SegmentLineIntersection(Vector2 v0, Vector2 v1, Vector2 a, Vector2 b, out Vector2 hit)
         {
             hit = default;
@@ -259,13 +360,14 @@ namespace RimExodus
             if (Mathf.Abs(denom) < 1e-9f) return false; // 平行
             var diff = a - v0;
             var t = (diff.x * dir.y - diff.y * dir.x) / denom; // 沿线段参数
-            if (t < 0f || t > 1f) return false;
+            var riverT = (diff.x * seg.y - diff.y * seg.x) / denom;
+            if (t < 0f || t > 1f || riverT < 0f || riverT > 1f) return false;
             hit = v0 + seg * t;
             return true;
         }
 
         /// <summary>直线（起点 p、方向 d）延伸到方形 rect（±<see cref="RectMargin"/>）边界的两个交点。</summary>
-        private static (Vector2 a, Vector2 b) ExtendToRect(Vector2 p, Vector2 d, int mapSize)
+        internal static (Vector2 a, Vector2 b) ExtendToRect(Vector2 p, Vector2 d, int mapSize)
         {
             var lo = -RectMargin;
             var hi = mapSize + RectMargin;
@@ -361,7 +463,7 @@ namespace RimExodus
     ///
     /// 匹配：node 端点与登记弦上下文比对（容忍调用方 IsFlowingAToB 交换 start/end；反向时只把
     /// 登记的穿越点参数映射为 1−t，当前采样 t 始终保持 RiverNode.start→end 坐标系）；
-    /// 无匹配（fallback vanilla / 未锚定端）不处理。生成期单线程安全（预览图 fallback 不登记）。
+    /// 单锚点河段按 RiverNode 登记；局部归零后平滑回到原版位移，图内的汇流点和分叉点由原版控制。
     /// </summary>
     [HarmonyPatch(typeof(TileMutatorWorker_River), "GetDisplacedPoint")]
     static class Patch_TileMutatorWorker_River_GetDisplacedPoint
@@ -369,12 +471,10 @@ namespace RimExodus
         /// <summary>零中心 Logistic 的特征尺度（格）；不作为有限窗口边界。</summary>
         private const float BendFreeCells = 25f;
 
-        /// <summary>verbose 日志去重：每 node 只记一次（避免深度场逐格刷屏）。worldTile 变更时清。</summary>
-        internal static readonly HashSet<RiverNode> loggedNodes = new();
-
         internal static void Postfix(RiverNode riverNode, float t, ref Vector2 __result)
         {
-            if (Patch_TileMutatorWorker_River_GetMapEdgeNodes.riverChords.Count == 0) return;
+            var anchors = Patch_TileMutatorWorker_River_Generation.Current?.Anchors;
+            if (anchors == null || (anchors.riverChords.Count == 0 && anchors.singleAnchors.Count == 0)) return;
 
             var s = new Vector2(riverNode.start.x, riverNode.start.z);
             var e = new Vector2(riverNode.end.x, riverNode.end.z);
@@ -382,13 +482,24 @@ namespace RimExodus
             var lenSqr = d.sqrMagnitude;
             if (lenSqr < 1e-6f) return;
 
+            if (anchors.singleAnchors.TryGetValue(riverNode, out var crossing))
+            {
+                var length = Mathf.Sqrt(lenSqr);
+                var sideLength = (t < crossing ? crossing : 1f - crossing) * length;
+                var window = Mathf.Min(BendFreeCells, sideLength);
+                var distance = Mathf.Abs(t - crossing) * length;
+                var chordAtSample = s + d * t;
+                __result = chordAtSample + (__result - chordAtSample) * Mathf.SmoothStep(0f, 1f, distance / window);
+                return;
+            }
+
             // 找本 node 的弦上下文（端点匹配，容忍交换）。
             float tA = 0f, tB = 0f;
             var found = false;
-            foreach (var c in Patch_TileMutatorWorker_River_GetMapEdgeNodes.riverChords)
+            foreach (var c in anchors.riverChords)
             {
-                if (Approx(c.s, s) && Approx(c.e, e)) { tA = c.tA; tB = c.tB; found = true; break; }
-                if (Approx(c.s, e) && Approx(c.e, s)) { tA = 1f - c.tA; tB = 1f - c.tB; found = true; break; }
+                if (Approx(c.start, s) && Approx(c.end, e)) { tA = c.tA; tB = c.tB; found = true; break; }
+                if (Approx(c.start, e) && Approx(c.end, s)) { tA = 1f - c.tA; tB = 1f - c.tB; found = true; break; }
             }
             if (!found) return;
 
@@ -406,7 +517,7 @@ namespace RimExodus
             var w = ZeroCenteredLogistic(signedDistance / BendFreeCells);
             __result = chordPoint + bend * w;
 
-            if (RimExodusLog.Enabled(RimExodusLogModule.Generation) && loggedNodes.Add(riverNode))
+            if (RimExodusLog.Enabled(RimExodusLogModule.Generation) && anchors.loggedNodes.Add(riverNode))
                 Log.Message($"[RimExodus] River bend sigmoid: node width={riverNode.width:F0} " +
                             $"crossings=[{Mathf.Min(tA, tB):F3},{Mathf.Max(tA, tB):F3}] len={len:F0} " +
                             $"first-t={t:F3} signed={signedDistance:F1} w={w:F3} bendMag={bend.magnitude:F1}");

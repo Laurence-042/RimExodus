@@ -16,6 +16,8 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 1.1.5
 - 新增可选的 GravTide 海底无缝支持。在地图生成设置中开启「GravTide 海底无缝」并重启后，可沿接缝在新生成的海底地图之间通行。已有地图保留原有形状。（应 @Rage 请求）
   Added optional seamless seabed support for GravTide. Enable “Seamless GravTide seabed” in map generation settings and restart to travel across seams between newly generated seabed maps. Existing maps keep their original shape. (Requested by @Rage.)
+- 修复了新生成地图上河流跨缝时流向反转、支流断开，以及本应只有一处入海口的河流错误分叉的问题。（@真hihi 报告的问题）
+  Fixed reversed river flow at map seams, disconnected tributaries, and unwanted branching at single-outlet river mouths on newly generated maps. (Reported by @真hihi.)
 
 1.1.4
 - 修复：倒在接缝上的角色可能无法被正确点选，右键反而指向相邻地图；现在优先点选当前地图上的实际地面和角色，关闭接缝显示时同样生效（@王里豪 报告的问题）

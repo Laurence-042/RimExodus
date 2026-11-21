@@ -49,6 +49,7 @@ namespace RimExodus
                 // 扫中点邻域水格，收集法向/切向坐标（相对中点）。
                 var nCoords = new List<float>();
                 var tCoords = new List<float>();
+                var riverCount = 0;
                 var mc = new IntVec3(Mathf.RoundToInt(mid.x), 0, Mathf.RoundToInt(mid.y));
                 for (var dx = -ScanRadius; dx <= ScanRadius; dx++)
                 {
@@ -58,6 +59,7 @@ namespace RimExodus
                         if (!cell.InBounds(map)) continue;
                         var terrain = map.terrainGrid.TerrainAt(cell);
                         if (terrain == null || !terrain.IsWater) continue;
+                        if (terrain.IsRiver) riverCount++;
                         var rel = new Vector2(cell.x - mid.x, cell.z - mid.y);
                         nCoords.Add(Vector2.Dot(rel, normal));
                         tCoords.Add(Vector2.Dot(rel, tangent));
@@ -74,7 +76,7 @@ namespace RimExodus
                 var tAvg = 0f; foreach (var v in tCoords) tAvg += v; tAvg /= tCoords.Count;
                 // 水带走向 = 主轴方向与法向的夹角（对 n/t 坐标做 2×2 协差的斜率近似）。
                 // normal = 内法线：normalRange 正值 = 向图内的水带纵深。
-                sb.Append($" | edge{j}->tile{neighbors[j]} crossing=({mid.x:F0},{mid.y:F0}) water={nCoords.Count} " +
+                sb.Append($" | edge{j}->tile{neighbors[j]} crossing=({mid.x:F0},{mid.y:F0}) water={nCoords.Count} river={riverCount} " +
                     $"normalRange=[{nMin:F0},{nMax:F0}] tangentRange=[{tMin:F0},{tMax:F0}] tAvg={tAvg:F1} " +
                     $"tWidth={tMax - tMin:F0}");
             }
