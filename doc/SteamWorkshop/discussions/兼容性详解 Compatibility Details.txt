@@ -8,8 +8,8 @@
 本 Mod 导致兼容性降低的核心修改点主要是以下几点：
 The core modifications that may reduce compatibility are mainly the following:
 
-1. 添加额外的地图生成步骤来将地图切成六边形（在那 12 个五边形地块上则切成五边形），并使生成的地图在接缝上与先前的地图地形融合。
-1. Adds extra map generation steps to cut maps into hexagons (pentagons on the 12 pentagonal world tiles), and blends terrain at the seams with previously generated maps.
+1. 在已接入的地图上添加生成步骤，按地块轮廓裁切并与邻图混合接缝附近地形。原版根地表采用五边形或六边形，其他 Mod 可以为自己的世界层定义轮廓。
+1. Adds generation steps to enrolled maps to clip them to their tile outlines and blend seams with neighbors. The vanilla surface uses pentagons or hexagons, and other mods can define outlines for their own world layers.
 
 2. Patch 了一些射击行为（投掷手榴弹也包含在内），允许跨地图射击（可关闭，关闭后不会有跨图战斗）。
 2. Patches certain shooting behaviors (including thrown grenades) to allow firing across maps. (Can be disabled; when disabled, there is no cross-map combat.)
@@ -29,6 +29,9 @@ From these modifications you can roughly judge compatibility with any given mod.
 ----------------------------------------------------------
 做了额外适配后兼容 / Compatible After Extra Adaptation
 ----------------------------------------------------------
+
+GravTide（实验性适配，也是典型的添加了其他worldtile模式的mod适配范例）：其引入了新的世界层级“海底”。但 RimExodus 自动确认哪些mod新增的地图应该视为相邻、视为相邻的话怎么拼接等等，因为这些都是高度依赖对方mod设定的，RimExodus无法预见其规则，所以需要mod开发者在这自己的mod里向RimExodus注册应该如何处理他们新增的层级的地图的相邻情况的规则，而GravTide就是开发者们可以参考的适配范例。只需要在地图生成设置中开启「GravTide 海底无缝」并重启，即可在新生成的相邻海底地图之间直接通行，这也是开发者可以进行代码检查的入口。更详细的适配流程请参照仓库里的README里的“开发者接入”相关段落。
+GravTide (experimental). Enable “Seamless GravTide seabed” in map generation settings and restart to walk between newly generated neighboring seabed maps. High-compatibility neighbor rendering also shows blue haze on neighboring seabed maps.
 
 Combat Extended：CE 的战斗行为与原版不走同一条路，跨图射击需要单独适配，现已完成——普通枪械、手雷、迫击炮、瞬发射线、制导弹、CIWS、压制射击与能力发射路径均可攻击相邻地图，角色与自动/手动炮塔会跨图索敌；射程、视线、掩体、烟雾、光照、散布、弹道、碰撞与爆炸仍按 CE 规则在真实地图上计算。同一张地图内的战斗完全走 CE 原生逻辑；CE 世界炮击继续使用其原生流程。
 Combat Extended: CE's combat follows a different code path from vanilla, so cross-map shooting needed a dedicated adaptation — now done. Ordinary firearms, grenades, mortars, instant rays, guided projectiles, CIWS, suppression fire, and ability-launched projectiles can engage targets on adjacent maps, while pawns and automatic/manual turrets acquire cross-map targets. Range, line of sight, cover, smoke, lighting, dispersion, ballistics, collision, and explosions still use CE rules on the actual maps. Combat within a single map goes entirely through CE's native logic; CE world shelling keeps its original flow.
@@ -131,3 +134,6 @@ As above, So below 2: It generates one huge map and splits it into altitude-laye
 
 4. 如果一个 Mod 修改了地图渲染机制，那么只要它别搞啥花活，大部分应该都能在兼容模式下适配，但是一些跨地图影响仍然需要作者自行适配。
 4. If a mod changes map rendering without unusual custom behavior, it will probably work in compatibility mode. Some cross-map effects will still need adaptation by that mod's author.
+
+5. 如果一个 Mod 添加了新的世界层级，那么需要对应 Mod 作者为自己的世界层注册无缝规则，定义地图识别、轮廓、同层邻接和离场方式，才能应用RimExodus的跨地形机制。示例直接见项目 README 的「开发者接入」。
+5. Mod authors can register seamless rules for their own world layers, including map eligibility, outlines, same-layer neighbors, and exits. This requires vanilla world tiles and regular map parents. See Developer Integration in the project README for examples.

@@ -10,7 +10,7 @@
 
 ## 支持矩阵
 
-注册故障隔离与逐项日志的判读见 [兼容层注册审计](兼容层注册审计.md)。RE legacy 与 REF 的延迟炮塔/CIWS 注册都在实际回调内保护反射查找和绑定；某项失败只代表该项不可用，仍须按下列能力分组实测，不能只凭汇总注册行判定全部通过。
+RE legacy 与 REF 的延迟炮塔和 CIWS 注册都在实际回调内保护反射查找和绑定。按逐项日志与下列能力分组实测，汇总注册行只表示注册流程已执行。
 
 - 支持普通 `Verb_ShootCE`、`Verb_ThrowGrenade`、`Verb_ShootMortarCE`、`VerbCIWS`，以及 one-use、changeable 和 Ability 发射路径。
 - 支持玩家 Pawn、NPC、snap 与 non-snap CE 炮塔的跨图选择、射界/射程判断和开火。

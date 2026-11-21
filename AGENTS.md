@@ -16,13 +16,13 @@
 - `doc/地图滚动休眠.md`：休眠、降频、删除、封存、天气域和手动管理。
 - `doc/边界行为表.md`：不同主体与移动来源的边缘行为。
 - `doc/跨图命令适配审计.md`：跨图命令覆盖矩阵。
-- `doc/第X阶段-*.md` 与 `doc/无缝世界地块探索.md`：设计叙事与阶段结果。
+- [rimexodus-compatibility skill](.agents/skills/rimexodus-compatibility/SKILL.md) 记录世界层接入、REF 渲染排查和兼容验收流程。对外接口直接写在 [README 的开发者接入](README.md#开发者接入)。
 - `doc/TODO.md`：未完成工作和待验证项；不得把其中的排期当成发版状态。
 - 代码注释：只承载紧贴实现、离开代码就容易误改的局部约束。
 
 维护时遵守以下规则：
 
-- 不在 `AGENTS.md` 保留“旧方案 + 覆盖说明”。方案被替换时直接删除旧结论；有复盘价值的过程移到对应阶段文档或代码注释。
+- 方案更换时更新当前契约。可复用排查步骤归入对应 skill，已结束的过程和测试流水留在 Git 历史。
 - 同一事实只保留一个权威位置，其他地方用链接和一句摘要引用。
 - 功能改动必须同步对应专题文档；对外兼容性、设置或已知限制变化还要同步 `README.md`。
 - `Changes.txt` 面向玩家，只写可感知的症状与变化，中英逐条对照，禁止内部类名和机制行话。修改既有条目时最小操作单元是"中文行 + 英文行"的条目对（含署名等信息），验收标准是改后两行仍对称——不要只锚定单侧行做替换，"编辑成功"不等于"对照仍成立"（2026-09-25 教训：只给英文行补了报告者署名）。
@@ -51,19 +51,19 @@ RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_ref
 
 ## 4. 总体架构：表面地图对等
 
-- RimExodus 的目标是所有合法表面 `MapParent` 地图连续通行。任务地点、遭遇、派系基地、营地和普通地块都走裁切、接缝与传送链；不得新增“非 RimExodus 地图放行原版”的类型分支。
-- 唯一类别排除是口袋图（`PocketMapParent`，包括 VMF 载具内部图）和非 Surface 空间层图。`GetMapWorldTile(map) < 0` 对它们表示排除出表面无缝语义；对 parent 缺失或 worldTile 未初始化则是防御性失败。所有按 tileId 的天气域、邻接、边界和 governor 查询都应收口到该入口，避免 tileId 冲突污染。
+- 已接入层内的合法 `MapParent` 地图共用裁切、接缝与传送链。任务地点、遭遇、派系基地、营地和普通地块适用同一规则。接入资格收口到 `GetMapWorldTile`。
+- 原版根地表默认接入。其他 Mod 通过公开的 `SeamlessMapProviders.Register` 注册世界层，每个层 Def 由一个提供者定义地图识别、邻图生成和接缝规则。邻接限同一层的真实世界地块。口袋图、未接入层及未裁切的提供者旧地图返回 `PlanetTile.Invalid`。天气、邻接、边界和 governor 均使用 `GetMapWorldTile` 返回的带层 `Map.Tile`。示例见 [README 的注册无缝世界层](README.md#注册无缝世界层)。
 - 普通地块使用 `MapParent_SeamlessTile : MapParent`，其 `Tile` 是真实 `PlanetTile`；没有 `sourceMap`、`IsPocketMap` 或宿主口袋图语义。
 - 家园没有生成、天气或邻接特权。仅有两项工程差异：原生 parent 的邻接/基础快照存于 `SeamlessTileManager`，地块 parent 存于自身；家园生命周期受 `SeamlessMapGovernance.IsProtectedHome` 保护，不休眠、不删除。
 - 数据载体分支只能经 `SeamlessMapData`；管辖、家园保护和可删除性只能经 `SeamlessMapGovernance`。不要复活 `IsAnchorMap` 或散落的类型判断。
 
 ## 5. 邻接与坐标契约
 
-- `NeighborLink` 主键为 `worldTile`，保存 `neighbor` 与 `offset`。
+- `NeighborLink` 保存 `neighbor`、`offset` 和来源图所在层内的整数 `worldTile`。同层邻居表可用这个编号，跨层消歧使用原版 `PlanetTile` 或地图实例。
 - `offset` 的唯一含义是“邻居局部坐标到本地图局部坐标”的平移：`neighborLocal + offset = myLocal`。反向映射为 `neighborLocal = myLocal - offset`。
 - 邻接登记必须通过 `SeamlessNeighborRegistry` 双向维护；查询通过 `SeamlessTileGraph`。休眠图在运行时邻接/显示口径中视为不可用，但其 Map 仍存在。
 - 地图间绘制投影只使用 `SeamlessViewProjection.TryProject(sourceMap, sourceLocal, destinationMap, out projected)`。调用方必须显式给出目标坐标系；不要增加含糊的 `ToCurrent` 包装、手写 `+offset`，或在调用处自行遍历邻居。
-- 第三方离散格算法的跨图接入统一经 `SeamlessSpatialQueries` 对接 REF `MapCellSpace`。RE 提供活跃 Surface 直接邻居、多边形归属和上述投影入口；渲染可见性、战斗开关与格子可用性不得混用。结果回写真实地图，先完成各图本地重算再合并跨图贡献，避免更新顺序抹掉视野。方法论见同级 REF `doc/跨图空间查询.md`，SS 接入见 [Surveillance Shift 跨图视野](doc/SurveillanceShift跨图视野.md)。
+- 第三方离散格算法的跨图接入统一经 `SeamlessSpatialQueries` 对接 REF `MapCellSpace`。RE 提供已接入层的活跃直接邻图、多边形归属和上述投影入口。渲染可见性、战斗开关与格子可用性不得混用。结果回写真实地图，先完成各图本地重算再合并跨图贡献，避免更新顺序抹掉视野。方法论见同级 REF `doc/跨图空间查询.md`，SS 接入见 [Surveillance Shift 跨图视野](doc/SurveillanceShift跨图视野.md)。
 - 8 邻环使用 `GenAdj.AdjacentCells`，含中心 9 格使用 `GenAdj.AdjacentCellsAndInside`，切比雪夫距离使用 `SeamlessGridMath.ChebyshevDistance`。半径大于 1 的方窗若需显式循环，注释应指明同一口径。
 
 ## 6. 接缝几何、地形与生成
@@ -95,9 +95,9 @@ RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_ref
 ## 7. 接缝参考与快照
 
 - `SeamStripData` 已删除，禁止重新引用或持久化派生条带。
-- 新图只参考世界相邻且当前实际存在于 `Find.Maps` 的 Surface Map。软休眠 Map 因仍在 `Find.Maps` 可作为数据来源；封存/删除图没有 Map，不参与参考。
+- 新图只参考按所在层规则相邻且实际存在于 `Find.Maps` 的地图。软休眠图仍可作为数据来源，封存或删除的图没有 Map，跳过参考。
 - 映射格优先读取邻图当前 terrain/自然岩/roof；当前 terrain 为 null/void 时回落该图 389 前的完整基础快照。读取结果必须区分“无数据”和“有数据但岩/顶明确为 null”。
-- 同步 `MapGenerator.GenerateMap` Prefix 与 `IncrementalMapGenerator.Start` 都必须在占用生成 static 之前调用 `EnsureNeighborSnapshots(targetTile)`，为目标周围实际加载的参考图补快照。MapPreview 当前线程、口袋图和空间层跳过；失败 Warning 后仅缺失的 void 侧采样降级跳过。
+- 同步 `MapGenerator.GenerateMap` Prefix 与 `IncrementalMapGenerator.Start` 都必须在占用生成 static 之前调用 `EnsureNeighborSnapshots(targetTile)`，为目标周围实际加载的参考图补快照。MapPreview 当前线程、口袋图和未接入层跳过。失败时发出 Warning，仅跳过缺失的 void 侧采样。
 - 地块图基础快照只驻内存并可按需重建；原生图的紧凑快照可持久化，用于卸载恢复。旧存档中的 `seamStrip` XML 自然忽略，下次保存消失，不做迁移或版本 bump。
 - 快照 Def 表索引 0 保留为空；读取兼容旧零基格式。
 
@@ -119,10 +119,10 @@ RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_ref
 
 天气域采用“决策集中、执行各图”：
 
-- 同 PrimaryBiome 且世界邻接连通的已登记 Surface Map 属同一域。每图保留自己的 WeatherManager/WeatherDecider/SkyManager；仅决策和 Transition 事件共享。
+- 已登记地图在同一层内按 PrimaryBiome 和邻接连通性组成天气域。每图保留自己的 WeatherManager、WeatherDecider 和 SkyManager，仅共享决策与 Transition 事件。
 - 域激活图是持久注册记录，不是每次重算时按 tile 编号推断。新域第一张报到图成为激活图；休眠、0% 凝固、删除或强制天气注册按既定事件交接。
 - 被动成员的 WeatherDecider tick 整体短路；TransitionTo 与 DisableRainFor 在域内广播并用 try/finally 重入保护。执行类 patch 用 `Priority.Last` 尊重第三方取消，决策门使用 `Priority.First`。
-- 口袋图、空间层图和未报到图 fail-open 走原版。
+- 口袋图、未接入层和未报到的图沿用原版天气行为。
 
 ## 9. 传送、交互与战斗
 
@@ -145,7 +145,7 @@ RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_ref
 
 ## 10. 原生 POI、派系基地与影子远行队
 
-- 已有表面原生 parent 占位使用原生同步 `GetOrGenerateMap`，保留 Settlement/Site/第三方生成语义；生成后再做邻接、天气、传送点和缓存接线。不要按具体 SitePart 建白名单。
+- 已接入层的原生 parent 占位使用原生同步 `GetOrGenerateMap`，保留 Settlement、Site 和第三方的生成语义。生成后接入邻接、天气、传送点和缓存。不要按具体 SitePart 建白名单。
 - 中立/友方派系基地必须阻止原版 `CheckDefeated` 的“无敌对威胁即败亡”误判；敌对基地仍走原版。真败亡后邻接链接要重接到同 tile 的废墟 parent。
 - 派系基地贸易商只在生成时选一次，不写原版 `pawn.trader` 或 `wantsToTradeWithColony`。对话复用原生 `Dialog_NodeTreeWithFactionInfo`，选项同时采集 `GetCaravanGizmos` 与 `GetFloatMenuOptions`，并显式过滤攻击、进入、访问等会二次进图的命令。
 - 影子远行队是未加入 `Find.WorldObjects` 的常驻投影，用于兼容即时与延迟的远行队交互；不 tick、不序列化、不出现在世界图。不要回退到“加入世界对象表再逐面隐藏”。
@@ -154,9 +154,10 @@ RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_ref
 
 ## 11. 渲染与效果
 
-- 邻图渲染设置独立于 REF/legacy 模拟底层。默认自绘制路径沿用本节下述规则；高兼容性路径由 `SeamlessNativeRendering` 选择可见图/投影/凸边界，交给 REF `MapRuntime.Rendering`。不得重复调用 `MapUpdate`、组件 Update、CameraDriver.Update 或实际 CurrentMap setter；不得在 RE 再复制绘制层清单。两条路径互斥，切换时释放旧缓冲，原版回调范围及边界见 `doc/REF接入实施与验收.md`。
+- 邻图渲染设置独立于 REF/legacy 模拟底层。高兼容性路径由 `SeamlessNativeRendering` 选择可见图、投影与凸边界，交给 REF `MapRuntime.Rendering`。不得重复调用 `MapUpdate`、组件 Update、CameraDriver.Update 或实际 CurrentMap setter，不在 RE 复制原版绘制层清单。两条路径互斥，切换时释放旧缓冲。
 
-- `SeamlessTileRenderer` 只在合法 Surface Map 工作；口袋图/空间图必须早退，避免清色覆盖星空或载具内部背景。
+- 分区覆盖层的裁切交给 REF。消费方只在目标图层的绘制范围内显式选择提交，共享材质不足以识别图层。绘制接口见 [README 的接入第三方覆盖层](README.md#接入第三方覆盖层)。
+- `SeamlessTileRenderer` 只处理已接入层的合法地图。口袋图和未接入层必须早退，避免清色覆盖星空或载具内部背景。
 - 邻图静态层当前收集 Terrain、ThingsGeneral、LightingOverlay、FogOfWar，并把 Watergen 几何送入原版 WaterDepth 子相机。水面必须保留原 `TerrainWater` shader 与深度几何配对，禁止回退到静态 TerrainFade/Hard 贴图。
 - WaterDepth 视区使用“当前视区 + 当前缩放半屏”的保守余量，解决快速横移时 RT 边缘 Clamp 拉伸；不要改成全图提交或第二套相机/RT。
 - 邻图动态物单独绘制 Pawn、Projectile、RealtimeOnly Thing 和 Mote。Mote 保持源图归属与生命周期，仅在最终 `Mote.DrawMote` 出口通过 `SeamlessCompositeDrawContext` 平移。
@@ -169,7 +170,7 @@ RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_ref
 
 - 兼容层全部软检测：目标 Mod 缺失时零行为、零错误；类型或签名漂移时 Warning 并安全降级，不能让兼容诊断杀死 RimExodus 初始化。
 - 手动 `AccessTools.Method + harmony.Patch` 不受离线 PatchAll 验证器覆盖；必须 try/catch，并输出可核对的绑定成功行。
-- 自动注册只收显式 `[HarmonyPatch]` 类，手动兼容辅助类不进入自动扫描。延迟注册的异常保护必须覆盖回调执行及其反射参数求值；仅在排队处 try/catch 不足。注册模式、局部降级与离线覆盖以 `doc/兼容层注册审计.md` 为准；`just test-compat` 验证 1.7 两后端实际绑定及模拟兼容失败。
+- 自动注册只收显式 `[HarmonyPatch]` 类，手动兼容辅助类留在手动路径。延迟注册的异常保护必须覆盖实际执行及反射参数求值。`just test-compat` 验证 1.7 两后端的绑定和兼容失败路径。
 - Geological Landforms：分帧路径复刻其 Prepare/Cleanup 上下文；RimExodus parent 必须登记进 GL 的 IgnoredWorldObjects。GL 河流通过 Path tree 钉位，不能回退到离散函数场 warp 或生成后地形修补。GL 河缝对齐 = v9 端点钉位（PathTracer.Trace Prefix，含叶段 AngleTenacity 放宽至地貌自设 AngleLimitAbs 上限内；钉位 trace 的碰撞重试上限钳 12 防不收敛循环）+ v10 `PathFinder.FindPath` Prefix 接受收紧（钉位目标 TargetAcceptRadius→0.75·步长、PlanarTargetFallback→0；最后一档重试恢复 vanilla 洪量防 null→梯度跟随降级）+ v10d/g 终端收口（Postfix 截尾后接缝线穿越点节点与缝外垂直延伸节点，偏差按构造归零；中段偏差 12–40 格的制造腿必须通过**含余量的走廊检查**——沿线圆盘采样与已成形河带保持 ~12 格净空，只查河带本体时腿贴碰撞余量带通过仍会烧循环把无辜支流 stub 掉——并可锚点回溯，全被占则放弃收口保留 GL 路线）。**禁止整体位移 A\* 结果**（v10a 全路径 smoothstep 位移与烘焙碰撞处理器互搏致误差逐轮放大直至 stub 截断、河流整体消失，已撤销）——终端单点收口是唯一允许的事后修改；亦勿用 GridValueSupplier 委托包装（Vector2d 无编译引用需 emit）或 Segment 拆段预弯（无 Target 中段落入梯度跟随模式 + 单节点越界前科）。合流/分流地貌"分支点贴边无扭转空间"为结构性边界：走廊被阻挡的支流保留 GL 原生走向；实测个别支流仍会被 GL 碰撞处理器截断、在合流图一侧整体缺失（NO-CROSS，v10g 余量走廊也救不回——剩余碰撞来自 GL 原生拓扑与钉位目标的冲突，非我方制造腿）——已接受为已知边界（用户定夺 2026-09-17，不再深入 node 操作——那等于重写 GL 河流生成）。GL 1.7.13 起主程序集经 LunarLoader 懒加载（Assemblies 只有 LunarLoader.dll，真程序集在 Lunar/Components/）——GL 类型解析必须经 `SeamlessLandformsCompat.EnsureResolved` 可重试，最终注册兜底在生成入口（`EnsureNeighborSnapshots` 漏斗 → `EnsureRegisteredForGeneration`，原生/分帧两路径全覆盖）；勿回退为 RimExodusMod 构造器时点一次性解析（2026-09 教训：ctor 时点解析对 mod 列表顺序敏感，静默失效时河流地貌 tile 两边河 mutator 都不跑、地块图无河无地貌）。
 - MapPreview：后台预览与正式生成共享 MapGenerator static，必须互斥；线程判定不能只看全局 IsGeneratingPreview。
 - Vehicle Framework：跨图前先同步就绪化目标图 VehiclePathGrid，再用整车矩形与载具自己的成本源判断落点。不得用普通 Pawn 的 Walkable 或 thingGrid Standable 预筛深水/植被。

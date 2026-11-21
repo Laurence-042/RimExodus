@@ -2,23 +2,24 @@
 
 一个适配 RimWorld 1.6 与 1.7 预览版的 mod：使相邻世界地块的局部地图在视觉与操作上连续连接，Pawn 可以直接从一张地图走入相邻地图，无需组建远行队。1.7 的兼容性验证仍在进行，详见下文。
 
-当前提供 REF 与 legacy 两种地图底层。设置 → 地图生成 → **使用 REF 地图底层（重启生效）**，默认关闭；修改后完整重启游戏。两种模式都需要启用独立的 RimExodus Framework 前置。REF 已完成代码接线，仍需游戏内验收；验证与回退步骤见 [REF 接入实施与验收](doc/REF接入实施与验收.md)。
+当前提供 REF 与 legacy 两种地图底层。设置 → 地图生成 → **使用 REF 地图底层（重启生效）**，默认关闭。切换后完整重启，在日志中确认 `Map backend: REF` 或 `Map backend: legacy`。取消勾选并重启即可回到 legacy，两种模式都需要启用 RimExodus Framework。
 
 REF 启用后首次启动会显示一次关于前置和地图底层的公告；缺 REF 时独立引导 DLL 也会显示同一公告。已读公告可在 Mod 设置 → 高级 / 诊断 → **查看历史公告**中重看，也可安排下次启动再次提醒。后续公告沿用此入口。今后以 REF 为核心维护，建议新档启用 REF；如无意外，计划在 RimWorld 1.7 正式发布时移除旧底层，届时旧存档中的前哨封存数据可能不再兼容。当前版本仍可读取旧封存记录，切换前建议备份存档；具体保真边界见 [地图滚动休眠](doc/地图滚动休眠.md#ref-与-legacy-执行边界)。
 
-同一页另有 **高兼容性原版邻图渲染** 开关，默认关闭，下一帧生效，与 REF/legacy 底层选择独立。开启后由 REF 接入可见邻图正常的地图更新与绘制回调，保留原版层、Fleck、组件覆盖层及渲染队列；关闭回到现有自绘制路径。高兼容性路径沿用单次天色染色规则，避免邻图重叠处重复变暗。会增加渲染开销，尚待游戏实测；私有相机、全屏后处理和自定义 GPU 数据仍有边界，不承诺任意 Mod 与聚焦该图时完全一致。实现及验收步骤见 [REF 接入实施与验收](doc/REF接入实施与验收.md#高兼容性原版邻图渲染)。
+同一页的 **高兼容性原版邻图渲染** 默认关闭，下一帧生效，独立于 REF/legacy 底层。开启后 REF 使用可见邻图的原版绘制回调，保留原版层、Fleck、组件覆盖层及渲染队列。接缝重叠区只染一次天色。该路径会增加渲染开销，使用私有相机、全屏后处理或自定义 GPU 数据的 Mod 可能仍需专用适配。
 
 构建沿用 Delta-V 流程：`just build` 默认构建 1.7 Release，1.6 使用 `just build 1.6`。先构建同级 REF、复制匹配版本 DLL 到 `References/REF/<版本>/`，再通过 `dotnet build` 构建 RE 与不引用 REF 的缺依赖公告引导 DLL；REF 失败即停止。运行时 REF DLL 仅由独立前置加载。1.7 成功构建后同步 Def、翻译和补丁内容。可用 `DOTNET_EXE` 指定 SDK；本机默认复用 Delta-V 的 `.local-tools/dotnet`，缺失时使用 PATH 上的 dotnet。显式 `LoadFolders.xml` 阻止 1.7 缺产物时自动加载 1.6 DLL。`just test-ref` 转调 REF 的离线测试。
 
 开发目录以 `RimExodus — Seamless World (Dev)` 和 `RimExodus.SeamlessWorld.Dev` 加载，依赖 `RimExodus.Framework.dev`。`just release` 分别尝试构建 1.6 和 1.7；缺少某版构建环境时复用不早于源码及 REF DLL 的已有产物，过时则警告并中止。成功后两版一起打包到同级 `RimExodus.release`，将名称、packageId、REF 依赖和加载顺序转换为正式版（`RimExodus.Framework`）；正式包同时声明并包含两个游戏版本，需要启用 REF 正式包。默认游戏目录为 `RimWorld_1.6`（1.6）和 `RimWorld`（1.7），可通过 `RimWorld16Dir`、`RimWorld17Dir` 或 `RimWorldDir` 覆盖。
 
-核心原则是**所有地图一视同仁**——任务地点、遭遇、派系基地、定居点、营地等一切拥有合法 `MapParent` 的地图都走同一条无缝链。RimExodus 地图本质上就是标准任务地图生成 + 我们的裁切步骤（void + 接缝带 + 传送点），将其包装成可连续通行的地块。
+已接入的世界层内，任务地点、遭遇、派系基地、营地和普通地块地图都走同一条无缝链。原版根地表默认接入。RimExodus 在现有地图生成流程中加入裁切、接缝带和传送点，让相邻地块可以连续通行。
 
-Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 5.1），无需另装 PowerShell 7；RE 与 REF 的 `justfile` 均不依赖工具环境临时提供的 `pwsh` 路径。`just test-compat` 构建并运行 1.7 两后端的实际 Harmony 绑定及兼容故障回归，不启动游戏；覆盖范围和逐 Mod 审计见 [兼容层注册审计](doc/兼容层注册审计.md)。
+Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 5.1）。`just test-compat` 检查 1.7 两种底层的 Harmony 绑定及兼容故障路径，离线运行。
 
 ## 核心特性
 
-- **无缝地块互连**：每张地块地图按六边形裁切，相邻地块通过接缝带对齐（地形/岩体/屋顶跨缝混合，河流与道路跨缝对齐）；边界外是 void，邻居地图的实时地形渲染作为背景。
+- **无缝地块互连**：地图按地块轮廓裁切，相邻地块通过接缝带对齐（地形、岩体和屋顶跨缝混合，河流与道路跨缝对齐）。边界外是 void，邻图的实时地形渲染作为背景。
+- **其他 Mod 的世界层接入**。Mod 作者可以为自己的世界层声明纳入规则、邻图生成、轮廓、邻接、偏移和离场方式。 [开发者接入](#开发者接入)
 - **直接跨图行走**：接缝处铺传送点，Pawn 走到接缝即无感切换到相邻地图；玩家下令（移动/攻击/开采/搬运等）可直接指向邻图区域。征召的殖民地机械族同样可跨缝下令——机械师指挥半径按无缝世界连续距离评估（overseer 站在缝边即可指挥缝对面，机械族过缝后连续距离内仍可继续指挥；机械师自己过缝也不会解除机械族的征召状态）；Escort 工作模式的机械族会跟随 overseer 跨缝，不会因目标在邻图而卡死报错。
 - **接缝组队与随行**：从接缝离图组建远行队后，护卫模式机械族及原版自动入队的随行者按原版条件在接缝加入队伍，即使对侧地图已加载；队伍不可加入时取消入队任务。敌人和访客的普通撤离仍穿过已加载邻图继续离开。
 - **连续撤离**（待游戏内回归）：敌人、访客等跨缝撤离后保持原来的撤离方向，结合实际地形的通行成本选择下一出口，前方无路时可侧向或后退。邻图是否加载不再决定逃跑方向；到达未加载/休眠地图的接缝时离场。已站在传送点上的撤离者再次收到同格移动任务时也会尝试跨图；传送失败会提示玩家，并在可行时按原有规则离场。
@@ -30,7 +31,7 @@ Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 
 
 ## Mod 兼容性
 
-**RimWorld 1.7 预览版（1.7.4976 rev1043，兼容性验证中）**：该运行时的 `CommandBuffer` 绘制和相机挂载接口是空桩，1.6 的邻图背景路径因此不会显示地形与水深。已按运行时选择原版 `Graphics.DrawMesh` 提交路径；玩家实测重叠带、透明层和水面正常。分帧生成期间地图黑屏源于 Waylith 在 `mapBeingGenerated` 非空时暂停地图帧；针对 RimExodus 分帧生成的适配已由玩家实测解决黑屏。整套 1.7 兼容性尚未完成。详细机制见 [无缝世界地块探索](doc/无缝世界地块探索.md)。
+**RimWorld 1.7 预览版**。Waylith 使用自己的网格提交路径，RimExodus 通过 `Graphics.DrawMesh` 分别提交邻图地形和水深。重叠带、透明层、水面和分帧生成期间的持续显示已由玩家验证，其他兼容性以本节各项说明为准。
 
 ### 已适配（游戏内验证）
 
@@ -50,19 +51,22 @@ Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 
 | **Colony Groups**（1.6 程序集参考，待游戏内验证） | 其自绘殖民者栏现在同步隐藏休眠图和已开启“隐藏无人分组”时的空图，并重新计算图标位置；未安装时无行为。 |
 | **Achtung × Alien \| RimWorld**（1.7，待游戏内回归） | Achtung 会把复合视图点击格直接交给当前图的格网；邻图地面与当前图 void 重叠时会被误分流到 Alien 提供的 `Climb To / Hibernate` 菜单，而普通 Pawn 因没有这些选项会从 Achtung 的移动 fallback 侥幸通过。现通过 REF `MapCellSpace` 先把点击格解析为真实地图与局部格，再统一执行可站立、可通行和迷雾查询；属于当前图的格仍留在当前图，邻图拥有的格直接查询邻图。随后纯 Goto 会在排队时保留真实目标图、执行前桥接。无需调整 Mod 排序，其他 HAR、Shift 排队和非移动命令不受影响。 |
 
+### 实验性适配
+
+- **GravTide 海底层**。在地图生成设置中开启 **GravTide 海底无缝** 并重启，即可在新生成的相邻海底地图之间直接通行。开启 **高兼容性原版邻图渲染** 可在相邻海底地图上看到蓝雾。
+
 ### 共存（无运行时依赖）
 
 - **Hospitality Continued**（实测程序集 1.1.8，待游戏内回归）：访客沿已加载邻图撤离时，从旧图 lord 脱离按原版跨图 Portal 的 `ExitedMap` 语义处理，不再被 Hospitality 误判为“整团失踪”并触发派系首领震怒与固定 -10 关系惩罚。无硬依赖；未安装时行为仍为同一套原版跨图语义。
 - **Dubs Mint Minimap**（2026-08-29 修复）：曾因 `RimExodus_Void` 地形未设置 `texturePath`（该字段无默认值，未写即 null）令其取色代码 NRE——异常发生在 UI 绘制流程里会打断整帧 GUI（全部界面不显示、点击仍有效）。已给 void 地形补贴图路径修复（void 在小地图上显示为近黑色）。
 - **Vehicle Map Framework**：仅作架构调研参考，无依赖、无完整兼容承诺。已修正双方射击补丁组合时取消“车下射车上”的问题，并补接武器点选入口以选择邻图目标（两项均已游戏验证）。载具在乘员完成下车前从 A 图驶往 B 图时，旧下车 job 会拿新宿主图计算落点，却继续执行指向 A 图的寻路；现于整车跨图前取消车内乘员未完成的跨图 job，乘员留车上，抵达后需重新下令（已游戏验证）。保留落点诊断以追查其他不可通行情况。**Vehicle Framework 已升级为已适配**（见上表）。
-- **Odyssey 空间层地图与其他口袋图**（Pocket Map，含 VMF 载具内部图）：被排除出表面无缝语义——这类地图回到原生行为（轨道 tileId 与表面地块撞号、口袋图硬编码 tile 会污染邻居解析，接入反而出错）。
+- **未接入的世界层和口袋图**（包括 Odyssey 空间层和 VMF 载具内部图）保持原有行为。
 
 ### 预期不兼容 / 未深入测试
 
 - **空岛（skyblock）类 mod**：空岛生成可能清掉传送点与 void 裁切；且无缝远行与空岛玩法本身冲突，不计划支持。
 - **As above, So below 2**（多层地图）：地图假设完全冲突——它必须修改地图尺寸并自定义切分，RimExodus 无法在这种前提下维持地块边界的平滑过渡；但老牌多层 mod MultiFloors 是适配的。
 - **异象天气链**：未细究（例如未激活夜光柱就离开，异常黑暗天气可能无法解除）。
-- **外太空地图**的工作方式未细究。
 - 其他深度修改**地图生成管线 / 地图边界 / 世界地块**的 mod 未系统测试。
 
 ## 已知限制
@@ -132,7 +136,7 @@ Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 
     - 兼容性限制：如前文所述，其他mod可能会patch一些生成逻辑来保证他们的POI能具备一些酷炫特性，所以我只能用原版管线单帧加载POI
 - 邻居渲染（以下简化效果描述适用于默认自绘制路径；高兼容性路径的边界见上文）
   - 高兼容性路径已修正整图覆盖层越界形成矩形遮挡的问题，用户已验证。SS 跨图视野另由专用适配提供：沿用其圆形、锥形和望远镜算法，读取活跃直接邻图障碍并更新真实可见性；两种底层均生效，完整邻图迷雾显示仍需开启高兼容性渲染。跨图视野已由用户实测确认，范围见 [SS 跨图视野](doc/SurveillanceShift跨图视野.md)。
-  - REF 另尊重 SS 覆盖掉的“禁用地图边界遮片”配置，供 Delta-V 等需要地图外背景的地图使用。已修复局部视区被通常优先级的相机补丁覆盖的顺序缺陷，并为 IsoRim 1.7 私有剔除补上邻图到显示坐标的变换，改善随镜头移动的灰色缺块边界；用户已实测确认修复有效。IsoRim 的矩形土层侧面和首次显示重建尚未适配。调查依据与剩余边界见 [IsoRim 邻图渲染调查](doc/IsoRim邻图渲染调查.md)。
+  - REF 尊重地图生成器的“禁用地图边界遮片”配置，供 Delta-V 等需要地图外背景的地图使用。IsoRim 1.7 的局部视区和私有剔除已适配，用户已确认修复随镜头移动的灰色缺块。矩形土层侧面和首次显示重建尚未适配。
   - 跨天气域（目前是同一个连续biome是一个天气域）的邻居地图天色渲染跟随当前图
     - 实现限制：我没找到可用的天气遮罩的蒙版，我要实现跨天气域邻居地图天色渲染过渡的话就得完全重写相关天气遮罩——这显然问题很大
   - 邻居渲染是近似实现，而且缺乏阴影、水波之类的细节。
@@ -192,6 +196,7 @@ Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 
 | Border no-build distance | 3 | 接缝带内侧禁建宽度 |
 | Gradual map generation | 开 | 分帧增量生成开关。关闭后普通地块图改走**原版同步生成管线**——其他修改地图生成的 mod 的改动原生生效（特殊 mod 环境的逃生通道；仅影响普通地块图，派系基地等 POI 本就走原版管线） |
 | Built-in ocean map support | 开（需重启） | 补齐原版 Ocean 的深海地形与基础晴雨雾雷雨，跳过陆地出生点/散布物/野生动物，同时避免海岸补铺在海洋中央生成浅水条带。安装专门海洋地图 mod 时可关闭，重启后 RimExodus 不再应用这些 Ocean 专用行为；无缝边界、跨图旅行与通用接缝揭雾不受影响。只影响之后新生成的海洋地图 |
+| Seamless GravTide seabed | 关（需重启） | 仅在 GravTide 启用时显示。开启后只裁切新生成的海底地图，并连接同层邻图。关闭后已裁切的海底图保留接缝 |
 | Generation batch size | 64 | 分帧生成每帧处理的格数（仅分帧开启时有意义；调大 = 生成更快但每帧更卡，范围 16-512） |
 | Enable map rolling dormancy | 开 | 地图滚动休眠总开关（机制目的/效果见其 tooltip；下方两个距离滑条需本项开启才生效） |
 | Dormancy sleep distance | 2 | 距所有玩家 pawn ≥N 跳的图休眠（下限 2——1 会让刚生成的邻接图立刻休眠甚至删除） |
@@ -228,9 +233,54 @@ Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 
 ## 依赖
 
 - RimWorld 1.6 或 1.7 预览版（1.7 兼容性验证仍在进行，见上文）
-- RimExodus Framework（独立前置；加载顺序 Harmony → REF → RimExodus，legacy 模式也保留此前置）
+- RimExodus Framework 1.0.5 或更新版本（独立前置，legacy 模式也需要。加载顺序为 Harmony → REF → RimExodus）
 - 若未启用 REF，RimExodus 会在主菜单弹出 REF 公告；启用 REF 并重启后，正常公告与功能才可加载
 - [Harmony](https://github.com/pardeike/HarmonyRimWorld)（[Steam 创意工坊](https://steamcommunity.com/sharedfiles/filedetails/?id=2009463077)）
+
+## 开发者接入
+
+### 注册无缝世界层
+
+为真实世界地块和普通 `MapParent` 的地图注册一个 `SeamlessMapProvider`。每个 `PlanetLayerDef` 由一个提供者负责。原版根地表由 RE 内置规则处理，口袋图保留宿主 Mod 的行为。注册在 Def 就绪后、创建或读入世界前完成。
+
+```csharp
+using RimExodus;
+using RimWorld;
+using RimWorld.Planet;
+using Verse;
+
+sealed class MySeamlessMaps : SeamlessMapProvider
+{
+    private readonly WorldObjectDef parentDef;
+
+    private MySeamlessMaps(WorldObjectDef parentDef) => this.parentDef = parentDef;
+
+    public static void RegisterWhenReady(PlanetLayerDef layer, WorldObjectDef parentDef)
+        => LongEventHandler.ExecuteWhenFinished(() =>
+            SeamlessMapProviders.Register(layer, new MySeamlessMaps(parentDef)));
+
+    public override bool Accepts(PlanetTile tile, MapParent parent) => true;
+    public override WorldObjectDef GetMapParentDef(PlanetTile tile) => parentDef;
+}
+```
+
+- `Accepts` 可按地块和父对象筛选地图。空地块会收到 `parent == null`，此时地图还未生成。`GetMapParentDef` 只为空地块选择父对象，返回 `null` 禁止预加载。已有地点沿用其原生父对象与生成器。`CanGenerate` 可阻止预加载暂时不可进入的地点。
+- `GetFootprint` 可为方形地图提供界内、有序、可重复生成的局部 X/Z 凸多边形，返回 `null` 采用原版投影。`GetEdge` 按顶点顺序定义逐边邻接。目标必须在同一层，两端各有一条边指回对方。偏移把邻图坐标平移到本图坐标，默认按边中点计算。显式偏移与中点差的平面距离须在两格内，两端都声明时须互为相反数。校验失败的边关闭。
+- `GetEdge` 返回 `default` 可封闭该边，也可用无效目标加 `allowVanillaExit: true` 保留原版离场。`EnableNewMaps` 控制新图裁切和邻图预加载。已裁切地图保留其存档标记，既有矩形地图保持原形。回调只提供规则，RE 负责生成、接线、落点和生命周期。
+
+已有两张地图时，调用 `SeamlessTileGraph.TryGetNeighborLink(source, target, out info)` 查活跃直邻和偏移，或用 `GetAllNeighbors(source)` 枚举。完整地块地址从 `info.map.Tile` 读取，旧整数邻接查询按来源图所在层查找，全局整数查询查根地表。REF `MapRuntime.Current.Spatial.TryCapture("RimExodus.SeamlessWorld", map, out space)` 提供跨图格子投影和归属。
+
+### 接入第三方覆盖层
+
+如果 Mod 把覆盖层拆成多个小网格绘制，REF 默认的整图覆盖层检测可能漏掉它。在绘制计划中用 `OverlayFootprint` 提供源图局部凸轮廓，再用 `OverlayClipSelector` 选择需要裁切的提交。这套接口用于高兼容性邻图渲染中的可读平面三角网格。
+
+- 返回 `true`，即使网格很小也参与裁切。
+- 返回 `false`，跳过本次裁切。
+- 返回 `null`，交给 REF 按网格大小判断。
+
+如果多个图层共享材质，在目标图层的绘制回调中识别提交。 [GravTide 示例](Source/Compat/SeamlessGravTideCompat.cs)
+
+维护接入与验收时可使用项目内的 [rimexodus-compatibility skill](.agents/skills/rimexodus-compatibility/SKILL.md)。它包含地图资格、版本分流、绘制排障及离线和游戏内验收流程。
 
 ## 源码目录结构
 
@@ -252,15 +302,13 @@ Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 
 
 设计文档与实现记录都在 `doc/` 下（中文）：
 
-- [无缝世界地块探索.md](doc/无缝世界地块探索.md) — 主计划：长期设计与五阶段路线图、当前阶段结果。
 - [接缝带定义.md](doc/接缝带定义.md) — 接缝带几何权威定义。
 - [地图生成步骤.md](doc/地图生成步骤.md) — 完整 genStep 执行顺序与 RimExodus 注入点。
 - [地图滚动休眠.md](doc/地图滚动休眠.md) — 地图滚动生命周期权威文档。
 - [边界行为表.md](doc/边界行为表.md) — 传送点/接缝带行为规范（主体 × 移动来源全枚举）。
 - [跨图命令适配审计.md](doc/跨图命令适配审计.md) — 跨图命令 job 类型适配矩阵。
-- [第五阶段-跨图寻路与射击.md](doc/第五阶段-跨图寻路与射击.md) 等第 X 阶段文档 — 各阶段实现叙事与决策记录。
 - [TODO.md](doc/TODO.md) — 游戏内测试问题备忘。
-- [SteamWorkshop/](doc/SteamWorkshop/) — 创意工坊文案稿：介绍页（[中文](doc/SteamWorkshop/SteamWorkshop介绍-中文.md) / [English](doc/SteamWorkshop/SteamWorkshop介绍-English.md)，中英分离的 BBCode）与 `discussions/` 下的讨论区帖（兼容性详解 / 已知限制 / 性能说明）；`doc/讨论区-关于卸载.txt` 为卸载帖稿。事实以本 README 为源。
+- [SteamWorkshop/](doc/SteamWorkshop/) — 创意工坊文案稿，包含中英介绍页及兼容性、已知限制、性能和卸载讨论帖。事实以本 README 为准。
 - `AGENTS.md` — 开发工作文档（架构事实与勿回退要点，面向协作者/agent）。
 
 **维护约定**：对外可见的兼容性结论与已知限制变化，除各权威文档外须同步更新本 README（见 `AGENTS.md`"文档同步范围"条）。

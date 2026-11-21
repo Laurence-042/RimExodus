@@ -13,6 +13,10 @@ If what you’re really asking is whether I’ll make more RimWorld mods in the 
 我猜，也许，大概……会？说实话，制作 RimWorld mod 有时甚至比玩游戏本身更有意思，我也确实还有一些进一步利用RimExodus中催熟的跨地图机制的想法。不过别抱太大期望，毕竟我得先把重点放回我的游戏开发；就算开发完成了，也大概率会暴死，然后我继续回去当社畜。社畜的生活大家都懂
 well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, I need to refocus on my own game development first. Even if it does get finished, it'll likely flop hard, and I'll just go back to being a corporate drone. Everyone knows how that life goes.
 
+1.1.5
+- 新增可选的 GravTide 海底无缝支持。在地图生成设置中开启「GravTide 海底无缝」并重启后，可沿接缝在新生成的海底地图之间通行。已有地图保留原有形状。（应 @Rage 请求）
+  Added optional seamless seabed support for GravTide. Enable “Seamless GravTide seabed” in map generation settings and restart to travel across seams between newly generated seabed maps. Existing maps keep their original shape. (Requested by @Rage.)
+
 1.1.4
 - 修复：倒在接缝上的角色可能无法被正确点选，右键反而指向相邻地图；现在优先点选当前地图上的实际地面和角色，关闭接缝显示时同样生效（@王里豪 报告的问题）
   Fixed: pawns downed on a seam could be missed by clicks, with right-click orders targeting the neighboring map instead. Clicks now prioritize real ground and pawns on the current map, including when seam display is hidden. (Reported by @王里豪.)

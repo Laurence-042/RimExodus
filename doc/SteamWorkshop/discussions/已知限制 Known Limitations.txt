@@ -33,6 +33,9 @@ Odyssey space-layer maps and pocket maps (underground vaults, pits, VMF vehicle 
 无缝在毫无内容的外太空移动毫无意义。而地下部分、载具地图之类的并没有绑定的星球坐标，无法合理做切分。而且口袋地图通常语义上也不适合做无缝。
 Seamless movement through empty outer space is meaningless. Underground maps and vehicle maps have no bound planet coordinates, so there is no sensible way to carve them. And pocket maps generally don't fit the seamless concept semantically either.
 
+其他 Mod 如果添加了新的层级，那么也是默认不开启的，除非添加层级的 Mod 作者按照RimExodus提供的接口进行适配。
+Unregistered world layers and pocket maps keep their original behavior. Examples include Odyssey space layers, underground vaults, pits, and VMF vehicle interiors. Mods can register same-layer seamless rules for maps with real world tiles, as the GravTide seabed integration does.
+
 ---
 
 - 派系基地交易仅支持随身物品（地上的物品、随行囚犯/奴隶出售暂不支持）。
