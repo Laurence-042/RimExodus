@@ -53,6 +53,7 @@ Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 
 
 ### 实验性适配
 
+- **Endless Horizon**（RimWorld 1.7；以 Endless Horizon 1.0.0.3hf 为验证基线）。启用其远景设置时，已生成接缝的地图从接缝带外第一圈 void 开始显示远景，河流、海岸和远雾使用接缝几何。活跃直邻的实地形优先。版本号不作硬限制；RimExodus 在运行时校验所需结构，结构漂移时安全停用适配。适配由 RimExodus 加载，使用原版 Endless Horizon 安装包。详见 [接缝带与远景](doc/接缝带定义.md#endless-horizon-远景)。
 - **GravTide 海底层**。在地图生成设置中开启 **GravTide 海底无缝** 并重启，即可在新生成的相邻海底地图之间直接通行。开启 **高兼容性原版邻图渲染** 可在相邻海底地图上看到蓝雾。
 
 ### 共存（无运行时依赖）

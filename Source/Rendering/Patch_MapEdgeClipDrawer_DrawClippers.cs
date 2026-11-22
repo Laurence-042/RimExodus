@@ -26,6 +26,9 @@ namespace RimExodus
         private static readonly List<Rect> remainingBuffer = new List<Rect>();
         private static readonly List<Rect> subtractBuffer = new List<Rect>();
 
+#if RIMWORLD_1_7
+        [HarmonyBefore(SeamlessEndlessHorizonCompat.PackageId)]
+#endif
         public static bool Prefix(Map map)
         {
             if (!map.DrawMapClippers)
@@ -33,6 +36,9 @@ namespace RimExodus
                 return true;
             }
 
+#if RIMWORLD_1_7
+            if (SeamlessEndlessHorizonCompat.TryDrawClippers(map, DrawExpandedClippers)) return false;
+#endif
             var footprints = SeamlessTileRegistry.GetNeighborFootprints(map);
             if (footprints.Count == 0)
             {
@@ -43,19 +49,24 @@ namespace RimExodus
             return false;
         }
 
-        private static void DrawClippersWithFootprintHoles(Map map, List<CellRect> footprints)
+#if RIMWORLD_1_7
+        private static void DrawExpandedClippers(Map map, int padding)
+            => DrawClippersWithFootprintHoles(map, SeamlessTileRegistry.GetNeighborFootprints(map), padding);
+#endif
+
+        private static void DrawClippersWithFootprintHoles(Map map, List<CellRect> footprints, int padding = 0)
         {
             var size = map.Size;
-            var halfVerticalWidth = VerticalClipWidth / 2f;
+            var halfVerticalWidth = VerticalClipWidth / 2f + padding;
             var horizontalCenter = size.x / 2f;
 
             clipRectBuffer.Clear();
-            clipRectBuffer.Add(Rect.MinMaxRect(-ClipSize, 0f, 0f, size.z));
-            clipRectBuffer.Add(Rect.MinMaxRect(size.x, 0f, size.x + ClipSize, size.z));
-            clipRectBuffer.Add(Rect.MinMaxRect(horizontalCenter - halfVerticalWidth, -ClipSize,
-                horizontalCenter + halfVerticalWidth, 0f));
-            clipRectBuffer.Add(Rect.MinMaxRect(horizontalCenter - halfVerticalWidth, size.z,
-                horizontalCenter + halfVerticalWidth, size.z + ClipSize));
+            clipRectBuffer.Add(Rect.MinMaxRect(-ClipSize - padding, -padding, -padding, size.z + padding));
+            clipRectBuffer.Add(Rect.MinMaxRect(size.x + padding, -padding, size.x + ClipSize + padding, size.z + padding));
+            clipRectBuffer.Add(Rect.MinMaxRect(horizontalCenter - halfVerticalWidth, -ClipSize - padding,
+                horizontalCenter + halfVerticalWidth, -padding));
+            clipRectBuffer.Add(Rect.MinMaxRect(horizontalCenter - halfVerticalWidth, size.z + padding,
+                horizontalCenter + halfVerticalWidth, size.z + ClipSize + padding));
 
             footprintRectBuffer.Clear();
             foreach (var footprint in footprints)

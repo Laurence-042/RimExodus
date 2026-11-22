@@ -95,6 +95,12 @@ namespace RimExodus
             var probeT0 = RimExodusPerfProbe.Now();
             try
             {
+#if RIMWORLD_1_7
+                // Endless Horizon is map background, not a world-clipper. Its upstream hook lives
+                // on DrawClippers, but submitting the meshes there lets the clipper phase own both
+                // sides of the boundary and can discard the part beyond the vanilla rectangle.
+                SeamlessEndlessHorizonCompat.DrawBackground(map);
+#endif
                 MapComponentDrawInner();
             }
             finally

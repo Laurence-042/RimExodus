@@ -12,9 +12,19 @@ namespace RimExodus
     public sealed class SeamlessNativeRendering : GameComponent
     {
         private readonly List<SeamlessTileGraph.NeighborInfo> neighbors = new List<SeamlessTileGraph.NeighborInfo>();
+#if RIMWORLD_1_7
+        private readonly Dictionary<Map, CellRect> endlessHorizonViews = new Dictionary<Map, CellRect>();
+        private int endlessHorizonViewFrame = -1;
+        private static Color focusedSkyTint = Color.white;
+        private static int focusedSkyTintFrame = int.MinValue;
+#endif
         private bool registered;
         private bool wasEnabled;
         public static bool Enabled => RimExodusMod.Settings?.nativeNeighborRendering == true;
+#if RIMWORLD_1_7
+        private static readonly System.Func<MapDrawCommand, bool?> ExcludeHorizon = _ =>
+            SeamlessEndlessHorizonCompat.Drawing ? false : null;
+#endif
         public SeamlessNativeRendering(Game game) { }
 
         private void PrepareFrame()
@@ -34,6 +44,10 @@ namespace RimExodus
         }
         private void CollectViews(Map host, List<MapRenderPlan> output)
         {
+#if RIMWORLD_1_7
+            endlessHorizonViews.Clear();
+            endlessHorizonViewFrame = Time.frameCount;
+#endif
             if (!Enabled) return;
             var hostTile = SeamlessTileRegistry.GetMapWorldTile(host);
             if (!hostTile.Valid) return;
@@ -49,17 +63,54 @@ namespace RimExodus
                     || !SeamlessViewProjection.TryProject(neighbor.map, Vector3.zero, host, out var offset)) continue;
                 var transform = Matrix4x4.Translate(offset);
                 var localView = new MapTransform(transform).LocalView(view);
-                if (!localView.Overlaps(CellRect.WholeMap(neighbor.map))) continue;
+#if RIMWORLD_1_7
+                var visibleBounds = CellRect.WholeMap(neighbor.map)
+                    .ExpandedBy(SeamlessEndlessHorizonCompat.VisibilityPadding(neighbor.map));
+#else
+                var visibleBounds = CellRect.WholeMap(neighbor.map);
+#endif
+                if (!localView.Overlaps(visibleBounds)) continue;
+#if RIMWORLD_1_7
+                endlessHorizonViews[neighbor.map] = localView;
+#endif
                 output.Add(CreateView(neighbor.map, neighbor.map.Tile, transform, view));
             }
         }
+
+#if RIMWORLD_1_7
+        internal static bool TryGetEndlessHorizonView(Map map, out CellRect view)
+        {
+            view = default;
+            var component = Current.Game?.GetComponent<SeamlessNativeRendering>();
+            return component != null && component.endlessHorizonViewFrame == Time.frameCount
+                && component.endlessHorizonViews.TryGetValue(map, out view);
+        }
+
+        internal static bool TryGetFocusedSkyTint(out Color color)
+        {
+            color = focusedSkyTint;
+            return focusedSkyTintFrame >= Time.frameCount - 1;
+        }
+#endif
 
         private static MapRenderPlan CreateView(Map map, PlanetTile tile, Matrix4x4 transform, CellRect view)
             => new MapRenderPlan(map, transform, view, new MapRenderOptions
             {
                 OverlayFootprint = SeamlessPolygonGeometry.GetCachedPolygonVertices(tile, map.Size.x),
+#if RIMWORLD_1_7
+                OverlayClipSelector = SelectOverlayClip(tile)
+#else
                 OverlayClipSelector = SeamlessGravTideCompat.GetOverlayClipSelector(tile)
+#endif
             });
+
+#if RIMWORLD_1_7
+        private static System.Func<MapDrawCommand, bool?> SelectOverlayClip(PlanetTile tile)
+        {
+            var select = SeamlessGravTideCompat.GetOverlayClipSelector(tile);
+            return select == null ? ExcludeHorizon : command => SeamlessEndlessHorizonCompat.Drawing ? false : select(command);
+        }
+#endif
         private void DrawSkyTint()
         {
             if (!Enabled || !WorldRendererUtility.DrawingMap || LongEventHandler.ShouldWaitForEvent) return;
@@ -88,6 +139,13 @@ namespace RimExodus
                 // vertex data, but let the focused map's overlay and one exterior quad own sky tint.
                 if (Enabled && MapRenderPlan.IsNativeView)
                     MatBases.LightOverlay.color = new Color(1f, 1f, 1f, 0f);
+#if RIMWORLD_1_7
+                else if (Enabled && Current.Game != null && Find.CurrentMap == Current.Game.CurrentMap)
+                {
+                    focusedSkyTint = MatBases.LightOverlay.color;
+                    focusedSkyTintFrame = Time.frameCount;
+                }
+#endif
             }
         }
     }

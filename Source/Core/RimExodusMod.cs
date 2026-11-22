@@ -48,6 +48,9 @@ namespace RimExodus
             HarmonyInstance = harmony;
             harmony.PatchAll();
             LongEventHandler.ExecuteWhenFinished(() => SeamlessGravTideCompat.Register(harmony));
+#if RIMWORLD_1_7
+            LongEventHandler.ExecuteWhenFinished(SeamlessEndlessHorizonCompat.Register);
+#endif
             SeamlessWaylithMapRenderCompat.Register(harmony);
 
             // Achtung 的自定义站位把复合视图参考系格直接配给 CurrentMap 网格；邻图地面若与宿主

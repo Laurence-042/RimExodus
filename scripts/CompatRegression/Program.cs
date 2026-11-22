@@ -20,6 +20,7 @@ AssemblyLoadContext.Default.Resolving += (_, name) => name.Name == "0Harmony"
 // The game host is already loaded during real startup; the offline console must load it explicitly.
 AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.Combine(game, "RimWorld.dll"));
 if (args.Contains("dormant-raids")) DormantRaidChecks.Run();
+else if (args.Length == 2 && args[0] == "endless-horizon") EndlessHorizonChecks.Run(args[1]);
 else Audit.Run(args.Contains("preview-drift"), args.Contains("ref-backend"));
 
 public static class Audit
@@ -447,7 +448,8 @@ public static class Audit
         }
     }
 
-    private static void CheckSeamlessLayerTopology(Assembly assembly, BindingFlags statics, Action<bool, string> check)
+    internal static void CheckSeamlessLayerTopology(Assembly assembly, BindingFlags statics, Action<bool, string> check,
+        bool checkHorizon = false)
     {
         var previous = Current.Game;
         T Allocate<T>() where T : class => (T)RuntimeHelpers.GetUninitializedObject(typeof(T));
@@ -529,6 +531,13 @@ public static class Audit
             provider.Offset = new IntVec3(100, 0, 0);
             check(!edges(source.Tile, 32)[1].Destination.Valid && !edges(target.Tile, 32)[3].Destination.Valid
                 && !(bool)tryOffset.Invoke(null, connection)!, "a misaligned reciprocal edge is closed at both ends and cannot link");
+            if (checkHorizon)
+            {
+                provider.Offset = new IntVec3(24, 0, 0);
+                provider.Hexagonal = true;
+                RimExodus.SeamlessPolygonGeometry.ClearAllCaches();
+                EndlessHorizonChecks.CheckGeometry(source, check);
+            }
         }
         finally
         {
@@ -540,11 +549,14 @@ public static class Audit
     private sealed class RegressionLayerProvider : RimExodus.SeamlessMapProvider
     {
         internal IntVec3 Offset = new IntVec3(24, 0, 0);
+        internal bool Hexagonal;
 
         public override bool Accepts(PlanetTile tile, MapParent parent) => true;
         public override WorldObjectDef GetMapParentDef(PlanetTile tile) => null!;
         public override IReadOnlyList<Vector2> GetFootprint(PlanetTile tile, int mapSize)
-            => new[] { new Vector2(4, 4), new Vector2(28, 4), new Vector2(28, 28), new Vector2(4, 28) };
+            => Hexagonal
+                ? new[] { new Vector2(4, 10), new Vector2(16, 4), new Vector2(28, 10), new Vector2(28, 22), new Vector2(16, 28), new Vector2(4, 22) }
+                : new[] { new Vector2(4, 4), new Vector2(28, 4), new Vector2(28, 28), new Vector2(4, 28) };
 
         public override RimExodus.SeamlessMapEdge GetEdge(PlanetTile tile, int edge, PlanetTile nativeNeighbor)
             => (tile.tileId, edge) switch
