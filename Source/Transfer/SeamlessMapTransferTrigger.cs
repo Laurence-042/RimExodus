@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using RimWorld;
 using Verse;
 using Verse.AI;
+using Verse.AI.Group;
 
 namespace RimExodus
 {
@@ -42,7 +43,7 @@ namespace RimExodus
             if (pawn.Downed || pawn.Dead) return;
 
             // 登记制：无传送许可不传（行为表"收紧"的结构性结果）。
-            // 例外（行为表行 17/25/33"AI 战斗移动"落地，2026-08 阶段5）：NPC 战斗体的战斗移动踩
+            // 例外（行为表行 17/25/33"AI 战斗移动"落地，2026-08 阶段5）：有具体追击目标的任务踩
             // 已加载传送点且追击目标在对端 → 即席 Pursue 许可传送（防玩家跨图甩追兵）。
             if (!SeamlessTransferGrants.TryGet(pawn, out var grant))
             {
@@ -133,84 +134,41 @@ namespace RimExodus
                 MessageTypeDefOf.RejectInput, false);
         }
 
-        /// <summary>
-        /// 战斗踩点资格（行为表行 17/25/33"敌方主体战斗移动踩已加载传送点 → 传送（跨图追击）"的
-        /// 实现时细化版）：NPC 战斗体 + 战斗 job（AttackMelee / AttackStatic / 战斗 lord duty 下的
-        /// Goto）且追击目标（job.targetA 或 mindState.enemyTarget）在对端图，才即席登记 Pursue
-        /// 许可——"目标在对端"的意图判据防止沿接缝带走位路径的袭击者被误甩过缝。
-        /// 对端未生成不登记（行为表"预加载=否"，不触发生成）。
-        /// </summary>
         private static bool TryRegisterCombatStepTransfer(Pawn pawn, IntVec3 cell, Map map)
         {
-            // 诊断：无许可战斗 pawn 的每跨格探测（含每跨格字符串 def 查询——评估其真实占比）。
-            var probeT0 = RimExodusPerfProbe.Now();
+            if (!SeamlessCombatCoords.Enabled) return false;
+            var probe = RimExodusPerfProbe.Now();
             try
             {
-                return TryRegisterCombatStepTransferInner(pawn, cell, map);
+                var job = pawn.CurJob;
+                var target = SeamlessPursuit.Target(pawn, job);
+                var targetMap = target?.Map;
+                if (targetMap == null || targetMap == map || !SeamlessPursuit.CanCross(pawn, target, targetMap))
+                    return false;
+                var enterSpotDef = SeamlessTransferGrants.EnterSpotDef;
+                if (enterSpotDef == null) return false;
+
+                var things = map.thingGrid.ThingsListAt(cell);
+                for (int i = 0; i < things.Count; i++)
+                {
+                    var thing = things[i];
+                    if (thing.def != enterSpotDef) continue;
+                    var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
+                    if (comp?.hasArrival != true
+                        || !SeamlessTileGraph.TryGetMapByWorldTile(comp.TargetTile, out var arrivalMap)
+                        || arrivalMap != targetMap) continue;
+
+                    var grant = SeamlessTransferGrants.Create(pawn, SeamlessTransferGrants.GrantKind.Pursue);
+                    grant.BoundSpot = thing.Position;
+                    SeamlessTransferGrants.BindPursuit(grant, pawn, target, job);
+                    return true;
+                }
+                return false;
             }
             finally
             {
-                RimExodusPerfProbe.Record(RimExodusPerfProbe.CombatStepProbe, probeT0);
+                RimExodusPerfProbe.Record(RimExodusPerfProbe.CombatStepProbe, probe);
             }
-        }
-
-        private static bool TryRegisterCombatStepTransferInner(Pawn pawn, IntVec3 cell, Map map)
-        {
-            if (!SeamlessCombatCoords.Enabled || pawn.Downed || pawn.Dead) return false;
-            if (!SeamlessBoundaryRules.IsNpcCombatant(pawn)) return false;
-
-            var job = pawn.CurJob;
-            if (job == null || !IsCombatJob(pawn, job)) return false;
-
-            var enterSpotDef = DefDatabase<ThingDef>.GetNamedSilentFail("RimExodus_SeamlessEnterSpot");
-            if (enterSpotDef == null) return false;
-
-            var things = map.thingGrid.ThingsListAt(cell);
-            for (var i = 0; i < things.Count; i++)
-            {
-                var thing = things[i];
-                if (thing.def != enterSpotDef) continue;
-
-                var comp = thing.TryGetComp<CompSeamlessTileEnterSpot>();
-                if (comp == null) continue;
-
-                // 对端未加载：无事（不触发生成）。
-                if (!comp.hasArrival || !SeamlessTileGraph.TryGetMapByWorldTile(comp.TargetTile, out var arrivalMap))
-                {
-                    return false;
-                }
-
-                // 追击意图：战斗目标确在对端图。
-                var jobTargetMap = job.targetA.Thing?.Map;
-                var enemyMap = pawn.mindState?.enemyTarget?.Map;
-                if (jobTargetMap != arrivalMap && enemyMap != arrivalMap) return false;
-
-                var grant = SeamlessTransferGrants.Create(pawn, SeamlessTransferGrants.GrantKind.Pursue);
-                grant.BoundSpot = thing.Position;
-
-                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
-                    Log.Message($"[RimExodus] Combat step transfer: {pawn.LabelShort} (job {job.def.defName}) "
-                        + $"pursues across map {map.uniqueID} -> {arrivalMap.uniqueID}.");
-                return true;
-            }
-            return false;
-        }
-
-        private static bool IsCombatJob(Pawn pawn, Job job)
-        {
-            if (job.def == JobDefOf.AttackMelee || job.def == JobDefOf.AttackStatic) return true;
-            if (job.def == JobDefOf.Goto)
-            {
-                var duty = pawn.mindState?.duty;
-                if (duty == null) return false;
-                return duty.def == DutyDefOf.AssaultColony || duty.def == DutyDefOf.AssaultThing
-                    || duty.def == DutyDefOf.Defend || duty.def == DutyDefOf.DefendBase
-                    || duty.def == DutyDefOf.PrisonerAssaultColony
-                    // ChimeraAttack（2026-09）：奇美拉攻击模式的推进/追击 Goto 同为战斗意图——
-                    // 不登记 Pursue 则落地无 lord 保护（见 NotifyPawnTransferred Bridge 分支注）。
-                    || duty.def == DutyDefOf.ChimeraAttack;
-            }
-            return false;
         }
 
         /// <summary>Bridge/Pursue/Follow：对端已加载 → 传送 + 传送完成事件；对端卸载 → 许可作废。</summary>
@@ -228,6 +186,18 @@ namespace RimExodus
                 if (RimExodusLog.Enabled(RimExodusLogModule.CaravanExit))
                     Log.Message($"[RimExodus] [caravan-exit] {grant.Kind} grant dropped: pawn {pawn.LabelShort} at {thing.Position} "
                         + $"on map {map.uniqueID} — opposite unavailable (hasArrival={comp.hasArrival}); pawn will idle at seam until think tree re-decides.");
+                SeamlessTransferGrants.Remove(pawn);
+                return;
+            }
+
+            if (grant.PursuitTarget != null && !StillPursuing(pawn, grant, arrivalMap))
+            {
+                SeamlessTransferGrants.Remove(pawn);
+                return;
+            }
+            if (grant.Kind == SeamlessTransferGrants.GrantKind.Follow
+                && SeamlessRaidContinuity.HasLocalEscortDuty(pawn.GetLord()))
+            {
                 SeamlessTransferGrants.Remove(pawn);
                 return;
             }
@@ -250,6 +220,14 @@ namespace RimExodus
             WarnTransferRejected(pawn, map, thing.Position);
             if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                 Log.Message($"[RimExodus] Bridge grant revoked for {pawn.LabelShort}: transfer rejected at seam (see warning above), re-order to retry.");
+        }
+
+        private static bool StillPursuing(Pawn pawn, SeamlessTransferGrants.Grant grant, Map arrivalMap)
+        {
+            if (!SeamlessPursuit.CanCross(pawn, grant.PursuitTarget, arrivalMap)) return false;
+            var lord = pawn.GetLord();
+            return lord == grant.PursuitLord || (grant.PursuitSquad != null
+                && grant.PursuitSquad == SeamlessRaidContinuity.Current?.FindSquad(lord));
         }
 
         /// <summary>

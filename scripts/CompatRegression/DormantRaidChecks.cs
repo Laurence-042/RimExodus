@@ -115,7 +115,7 @@ internal static class DormantRaidChecks
             Check(deregistrations.Count == 0, "MakeLords relocation guard leaves cleanup to incident completion");
             var completion = assembly.GetType(
                 "RimExodus.Patches_RaidOuterSpawn+Patch_IncidentWorker_Raid_TryExecuteWorker_RaidOuterSpawn", true)!;
-            completion.GetMethod("Postfix", flags)!.Invoke(null, new object[] { parms });
+            completion.GetMethod("Postfix", flags)!.Invoke(null, new object[] { parms, true });
             Check(deregistrations.Count == 1,
                 "raid completion freezes arrivals even when no base MakeLords callback ran");
             Check(captured.Count == 0 && outer.GetField("Current", flags | BindingFlags.Public)!.GetValue(null) == null,

@@ -20,6 +20,9 @@ namespace RimExodus
         private bool originalCanKidnap;
         private bool originalCanTimeoutOrFlee = true;
         private bool originalCanSteal;
+        private bool originalUseAvoidGridSmart;
+        private bool originalCanPickUpOpportunisticWeapons;
+        private int retreatDuration = -1;
         private bool marching;
         private bool targetUnavailableLogged;
 
@@ -40,10 +43,11 @@ namespace RimExodus
         }
 
         internal LordJob_SeamlessRaidMarch(Faction faction, PlanetTile targetWorldTile, string raidIdentity,
-            bool sappers, bool breachers, bool canKidnap, bool canTimeoutOrFlee, bool canSteal, bool marching)
+            bool sappers, bool breachers, bool canKidnap, bool canTimeoutOrFlee, bool canSteal, bool marching,
+            bool useAvoidGridSmart = false, bool canPickUpOpportunisticWeapons = false)
             : base(faction, canKidnap, canTimeoutOrFlee,
-                sappers: !marching && sappers, useAvoidGridSmart: false, canSteal: canSteal,
-                breachers: !marching && breachers)
+                sappers: !marching && sappers, useAvoidGridSmart: useAvoidGridSmart, canSteal: canSteal,
+                breachers: !marching && breachers, canPickUpOpportunisticWeapons: canPickUpOpportunisticWeapons)
         {
             this.targetWorldTile = targetWorldTile;
             this.raidIdentity = raidIdentity;
@@ -52,6 +56,8 @@ namespace RimExodus
             originalCanKidnap = canKidnap;
             originalCanTimeoutOrFlee = canTimeoutOrFlee;
             originalCanSteal = canSteal;
+            originalUseAvoidGridSmart = useAvoidGridSmart;
+            originalCanPickUpOpportunisticWeapons = canPickUpOpportunisticWeapons;
             this.marching = marching;
         }
 
@@ -59,7 +65,28 @@ namespace RimExodus
         {
             return new LordJob_SeamlessRaidMarch(faction, targetWorldTile, raidIdentity,
                 originalSappers, originalBreachers, originalCanKidnap,
-                originalCanTimeoutOrFlee, originalCanSteal, marching: !arrivalIsTarget);
+                originalCanTimeoutOrFlee, originalCanSteal, marching: !arrivalIsTarget,
+                originalUseAvoidGridSmart, originalCanPickUpOpportunisticWeapons) { retreatDuration = retreatDuration };
+        }
+
+        internal LordJob_SeamlessRaidMarch ForDestination(Faction faction, PlanetTile destination)
+        {
+            return marching && destination.Valid && destination == targetWorldTile
+                ? ForArrival(faction, arrivalIsTarget: true) : this;
+        }
+
+        internal void PreserveRetreatDuration(StateGraph original)
+        {
+            var timer = SeamlessRaidContinuity.RetreatTimer(original);
+            if (timer != null) retreatDuration = SeamlessRaidContinuity.RetreatDuration(timer);
+        }
+
+        public override StateGraph CreateGraph()
+        {
+            var graph = base.CreateGraph();
+            var timer = SeamlessRaidContinuity.RetreatTimer(graph);
+            if (retreatDuration >= 0 && timer != null) SeamlessRaidContinuity.RetreatDuration(timer) = retreatDuration;
+            return graph;
         }
 
         public Job TryMakeMarchJob(Pawn pawn)
@@ -111,6 +138,9 @@ namespace RimExodus
             Scribe_Values.Look(ref originalCanKidnap, "rimExodusOriginalCanKidnap");
             Scribe_Values.Look(ref originalCanTimeoutOrFlee, "rimExodusOriginalCanTimeoutOrFlee", true);
             Scribe_Values.Look(ref originalCanSteal, "rimExodusOriginalCanSteal");
+            Scribe_Values.Look(ref originalUseAvoidGridSmart, "rimExodusOriginalUseAvoidGridSmart");
+            Scribe_Values.Look(ref originalCanPickUpOpportunisticWeapons, "rimExodusOriginalCanPickUpOpportunisticWeapons");
+            Scribe_Values.Look(ref retreatDuration, "rimExodusRetreatDuration", -1);
             Scribe_Values.Look(ref marching, "rimExodusMarching");
             Scribe_Values.Look(ref targetUnavailableLogged, "rimExodusTargetUnavailableLogged");
         }

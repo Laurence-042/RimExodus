@@ -242,6 +242,7 @@ namespace RimExodus
         /// 不经迁移链，本名单对它们无效果。
         /// </summary>
         public List<string> raidOuterSpawnLocalIncidents = new List<string>();
+        internal Dictionary<string, RaidEntryPreference> raidEntryPreferences = new Dictionary<string, RaidEntryPreference>();
 
         // ===== 武器射程映射曲线（2026-09，默认关；语义唯一出处 = SeamlessRangeCurve） =====
 
@@ -355,6 +356,8 @@ namespace RimExodus
             Scribe_Values.Look(ref raidOuterSpawnEnabled, "raidOuterSpawnEnabled", true);
             Scribe_Collections.Look(ref raidOuterSpawnLocalIncidents, "raidOuterSpawnLocalIncidents", LookMode.Value);
             raidOuterSpawnLocalIncidents ??= new List<string>();
+            Scribe_Collections.Look(ref raidEntryPreferences, "raidEntryPreferences", LookMode.Value, LookMode.Value);
+            raidEntryPreferences ??= new Dictionary<string, RaidEntryPreference>();
             Scribe_Values.Look(ref weaponRangeCurveEnabled, "weaponRangeCurveEnabled", false);
             Scribe_Values.Look(ref weaponRangeCurveTouch, "weaponRangeCurveTouch", 5f);
             Scribe_Values.Look(ref weaponRangeCurveShort, "weaponRangeCurveShort", 22f);

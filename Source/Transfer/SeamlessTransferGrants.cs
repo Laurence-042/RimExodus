@@ -43,7 +43,7 @@ namespace RimExodus
             Follow
         }
 
-        internal sealed class Grant
+        internal sealed class Grant : IExposable
         {
             public GrantKind Kind;
 
@@ -77,12 +77,17 @@ namespace RimExodus
             /// 赶出地图（2026-09 修复）。运行时引用，Grant 不序列化故无存档负担。
             /// </summary>
             public Thing FollowTarget;
+            public Thing PursuitTarget;
+            public Lord PursuitLord;
+            public SeamlessRaidContinuity.Squad PursuitSquad;
+            public int PursuitJobDeadline = -1;
+            public bool NextJobFromLord;
 
             /// <summary>
             /// 传送时刻 pawn 所属 lord 的 LordJob 备份（<see cref="SeamlessMapTransfer.TryTransferPawn"/>
             /// 剥离点原子捕获——一切 lord 类型、一切 pawn 统一备份；pawn 至多一个 lord（pawn.lord 单引用），
             /// 多叛奴各自捕获同一引用，落地由续接策略合流）。LordJob 引用在原 lord 销毁后读纯字段仍安全。
-            /// null = 无 lord。消费点 = NotifyPawnTransferred 的 TryContinueLordOnArrival（唯一续接策略点）。
+            /// 兼容叛乱延续与工兵／破墙行军交界的续程标记。
             /// </summary>
             public LordJob PrevLordJob;
 
@@ -110,13 +115,54 @@ namespace RimExodus
             public int LastDeferLogTick;
 
             public int CreatedTick = GenTicks.TicksGame;
+
+            public void ExposeData()
+            {
+                Scribe_Values.Look(ref Kind, "kind");
+                Scribe_Values.Look(ref BoundSpot, "spot", IntVec3.Invalid);
+                Scribe_Values.Look(ref CreatedTick, "createdTick");
+                Scribe_References.Look(ref PursuitTarget, "pursuitTarget");
+                Scribe_References.Look(ref PursuitLord, "pursuitLord");
+                Scribe_Values.Look(ref PursuitJobDeadline, "pursuitDeadline", -1);
+                Scribe_Values.Look(ref NextJobFromLord, "nextJobFromLord");
+                Scribe_Deep.Look(ref NextJob, "nextJob");
+                Scribe_Values.Look(ref Locomotion, "locomotion", LocomotionUrgency.Jog);
+                Scribe_Values.Look(ref EvacuationOrigin, "evacuationOrigin", IntVec3.Invalid);
+                Scribe_Values.Look(ref EvacuationDirection, "evacuationDirection", IntVec3.Zero);
+                if (Kind == GrantKind.Evacuation)
+                {
+                    List<PlanetTile> visited = null;
+                    if (Scribe.mode == LoadSaveMode.Saving)
+                        visited = VisitedTiles != null ? new List<PlanetTile>(VisitedTiles) : new List<PlanetTile>();
+                    SeamlessTileScribe.Look(ref visited, "visitedTiles");
+                    if (Scribe.mode == LoadSaveMode.LoadingVars) VisitedTiles = new HashSet<PlanetTile>(visited);
+                }
+                Scribe_Values.Look(ref SelfDriven, "selfDriven");
+                Scribe_Values.Look(ref ForceExit, "forceExit");
+                Scribe_Values.Look(ref CanBashDoors, "canBashDoors");
+                Scribe_Values.Look(ref CanBashFences, "canBashFences");
+            }
+        }
+
+        internal sealed class SavedRaidTransit : IExposable
+        {
+            internal Pawn Pawn;
+            internal int DriverJobId;
+            internal Grant Permit;
+
+            public void ExposeData()
+            {
+                Scribe_References.Look(ref Pawn, "pawn");
+                Scribe_Values.Look(ref DriverJobId, "driverJobId");
+                Scribe_Deep.Look(ref Permit, "permit");
+            }
         }
 
         private static readonly Dictionary<Pawn, Grant> Grants = new Dictionary<Pawn, Grant>();
 
         /// <summary>
-        /// 游荡 NPC 兜底：Pursue/Follow 落地的 NPC（传送时 lord 已被 Notify_PawnLost 剥离、无 duty），
-        /// 若对端无战斗目标会永久滞留。宽限期内重新接战/有 lord → 解除；超时仍无 → 转入撤离链跑出世界。
+        /// 游荡 NPC 兜底：失去跟随目标的 NPC（传送时 lord 已被 Notify_PawnLost 剥离、无 duty），
+        /// 宽限期内重新接战或加入队伍即解除，超时转入撤离链。
         /// FromWorldTile = 其来向 tile，转入撤离链时排除（防立刻传回原地图）。
         /// </summary>
         private struct StrayInfo
@@ -160,6 +206,71 @@ namespace RimExodus
             return grant;
         }
 
+        internal static void BindPursuit(Grant grant, Pawn pawn, Thing target, Job job)
+        {
+            grant.PursuitTarget = target;
+            grant.PursuitLord = pawn.GetLord();
+            grant.PursuitSquad = SeamlessRaidContinuity.Current?.FindSquad(grant.PursuitLord);
+            grant.NextJob = job.Clone();
+            grant.NextJob.loadID = Find.UniqueIDsManager.GetNextJobID();
+            grant.NextJobFromLord = grant.NextJob.lord != null;
+            grant.NextJob.lord = null;
+            grant.NextJob.targetA = target;
+            if (job.expiryInterval > 0 && job.startTick >= 0)
+                grant.PursuitJobDeadline = job.startTick + job.expiryInterval;
+        }
+
+        internal static List<SavedRaidTransit> CaptureRaidTransit(SeamlessRaidContinuity state)
+        {
+            List<SavedRaidTransit> saved = null;
+            foreach (var pair in Grants)
+            {
+                var pawn = pair.Key;
+                var grant = pair.Value;
+                var driver = pawn.CurJob;
+                if (!pawn.Spawned || driver == null || GenTicks.TicksGame - grant.CreatedTick > GrantTimeoutTicks) continue;
+                if (grant.PursuitTarget != null && driver.dutyTag == TransitTag)
+                {
+                    var lord = pawn.GetLord();
+                    if (lord != grant.PursuitLord && (grant.PursuitSquad == null || grant.PursuitSquad != state.FindSquad(lord)))
+                        continue;
+                    // The local Lord may have folded into the authority while we walked to the seam.
+                    grant.PursuitLord = lord;
+                }
+                else if (grant.Kind != GrantKind.Evacuation || !state.TracksWithdrawal(pawn.GetLord())
+                    || (!driver.exitMapOnArrival && driver.dutyTag != TransitTag)) continue;
+
+                saved ??= new List<SavedRaidTransit>();
+                saved.Add(new SavedRaidTransit { Pawn = pawn, DriverJobId = driver.loadID, Permit = grant });
+            }
+            return saved;
+        }
+
+        internal static void RestoreRaidTransit(SeamlessRaidContinuity state, List<SavedRaidTransit> saved)
+        {
+            Grants.Clear();
+            StrayNpcs.Clear();
+            if (saved == null) return;
+            foreach (var entry in saved)
+            {
+                var pawn = entry.Pawn;
+                var grant = entry.Permit;
+                if (pawn?.Spawned != true || grant == null || pawn.CurJob?.loadID != entry.DriverJobId) continue;
+                var lord = pawn.GetLord();
+                if (grant.Kind == GrantKind.Evacuation)
+                {
+                    if (!state.TracksWithdrawal(lord)) continue;
+                }
+                else
+                {
+                    if (grant.PursuitTarget?.Spawned != true || grant.NextJob?.def == null
+                        || pawn.CurJob.dutyTag != TransitTag || lord != grant.PursuitLord) continue;
+                    grant.PursuitSquad = state.FindSquad(lord);
+                }
+                Grants[pawn] = grant;
+            }
+        }
+
         /// <summary>清除 pawn 的许可（传送消费 / 驱动 job 被替换）。</summary>
         internal static void Remove(Pawn pawn)
         {
@@ -195,54 +306,23 @@ namespace RimExodus
             switch (grant.Kind)
             {
                 case GrantKind.Bridge:
-                    // lord 续接（唯一策略点 TryContinueLordOnArrival，2026-08）：lord 是唯一 map-anchored
-                    // 行为载体，跨图剥离后按 LordJob 类型决定是否在落地图忠实续接——奴隶叛乱是"意图与
-                    // 地图无关"的 lord（敌对性/SlaveIsSecure/继续攻击全挂 IsRebelling ≡ LordJob_SlaveRebellion
-                    // 的 lord 成员资格），不续接即叛乱定义上终结（实测：叛乱奴隶跨图追击后变回温顺奴隶）。
-                    // 未续接（位置锚定 lord 或无 lord）走既有分流。
-                    // NPC 战斗体桥接落地（GotoNearestHostile 跨图推进的敌人）：与 Pursue 落地同款收编——
-                    // TryTransferPawn 已剥离原 lord，落地敌对 pawn 若不并入袭击 lord，续跑 job 一旦过期，
-                    // think tree 对无 lord 敌对 pawn 的 JobGiver_ExitMap 分支会直接给离场 job（即 Pursue
-                    // 分支修过的"传送后消失"）。玩家方桥接者（殖民者/机械族/殖民地动物）不属 NPC 战斗体，
-                    // 直接续程。非敌对 NPC 战斗体（盟友推进兵等）给游荡宽限，与 Pursue 分支口径一致。
-                    var continuedLord = grant.PrevLordJob != null
-                        && TryContinueLordOnArrival(pawn, arrivalMap, grant.PrevLordJob);
-                    if (!continuedLord)
-                    {
-                        if (SeamlessBoundaryRules.IsNpcCombatant(pawn) && !TryAttachAssaultLord(pawn, arrivalMap))
-                        {
-                            StrayNpcs[pawn] = new StrayInfo
-                            {
-                                DeadlineTick = GenTicks.TicksGame + StrayGraceTicks,
-                                FromWorldTile = SeamlessTileRegistry.GetMapWorldTile(departureMap)
-                            };
-                        }
-                    }
-                    // The seam spot is only a marching target. On the attacked map the
-                    // rebuilt sapper/breacher lord must choose its own duty immediately.
-                    if (continuedLord && grant.PrevLordJob is LordJob_SeamlessRaidMarch raidMarch
-                        && SeamlessTileRegistry.GetMapWorldTile(arrivalMap) == raidMarch.TargetTile)
+                case GrantKind.Pursue:
+                    if (grant.PrevLordJob is LordJob_SlaveRebellion rebellion)
+                        ContinueSlaveRebellion(pawn, arrivalMap, rebellion);
+                    // An explicit raid march ends at the seam. The target map's sapper or
+                    // breaching duty chooses its own target as soon as the pawn is attached.
+                    if (grant.PrevLordJob is LordJob_SeamlessRaidMarch march && march.Marching
+                        && SeamlessTileRegistry.GetMapWorldTile(arrivalMap) == march.TargetTile)
                         break;
                     ContinueBridgeMove(pawn, arrivalMap, grant);
                     break;
                 case GrantKind.Evacuation:
                     ContinueEvacuationChain(pawn, departureMap, departureSpot, arrivalMap, grant);
                     break;
-                case GrantKind.Pursue:
                 case GrantKind.Follow:
-                    // 落地 NPC 无 lord/duty：驯养动物留在主人身边无需兜底；敌对追击者立即并入/新建
-                    // 袭击 lord（否则原版 think tree 对无 lord 敌对 pawn 的 JobGiver_ExitMap 分支会在
-                    // 下一 think tick 直接离场——被 Patches_RCellFinder 重定向到脚下传送点格后原生
-                    // 离图，即 2026-08 实测"追击者传送后消失"的根因）；其余登记游荡宽限。
                     if (SeamlessBoundaryRules.IsColonyAnimal(pawn)) break;
-                    // Follow 且跟随目标已落本图 = 有目的（think 即恢复 FollowClose，机械族 Escort
-                    // 跟随 overseer 过缝的主场景），免游荡登记——否则非动物跟随者 600 ticks 后被
-                    // 误转撤离链赶出地图（2026-09 修复）。目标不在本图/已失效才走游荡兜底。
-                    if (grant.Kind == GrantKind.Follow && grant.FollowTarget != null
-                        && !grant.FollowTarget.Destroyed && grant.FollowTarget.Map == arrivalMap) break;
-                    if (grant.Kind == GrantKind.Pursue && grant.PrevLordJob is LordJob_SeamlessRaidMarch
-                        && TryContinueLordOnArrival(pawn, arrivalMap, grant.PrevLordJob)) break;
-                    if (grant.Kind == GrantKind.Pursue && TryAttachAssaultLord(pawn, arrivalMap)) break;
+                    if (grant.FollowTarget != null && !grant.FollowTarget.Destroyed
+                        && grant.FollowTarget.Map == arrivalMap) break;
                     StrayNpcs[pawn] = new StrayInfo
                     {
                         DeadlineTick = GenTicks.TicksGame + StrayGraceTicks,
@@ -256,64 +336,8 @@ namespace RimExodus
             MarkFollowers(pawn, departureMap, departureSpot);
         }
 
-        /// <summary>
-        /// 敌对追击者落地的袭击 lord 接管（2026-08 修复"追击者传送后消失"）：
-        /// <see cref="SeamlessMapTransfer.TryTransferPawn"/> 剥离原 lord（跨图本不能留在旧图 lord），
-        /// 落地成为无 lord 敌对 pawn——原版 think tree 的 JobGiver_ExitMap 分支会给它离场 job
-        /// （堆栈实测：JobGiver_ExitMap → TryFindBestExitSpot → 我们的重定向 → 脚下传送点格 → 原生离图）。
-        /// 修复：敌对追击者落地即并入/新建 AssaultColony lord，原版袭击 AI 完整接管追杀
-        /// （canKidnap/canSteal 关闭——追击语义不是抄家；canTimeoutOrFlee 保留超时放弃）。
-        /// 目标再次跨图时 MarkPursuers 的 job 判据仍成立（AttackMelee/AttackStatic 来自 lord duty），
-        /// 追击链可跨多图延续；同批落地（600 ticks 内）同图同阵营的追击者编入同一 lord。
-        /// 盟友追击兵不建袭击 lord（对玩家阵营敌对性不成立），维持游荡宽限兜底。
-        /// </summary>
-        private static readonly Dictionary<PlanetTile, (Faction faction, Lord lord, int createdTick)> RecentAssaultLords
-            = new Dictionary<PlanetTile, (Faction, Lord, int)>();
-
-        private static bool TryAttachAssaultLord(Pawn pawn, Map arrivalMap)
+        private static bool ContinueSlaveRebellion(Pawn pawn, Map arrivalMap, LordJob_SlaveRebellion rebellion)
         {
-            var faction = pawn.Faction;
-            if (faction == null || !pawn.HostileTo(Faction.OfPlayer)) return false;
-
-            if (RecentAssaultLords.TryGetValue(arrivalMap.uniqueID, out var recent)
-                && recent.faction == faction && GenTicks.TicksGame - recent.createdTick < 600
-                && recent.lord != null && recent.lord.lordManager != null
-                && recent.lord.ownedPawns.Count > 0 && recent.lord.faction == faction)
-            {
-                recent.lord.AddPawn(pawn);
-                return true;
-            }
-
-            var lord = LordMaker.MakeNewLord(faction,
-                new LordJob_AssaultColony(faction, canKidnap: false, canTimeoutOrFlee: true,
-                    sappers: false, useAvoidGridSmart: true, canSteal: false),
-                arrivalMap, new[] { pawn });
-            RecentAssaultLords[arrivalMap.uniqueID] = (faction, lord, GenTicks.TicksGame);
-
-            if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
-                Log.Message($"[RimExodus] Pursuit lord: {pawn.LabelShort} lands on map {arrivalMap.uniqueID} "
-                    + "and joins a new AssaultColony lord (cross-map chase continues).");
-            return true;
-        }
-
-        /// <summary>
-        /// lord 跨图续接策略（唯一判定点，2026-08）：lord 是唯一的 map-anchored 行为载体（per-map
-        /// LordManager + 构造参数/toil 焦点全是本图坐标与实体），原版对"pawn 换图"的答案就是离开 lord
-        /// （Pawn.ExitMap → Notify_PawnLost）——位置锚定类（DefendBase/Staging/Party/Visit 等）跨图即失
-        /// 是与原版一致的正确语义，不续；仅"意图与地图无关"的 lord 忠实续接，当前包括奴隶叛乱
-        /// （SlaveRebellionUtility.IsRebelling ≡ lord 是 LordJob_SlaveRebellion；敌对性/SlaveIsSecure/
-        /// 殖民者自动反击全挂此判定——传送剥离 lord 即叛乱定义上终结，2026-08 实测"叛乱奴隶跨图追击
-        /// 后不再叛乱"的根因）。未来需忠实续接的新类型（如 PrisonBreak）在此加分支，不动下游。
-        /// 仅 Bridge 类（战斗追击跨图）调用：逃亡展叛奴的 exit 意图 job 走撤离链，lord 目标（跑出世界）
-        /// 已由链达成，重建会双驱动——撤离链跨图不续接。外缘工兵/破墙的行军 lord 也在此按
-        /// 袭击身份合流；抵达目标图时才创建原版专用工作所需的带旗标 lord。
-        /// </summary>
-        private static bool TryContinueLordOnArrival(Pawn pawn, Map arrivalMap, LordJob prevLordJob)
-        {
-            if (prevLordJob is LordJob_SeamlessRaidMarch raidMarch)
-                return TryContinueRaidMarch(pawn, arrivalMap, raidMarch);
-            if (!(prevLordJob is LordJob_SlaveRebellion rebellion)) return false;
-
             var manager = arrivalMap.lordManager;
             if (manager == null) return false;
 
@@ -344,35 +368,6 @@ namespace RimExodus
             return true;
         }
 
-        private static bool TryContinueRaidMarch(Pawn pawn, Map arrivalMap, LordJob_SeamlessRaidMarch previous)
-        {
-            var manager = arrivalMap.lordManager;
-            if (manager == null || pawn.Faction == null) return false;
-            var onTarget = SeamlessTileRegistry.GetMapWorldTile(arrivalMap) == previous.TargetTile;
-            foreach (var lord in manager.lords)
-            {
-                if (lord.LordJob is LordJob_SeamlessRaidMarch candidate
-                    && candidate.RaidIdentity == previous.RaidIdentity
-                    && candidate.Marching == !onTarget
-                    && lord.faction == pawn.Faction && lord.ownedPawns.Count > 0
-                    && lord.CanAddPawn(pawn))
-                {
-                    lord.AddPawn(pawn);
-                    RimExodusLog.Message(RimExodusLogModule.Combat,
-                        $"Raid march {previous.RaidIdentity}: {pawn.LabelShort} joined "
-                        + $"{(onTarget ? "sapper/breacher assault" : "marching")} lord on map {arrivalMap.uniqueID}.");
-                    return true;
-                }
-            }
-
-            LordMaker.MakeNewLord(pawn.Faction, previous.ForArrival(pawn.Faction, onTarget),
-                arrivalMap, new[] { pawn });
-            RimExodusLog.Message(RimExodusLogModule.Combat,
-                $"Raid march {previous.RaidIdentity}: {pawn.LabelShort} started "
-                + $"{(onTarget ? "sapper/breacher assault" : "marching")} lord on map {arrivalMap.uniqueID}.");
-            return true;
-        }
-
         /// <summary>
         /// Bridge 续程：跨图落地后继续执行。NextJob 非空（StartPath 跨图包装路径）→ 直接续跑原 job
         ///（传送后 pawn 已在目标图，job 目标变同图，原生 driver 接管）；否则走 FinalDest 的 Goto
@@ -380,6 +375,15 @@ namespace RimExodus
         /// </summary>
         private static void ContinueBridgeMove(Pawn pawn, Map arrivalMap, Grant grant)
         {
+            if (grant.PursuitTarget != null && grant.NextJob != null)
+            {
+                if (grant.PursuitTarget.Map != arrivalMap) return;
+                if (grant.NextJobFromLord)
+                    grant.NextJob.lord = pawn.GetLord();
+                if (grant.PursuitJobDeadline >= 0)
+                    grant.NextJob.expiryInterval = System.Math.Max(1, grant.PursuitJobDeadline - GenTicks.TicksGame);
+            }
+
             // def 判空防御（2026-09 NRE 根因收口）：包装 job 按引用存于 grant，一旦被回池
             //（Job.Clear 置 def=null）即成悬垂引用——StartJob→MakeDriver 访问 def.driverClass
             // 直接 NRE，并把 jobTracker 打进每 tick 报错的坏状态。命中时按无包装 job 走
@@ -565,43 +569,34 @@ namespace RimExodus
             pawn.jobs.StartJob(job, JobCondition.InterruptForced);
         }
 
-        /// <summary>
-        /// 追击者扫描（行为表行 17/25/33，待办④）：目标刚跨图，出发地图上正追击它的 NPC 战斗体
-        /// 借同一传送点跨图追击（玩家不能靠跨图甩掉追兵）。
-        /// 意图判据（2026-08 扩展）：①AttackMelee/AttackStatic job 目标=跨图者（交战瞬间）；
-        /// ②推进期 Goto 目标=跨图者（GotoNearestHostile 的 Goto(目标 thing)——原版此阶段不设
-        /// mindState.enemyTarget，只认 Attack 系/②会漏掉正在赶路的推进者）；③mindState.enemyTarget=
-        /// 跨图者（AIFightEnemy 走位 Goto 期间持续有效）。远程统一门槛：还能从原地跨缝
-        /// 射击（TryGetAttackVerb + CanHitTarget 走我们的跨图射击线）→ 留在原地继续打，打不着才传送。
-        /// 闲逛/工作/无 flag 逃跑仍不扫（行为表"无事"）；狂猎动物不属战斗体（表无此行）。
-        /// </summary>
         private static void MarkPursuers(Pawn target, Map departureMap, Thing spot)
         {
+            if (!SeamlessCombatCoords.Enabled || !target.Spawned) return;
+            List<Pawn> pursuers = null;
             foreach (var other in departureMap.mapPawns.AllPawns)
             {
-                if (other == target || !other.Spawned || other.Downed || other.Dead) continue;
-                if (!SeamlessBoundaryRules.IsNpcCombatant(other)) continue;
-                var job = other.CurJob;
-                var jobPursuing = job != null
-                    && ((job.def == JobDefOf.AttackMelee || job.def == JobDefOf.AttackStatic
-                            // 推进期 Goto（GotoNearestHostile 的 Goto(目标 thing)，2026-08 补）：这一阶段
-                            // 原版不设 mindState.enemyTarget，只认 Attack 系会漏掉正在赶路的推进者——
-                            // "Goto 的目标=刚跨图者"即追击意图。
-                            || (job.def == JobDefOf.Goto && !job.playerForced))
-                        && job.targetA.Thing == target);
-                var enemyTargetPursuing = other.mindState?.enemyTarget == target;
-                if (!jobPursuing && !enemyTargetPursuing) continue;
+                if (other == target || other.Map != departureMap
+                    || SeamlessPursuit.Target(other, other.CurJob) != target
+                    || !SeamlessPursuit.CanCross(other, target, target.Map)) continue;
 
-                // 还能从原地跨缝射击：留在原地继续打（跨图索敌自然维持目标），不传送。
+                // Keep shooting across the seam when the current firing position still works.
                 var verb = other.TryGetAttackVerb(target, true);
                 if (verb != null && verb.CanHitTarget(new LocalTargetInfo(target))) continue;
 
-                IssueTransitGoto(other, spot.Position, LocomotionUrgency.Jog);
+                pursuers ??= new List<Pawn>();
+                pursuers.Add(other);
+            }
+            if (pursuers == null) return;
+            foreach (var other in pursuers)
+            {
+                // A pawn already standing on this spot may transfer synchronously in StartJob.
+                var job = other.CurJob;
+                if (other.Map != departureMap || SeamlessPursuit.Target(other, job) != target
+                    || !SeamlessPursuit.CanCross(other, target, target.Map)) continue;
                 var grant = Create(other, GrantKind.Pursue);
                 grant.BoundSpot = spot.Position;
-
-                if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
-                    Log.Message($"[RimExodus] Pursuit grant: {other.LabelShort} chases {target.LabelShort} across map {departureMap.uniqueID}.");
+                BindPursuit(grant, other, target, job);
+                IssueTransitGoto(other, spot.Position, job.locomotionUrgency, job.canBashDoors, job.canBashFences);
             }
         }
 
@@ -619,6 +614,7 @@ namespace RimExodus
                 if (job == null) continue;
                 if (job.def != JobDefOf.Follow && job.def != JobDefOf.FollowClose) continue;
                 if (job.targetA.Thing != leader) continue;
+                if (SeamlessRaidContinuity.HasLocalEscortDuty(other.GetLord())) continue;
 
                 IssueTransitGoto(other, spot.Position, LocomotionUrgency.Jog);
                 var grant = Create(other, GrantKind.Follow);

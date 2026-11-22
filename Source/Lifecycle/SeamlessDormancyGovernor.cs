@@ -377,8 +377,9 @@ namespace RimExodus
                 // 保活（无条件活跃）：玩家正看着的图 / 玩家 pawn 所在图 / 玩家家园 / 活跃威胁追踪中。
                 // 家园（IsProtectedHome，2026-08 用户定夺"不休眠不删除"）：开局家园/定居/gravship
                 // 降落/引力引擎营地——特权判定全项目唯一行为消费点在此，删除分支不再有独立豁免。
+                var raidAuthority = SeamlessRaidContinuity.Current?.NeedsActiveAuthority(m) == true;
                 if (m == current || sources.Contains(tile) || SeamlessMapGovernance.IsProtectedHome(m)
-                    || threatKeepaliveMaps.Contains(m))
+                    || threatKeepaliveMaps.Contains(m) || raidAuthority)
                 {
                     // 保活 = 恢复全速（降频一并解除；玩家落图/进图的即时解除另有事件入口，此处兜底）。
                     SeamlessTickThrottle.Unthrottle(m, "governor keep-alive");
@@ -396,6 +397,7 @@ namespace RimExodus
                                 ? "governor keep-alive (player pawn on map)"
                                 : threatKeepaliveMaps.Contains(m)
                                     ? "governor keep-alive (active threat)"
+                                    : raidAuthority ? "governor keep-alive (active raid squad)"
                                     : "governor keep-alive (player home)";
                         SeamlessDormancyManager.Wake(m, keepReason);
                     }

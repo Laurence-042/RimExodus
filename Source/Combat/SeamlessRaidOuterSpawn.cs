@@ -10,74 +10,114 @@ using Verse.AI.Group;
 
 namespace RimExodus
 {
+    internal enum RaidEntryPreference { Default, Native, Outer }
+    internal enum RaidEntryScope { Incident, Strategy, Arrival }
+
     /// <summary>
-    /// 袭击外缘生成（2026-09，用户规划）：步行类袭击不再从"已加载区内部边界"（朝向活跃邻图的
-    /// 接缝）凭空出现，而是出现在外侧接缝——对侧未被玩家看见（无图或休眠）的边上。
-    ///
-    /// 资格三分支（对被袭击图 A 的世界网格一跳邻居逐个判定，纯拓扑、不区分五/六边形数量）：
-    /// ① 一跳邻居 B 活跃、且 B 的某条边对侧 C 无图或休眠 → 生成在 B 朝 C 的边上
-    ///    （叙事：袭击者从玩家没看到的 C 进入 B，再从 B 向 A 进军）；
-    /// ② 一跳邻居 B 无图或休眠 → 生成在 A 朝 B 的边上（叙事：从没被看到的 B 直接进入 A）；
-    /// ③ fallback（一跳二跳全活跃）→ 任意 B-C 边可用。
-    /// "不活跃" = 无图或 <see cref="SeamlessDormancyManager.IsDormant"/>；**降频算活跃**
-    /// （可见即被看见，与 SeamlessTileGraph 邻接口径一致）。
-    ///
-    /// 两种执行形态（host = 实际生成图）：
-    /// - **地图优先选点**：Prefix 建立并打乱候选宿主图；4 参 CellFinder 收到原版
-    ///   validator 后，逐图尝试该图允许的外缘方向。同图 A 用朝向格；跨图 B 要求
-    ///   B 的入口可站且可到 A 侧缝，并在 A 找到原生生成链所需的临时入口。
-    ///   某图所有入口失败才尝试下一图；全失败清计划，A 走未约束的正常选点。
-    /// - **跨图生成**（host == B）：敌对 raid 族经 Patch_RaidStrategyWorker_MakeLords 的
-        ///   Postfix（此时 pawn 已在 A 生成、lord 已建好且自洽）把整组 pawn 迁往 B 的选定格，
-        ///   A 图 lord 随清空自毁（Vanished 通知），在 B 上重建袭击 lord——纯突击族重建
-        ///   AssaultColony（镜像 vanilla ImmediateAttack）；工兵/破墙在宿主图行军，抵达
-        ///   被袭击图后重建专用 lord。StageThenAttack 在宿主图重选扎营点
-        ///   重建 LordJob_StageThenAttack（扎营计时 → 攻击子图），Siege 在宿主图重选炮兵阵地
-        ///   重建 LordJob_Siege（迫击炮经既有跨图索敌/弹丸越缝链轰击目标图）——三者均 2026-09
-        ///   用户定夺纳入。机械体围攻/PsychicRitualSiege（覆写 MakeLords）与邪教徒仍出局。
-        ///   发狂动物/
-        ///   食尸鬼/奇美拉不走 MakeLords——迁移在各自 worker 的
-        ///   TryExecuteWorker Postfix（pawn 组由 WindowPawns 捕获），按类型重建：发狂动物无 lord
-        ///   （ManhunterPermanent mental state 跨图保留）、食尸鬼 = 无超时 AssaultColony、
-        ///   奇美拉 = ChimeraAssault（保持原版 stalk 起步与 MTB 等待机制）。**行军不发放任何
-        ///   Grant**——完全交给现有推进链（跨图近战桥接 Goto / GotoNearestHostile 跨图 →
-        ///   StartPath 结构判据桥接 → 过缝），与"殖民者跨缝逃跑后袭击者追过去"同一形状（阶段 5
-        ///   已实测）。
-    ///
-    /// 传送点朝未生成邻居也预铺（<see cref="SeamlessEnterSpotPlacer"/> 铺全部世界邻居边，
-    /// hasArrival=false 不影响取格），故"朝向某 tile 的格"统一按 spot 的 targetWorldTile
-    /// 过滤即可，无需几何锚点。枚举一律走世界网格邻居（GetTileNeighbors），**不用地图邻居表**
-    /// （只含已登记链接，看不到未生成邻居）。
-    ///
-    /// 安全纪律：一切入口 try/catch，任何失败 = 原版行为 + Error（绝不断袭击）；ambient 由
-    /// Prefix 设 / Postfix 清，Begin 前防御性清陈旧（覆盖异常泄漏窗口）。
+    /// Selects an unseen outer edge for supported arrivals. The vanilla worker still generates
+    /// the group on the attacked map first. A neighbor becomes the host only after the complete
+    /// native squads and landing cells pass preflight.
     /// </summary>
     internal static class SeamlessRaidOuterSpawn
     {
         /// <summary>总开关（设置 raidOuterSpawnEnabled，默认开）。</summary>
         internal static bool Enabled => RimExodusMod.Settings?.raidOuterSpawnEnabled ?? true;
 
-        /// <summary>
-        /// 事件级"仅本图生成"判定（设置 raidOuterSpawnLocalIncidents，2026-09 反转默认：全员
-        /// 跨图、本名单为逐事件退出通道）。默认 false = 跨图（含 mod 扩展事件）。
-        /// </summary>
-        internal static bool IsLocalOnlyIncident(string incidentDefName)
+        internal static RaidEntryPreference EntryPreference(RimExodusSettings settings, RaidEntryScope scope, string defName)
         {
-            return incidentDefName != null
-                && RimExodusMod.Settings?.raidOuterSpawnLocalIncidents != null
-                && RimExodusMod.Settings.raidOuterSpawnLocalIncidents.Contains(incidentDefName);
+            if (settings == null || defName == null) return RaidEntryPreference.Default;
+            if (settings.raidEntryPreferences.TryGetValue($"{scope}/{defName}", out var preference)) return preference;
+            return scope == RaidEntryScope.Incident && settings.raidOuterSpawnLocalIncidents.Contains(defName)
+                ? RaidEntryPreference.Native : RaidEntryPreference.Default;
         }
 
-        /// <summary>
-        /// 结构性本图的 worker 类型（2026-09，UI 与计划入口共用的硬编码原版清单）：
-        /// PsychicRitualSiege——灵能仪式围攻的仪式点/角色分配/效果全部锚定被袭击图
-        ///（LordJob_PsychicRitualRepeating 以 spawnCenter 为仪式核心），跨图要么仪式打空、
-        /// 要么降级普通突击抹掉整个玩法，保持本图且不可在设置里改。mod 子类同样命中。
-        /// </summary>
+        internal static void SetEntryPreference(RimExodusSettings settings, RaidEntryScope scope, string defName,
+            RaidEntryPreference preference)
+        {
+            if (scope == RaidEntryScope.Incident) settings.raidOuterSpawnLocalIncidents.Remove(defName);
+            string key = $"{scope}/{defName}";
+            if (preference == RaidEntryPreference.Default) settings.raidEntryPreferences.Remove(key);
+            else settings.raidEntryPreferences[key] = preference;
+        }
+
+        internal static void ResetEntryPreferences(RimExodusSettings settings)
+        {
+            settings.raidEntryPreferences.Clear();
+            settings.raidOuterSpawnLocalIncidents.Clear();
+        }
+
         internal static bool IsStructurallyLocalWorker(System.Type workerType)
         {
             return workerType != null
-                && typeof(IncidentWorker_PsychicRitualSiege).IsAssignableFrom(workerType);
+                && (typeof(IncidentWorker_PsychicRitualSiege).IsAssignableFrom(workerType)
+                    || typeof(IncidentWorker_EntitySwarm).IsAssignableFrom(workerType)
+                    || typeof(IncidentWorker_ShamblerAssault).IsAssignableFrom(workerType));
+        }
+
+        internal static bool IsStrategyMapBound(RaidStrategyDef strategy)
+        {
+            var worker = strategy?.workerClass;
+            // Vanilla walking siege can choose its camp before the Travel toil reaches it.
+            return worker != null && ((worker != typeof(RaidStrategyWorker_Siege)
+                    && typeof(RaidStrategyWorker_Siege).IsAssignableFrom(worker))
+                || typeof(RaidStrategyWorker_PsychicRitualSiege).IsAssignableFrom(worker));
+        }
+
+        internal static bool UsesNativeEntry(RaidStrategyDef strategy)
+        {
+            var preference = EntryPreference(RimExodusMod.Settings, RaidEntryScope.Strategy, strategy?.defName);
+            return preference == RaidEntryPreference.Native
+                || (preference == RaidEntryPreference.Default && IsStrategyMapBound(strategy));
+        }
+
+        private static string ResolvedNativeReason(IncidentParms parms)
+        {
+            if (parms == null) return null;
+            if (UsesNativeEntry(parms.raidStrategy)) return "raid strategy uses native entry";
+            var mode = parms.raidArrivalMode;
+            if (mode != null && !mode.walkIn) return $"arrival mode {mode.defName} requires native placement";
+            return EntryPreference(RimExodusMod.Settings, RaidEntryScope.Arrival, mode?.defName) == RaidEntryPreference.Native
+                ? $"arrival mode {mode.defName} is configured to use native entry" : null;
+        }
+
+        private static void LogNativeEntry(IncidentParms parms, Map map, string reason)
+        {
+            RimExodusLog.Message(RimExodusLogModule.Combat,
+                $"Raid outer spawn: using native entry on target map {map.uniqueID} "
+                + $"(strategy={parms.raidStrategy?.defName ?? parms.raidStrategy?.workerClass?.Name ?? "unresolved"}; {reason}).");
+        }
+
+        internal static bool CanStageOnHost(Lord lord) =>
+            lord.LordJob.GetType() == typeof(LordJob_StageThenAttack)
+            && lord.CurLordToil == lord.Graph?.StartingToil
+            && lord.CurLordToil?.data is LordToilData_Stage;
+
+        private static readonly AccessTools.FieldRef<LordJob_StageThenAttack, IntVec3> NativeStageLocation =
+            AccessTools.FieldRefAccess<LordJob_StageThenAttack, IntVec3>("stageLoc");
+        private static readonly AccessTools.FieldRef<LordJob_Siege, IntVec3> NativeSiegeLocation =
+            AccessTools.FieldRefAccess<LordJob_Siege, IntVec3>("siegeSpot");
+
+        internal static void SetStagingPoint(Lord lord, IntVec3 cell)
+        {
+            // Update both the running duty and the native job's graph configuration for reloads.
+            ((LordToilData_Stage)lord.CurLordToil.data).stagingPoint = cell;
+            NativeStageLocation((LordJob_StageThenAttack)lord.LordJob) = cell;
+        }
+
+        internal static LordToilData_Siege PreparingSiege(Lord lord)
+        {
+            if (lord.LordJob.GetType() != typeof(LordJob_Siege) || lord.CurLordToil is not LordToil_Travel
+                || lord.CurLordToil != lord.Graph?.StartingToil) return null;
+            var siege = lord.Graph.lordToils.Find(toil => toil is LordToil_Siege)?.data as LordToilData_Siege;
+            return siege?.blueprints.Count == 0 ? siege : null;
+        }
+
+        internal static void SetSiegePoint(Lord lord, LordToilData_Siege siege, IntVec3 cell)
+        {
+            // Travel, the later construction toil, and the graph rebuilt on load share this cell.
+            ((LordToil_Travel)lord.CurLordToil).SetDestination(cell);
+            siege.siegeCenter = cell;
+            NativeSiegeLocation((LordJob_Siege)lord.LordJob) = cell;
         }
 
         /// <summary>一次事件的候选宿主图及该图允许的外缘方向。先随机排图，再逐图试入口。</summary>
@@ -94,6 +134,7 @@ namespace RimExodus
         internal sealed class Plan
         {
             public Map TargetMap;
+            public IncidentParms Parms;
             public List<SpawnMapCandidate> CandidateMaps;
             public bool EntrySelected;
             public PlanetTile SelectedFacingTile = PlanetTile.Invalid;
@@ -122,6 +163,8 @@ namespace RimExodus
         /// <summary>读 LordJob_AssaultColony 私有旗标；专用工作只在被袭击图启动。</summary>
         private static AccessTools.FieldRef<LordJob_AssaultColony, bool> sappersRef;
         private static AccessTools.FieldRef<LordJob_AssaultColony, bool> breachersRef;
+        private static AccessTools.FieldRef<LordJob_AssaultColony, bool> avoidGridRef;
+        private static AccessTools.FieldRef<LordJob_AssaultColony, bool> opportunisticWeaponsRef;
 
         // =====================================================================
         // 入口（Patches_RaidOuterSpawn 调用）
@@ -143,23 +186,38 @@ namespace RimExodus
             {
                 if (!(parms?.target is Map mapA) || mapA.Disposed) return;
                 var tileA = SeamlessTileRegistry.GetMapWorldTile(mapA);
-                if (!tileA.Valid) return; // 口袋/空间层图（GetMapWorldTile 收口口径）
+                if (!tileA.Valid)
+                {
+                    LogNativeEntry(parms, mapA, "map has no seamless world tile");
+                    return;
+                }
                 if (SeamlessDormancyManager.IsDormant(mapA))
                 {
                     // Retain only the existing generation window for dormant incident cleanup.
                     // Null candidates leave native entry selection untouched; the group stays on this map.
                     Current = new Plan { TargetMap = mapA, CreatedTick = GenTicks.TicksGame };
+                    LogNativeEntry(parms, mapA, "target map is dormant");
                     return;
                 }
-                if (!Enabled || IsLocalOnlyIncident(incidentDefName) || IsStructurallyLocalWorker(workerType)) return;
-                if (!SeamlessEdgeCells.HasSeamEdge(mapA)) return; // 无缝语义不在场（异常态）→ 原版
+                bool fixedIncident = IsStructurallyLocalWorker(workerType);
+                var incidentPreference = EntryPreference(RimExodusMod.Settings, RaidEntryScope.Incident, incidentDefName);
+                string reason = !Enabled ? "outer-edge arrivals are disabled"
+                    : incidentPreference == RaidEntryPreference.Native
+                        || (incidentPreference == RaidEntryPreference.Default && fixedIncident) ? "incident uses native entry"
+                    : ResolvedNativeReason(parms) ?? (!SeamlessEdgeCells.HasSeamEdge(mapA) ? "target map has no usable seam edge" : null);
+                if (reason != null)
+                {
+                    LogNativeEntry(parms, mapA, reason);
+                    return;
+                }
 
                 // 跨图资格的 parms 层守卫（仅查调用前已稳定的字段）：faction 故意不查——raid 族
                 // worker 在 TryExecuteWorker **内部**才解析 faction（TryGenerateRaidInfo →
                 // TryResolveRaidFaction），Prefix 时点恒为 null，查了等于全员判否（2026-09 实测
                 // "18 候选全部不可用"的根因）。敌对性由 TryRelocateToHost 在 MakeLords 时点复验，
                 // 友好援军在那里被安全拦下（计划被弃 = 原版落点）。
-                var crossAllowed = allowCrossMap
+                var crossAllowed = allowCrossMap && !fixedIncident && !IsStrategyMapBound(parms.raidStrategy)
+                    && SeamlessCombatCoords.Enabled
                     && parms.controllerPawn == null
                     && (parms.attackTargets == null || parms.attackTargets.Count == 0);
 
@@ -199,7 +257,11 @@ namespace RimExodus
                         }
                     }
                 }
-                if (candidates.Count == 0) return;
+                if (candidates.Count == 0)
+                {
+                    LogNativeEntry(parms, mapA, crossAllowed ? "no eligible outside edge" : "neighbor-map arrivals are unavailable");
+                    return;
+                }
 
                 // 地图先随机，再随机各图内的外缘方向；失败时按这个顺序试下一张图。
                 for (int i = candidates.Count - 1; i > 0; i--)
@@ -220,6 +282,7 @@ namespace RimExodus
                 Current = new Plan
                 {
                     TargetMap = mapA,
+                    Parms = parms,
                     CandidateMaps = candidates,
                     CreatedTick = GenTicks.TicksGame,
                 };
@@ -260,6 +323,13 @@ namespace RimExodus
             WindowPawns.Clear();
         }
 
+        internal static void LogUnusedPlan(IncidentParms parms)
+        {
+            var plan = Current;
+            if (plan?.CandidateMaps == null || plan.EntrySelected || plan.Parms != parms) return;
+            LogNativeEntry(parms, plan.TargetMap, ResolvedNativeReason(parms) ?? "arrival did not use the outer-edge plan");
+        }
+
         // =====================================================================
         // 入场选择：先地图、再该图外缘；全失败才回到 A 的无约束选点
         // =====================================================================
@@ -276,6 +346,14 @@ namespace RimExodus
             found = false;
             var plan = Current;
             if (plan == null || map != plan.TargetMap || plan.CandidateMaps == null) return false;
+            // Raid strategy resolution occurs between BeginIncident and the native entry query.
+            var nativeReason = ResolvedNativeReason(plan.Parms);
+            if (nativeReason != null)
+            {
+                LogNativeEntry(plan.Parms, map, nativeReason);
+                plan.CandidateMaps = null;
+                return false;
+            }
             if (SeamlessDormancyManager.IsDormant(map)) return false;
             if (GenTicks.TicksGame - plan.CreatedTick > 120)
             {
@@ -302,8 +380,10 @@ namespace RimExodus
             }
 
             var tileA = SeamlessTileRegistry.GetMapWorldTile(map);
+            bool fixedStrategy = IsStrategyMapBound(plan.Parms.raidStrategy);
             foreach (var candidate in plan.CandidateMaps)
             {
+                if (fixedStrategy && candidate.HostMap != map) continue;
                 if (!IsActive(candidate.HostMap)) continue;
                 foreach (var facingTile in candidate.FacingTiles)
                 {
@@ -362,6 +442,7 @@ namespace RimExodus
                 if (candidate.HostMap == mapA)
                 {
                     plan.EntrySelected = true;
+                    LogNativeEntry(plan.Parms, mapA, "selected the target-map candidate after vanilla placement");
                     return;
                 }
                 foreach (var facingTile in candidate.FacingTiles)
@@ -411,15 +492,21 @@ namespace RimExodus
         // =====================================================================
 
         /// <summary>
-        /// raid 族跨图迁移（MakeLords Postfix 入口）：守卫（walkIn/敌对/lord 纯 AssaultColony）+
-        /// 共享迁移核心 + 在宿主图重建袭击 lord。全部守卫通过才动手；半途失败 = 原版。
-        /// 返回 false = 不迁移（MakeLords 原生结果保持）。
+        /// Validate the resolved walk-in raid before moving its complete native squads.
         /// </summary>
         internal static bool TryRelocateToHost(IncidentParms parms, List<Pawn> pawns)
         {
-            if (SeamlessDormancyManager.IsDormant(parms?.target as Map)) return false;
             var plan = Current;
-            if (plan?.CandidateMaps == null) return false;
+            if (plan?.CandidateMaps == null || parms?.target != plan.TargetMap) return false;
+            if (SeamlessDormancyManager.IsDormant(plan.TargetMap)) return false;
+            var nativeReason = ResolvedNativeReason(parms);
+            if (nativeReason != null || IsStrategyMapBound(parms.raidStrategy))
+            {
+                if (!plan.EntrySelected)
+                    LogNativeEntry(parms, plan.TargetMap, nativeReason ?? "the strategy's duties must run on the target map");
+                plan.CandidateMaps = null;
+                return false;
+            }
             if (!plan.EntrySelected)
             {
                 try { SelectMapAfterVanillaEntry(plan); }
@@ -450,132 +537,52 @@ namespace RimExodus
                 if (parms.attackTargets != null && parms.attackTargets.Count > 0) return Decline("targeted raid (attackTargets)");
                 if (pawns == null || pawns.Count == 0) return Decline("empty pawn group");
 
-                // 允许的 lord 形状（2026-09 三轮扩展，用户定夺）：
-                // ① LordJob_AssaultColony（工兵/破墙先行军，过缝后恢复专用工作）；
-                //   ② LordJob_StageThenAttack（扎营计时 →
-                //   AssaultColony 子图——攻击期推进链已跨图化，扎营期 Defend duty 地图无关，
-                ///  扎营点在宿主图重选）；③ LordJob_Siege——迫击炮的跨图索敌/射击线/弹丸越缝
-                //   均已有（flyOverhead 免 LOS、炮塔走 BestAttackTarget 跨图 Postfix），扎营建在
-                //   宿主图、炮弹跨缝轰击目标图。仍出局：机械体围攻/PsychicRitualSiege（覆写
-                //   MakeLords，基类 Postfix 结构性不命中）与邪教徒（分批布点+吟唱）。
-                var isStageThenAttack = false;
-                var isSiege = false;
-                var isShamblerAssault = false;
-                var wasSappers = false;
-                var wasBreachers = false;
+                var targetMap = (Map)parms.target;
+                var targetTile = SeamlessTileRegistry.GetMapWorldTile(targetMap);
+                var jobs = new Dictionary<Lord, LordJob>();
                 sappersRef ??= AccessTools.FieldRefAccess<LordJob_AssaultColony, bool>("sappers");
                 breachersRef ??= AccessTools.FieldRefAccess<LordJob_AssaultColony, bool>("breachers");
+                avoidGridRef ??= AccessTools.FieldRefAccess<LordJob_AssaultColony, bool>("useAvoidGridSmart");
+                opportunisticWeaponsRef ??= AccessTools.FieldRefAccess<LordJob_AssaultColony, bool>("canPickUpOpportunisticWeapons");
                 foreach (var pawn in pawns)
                 {
-                    if (pawn == null || !pawn.Spawned || !(parms.target is Map) || pawn.Map != (Map)parms.target)
-                        return Decline($"pawn {pawn?.LabelShort ?? "null"} is not on the target map");
-                    var lordJob = pawn.GetLord()?.LordJob;
-                    if (lordJob is LordJob_AssaultColony assault)
+                    if (pawn?.Spawned != true || pawn.Map != targetMap)
+                        return Decline("pawn group has not arrived on the target map");
+                    var lord = pawn.GetLord();
+                    if (lord == null) return Decline("pawn has no native assault squad");
+                    if (jobs.ContainsKey(lord)) continue;
+                    if (lord.LordJob.GetType() == typeof(LordJob_AssaultColony) && lord.LordJob is LordJob_AssaultColony assault
+                        && (sappersRef(assault) || breachersRef(assault)))
                     {
-                        wasSappers |= sappersRef(assault);
-                        wasBreachers |= breachersRef(assault);
+                        if (!targetTile.Valid) return Decline("sapper/breacher target has no seamless world tile");
+                        jobs.Add(lord, new LordJob_SeamlessRaidMarch(lord.faction, targetTile,
+                            lord.GetUniqueLoadID(), sappersRef(assault), breachersRef(assault), parms.canKidnap,
+                            parms.canTimeoutOrFlee, parms.canSteal, marching: true,
+                            useAvoidGridSmart: avoidGridRef(assault), canPickUpOpportunisticWeapons: opportunisticWeaponsRef(assault)));
                     }
-                    else if (lordJob is LordJob_StageThenAttack)
+                    else if (CanStageOnHost(lord) || PreparingSiege(lord) != null || SeamlessRaidContinuity.IsPursuitPhase(lord))
                     {
-                        isStageThenAttack = true;
-                    }
-                    else if (lordJob is LordJob_Siege)
-                    {
-                        isSiege = true;
-                    }
-                    else if (lordJob is LordJob_ShamblerAssault)
-                    {
-                        // 蹒跚怪突击（2026-09）：lord 不原样重建——LordToil_ShamblerAssault 扫不到
-                        // 本图非实体目标会 RemoveLord 自毁，宿主图上无人即散伙。重建为无旗标
-                        // AssaultColony（OfEntities；蹒跚怪战至消亡，kidnap/steal/timeout 全关），
-                        // 行军走已跨图化的突击链；Shambler hediff 寿命随 pawn 跨图保留。
-                        isShamblerAssault = true;
-                    }
-                    else if (lordJob != null)
-                    {
-                        // 通用降级（2026-09 用户定夺：白名单反转——默认全员跨图）：mod 自定义策略等
-                        // 未知 lord 形态不再拒绝，销毁原 lord、按 parms 旗标重建 AssaultColony 迁移
-                        //（mod 策略的专属行为会丢失；玩家可在设置的"仅本图生成"名单里按事件退出）。
-                        // 覆写 MakeLords 的策略（机械体围攻/PsychicRitualSiege）本 Postfix 不命中，
-                        // 结构性保持本图，与本分支无关。
-                        RimExodusLog.Message(RimExodusLogModule.Combat,
-                            $"Raid outer spawn: unrecognized lord {lordJob.GetType().Name} (strategy "
-                            + $"{parms.raidStrategy?.defName ?? "?"}) downgraded to AssaultColony for cross-map relocation.");
+                        jobs.Add(lord, null);
                     }
                     else
                     {
-                        return Decline($"pawn {pawn.LabelShort} has no lord");
+                        return Decline($"native phase {lord.CurLordToil?.GetType().Name ?? "unknown"} stays on its map");
                     }
                 }
 
-                var raidIdentity = pawns[0].GetLord()?.GetUniqueLoadID() ?? pawns[0].GetUniqueLoadID();
-                var targetWorldTile = SeamlessTileRegistry.GetMapWorldTile((Map)parms.target);
-                if ((wasSappers || wasBreachers) && !targetWorldTile.Valid)
-                    return Decline("sapper/breacher target has no surface world tile");
-                if (!TryTransferGroupToHost(parms, pawns, out var hostMap)) return false;
-
-                // B 上重建袭击 lord（镜像 vanilla MakeLords 收尾）。
-                LordJob rebuiltJob;
-                if (isStageThenAttack)
-                {
-                    // 扎营点镜像原 worker 选点（FindSiegePositionFrom 的宿主图版；失败回落 pawn
-                    // 站位）。ctor 旗标镜像 MakeLordJob 默认（原 worker 也不读 parms 旗标）；
-                    // raidSeed 只影响延迟抽取与消息去重，新种子即可。
-                    var stageLoc = RCellFinder.FindSiegePositionFrom(pawns[0].PositionHeld, hostMap,
-                        allowRoofed: true, errorOnFail: false);
-                    if (!stageLoc.IsValid) stageLoc = pawns[0].PositionHeld;
-                    rebuiltJob = new LordJob_StageThenAttack(parms.faction, stageLoc, Rand.Range(0, int.MaxValue));
-                }
-                else if (isSiege)
-                {
-                    // 镜像 RaidStrategyWorker_Siege.MakeLordJob：宿主图重选扎营点，
-                    // 蓝图点数 = points × 0.2~0.3（下限 60）。建成的迫击炮由既有跨图索敌/射击线/
-                    // 弹丸越缝链跨缝轰击目标图。
-                    var siegeSpot = RCellFinder.FindSiegePositionFrom(pawns[0].PositionHeld, hostMap);
-                    var blueprintPoints = Mathf.Max(parms.points * Rand.Range(0.2f, 0.3f), 60f);
-                    rebuiltJob = new LordJob_Siege(parms.faction, siegeSpot, blueprintPoints);
-                }
-                else if (isShamblerAssault)
-                {
-                    rebuiltJob = new LordJob_AssaultColony(parms.faction, canKidnap: false,
-                        canTimeoutOrFlee: false, sappers: false, useAvoidGridSmart: false, canSteal: false);
-                }
-                else if (wasSappers || wasBreachers)
-                {
-                    foreach (var pawn in pawns)
-                        if (pawn.mindState != null) pawn.mindState.enemyTarget = null;
-                    rebuiltJob = new LordJob_SeamlessRaidMarch(parms.faction, targetWorldTile,
-                        raidIdentity, wasSappers, wasBreachers, parms.canKidnap,
-                        parms.canTimeoutOrFlee, parms.canSteal, marching: true);
-                }
-                else
-                {
-                    rebuiltJob = new LordJob_AssaultColony(parms.faction, canKidnap: parms.canKidnap,
-                        canTimeoutOrFlee: parms.canTimeoutOrFlee, sappers: wasSappers,
-                        useAvoidGridSmart: false, canSteal: parms.canSteal, breachers: wasBreachers);
-                }
-                var lord = LordMaker.MakeNewLord(parms.faction, rebuiltJob, hostMap, pawns);
-                lord.inSignalLeave = parms.inSignalEnd;
-                if (!string.IsNullOrEmpty(parms.questTag)) QuestUtility.AddQuestTag(lord, parms.questTag);
+                if (!TryTransferGroupToHost(parms, pawns, jobs, out var hostMap)) return false;
 
                 RimExodusLog.Message(RimExodusLogModule.Combat,
                     $"Raid outer spawn: relocated {pawns.Count} raiders of {parms.faction.def.defName} from map " +
-                    $"{((Map)parms.target).uniqueID} to host map {hostMap.uniqueID} (facing wt={plan.CrossFacingTile}); " +
-                    "march to target handled by existing cross-map pursuit chain.");
+                    $"{targetMap.uniqueID} to host map {hostMap.uniqueID} (facing wt={plan.CrossFacingTile}).");
                 return true;
             }
             catch (Exception ex)
             {
-                Log.Error("[RimExodus] RaidOuterSpawn relocation failed, raid stays on target map: " + ex);
+                Log.Error("[RimExodus] Raid outer spawn could not finish relocation: " + ex);
                 return false;
             }
         }
-
-        /// <summary>
-        /// 宿主图 lord 重建工厂：入参 = 首个已迁移 pawn（落点即其在宿主图的站位——EntitySwarm 族
-        /// 的 lord job 需要宿主图上的 entry/dest 格，由工厂自行从落点推导）。
-        /// </summary>
-        internal delegate LordJob LordJobFactory(Pawn firstPawn);
 
         internal static bool KeepDormantRaidLocal(IncidentParms parms, List<Pawn> pawns)
         {
@@ -617,16 +624,8 @@ namespace RimExodus
             return true;
         }
 
-        /// <summary>
-        /// 非 raid 族跨图迁移（发狂动物/食尸鬼/奇美拉 worker 的 TryExecuteWorker Postfix 入口）：
-        /// 取窗口捕获组（仍在被袭击图上者）→ 共享迁移核心 → 按需在宿主图重建 lord。
-        /// 发狂动物传 null 工厂（无 lord，ManhunterPermanent mental state 跨图保留，由
-        /// Patch_JobGiver_Manhunter_CrossMapMelee 的桥接推进接管行军）。
-        /// onLordCreated：lord 建成后的调校钩子（保留的扩展点；奇美拉曾用它直入攻击模式，
-        /// 2026-09 按用户反馈回退——stalk 等待机制保持原版，MTB/被打切换均 lord 级、跨图可用）。
-        /// </summary>
-        internal static bool TryRelocateWindowGroup(IncidentParms parms, LordJobFactory lordFactory,
-            System.Action<Lord> onLordCreated = null)
+        // The explicit workers either keep their native squad or have pawn-local AI.
+        internal static bool TryRelocateWindowGroup(IncidentParms parms)
         {
             if (KeepDormantRaidLocal(parms, WindowPawns)) return false;
             var plan = Current;
@@ -654,16 +653,7 @@ namespace RimExodus
                 }
                 if (pawns.Count == 0) return false;
 
-                if (!TryTransferGroupToHost(parms, pawns, out var hostMap)) return false;
-
-                if (lordFactory != null)
-                {
-                    // 镜像各 worker 的原生 lord：食尸鬼 = 无超时 AssaultColony、奇美拉 = ChimeraAssault
-                    //（stalk 起步与 MTB 等待保持原版）、EntitySwarm 族 = 反射调 worker 自己的
-                    // GenerateLordJob（宿主图 entry/dest 重选）。
-                    var lord = LordMaker.MakeNewLord(pawns[0].Faction, lordFactory(pawns[0]), hostMap, pawns);
-                    onLordCreated?.Invoke(lord);
-                }
+                if (!TryTransferGroupToHost(parms, pawns, null, out var hostMap)) return false;
 
                 RimExodusLog.Message(RimExodusLogModule.Combat,
                     $"Raid outer spawn: relocated {pawns.Count} spawned pawns ({pawns[0].KindLabel}) from map " +
@@ -673,7 +663,7 @@ namespace RimExodus
             }
             catch (Exception ex)
             {
-                Log.Error("[RimExodus] RaidOuterSpawn window-group relocation failed, group stays on target map: " + ex);
+                Log.Error("[RimExodus] Raid outer spawn could not finish moving the captured group: " + ex);
                 return false;
             }
             finally
@@ -682,14 +672,9 @@ namespace RimExodus
             }
         }
 
-        /// <summary>
-        /// 迁移核心（两类入口共享）：时效守卫 + host 仍活跃 + 预放置（全有或全无：任一 pawn 无处
-        /// 可放 = 整体放弃，A 上已生成的单位与 lord 原样保留）+ 宿主图解除降频 + 整组 DeSpawn/Spawn。
-        /// 迁移镜像 SeamlessMapTransfer.TryTransferPawn 的簿记，无 Grant：本 tick 全新生成的敌人，
-        /// 无征召/选中/预约/许可状态；mental state 刻意不动——同传送契约（发狂动物由此保住
-        /// ManhunterPermanent）。旧图 lord 由 Notify_PawnLost(Vanished) 清空自毁。
-        /// </summary>
-        private static bool TryTransferGroupToHost(IncidentParms parms, List<Pawn> pawns, out Map hostMap)
+        // Preflight the entire spawn group before changing any Pawn or Lord membership.
+        private static bool TryTransferGroupToHost(IncidentParms parms, List<Pawn> pawns,
+            Dictionary<Lord, LordJob> jobs, out Map hostMap)
         {
             hostMap = null;
             var plan = Current;
@@ -741,18 +726,69 @@ namespace RimExodus
                 cells.Add(placed);
             }
 
-            // 宿主图先解除降频（行军期按活跃模拟；下轮 Sweep 无玩家 pawn 会再降频，接缝快速区
-            // 与移动补偿兜住行军质量）。
+            var groups = new Dictionary<Lord, List<Pawn>>();
+            foreach (var pawn in pawns)
+            {
+                var lord = pawn.GetLord();
+                if (lord == null) continue;
+                if (!groups.TryGetValue(lord, out var members))
+                {
+                    members = new List<Pawn>();
+                    groups.Add(lord, members);
+                }
+                members.Add(pawn);
+            }
+            var continuity = SeamlessRaidContinuity.Current;
+            if (groups.Count != 0 && continuity == null) return false;
+            foreach (var pair in groups)
+            {
+                if (pair.Key.ownedPawns.Count != pair.Value.Count || pair.Key.ownedBuildings.Count != 0
+                    || pair.Key.ownedCorpses.Count != 0)
+                {
+                    LogNativeEntry(parms, mapA, $"Lord {pair.Key.loadID} has members or objects outside the moving group");
+                    return false;
+                }
+            }
+
+            // Choose map-local objectives from the planned landing cells before moving any pawn.
+            var setupPoints = new Dictionary<Lord, (IntVec3 Cell, LordToilData_Siege Siege)>();
+            foreach (var pair in groups)
+            {
+                bool stages = CanStageOnHost(pair.Key);
+                var siege = PreparingSiege(pair.Key);
+                if (!stages && siege == null) continue;
+                var entry = cells[pawns.IndexOf(pair.Value[0])];
+                var point = RCellFinder.FindSiegePositionFrom(entry, hostMap, allowRoofed: stages, errorOnFail: false);
+                setupPoints.Add(pair.Key, (point.IsValid ? point : entry, siege));
+            }
+
             SeamlessTickThrottle.Unthrottle(hostMap, "raid outer spawn (host of cross-map raid)");
             for (int i = 0; i < pawns.Count; i++)
             {
                 var pawn = pawns[i];
-                // Pawn 会继续存在于宿主图：按原版 Portal 的跨图语义退出旧 lord，而不是报告 Destroy 式消失。
-                pawn.GetLord()?.Notify_PawnLost(pawn, PawnLostCondition.ExitedMap); // 旧图 lord 清空自毁
+                pawn.GetLord()?.RemovePawn(pawn);
                 pawn.DeSpawn();
                 var rot = Rot4.FromAngleFlat((hostMap.Center - cells[i]).AngleFlat);
                 GenSpawn.Spawn(pawn, cells[i], hostMap, rot);
-                pawn.lord = null;
+            }
+            foreach (var pair in groups)
+            {
+                var lord = pair.Key;
+                LordJob replacement = null;
+                jobs?.TryGetValue(lord, out replacement);
+                bool hasSetup = setupPoints.TryGetValue(lord, out var setup);
+                if (hasSetup)
+                {
+                    if (setup.Siege != null) SetSiegePoint(lord, setup.Siege, setup.Cell);
+                    else SetStagingPoint(lord, setup.Cell);
+                }
+                continuity.RelocateSpawnedSquad(lord, hostMap, pair.Value, replacement);
+                if (hasSetup)
+                {
+                    var task = setup.Siege != null ? "Siege" : "StageThenAttack";
+                    RimExodusLog.Message(RimExodusLogModule.Combat,
+                        $"Raid outer spawn: {task} Lord {lord.loadID} sets up at {setup.Cell} on host map {hostMap.uniqueID}.");
+                }
             }
             return true;
         }

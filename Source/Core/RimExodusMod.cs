@@ -305,7 +305,6 @@ namespace RimExodus
                     // 袭击外缘生成（2026-09）：步行袭击从外侧（对侧未被看见的）接缝进场。
                     CheckRow(listing, "RimExodus_SettingsRaidOuterSpawnLabel", "RimExodus_SettingsRaidOuterSpawnTip",
                         v => s.raidOuterSpawnEnabled = v, s.raidOuterSpawnEnabled);
-                    // 事件级退出通道（2026-09 默认全员跨图）：把个别事件（含 mod 扩展）改回本图生成。
                     if (listing.ButtonText("RimExodus_RaidOuterSpawnOpenIncidents".Translate()))
                     {
                         Find.WindowStack.Add(new RaidOuterSpawnIncidentDialog());
@@ -417,7 +416,7 @@ namespace RimExodus
         {
             var tmp = current;
             listing.CheckboxLabeled(labelKey.Translate(), ref tmp, tipKey.Translate());
-            set(tmp);
+            if (tmp != current) set(tmp);
         }
 
         // TextFieldNumeric 的输入缓冲（跨帧持久——字段为空时 Widgets 自初始化为当前值）。

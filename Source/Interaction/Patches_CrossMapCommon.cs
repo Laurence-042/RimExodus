@@ -343,6 +343,13 @@ namespace RimExodus
                 finalCell = ct.cell;
             }
             if (targetMap == null || targetMap == pawn.Map) return true;
+            var pursuitTarget = SeamlessPursuit.Target(pawn, job);
+            if (pursuitTarget != null && !SeamlessPursuit.CanCross(pawn, pursuitTarget, targetMap))
+            {
+                __instance.StopDead();
+                pawn.jobs.curDriver?.Notify_PatherFailed();
+                return false;
+            }
             if (!SeamlessCombatCoords.TryGetCombatLink(pawn.Map, targetMap, out _))
             {
                 // 战斗链接缺失（跨图战斗开关关闭）时 approach-goto 结构 job 仍按几何投影判邻接放行：

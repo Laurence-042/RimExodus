@@ -219,7 +219,7 @@ namespace RimExodus
 
                 var verb = pawn.TryGetAttackVerb(enemyTarget, !pawn.IsColonist);
                 if (verb == null || !verb.verbProps.IsMeleeAttack) return true; // 远程：原版 + Postfix 兜底
-                if (!SeamlessCrossMapOrders.CanBridgeTo(pawn, enemyTarget.Map)) return true; // 不可达 → ShouldLoseTarget 丢弃
+                if (!SeamlessPursuit.CanStart(pawn) || !SeamlessCrossMapOrders.CanBridgeTo(pawn, enemyTarget.Map)) return true;
 
                 var job = JobMaker.MakeJob(JobDefOf.Goto, enemyTarget);
                 job.expiryInterval = Rand.Range(360, 480); // 对齐原版 ExpiryInterval_Melee 默认（protected 不可读）
@@ -290,7 +290,7 @@ namespace RimExodus
             var stillEngaged = verb != null
                 && (!verb.verbProps.IsMeleeAttack
                     ? verb.CanHitTarget(enemyTarget)
-                    : SeamlessCrossMapOrders.CanBridgeTo(pawn, enemyTarget.Map));
+                    : SeamlessPursuit.CanStart(pawn) && SeamlessCrossMapOrders.CanBridgeTo(pawn, enemyTarget.Map));
             __result = !stillEngaged || ((enemyTarget as IAttackTarget)?.ThreatDisabled(pawn) ?? false);
             return false;
         }
@@ -326,7 +326,7 @@ namespace RimExodus
                 __result = march.TryMakeMarchJob(pawn);
                 return;
             }
-            if (!SeamlessCombatCoords.Enabled) return;
+            if (!SeamlessCombatCoords.Enabled || !SeamlessPursuit.CanStart(pawn)) return;
             if (pawn?.Map == null || pawn.Map.Disposed || !pawn.Spawned) return;
             var map = pawn.Map;
             if (!SeamlessCombatCoords.HasActiveSeamNeighbors(map)) return;
@@ -419,7 +419,8 @@ namespace RimExodus
                     0f, 9999f, IntVec3.Invalid, float.MaxValue, true, true, true);
                 if (own != null) return true; // 本图目标优先 → 原版
 
-                if (SeamlessCrossMapMeleeSearch.TryFindCrossMapMeleeTarget(pawn, validator, 9999f, out var target)
+                if (SeamlessPursuit.CanStart(pawn)
+                    && SeamlessCrossMapMeleeSearch.TryFindCrossMapMeleeTarget(pawn, validator, 9999f, out var target)
                     && SeamlessCrossMapOrders.CanBridgeTo(pawn, target.Map))
                 {
                     var job = JobMaker.MakeJob(JobDefOf.Goto, target);

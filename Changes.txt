@@ -18,6 +18,14 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
   Added optional seamless seabed support for GravTide. Enable “Seamless GravTide seabed” in map generation settings and restart to travel across seams between newly generated seabed maps. Existing maps keep their original shape. (Requested by @Rage.)
 - 修复了新生成地图上河流跨缝时流向反转、支流断开，以及本应只有一处入海口的河流错误分叉的问题。（@真hihi 报告的问题）
   Fixed reversed river flow at map seams, disconnected tributaries, and unwanted branching at single-outlet river mouths on newly generated maps. (Reported by @真hihi.)
+- 修复了猎杀人类的动物可能在接缝处反复往返的问题。它们现在会继续追击目标。（@Cortec 报告的问题）
+  Fixed manhunting animals repeatedly crossing back and forth at map seams. They now continue pursuing their target. (Reported by @Cortec.)
+- 修复了袭击队伍跨缝分开后可能丢失进攻或撤退进度、提前触发败亡通知的问题。读档后仍会继续进行中的追击和撤退。
+  Fixed raiding groups losing their assault or retreat progress or triggering premature defeat notifications after splitting across maps. Pursuits and retreats in progress now continue after loading.
+- 「配置袭击进场」现在可以按事件、策略和进场方式调整，并能一键恢复默认。
+  Raid arrival preferences can now be set by incident, strategy, and arrival mode, with a button to restore the defaults.
+- 跨图战斗诊断现在会记录袭击进场的选点和回退原因。打开战斗设置时，射程曲线日志不会再反复刷屏。
+  Cross-map combat diagnostics now log raid entry choices and fallback reasons. Opening combat settings no longer floods the log with repeated weapon range curve messages.
 
 1.1.4
 - 修复：倒在接缝上的角色可能无法被正确点选，右键反而指向相邻地图；现在优先点选当前地图上的实际地面和角色，关闭接缝显示时同样生效（@王里豪 报告的问题）

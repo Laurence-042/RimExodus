@@ -70,7 +70,8 @@ namespace RimExodus
                 CellOwner = (host, cell) => SeamlessTileRegistry.TryGetOwnerNeighbor(host, cell, out var owner, out var local)
                     ? (MapCombatCell?)new MapCombatCell(owner, local) : null,
                 HasNeighbors = SeamlessCombatCoords.HasActiveSeamNeighborsLegacy,
-                CanApproach = SeamlessCrossMapOrders.CanBridgeTo,
+                CanApproach = (pawn, map) => SeamlessPursuit.CanStart(pawn)
+                    && SeamlessCrossMapOrders.CanBridgeTo(pawn, map),
                 SuppressTargetSearch = pawn => pawn?.GetLord()?.LordJob is LordJob_SeamlessRaidMarch march && march.Marching,
                 Neighbors = (map, result) =>
                 {

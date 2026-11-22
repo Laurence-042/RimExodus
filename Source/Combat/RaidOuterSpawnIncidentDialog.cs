@@ -6,31 +6,32 @@ using Verse;
 
 namespace RimExodus
 {
-    /// <summary>
-    /// 袭击外缘生成的事件类型配置（2026-09，默认全员跨图）：列出所有走外缘进场链的事件
-    ///（raid 族 + 发狂动物/食尸鬼/奇美拉/EntitySwarm 族），逐项勾选"仅本图生成"。
-    /// 默认全部跨图（mod 扩展的事件同样默认跨图——未知策略按 parms 旗标降级为普通突击迁移，
-    /// 专属策略行为可能丢失），本列表即玩家的逐事件退出通道。改动即时生效，随存档设置持久化。
-    /// 覆写 MakeLords 的策略（机械体围攻/PsychicRitualSiege 等）结构性不经迁移链，勾选与否
-    /// 对它们无效果。
-    /// </summary>
+    /// <summary>Controls outer-edge placement at each stage of raid selection.</summary>
     public class RaidOuterSpawnIncidentDialog : Window
     {
-        public override Vector2 InitialSize => new Vector2(560f, 640f);
+        public override Vector2 InitialSize => new Vector2(690f, 650f);
 
         private Vector2 scroll;
-        private float contentHeight;
-        private readonly List<IncidentDef> incidents;
+        private RaidEntryScope scope;
+        private readonly List<Def> incidents;
+        private readonly List<Def> strategies;
+        private readonly List<Def> arrivals;
 
         public RaidOuterSpawnIncidentDialog()
         {
             doCloseX = true;
             forcePause = true;
             absorbInputAroundWindow = true;
-            // 候选 = worker 属于外缘进场链的事件（与 Patches_RaidOuterSpawn 的入口 patch 同族判定）。
             incidents = DefDatabase<IncidentDef>.AllDefs
-                .Where(d => IsOuterSpawnCandidate(d.workerClass))
-                .OrderBy(d => d.label)
+                .Where(d => IsOuterSpawnCandidate(d.workerClass) || d.category == IncidentCategoryDefOf.ThreatBig
+                    || d.category == IncidentCategoryDefOf.ThreatSmall || d.category == IncidentCategoryDefOf.DeepDrillInfestation)
+                .OrderBy(d => d.LabelCap.ToString())
+                .Cast<Def>()
+                .ToList();
+            strategies = DefDatabase<RaidStrategyDef>.AllDefs
+                .OrderBy(d => d.LabelCap.ToString()).Cast<Def>().ToList();
+            arrivals = DefDatabase<PawnsArrivalModeDef>.AllDefs
+                .OrderBy(d => d.LabelCap.ToString()).Cast<Def>()
                 .ToList();
         }
 
@@ -55,33 +56,67 @@ namespace RimExodus
             Widgets.Label(hintRect, "RimExodus_RaidOuterSpawnIncidentsHint".Translate());
             TooltipHandler.TipRegion(hintRect, "RimExodus_RaidOuterSpawnIncidentsHintTip".Translate());
 
-            var listRect = new Rect(0f, 102f, inRect.width, inRect.height - 102f);
-            var viewRect = new Rect(0f, 0f, listRect.width - 16f, contentHeight);
-            Widgets.BeginScrollView(listRect, ref scroll, viewRect);
-            var listing = new Listing_Standard { maxOneColumn = true };
-            listing.Begin(viewRect);
-            foreach (var def in incidents)
+            const float top = 125f;
+            const float rowHeight = 49f;
+            var listRect = new Rect(0f, top, inRect.width, inRect.height - top - 51f);
+            TabDrawer.DrawTabs(listRect, new List<TabRecord>
             {
-                // 结构性本图（灵能仪式围攻等——玩法锚定被袭击图，跨图即抹除内容）：标注并锁定勾选。
-                var structural = SeamlessRaidOuterSpawn.IsStructurallyLocalWorker(def.workerClass);
-                var local = structural || settings.raidOuterSpawnLocalIncidents.Contains(def.defName);
-                var lineRect = listing.GetRect(30f);
-                var label = $"{def.label} ({def.defName})";
-                if (structural) label += " — " + "RimExodus_RaidOuterSpawnAlwaysLocal".Translate().Resolve();
-                Widgets.CheckboxLabeled(lineRect, label, ref local, structural);
-                TooltipHandler.TipRegion(lineRect,
-                    structural
-                        ? "RimExodus_RaidOuterSpawnAlwaysLocalTip".Translate()
-                        : "RimExodus_RaidOuterSpawnLocalToggleTip".Translate());
-                if (!structural && local != settings.raidOuterSpawnLocalIncidents.Contains(def.defName))
-                {
-                    if (local) settings.raidOuterSpawnLocalIncidents.Add(def.defName);
-                    else settings.raidOuterSpawnLocalIncidents.Remove(def.defName);
-                }
-            }
-            listing.End();
-            contentHeight = listing.CurHeight + 8f;
+                Tab(RaidEntryScope.Incident, "RimExodus_RaidEntryEvents"),
+                Tab(RaidEntryScope.Strategy, "RimExodus_RaidEntryStrategies"),
+                Tab(RaidEntryScope.Arrival, "RimExodus_RaidEntryArrivals")
+            });
+            var defs = scope == RaidEntryScope.Incident ? incidents
+                : scope == RaidEntryScope.Strategy ? strategies : arrivals;
+            var viewRect = new Rect(0f, 0f, listRect.width - 16f, defs.Count * rowHeight);
+            Widgets.BeginScrollView(listRect, ref scroll, viewRect);
+            int first = Mathf.Max(0, Mathf.FloorToInt(scroll.y / rowHeight));
+            int last = Mathf.Min(defs.Count, Mathf.CeilToInt((scroll.y + listRect.height) / rowHeight));
+            for (int i = first; i < last; i++)
+                DrawRow(new Rect(0f, i * rowHeight, viewRect.width, rowHeight), defs[i], settings);
             Widgets.EndScrollView();
+
+            if (Widgets.ButtonText(new Rect(0f, inRect.height - 38f, 220f, 36f),
+                    "RimExodus_RaidEntryReset".Translate()))
+                SeamlessRaidOuterSpawn.ResetEntryPreferences(settings);
+        }
+
+        private TabRecord Tab(RaidEntryScope tab, string label) => new TabRecord(label.Translate(), () =>
+        {
+            scope = tab;
+            scroll = Vector2.zero;
+        }, scope == tab);
+
+        private void DrawRow(Rect row, Def def, RimExodusSettings settings)
+        {
+            bool nativeOnly = def is IncidentDef incident && !IsOuterSpawnCandidate(incident.workerClass)
+                || def is PawnsArrivalModeDef arrival && !arrival.walkIn;
+            bool localEdgeOnly = def is IncidentDef scopedIncident && SeamlessRaidOuterSpawn.IsStructurallyLocalWorker(scopedIncident.workerClass)
+                || def is RaidStrategyDef strategy && SeamlessRaidOuterSpawn.IsStrategyMapBound(strategy);
+            var preference = SeamlessRaidOuterSpawn.EntryPreference(settings, scope, def.defName);
+            var native = "RimExodus_RaidEntryNative".Translate();
+            var outer = (localEdgeOnly ? "RimExodus_RaidEntryLocalEdge" : "RimExodus_RaidEntryOuter").Translate();
+            var defaultLabel = "RimExodus_RaidEntryDefault".Translate(localEdgeOnly || nativeOnly ? native : outer);
+
+            const float buttonWidth = 213f;
+            var labelRect = new Rect(6f, row.y + 3f, row.width - buttonWidth - 16f, 43f);
+            Widgets.Label(labelRect, $"{def.LabelCap}\n{def.defName}");
+            var button = new Rect(row.xMax - buttonWidth - 2f, row.y + 7f, buttonWidth, 34f);
+            var shown = nativeOnly || preference == RaidEntryPreference.Native ? native
+                : preference == RaidEntryPreference.Outer ? outer : defaultLabel;
+            TooltipHandler.TipRegion(row, (nativeOnly ? "RimExodus_RaidEntryNativeOnlyTip"
+                : localEdgeOnly ? "RimExodus_RaidEntryLocalEdgeTip" : "RimExodus_RaidOuterSpawnIncidentsHintTip").Translate());
+            if (Widgets.ButtonText(button, shown, active: !nativeOnly))
+            {
+                var selectedScope = scope;
+                FloatMenuOption Option(string text, RaidEntryPreference choice) => new FloatMenuOption(text,
+                    () => SeamlessRaidOuterSpawn.SetEntryPreference(settings, selectedScope, def.defName, choice));
+                Find.WindowStack.Add(new FloatMenu(new List<FloatMenuOption>
+                {
+                    Option(defaultLabel, RaidEntryPreference.Default),
+                    Option(native, RaidEntryPreference.Native),
+                    Option(outer, RaidEntryPreference.Outer)
+                }));
+            }
         }
     }
 }

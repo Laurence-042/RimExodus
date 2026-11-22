@@ -24,6 +24,8 @@ namespace RimExodus
         internal static bool TryBridgeJob(Pawn pawn, Map targetMap, IntVec3 targetLocalCell, Job nextJob = null,
             SeamlessGotoContinuation gotoContinuation = null)
         {
+            var pursuitTarget = SeamlessPursuit.Target(pawn, nextJob);
+            if (pursuitTarget != null && !SeamlessPursuit.CanCross(pawn, pursuitTarget, targetMap)) return false;
             // NPC 战斗桥接的空间聚类选点共享（2026-09 perf probe 定向优化，见 SeamlessBridgeCluster
             // 类头）：nextJob 非 playerForced = NPC 战斗 job 的 StartPath 包装（AttackMelee/
             // AttackStatic/推进 Goto/跟随）——同空间桶敌群窗口内共享一次选点。玩家点击（nextJob
@@ -66,6 +68,7 @@ namespace RimExodus
             grant.FinalDestCell = targetLocalCell;
             grant.NextJob = nextJob;
             grant.GotoContinuation = gotoContinuation;
+            if (pursuitTarget != null) SeamlessTransferGrants.BindPursuit(grant, pawn, pursuitTarget, nextJob);
 
             // 已站在 spot/goto 格上（联合选点 C1=0 的退化情形，2026-08 实测）：Goto 目标即当前格 →
             // JobDriver 即时完成、不产生任何 pather 步进 → 触发器永不运行 → 许可被 think tree
@@ -77,7 +80,7 @@ namespace RimExodus
                 // ContinueBridgeMove.StartJob 访问 def.driverClass 即炸。正常桥接流程无此问题：
                 // StartJob 默认 canReturnCurJobToPool=false，被桥 job 替换的包装 job 不回池。
                 // 落地续链走 FinalDest 分支（Goto 到目标格），行为等价。
-                if (nextJob != null && ReferenceEquals(nextJob, pawn.jobs?.curJob))
+                if (grant.NextJob != null && ReferenceEquals(grant.NextJob, pawn.jobs?.curJob))
                 {
                     grant.NextJob = null;
                     if (RimExodusLog.Enabled(RimExodusLogModule.Transfer))
