@@ -116,9 +116,9 @@ namespace RimExodus
             // Colony Groups replaces the visible bar with its own cache; filter that cache as well.
             SeamlessColonyGroupsCompat.Register(harmony);
 
-            // Giddy-Up 2 compatibility: mounted riders and animals are separate spawned pawns. Register a
-            // generic transfer-association provider which moves the mount through the normal state-preserving
-            // transfer path and asks Giddy-Up to rebuild its own relationship/job after arrival.
+            // Giddy-Up 2 compatibility: mounted riders and animals are separate spawned pawns. Move active
+            // pairs through the normal state-preserving transfer path, include mounts in direct caravan
+            // departures, and ask Giddy-Up to rebuild its relationship/job after seamless arrival.
             SeamlessGiddyUpCompat.Register();
 
             RegisterManualPatches(harmony);

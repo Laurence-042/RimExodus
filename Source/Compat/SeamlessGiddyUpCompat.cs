@@ -1,6 +1,10 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using HarmonyLib;
+using RimWorld;
+using RimWorld.Planet;
 using Verse;
 using Verse.AI;
 
@@ -21,6 +25,7 @@ namespace RimExodus
         private static PropertyInfo mountProperty;
         private static MethodInfo goMountMethod;
         private static object instantGiveJobMethod;
+        private static bool available;
 
         internal static void Register()
         {
@@ -45,8 +50,9 @@ namespace RimExodus
                     goMountMethod == null || instantGiveJobMethod == null)
                     throw new MissingMemberException("one or more Giddy-Up mounting members were not found");
 
+                available = true;
                 SeamlessTransferAssociations.Register(Capture);
-                Log.Message("[RimExodus] Giddy-Up 2 compat: mounted-pair transfer bridge registered.");
+                Log.Message("[RimExodus] Giddy-Up 2 compat: mounted-pair transfer and caravan departure bridges registered.");
             }
             catch (Exception ex)
             {
@@ -56,17 +62,68 @@ namespace RimExodus
 
         private static SeamlessTransferAssociations.ISession Capture(Pawn rider)
         {
+            if (!TryGetActiveMount(rider, out var mount)) return null;
+            return new MountedPairSession(rider, mount);
+        }
+
+        /// <summary>
+        /// Mirrors Giddy-Up's WalkTheWorld leaving-pawn compatibility: when vanilla creates a caravan from
+        /// one pawn stepping onto an exit cell, include that rider's active mount in the initial pawn set.
+        /// This keeps the pair atomic instead of relying on the mount's later auto-join ExitMap job, which a
+        /// seamless map can legitimately interpret as an evacuation across the loaded neighboring tile.
+        /// </summary>
+        internal static void IncludeMountedAnimals(ref IEnumerable<Pawn> pawns)
+        {
+            if (!available || pawns == null) return;
+
+            try
+            {
+                var leavingPawns = pawns.ToList();
+                if (leavingPawns.Count == 0) return;
+
+                var originalCount = leavingPawns.Count;
+                var transferredPawnIds = new HashSet<int>();
+                for (var i = 0; i < originalCount; i++)
+                    if (leavingPawns[i] != null)
+                        transferredPawnIds.Add(leavingPawns[i].thingIDNumber);
+
+                for (var i = 0; i < originalCount; i++)
+                {
+                    if (!TryGetActiveMount(leavingPawns[i], out var mount)
+                        || !transferredPawnIds.Add(mount.thingIDNumber))
+                        continue;
+                    leavingPawns.Add(mount);
+                }
+
+                if (leavingPawns.Count == originalCount) return;
+                pawns = leavingPawns;
+                RimExodusLog.Message(RimExodusLogModule.Compat,
+                    $"Giddy-Up 2 caravan departure added {leavingPawns.Count - originalCount} mounted animal(s).");
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"[RimExodus] Giddy-Up 2 caravan departure bridge failed; vanilla caravan formation continues: {ex}");
+            }
+        }
+
+        private static bool TryGetActiveMount(Pawn rider, out Pawn mount)
+        {
+            mount = null;
+            if (!available || rider == null) return false;
             var mountedCache = mountedCacheField.GetValue(null);
-            if (mountedCache == null) return null;
-            if (!(bool)mountedCacheContainsMethod.Invoke(mountedCache, new object[] { rider.thingIDNumber })) return null;
+            if (mountedCache == null) return false;
+            if (!(bool)mountedCacheContainsMethod.Invoke(mountedCache, new object[] { rider.thingIDNumber })) return false;
 
             var storage = singletonProperty.GetValue(null, null);
-            if (storage == null) return null;
+            if (storage == null) return false;
             var data = getDataMethod.Invoke(storage, new object[] { rider });
-            var mount = mountProperty.GetValue(data, null) as Pawn;
+            mount = mountProperty.GetValue(data, null) as Pawn;
             if (mount == null || mount == rider || mount.Dead || !mount.Spawned || mount.Map != rider.Map)
-                return null;
-            return new MountedPairSession(rider, mount);
+            {
+                mount = null;
+                return false;
+            }
+            return true;
         }
 
         private sealed class MountedPairSession : SeamlessTransferAssociations.ISession
@@ -96,6 +153,30 @@ namespace RimExodus
                 RimExodusLog.Message(RimExodusLogModule.Compat,
                     $"Giddy-Up 2 mounted pair restored: {rider.LabelShort} / {mount.LabelShort}.");
             }
+        }
+    }
+
+    /// <summary>
+    /// Base-game chokepoint used by Pawn.ExitMap(true) when the first pawn creates an auto-joinable caravan.
+    /// The patch contains no Giddy-Up types and is a no-op until the soft compatibility bridge registers.
+    /// </summary>
+    [HarmonyPatch]
+    internal static class Patch_CaravanExitMapUtility_ExitMapAndCreateCaravan_GiddyUp
+    {
+        private static MethodBase TargetMethod()
+        {
+            return AccessTools.Method(typeof(CaravanExitMapUtility),
+                nameof(CaravanExitMapUtility.ExitMapAndCreateCaravan),
+                new[]
+                {
+                    typeof(IEnumerable<Pawn>), typeof(Faction), typeof(PlanetTile), typeof(PlanetTile),
+                    typeof(PlanetTile), typeof(bool)
+                });
+        }
+
+        private static void Prefix(ref IEnumerable<Pawn> pawns)
+        {
+            SeamlessGiddyUpCompat.IncludeMountedAnimals(ref pawns);
         }
     }
 }

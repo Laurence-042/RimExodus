@@ -14,6 +14,8 @@ If what you’re really asking is whether I’ll make more RimWorld mods in the 
 well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, I need to refocus on my own game development first. Even if it does get finished, it'll likely flop hard, and I'll just go back to being a corporate drone. Everyone knows how that life goes.
 
 1.1.5
+- 尝试修复：使用 Giddy-Up 2 - Continued 骑马经接缝带组成远行队时，坐骑可能没有加入队伍并继续向相邻地图撤离。现在骑手与当前坐骑会一同组成远行队（@Cortec 报告的问题）
+  Attempted fix: when using Giddy-Up 2 - Continued, a mount could fail to join its rider's caravan and continue evacuating into a neighboring map. Riders and their current mounts now form the caravan together. (Reported by @Cortec.)
 - 新增可选的 Endless Horizon 兼容：远景现在从六边形接缝外开始，河流、海岸和远雾会沿接缝延伸，已加载的相邻地图仍优先显示真实地形。版本号不作硬限制，结构不兼容时会安全停用适配。（应 @snkss 请求）
   Added optional Endless Horizon compatibility: the horizon now begins beyond hexagonal seams, rivers, coasts, and distant fog follow the seam, and loaded neighboring maps still take priority with their real terrain. Version numbers are not hard-gated; the integration disables itself safely if the required structure is incompatible. (Requested by @snkss.)
 - 新增可选的 GravTide 海底无缝支持。在地图生成设置中开启「GravTide 海底无缝」并重启后，可沿接缝在新生成的海底地图之间通行。已有地图保留原有形状。（应 @Rage 请求）
