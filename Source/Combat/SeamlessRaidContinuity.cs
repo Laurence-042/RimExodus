@@ -127,21 +127,24 @@ namespace RimExodus
             return squad;
         }
 
-        internal void RelocateSpawnedSquad(Lord lord, Map map, List<Pawn> pawns, LordJob replacement)
+        /// <summary>
+        /// Registers a native Lord that was created directly on its arrival host. Unlike relocation,
+        /// this changes no map or membership; it only records the attacked map and optionally replaces
+        /// the initial sapper/breacher graph with the cross-map march graph.
+        /// </summary>
+        internal void RegisterDirectSquad(Lord lord, Map attackedMap, LordJob replacement)
         {
-            var squad = new Squad { Authority = lord, AttackedMap = lord.Map };
+            if (lord == null || attackedMap == null || byLord.ContainsKey(lord)) return;
+            var squad = new Squad { Authority = lord, AttackedMap = attackedMap };
             squads.Add(squad);
             byLord.Add(lord, squad);
-            MoveAuthority(squad, map, null);
-            if (replacement != null)
-            {
-                var originalGraph = lord.Graph;
-                if (replacement is LordJob_SeamlessRaidMarch march) march.PreserveRetreatDuration(originalGraph);
-                lord.SetJob(replacement);
-                lord.GotoToil(lord.Graph.StartingToil);
-                CopyRetreatProgress(originalGraph, lord.Graph);
-            }
-            foreach (var pawn in pawns) AddHandoffPawn(lord, pawn);
+            if (replacement == null) return;
+
+            var originalGraph = lord.Graph;
+            if (replacement is LordJob_SeamlessRaidMarch march) march.PreserveRetreatDuration(originalGraph);
+            lord.SetJob(replacement);
+            lord.GotoToil(lord.Graph.StartingToil);
+            CopyRetreatProgress(originalGraph, lord.Graph);
         }
 
         internal static bool IsWithdrawalPhase(LordToil phase) => phase is LordToil_ExitMap || phase is LordToil_PanicFlee;

@@ -227,19 +227,16 @@ namespace RimExodus
         public bool crossMapCombatEnabled = true;
 
         /// <summary>
-        /// 袭击外缘生成（2026-09）：步行类袭击（部落/海盗步行袭击、发狂动物、食尸鬼等）从
-        /// "对侧未被看见（无图或休眠）的外侧接缝"进场，而非被袭击图朝向已加载邻图的边上凭空
-        /// 出现。敌对袭击可生成在一跳邻图的外侧边并自行行军跨缝进攻（复用追击链）。空投/虫灾
-        /// 等非步行进场不受影响。false = 完全原版落点。见 <see cref="SeamlessRaidOuterSpawn"/>。
+        /// 袭击外缘生成：受支持的步行与空投进场先在被袭击图解析原版位置，再按接缝射线映射到
+        /// 一跳邻图的远侧并直接生成。无合法邻图落点时整组回退原版位置；固定地点、出水、仪式、
+        /// 群迁等专用流程不改。false = 完全原版落点。见 <see cref="SeamlessRaidOuterSpawn"/>。
         /// </summary>
         public bool raidOuterSpawnEnabled = true;
 
         /// <summary>
-        /// 袭击外缘生成的"仅本图生成"事件名单（2026-09，defName 列表）：默认空 = 所有袭击事件
-        ///（含 mod 扩展）都走外缘跨图进场；mod 自定义策略的未知 lord 形态按 parms 旗标降级重建为
-        /// 普通突击迁移（专属策略行为会丢失）。玩家可在设置"跨图战斗"页的事件列表里把个别事件
-        /// 改回本图生成（本列表即逐事件退出通道）。覆写 MakeLords 的策略（机械体围攻等）结构性
-        /// 不经迁移链，本名单对它们无效果。
+        /// 旧版“仅本图生成”事件名单（defName 列表），保留存档兼容。设置窗口读取时映射为事件级
+        /// Native 偏好；新写入统一使用 raidEntryPreferences。未知事件／策略／进场 worker 不会靠本名单
+        /// 强行接入，而是在配置列表中固定显示原版位置。
         /// </summary>
         public List<string> raidOuterSpawnLocalIncidents = new List<string>();
         internal Dictionary<string, RaidEntryPreference> raidEntryPreferences = new Dictionary<string, RaidEntryPreference>();

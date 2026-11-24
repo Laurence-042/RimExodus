@@ -85,8 +85,8 @@ internal static class DormantRaidChecks
             var parms = new IncidentParms { target = map };
             var keepLocal = outer.GetMethod("KeepDormantRaidLocal", flags)!;
             Check((bool)keepLocal.Invoke(null, new object[] { parms, new List<Pawn> { pawn } })!,
-                "relocation branch handles a sleeping target directly");
-            Check(deregistrations.Count == 1, "relocation branch buffers deregistration of the new pawn");
+                "raid completion handles a sleeping target directly");
+            Check(deregistrations.Count == 1, "dormant completion buffers deregistration of the new pawn");
             normal.Tick();
             var buckets = (List<List<Thing>>)AccessTools.Field(typeof(TickList), "thingLists").GetValue(normal)!;
             Check(buckets.All(bucket => bucket.Count == 0), "new pawn is removed before it can tick");
@@ -110,9 +110,7 @@ internal static class DormantRaidChecks
             outer.GetMethod("NotifyWindowPawnGenerated", flags)!.Invoke(null, new object[] { pawn });
             var captured = (IList)outer.GetField("WindowPawns", flags | BindingFlags.Public)!.GetValue(null)!;
             Check(captured.Count == 1, "sleeping incidents reuse the existing group capture");
-            Check(!(bool)outer.GetMethod("TryRelocateToHost", flags)!.Invoke(null,
-                new object[] { parms, new List<Pawn>() })!, "sleeping target never relocates the group");
-            Check(deregistrations.Count == 0, "MakeLords relocation guard leaves cleanup to incident completion");
+            Check(deregistrations.Count == 0, "direct generation leaves dormant cleanup to incident completion");
             var completion = assembly.GetType(
                 "RimExodus.Patches_RaidOuterSpawn+Patch_IncidentWorker_Raid_TryExecuteWorker_RaidOuterSpawn", true)!;
             completion.GetMethod("Postfix", flags)!.Invoke(null, new object[] { parms, true });

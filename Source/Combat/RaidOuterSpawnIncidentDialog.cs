@@ -42,7 +42,8 @@ namespace RimExodus
                     || typeof(IncidentWorker_AggressiveAnimals).IsAssignableFrom(workerType)
                     || typeof(IncidentWorker_GhoulAttack).IsAssignableFrom(workerType)
                     || typeof(IncidentWorker_ChimeraAssault).IsAssignableFrom(workerType)
-                    || typeof(IncidentWorker_EntitySwarm).IsAssignableFrom(workerType));
+                    || typeof(IncidentWorker_EntitySwarm).IsAssignableFrom(workerType)
+                    || typeof(IncidentWorker_MechCluster).IsAssignableFrom(workerType));
         }
 
         public override void DoWindowContents(Rect inRect)
@@ -89,13 +90,18 @@ namespace RimExodus
         private void DrawRow(Rect row, Def def, RimExodusSettings settings)
         {
             bool nativeOnly = def is IncidentDef incident && !IsOuterSpawnCandidate(incident.workerClass)
-                || def is PawnsArrivalModeDef arrival && !arrival.walkIn;
+                || def is RaidStrategyDef directStrategy && !SeamlessRaidOuterSpawn.SupportsDirectStrategy(directStrategy)
+                || def is PawnsArrivalModeDef arrival && !SeamlessRaidOuterSpawn.SupportsDirectArrival(arrival);
             bool localEdgeOnly = def is IncidentDef scopedIncident && SeamlessRaidOuterSpawn.IsStructurallyLocalWorker(scopedIncident.workerClass)
                 || def is RaidStrategyDef strategy && SeamlessRaidOuterSpawn.IsStrategyMapBound(strategy);
             var preference = SeamlessRaidOuterSpawn.EntryPreference(settings, scope, def.defName);
             var native = "RimExodus_RaidEntryNative".Translate();
             var outer = (localEdgeOnly ? "RimExodus_RaidEntryLocalEdge" : "RimExodus_RaidEntryOuter").Translate();
-            var defaultLabel = "RimExodus_RaidEntryDefault".Translate(localEdgeOnly || nativeOnly ? native : outer);
+            bool defaultsNative = nativeOnly || localEdgeOnly
+                || def is PawnsArrivalModeDef defaultArrival && !defaultArrival.walkIn
+                || def is IncidentDef defaultIncident && defaultIncident.workerClass != null
+                    && typeof(IncidentWorker_MechCluster).IsAssignableFrom(defaultIncident.workerClass);
+            var defaultLabel = "RimExodus_RaidEntryDefault".Translate(defaultsNative ? native : outer);
 
             const float buttonWidth = 213f;
             var labelRect = new Rect(6f, row.y + 3f, row.width - buttonWidth - 16f, 43f);

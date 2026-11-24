@@ -16,8 +16,12 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
 1.1.6
 - 尝试修复：使用 Giddy-Up 2 - Continued 骑马经接缝带组成远行队时，坐骑可能没有加入队伍并继续向相邻地图撤离。现在骑手与当前坐骑会一同组成远行队（@Cortec 报告的问题）
   Attempted fix: when using Giddy-Up 2 - Continued, a mount could fail to join its rider's caravan and continue evacuating into a neighboring map. Riders and their current mounts now form the caravan together. (Reported by @Cortec.)
-- 修复高兼容性邻图渲染中，聚焦图天色丢失、外圈邻图之间天色在接缝处重叠或裂开、Endless Horizon 天光出现方形 L 状重影及六边形外侧漏染的问题。所有可见图现在按实际显示位置共享同一套接缝切分，天色连续覆盖地图与远景。
-  Fixed missing sky tint on the focused map, overlapping or split tint between outer neighboring maps, square L-shaped Endless Horizon lighting ghosts, and missing tint just outside hexagonal edges in high-compatibility neighbor rendering. All visible maps now share one seam partition based on their actual display positions, continuously covering both maps and horizons.
+- Endless Horizon 更新稳定 API 后，RimExodus 已同步切换到其公开稳定 API，不再依赖内部实现；同时改进了多地图天光渲染，修复聚焦图天色丢失、邻图接缝重叠或裂开、方形 L 状重影及六边形外侧漏染的问题。
+  After Endless Horizon introduced its stable API, RimExodus switched to that public stable API instead of relying on internal implementation details. Multi-map sky lighting was also improved, fixing missing tint on the focused map, overlaps or gaps at neighboring-map seams, square L-shaped ghosts, and missing tint outside hexagonal edges.
+- 扩展了 1.1.5 引入的「配置袭击进场」：现在完整列出原版事件、策略和进场方式，并开放此前未提供的空投、机械集群空投等选项，可逐项选择原图或邻图并一键恢复默认。
+  Expanded the “Configure raid arrivals” screen introduced in 1.1.5: it now lists the complete vanilla incident, strategy, and arrival-mode sets, including previously unavailable drop-pod and mech-cluster drop options. Each entry can independently use the original or a neighboring map, with one-click default restoration.
+- 邻图袭击现在从被袭击图的原版生成位置沿接缝方向映射到邻图，并直接在邻图生成；映射后会在附近验证地形、落点和通路，失败时按地图边数旋转换边重试，全部候选无效才整组回退原图，入场位置更加可靠。
+  Raids arriving from a neighboring map now map the attacked map’s vanilla spawn position across the seam and generate directly on the neighboring map. Nearby terrain, landing space, and routes are validated after mapping; failures rotate to another edge based on the map polygon, and the whole group returns to the original map only when every candidate is invalid, making arrival positions more reliable.
 
 1.1.5
 - 新增可选的 Endless Horizon 兼容：远景现在从六边形接缝外开始，河流、海岸和远雾会沿接缝延伸，已加载的相邻地图仍优先显示真实地形。版本号不作硬限制，结构不兼容时会安全停用适配。（应 @snkss 请求）

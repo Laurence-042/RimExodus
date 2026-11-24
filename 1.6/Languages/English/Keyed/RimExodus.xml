@@ -81,8 +81,8 @@ The map you are currently on and your home map are never deleted. Default: 3.</R
   <RimExodus_SettingsCombatLabel>Cross-map targeting &amp; shooting</RimExodus_SettingsCombatLabel>
   <RimExodus_SettingsCombatTip>Allow pawns to see, target and shoot enemies standing on the neighboring map across the seam. Turn off if you prefer strictly original combat rules (nothing on another map can be interacted with).</RimExodus_SettingsCombatTip>
 
-  <RimExodus_SettingsRaidOuterSpawnLabel>Walk-in raids arrive from the outer edge</RimExodus_SettingsRaidOuterSpawnLabel>
-  <RimExodus_SettingsRaidOuterSpawnTip>Supported walking raids can enter from an outer seam. Raids that prepare before attacking can gather on their arrival map, and human walk-in sieges can build artillery on a neighboring map. Mechanoid sieges, rituals, and swarm routes stay on the attacked map. Turning off cross-map targeting and shooting keeps arrivals on the attacked map.</RimExodus_SettingsRaidOuterSpawnTip>
+  <RimExodus_SettingsRaidOuterSpawnLabel>Raids may arrive from a neighboring outer edge</RimExodus_SettingsRaidOuterSpawnLabel>
+  <RimExodus_SettingsRaidOuterSpawnTip>Supported walk-in raids may arrive from a neighboring map's far side by default. Staging raids gather on their arrival map, and human sieges may build artillery there. Edge, grouped, center, scattered, and mech-cluster drops keep vanilla placement by default; enable direct neighboring-map generation for each under Configure raid arrivals. Specific-location drops, water emergence, rituals, and migrations keep their vanilla routines. A neighboring position is mapped along a seam ray from the intended attacked-map position; invalid landing areas rotate by one polygon edge and retry, while total failure keeps the whole group on its vanilla map. Turning off cross-map targeting and shooting keeps arrivals on the attacked map.</RimExodus_SettingsRaidOuterSpawnTip>
 
   <!-- Weapon range curve (2026-09, off by default): remap all ranged weapon ranges and the vanilla accuracy anchor distances through a player-configured piecewise-linear curve. -->
   <RimExodus_SettingsRangeCurveLabel>Weapon range curve remap</RimExodus_SettingsRangeCurveLabel>
@@ -233,7 +233,7 @@ SAVE NOW. After saving, RimExodus can be safely removed.</RimExodus_UninstallRes
   <RimExodus_RaidOuterSpawnOpenIncidents>Configure raid arrivals...</RimExodus_RaidOuterSpawnOpenIncidents>
   <RimExodus_RaidOuterSpawnIncidentsTitle>Raid arrivals</RimExodus_RaidOuterSpawnIncidentsTitle>
   <RimExodus_RaidOuterSpawnIncidentsHint>Set arrival preferences by incident, strategy, or arrival mode. Vanilla placement takes priority if any applicable entry requires it.</RimExodus_RaidOuterSpawnIncidentsHint>
-  <RimExodus_RaidOuterSpawnIncidentsHintTip>Outer-edge placement looks for a reachable seam. Neighbor eligibility, location requirements, and cross-map combat settings still apply. Changes apply immediately.</RimExodus_RaidOuterSpawnIncidentsHintTip>
+  <RimExodus_RaidOuterSpawnIncidentsHintTip>Trying an outer edge first resolves the vanilla attacked-map position, maps it to the far side of a neighbor, and generates there directly. The complete group's landing area and route toward the attacked map are checked first; failure rotates by one polygon edge, and total failure keeps the whole group at vanilla placement. Neighbor eligibility, location requirements, and cross-map combat settings still apply. Changes apply immediately.</RimExodus_RaidOuterSpawnIncidentsHintTip>
   <RimExodus_RaidEntryEvents>Incidents</RimExodus_RaidEntryEvents>
   <RimExodus_RaidEntryStrategies>Strategies</RimExodus_RaidEntryStrategies>
   <RimExodus_RaidEntryArrivals>Arrival modes</RimExodus_RaidEntryArrivals>
@@ -242,7 +242,7 @@ SAVE NOW. After saving, RimExodus can be safely removed.</RimExodus_UninstallRes
   <RimExodus_RaidEntryNative>Vanilla placement</RimExodus_RaidEntryNative>
   <RimExodus_RaidEntryOuter>Try outer edge</RimExodus_RaidEntryOuter>
   <RimExodus_RaidEntryLocalEdge>Try attacked-map edge</RimExodus_RaidEntryLocalEdge>
-  <RimExodus_RaidEntryNativeOnlyTip>This incident or arrival mode uses a dedicated vanilla placement routine.</RimExodus_RaidEntryNativeOnlyTip>
+  <RimExodus_RaidEntryNativeOnlyTip>This incident, strategy, or arrival mode uses a dedicated routine that is not connected to direct neighboring-map generation, so it always keeps vanilla placement.</RimExodus_RaidEntryNativeOnlyTip>
   <RimExodus_RaidEntryLocalEdgeTip>This entry needs the attacked map. If its vanilla routine accepts edge placement, it can use an outer seam on that map.</RimExodus_RaidEntryLocalEdgeTip>
   <RimExodus_SettingsFrameworkLabel>Use REF map backend (restart required)</RimExodus_SettingsFrameworkLabel>
   <RimExodus_SettingsFrameworkTip>Use RimExodus Framework for shared map services. Recommended for new games as future maintenance will focus on REF. Disabled by default during validation. Restart the game after changing this setting; disable and restart to return to the legacy backend. Keep the Framework mod enabled in both modes.</RimExodus_SettingsFrameworkTip>

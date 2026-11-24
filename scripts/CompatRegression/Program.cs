@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
@@ -92,6 +93,32 @@ public static class Audit
                 typeof(RimExodus.Maps.MapCombatModule).GetMethod("InstallCombatPatches", statics)!.Invoke(null, new object[] { harmony });
             }
             harmony.PatchAll(assembly);
+            foreach (var method in new[]
+            {
+                AccessTools.Method(typeof(IncidentWorker_Raid), nameof(IncidentWorker_Raid.TryGenerateRaidInfo)),
+                AccessTools.Method(typeof(IncidentWorker_MechCluster), "TryExecuteWorker")
+            })
+                Check(Harmony.GetPatchInfo(method).Transpilers.Any(p => p.owner == harmony.Id
+                    && p.PatchMethod.DeclaringType?.Assembly == assembly),
+                    "direct raid generation transpiler bound: " + method.DeclaringType!.Name + "." + method.Name);
+            var raidExecute = AccessTools.Method(typeof(IncidentWorker_Raid), "TryExecuteWorker");
+            var raidExecutePatches = Harmony.GetPatchInfo(raidExecute);
+            Check(!raidExecutePatches.Transpilers.Any(p => p.owner == harmony.Id
+                    && p.PatchMethod.DeclaringType?.Assembly == assembly),
+                "raid execution keeps its original method body");
+            var makeLords = AccessTools.Method(typeof(RaidStrategyWorker), nameof(RaidStrategyWorker.MakeLords));
+            var makeLordsPatches = Harmony.GetPatchInfo(makeLords);
+            Check(makeLordsPatches.Prefixes.Any(p => p.owner == harmony.Id
+                    && p.PatchMethod.DeclaringType?.Assembly == assembly)
+                && makeLordsPatches.Postfixes.Any(p => p.owner == harmony.Id
+                    && p.PatchMethod.DeclaringType?.Assembly == assembly),
+                "native Lord creation is redirected only at the strategy boundary");
+            var mechMakeLords = AccessTools.Method(typeof(RaidStrategyWorker_SiegeMechanoid),
+                nameof(RaidStrategyWorker.MakeLords));
+            var mechMakeLordsPatches = Harmony.GetPatchInfo(mechMakeLords);
+            Check(mechMakeLordsPatches == null || !mechMakeLordsPatches.Prefixes.Any(p => p.owner == harmony.Id
+                    && p.PatchMethod.DeclaringType?.Assembly == assembly),
+                "mech-cluster empty MakeLords override is not intercepted");
             var projectileOwner = shared ? typeof(RimExodus.Maps.MapModule).Assembly : assembly;
             Check(harmony.GetPatchedMethods().Any(method => method.DeclaringType == typeof(Projectile)
                     && method.Name == "TickInterval" && Harmony.GetPatchInfo(method).Prefixes
@@ -189,9 +216,10 @@ public static class Audit
         var outerSpawn = assembly.GetType("RimExodus.SeamlessRaidOuterSpawn", true)!;
         var usesNativeEntry = outerSpawn
             .GetMethod("UsesNativeEntry", statics)!.CreateDelegate<Func<RaidStrategyDef, bool>>();
-        foreach (var worker in new[] { typeof(RaidStrategyWorker_SiegeMechanoid),
-            typeof(RaidStrategyWorker_PsychicRitualSiege) })
-            check(usesNativeEntry(new RaidStrategyDef { workerClass = worker }), worker.Name + " keeps native entry");
+        check(usesNativeEntry(new RaidStrategyDef { workerClass = typeof(RaidStrategyWorker_PsychicRitualSiege) }),
+            "psychic ritual siege keeps native entry");
+        check(!usesNativeEntry(new RaidStrategyDef { workerClass = typeof(RaidStrategyWorker_SiegeMechanoid) }),
+            "MechClusterDrop can materialize its complete cluster on a neighboring host");
         check(!usesNativeEntry(new RaidStrategyDef { workerClass = typeof(RaidStrategyWorker_Siege) }),
             "ordinary walking siege can choose a neighboring camp");
         check(!usesNativeEntry(new RaidStrategyDef { workerClass = typeof(RaidStrategyWorker_StageThenAttack) }),
@@ -199,6 +227,24 @@ public static class Audit
         check(!usesNativeEntry(new RaidStrategyDef { workerClass = typeof(RaidStrategyWorker_ImmediateAttackBreaching) }),
             "breachers can march to their attacked map");
         CheckRaidEntryPreferences(outerSpawn, statics, usesNativeEntry, check);
+
+        var directSpawn = assembly.GetType("RimExodus.SeamlessRaidDirectSpawn", true)!;
+        var rayExit = directSpawn.GetMethod("TryRayExit", statics)!;
+        var square = new List<Vector2>
+        {
+            new(-10f, -10f), new(10f, -10f), new(10f, 10f), new(-10f, 10f)
+        };
+        object[] sourceRay = { square, Vector2.zero, Vector2.right, -1, null, null };
+        check((bool)rayExit.Invoke(null, sourceRay)! && (int)sourceRay[5]! == 1
+            && Vector2.Distance((Vector2)sourceRay[4]!, new Vector2(10f, 0f)) < 0.001f,
+            "native direction reaches the attacked map's selected seam");
+        object[] hostRay = { square, new Vector2(-9.95f, 0f), Vector2.right, 3, null, null };
+        check((bool)rayExit.Invoke(null, hostRay)! && (int)hostRay[5]! == 1,
+            "the same ray crosses the host and ignores its shared seam");
+        var qFar = (Vector2)hostRay[4]!;
+        var mapped = qFar + (new Vector2(-10f, 0f) - qFar).normalized * 2f;
+        check(Vector2.Distance(mapped, new Vector2(8f, 0f)) < 0.001f,
+            "far-side mapping preserves the native point's two-cell inward depth");
 
         var forDestination = typeof(RimExodus.LordJob_SeamlessRaidMarch).GetMethod("ForDestination",
             BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -235,8 +281,8 @@ public static class Audit
             }
             var source = MakeMap();
             var destination = MakeMap();
-            lord.lordManager = source.lordManager;
-            source.lordManager.lords.Add(lord);
+            lord.lordManager = destination.lordManager;
+            destination.lordManager.lords.Add(lord);
             var stagingJob = new LordJob_StageThenAttack(null, new IntVec3(4, 0, 7), 259);
             var stagingToil = new LordToil_Stage(new IntVec3(4, 0, 7));
             var graph = new StateGraph();
@@ -253,31 +299,32 @@ public static class Audit
             lord.loadID = 211;
 
             const BindingFlags instance = BindingFlags.Instance | BindingFlags.NonPublic;
-            var canStage = outerSpawn.GetMethod("CanStageOnHost", statics)!.CreateDelegate<Func<Lord, bool>>();
-            check(canStage(lord) && !canPursue(lord), "a staged raid can relocate at spawn without allowing a premature pursuit");
-            var newStage = new IntVec3(26, 0, 31);
-            outerSpawn.GetMethod("SetStagingPoint", statics)!.Invoke(null, new object[] { lord, newStage });
-            continuity.GetMethod("RelocateSpawnedSquad", instance)!
-                .Invoke(component, new object[] { lord, destination, new List<Pawn>(), null! });
+            check(!canPursue(lord), "a staged raid does not allow a premature pursuit");
+            continuity.GetMethod("RegisterDirectSquad", instance)!
+                .Invoke(component, new object[] { lord, source, null! });
+            var registered = (IDictionary)AccessTools.Field(continuity, "byLord").GetValue(component)!;
+            var registeredSquad = registered[lord]!;
+            check((Map)AccessTools.Field(registeredSquad.GetType(), "AttackedMap").GetValue(registeredSquad)! == source,
+                "direct registration records the attacked map without moving the authority");
             check(source.lordManager.lords.Count == 0 && destination.lordManager.lords.Single() == lord,
-                "whole-squad handoff keeps the original Lord object");
+                "direct registration leaves the native Lord on its generation map");
             check(lord.LordJob == stagingJob && lord.Graph == graph && lord.CurLordToil == stagingToil && lord.ticksInToil == 167,
-                "handoff retains the running graph, exact phase and elapsed time");
-            check(stagingToil.FlagLoc == newStage
-                && (IntVec3)AccessTools.Field(typeof(LordJob_StageThenAttack), "stageLoc").GetValue(stagingJob)! == newStage
+                "direct registration retains the running graph, exact phase and elapsed time");
+            check(stagingToil.FlagLoc == new IntVec3(4, 0, 7)
+                && (IntVec3)AccessTools.Field(typeof(LordJob_StageThenAttack), "stageLoc").GetValue(stagingJob)! == new IntVec3(4, 0, 7)
                 && (int)AccessTools.Field(typeof(LordJob_StageThenAttack), "raidSeed").GetValue(stagingJob)! == 259,
-                "only the running and saved staging coordinates change; the native raid seed survives");
+                "the host-native staging coordinates and raid seed stay unchanged");
             check(lord.numPawnsLostViolently == 2 && lord.numPawnsEverGained == 7,
-                "handoff preserves the original squad casualty denominator and losses");
+                "direct registration preserves the original squad casualty denominator and losses");
             check(lord.loadID == 211 && lord.questTags.Single() == "raid-quest" && lord.inSignalLeave == "raid-leave",
                 "the original quest receiver keeps its identity, tags and leave signal");
             toilField.SetValue(lord, attack);
-            check(!canStage(lord) && canPursue(lord), "the staged squad can pursue after switching to native assault");
+            check(canPursue(lord), "the staged squad can pursue after switching to native assault");
 
             var siegeSource = MakeMap();
             var siegeHost = MakeMap();
-            var siegeLord = new Lord { lordManager = siegeSource.lordManager, loadID = 212, ticksInToil = 50 };
-            siegeSource.lordManager.lords.Add(siegeLord);
+            var siegeLord = new Lord { lordManager = siegeHost.lordManager, loadID = 212, ticksInToil = 50 };
+            siegeHost.lordManager.lords.Add(siegeLord);
             var oldCamp = new IntVec3(12, 0, 14);
             const float budget = 96f;
             var siegeJob = new LordJob_Siege(null, oldCamp, budget);
@@ -290,23 +337,19 @@ public static class Audit
             jobField.SetValue(siegeLord, siegeJob);
             toilField.SetValue(siegeLord, travel);
 
-            var preparing = outerSpawn.GetMethod("PreparingSiege", statics)!.CreateDelegate<Func<Lord, LordToilData_Siege>>();
             var siegeData = (LordToilData_Siege)siege.data;
-            check(preparing(siegeLord) == siegeData && !canPursue(siegeLord),
-                "siege camp can move before construction without allowing premature pursuit");
-            var newCamp = new IntVec3(62, 0, 54);
-            outerSpawn.GetMethod("SetSiegePoint", statics)!.Invoke(null, new object[] { siegeLord, siegeData, newCamp });
-            continuity.GetMethod("RelocateSpawnedSquad", instance)!
-                .Invoke(component, new object[] { siegeLord, siegeHost, new List<Pawn>(), null! });
+            check(!canPursue(siegeLord), "siege travel does not allow premature pursuit");
+            continuity.GetMethod("RegisterDirectSquad", instance)!
+                .Invoke(component, new object[] { siegeLord, siegeSource, null! });
             check(siegeSource.lordManager.lords.Count == 0 && siegeHost.lordManager.lords.Single() == siegeLord
                 && siegeLord.Graph == siegeGraph && siegeLord.CurLordToil == travel && siegeLord.ticksInToil == 50,
-                "neighbor siege retains the original Lord, graph and travel clock");
-            check(travel.FlagLoc == newCamp && siege.FlagLoc == newCamp && siegeData.blueprintPoints == budget
-                && (IntVec3)AccessTools.Field(typeof(LordJob_Siege), "siegeSpot").GetValue(siegeJob)! == newCamp
+                "neighbor siege is created on its final host with the original Lord, graph and travel clock");
+            check(travel.FlagLoc == oldCamp && siege.FlagLoc == oldCamp && siegeData.blueprintPoints == budget
+                && (IntVec3)AccessTools.Field(typeof(LordJob_Siege), "siegeSpot").GetValue(siegeJob)! == oldCamp
                 && (float)AccessTools.Field(typeof(LordJob_Siege), "blueprintPoints").GetValue(siegeJob)! == budget,
-                "travel, artillery construction and saved job use the same camp without rerolling its budget");
+                "host-native travel, artillery construction and saved job share one camp without rerolling its budget");
             toilField.SetValue(siegeLord, siege);
-            check(preparing(siegeLord) == null && !canPursue(siegeLord), "an established siege cannot move its camp");
+            check(!canPursue(siegeLord), "an established siege remains a map-bound phase");
         }
         finally { Current.Game = previousGame; }
     }
@@ -331,25 +374,30 @@ public static class Audit
             var strategy = new RaidStrategyDef { defName = "fixture", workerClass = typeof(RaidStrategyWorker_SiegeMechanoid) };
             var isMapBound = outerSpawn.GetMethod("IsStrategyMapBound", statics)!.CreateDelegate<Func<RaidStrategyDef, bool>>();
             var nativeReason = outerSpawn.GetMethod("ResolvedNativeReason", statics)!.CreateDelegate<Func<IncidentParms, string>>();
-            var arrival = new PawnsArrivalModeDef { defName = "fixture", walkIn = true };
+            var arrival = new PawnsArrivalModeDef { defName = "fixture", walkIn = true,
+                workerClass = typeof(PawnsArrivalModeWorker_EdgeWalkIn) };
             var parms = new IncidentParms { raidStrategy = strategy, raidArrivalMode = arrival };
             check(Read("Incident") == "Native" && Read("Strategy") == "Default", "old incident preferences keep their scope");
             Set("Strategy", "Outer");
-            check(!usesNativeEntry(strategy) && isMapBound(strategy) && Read("Incident") == "Native",
-                "a strategy override permits edge selection while keeping the siege bound to its map");
+            check(!usesNativeEntry(strategy) && !isMapBound(strategy) && Read("Incident") == "Native",
+                "mech-cluster drops can choose a neighboring generation host");
             Set("Arrival", "Native");
             check(Read("Arrival") == "Native" && nativeReason(parms)?.Contains("configured") == true,
                 "a resolved walk-in arrival can independently request vanilla placement and name the reason");
             Set("Arrival", "Outer");
             arrival.walkIn = false;
-            check(nativeReason(parms)?.Contains("requires native placement") == true,
-                "non-walking arrivals keep native placement");
+            arrival.workerClass = typeof(PawnsArrivalModeWorker_ClusterDrop);
+            check(nativeReason(parms) == null,
+                "an explicitly enabled mech-cluster drop can use neighboring placement");
+            Set("Arrival", "Default");
+            check(nativeReason(parms)?.Contains("defaults to native") == true,
+                "air arrivals remain native by default until the player enables them");
             settings.logCombat = true;
             check(RimExodus.RimExodusLog.Enabled(RimExodus.RimExodusLogModule.Combat)
                 && !RimExodus.RimExodusLog.Enabled(RimExodus.RimExodusLogModule.CombatExtended),
                 "raid messages use the cross-map combat switch independently of the CE switch");
             outerSpawn.GetMethod("ResetEntryPreferences", statics)!.Invoke(null, new object[] { settings });
-            check(usesNativeEntry(strategy) && Read("Incident") == "Default" && Read("Arrival") == "Default",
+            check(!usesNativeEntry(strategy) && Read("Incident") == "Default" && Read("Arrival") == "Default",
                 "reset restores each raid entry default and clears legacy overrides");
             strategy.workerClass = typeof(RaidStrategyWorker_Siege);
             Set("Strategy", "Native");

@@ -81,8 +81,8 @@
   <RimExodus_SettingsCombatLabel>跨图索敌与射击</RimExodus_SettingsCombatLabel>
   <RimExodus_SettingsCombatTip>允许 pawn 看见、瞄准并射击站在缝对侧相邻地图上的敌人。若你偏好严格的原版战斗规则（无法与另一张地图上的任何目标交互），请关闭。</RimExodus_SettingsCombatTip>
 
-  <RimExodus_SettingsRaidOuterSpawnLabel>步行袭击从外缘进场</RimExodus_SettingsRaidOuterSpawnLabel>
-  <RimExodus_SettingsRaidOuterSpawnTip>支持的步行袭击可以从外侧接缝进场。集结后进攻可在进场图集结，步行人类围攻可在邻图架炮。机械族围攻、仪式和群迁留在被袭击图。关闭跨图索敌与射击时，袭击在被袭击图进场。</RimExodus_SettingsRaidOuterSpawnTip>
+  <RimExodus_SettingsRaidOuterSpawnLabel>袭击可从邻图外缘进场</RimExodus_SettingsRaidOuterSpawnLabel>
+  <RimExodus_SettingsRaidOuterSpawnTip>支持的步行袭击默认可从邻图远侧进场；集结后进攻在进场图集结，人类围攻可在邻图架炮。边缘、分组、中心、分散及机械集群空投默认仍用原版位置，可在“配置袭击进场”中逐项启用邻图直接生成。固定地点空投、出水、仪式和群迁保留原版流程。邻图位置由被袭击图原定位置沿接缝射线映射；落点不合法时按地图边数旋转重试，全部失败则整组回退原版。关闭跨图索敌与射击时，袭击在被袭击图进场。</RimExodus_SettingsRaidOuterSpawnTip>
 
   <!-- 武器射程曲线（2026-09，默认关）：把全部远程武器射程与原版精度锚点距离按玩家配置的分段线性曲线重映射。 -->
   <RimExodus_SettingsRangeCurveLabel>武器射程曲线映射</RimExodus_SettingsRangeCurveLabel>
@@ -233,7 +233,7 @@
   <RimExodus_RaidOuterSpawnOpenIncidents>配置袭击进场…</RimExodus_RaidOuterSpawnOpenIncidents>
   <RimExodus_RaidOuterSpawnIncidentsTitle>袭击进场</RimExodus_RaidOuterSpawnIncidentsTitle>
   <RimExodus_RaidOuterSpawnIncidentsHint>可以按事件、策略和进场方式设置。任一项要求原版进场时，优先使用原版。</RimExodus_RaidOuterSpawnIncidentsHint>
-  <RimExodus_RaidOuterSpawnIncidentsHintTip>外缘进场会尝试选取可达的接缝。邻图资格、阵地限制及战斗开关仍会影响结果。改动即时生效。</RimExodus_RaidOuterSpawnIncidentsHintTip>
+  <RimExodus_RaidOuterSpawnIncidentsHintTip>尝试外缘会先取得被袭击图的原版位置，再映射到邻图远侧并直接生成。会验证整组落点与通往被袭击图的路径；失败时按多边形边数旋转方向，全部失败则整组使用原版位置。邻图资格、阵地限制及战斗开关仍会影响结果。改动即时生效。</RimExodus_RaidOuterSpawnIncidentsHintTip>
   <RimExodus_RaidEntryEvents>事件</RimExodus_RaidEntryEvents>
   <RimExodus_RaidEntryStrategies>策略</RimExodus_RaidEntryStrategies>
   <RimExodus_RaidEntryArrivals>进场方式</RimExodus_RaidEntryArrivals>
@@ -242,7 +242,7 @@
   <RimExodus_RaidEntryNative>原版进场</RimExodus_RaidEntryNative>
   <RimExodus_RaidEntryOuter>尝试外缘进场</RimExodus_RaidEntryOuter>
   <RimExodus_RaidEntryLocalEdge>尝试本图外缘</RimExodus_RaidEntryLocalEdge>
-  <RimExodus_RaidEntryNativeOnlyTip>此事件或进场方式由原版专用流程选位。</RimExodus_RaidEntryNativeOnlyTip>
+  <RimExodus_RaidEntryNativeOnlyTip>此事件、策略或进场方式使用尚未接入邻图直接生成的专用流程，因此固定使用原版位置。</RimExodus_RaidEntryNativeOnlyTip>
   <RimExodus_RaidEntryLocalEdgeTip>此项需要在被袭击图执行。若其原版流程支持边缘选点，可以尝试该图的外侧接缝。</RimExodus_RaidEntryLocalEdgeTip>
   <RimExodus_SettingsFrameworkLabel>使用 REF 地图底层（重启生效）</RimExodus_SettingsFrameworkLabel>
   <RimExodus_SettingsFrameworkTip>使用 RimExodus Framework 提供公共地图能力。今后将以 REF 为核心维护，建议新档启用。验证期间默认关闭。修改后请重启游戏；关闭并重启即可回到 legacy 底层。两种模式下都需保持 Framework 前置启用。</RimExodus_SettingsFrameworkTip>
