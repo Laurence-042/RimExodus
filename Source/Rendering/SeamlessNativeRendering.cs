@@ -14,10 +14,12 @@ namespace RimExodus
         private readonly List<SeamlessTileGraph.NeighborInfo> neighbors = new List<SeamlessTileGraph.NeighborInfo>();
 #if RIMWORLD_1_7
         private readonly Dictionary<Map, CellRect> endlessHorizonViews = new Dictionary<Map, CellRect>();
+        private readonly HashSet<Map> separatedSkyMaps = new HashSet<Map>();
+        private readonly List<MapRenderPlan> endlessHorizonPlans = new List<MapRenderPlan>();
         private int endlessHorizonViewFrame = -1;
+#endif
         private static Color focusedSkyTint = Color.white;
         private static int focusedSkyTintFrame = int.MinValue;
-#endif
         private bool registered;
         private bool wasEnabled;
         public static bool Enabled => RimExodusMod.Settings?.nativeNeighborRendering == true;
@@ -29,6 +31,9 @@ namespace RimExodus
 
         private void PrepareFrame()
         {
+#if RIMWORLD_1_7
+            separatedSkyMaps.Clear();
+#endif
             var rendering = MapRuntime.Current.Rendering;
             if (!registered)
             {
@@ -46,6 +51,7 @@ namespace RimExodus
         {
 #if RIMWORLD_1_7
             endlessHorizonViews.Clear();
+            endlessHorizonPlans.Clear();
             endlessHorizonViewFrame = Time.frameCount;
 #endif
             if (!Enabled) return;
@@ -54,27 +60,50 @@ namespace RimExodus
             neighbors.Clear();
             SeamlessTileGraph.PopulateNeighbors(host, neighbors);
             var view = Find.CameraDriver.CurrentViewRect.ExpandedBy(1);
-            // The focused map's full-rectangle mod overlays must not cover the neighboring polygons either.
-            output.Add(CreateView(host, hostTile, Matrix4x4.identity, view));
+#if RIMWORLD_1_7
+            // REF clips LocalView to the source rectangle. EH's public external-draw API needs
+            // the uncut source-local camera rect so its ring remains visible beyond that rectangle.
+            endlessHorizonViews[host] = view;
+            endlessHorizonPlans.Add(CreateView(host, hostTile, Matrix4x4.identity, view));
+#endif
             foreach (var neighbor in neighbors)
             {
                 if (neighbor.map == null || neighbor.map.Disposed || IncrementalMapGenerator.IsGenerating(neighbor.map)
                     || SeamlessDormancyManager.IsDormant(neighbor.map)
                     || !SeamlessViewProjection.TryProject(neighbor.map, Vector3.zero, host, out var offset)) continue;
                 var transform = Matrix4x4.Translate(offset);
-                var localView = new MapTransform(transform).LocalView(view);
 #if RIMWORLD_1_7
-                var visibleBounds = CellRect.WholeMap(neighbor.map)
-                    .ExpandedBy(SeamlessEndlessHorizonCompat.VisibilityPadding(neighbor.map));
+                endlessHorizonPlans.Add(CreateView(neighbor.map, neighbor.map.Tile, transform, view));
 #else
+                var localView = new MapTransform(transform).LocalView(view);
                 var visibleBounds = CellRect.WholeMap(neighbor.map);
-#endif
                 if (!localView.Overlaps(visibleBounds)) continue;
-#if RIMWORLD_1_7
-                endlessHorizonViews[neighbor.map] = localView;
-#endif
                 output.Add(CreateView(neighbor.map, neighbor.map.Tile, transform, view));
+#endif
             }
+#if RIMWORLD_1_7
+            // Every EH domain must be derived from the same frozen host-space plan set. Pairwise
+            // source offsets are not transitive under the world projection, so independently
+            // calculated neighbor regions can overlap or leave cracks between two outer maps.
+            SeamlessEndlessHorizonCompat.PrepareCompositeRegions(host, endlessHorizonPlans);
+            for (var i = 0; i < endlessHorizonPlans.Count; i++)
+            {
+                var plan = endlessHorizonPlans[i];
+                var localView = plan.Transform.LocalView(view);
+                if (plan.Source != host)
+                {
+                    var visibleBounds = CellRect.WholeMap(plan.Source)
+                        .ExpandedBy(SeamlessEndlessHorizonCompat.VisibilityPadding(plan.Source));
+                    if (!localView.Overlaps(visibleBounds)) continue;
+                    endlessHorizonViews[plan.Source] = localView;
+                }
+                // The focused map's full-rectangle mod overlays must not cover neighboring polygons either.
+                output.Add(plan);
+            }
+#else
+            // The focused map's full-rectangle mod overlays must not cover the neighboring polygons either.
+            output.Insert(0, CreateView(host, hostTile, Matrix4x4.identity, view));
+#endif
         }
 
 #if RIMWORLD_1_7
@@ -86,47 +115,47 @@ namespace RimExodus
                 && component.endlessHorizonViews.TryGetValue(map, out view);
         }
 
+#endif
+
+        internal static bool TryGetSeparatedSkyTint(Map map, out Color tint)
+        {
+#if RIMWORLD_1_7
+            tint = Color.white;
+            if (!Enabled || map == null || !WorldRendererUtility.DrawingMap) return false;
+            var component = Current.Game?.GetComponent<SeamlessNativeRendering>();
+            if (component == null || !component.separatedSkyMaps.Contains(map)) return false;
+            tint = map.Biome != null && map.Biome.disableSkyLighting
+                ? new Color(1f, 1f, 1f, 0f)
+                : map.skyManager.CurSky.colors.sky;
+            return true;
+#else
+            tint = Color.white;
+            return false;
+#endif
+        }
+
         internal static bool TryGetFocusedSkyTint(out Color color)
         {
             color = focusedSkyTint;
             return focusedSkyTintFrame >= Time.frameCount - 1;
         }
-#endif
 
         private static MapRenderPlan CreateView(Map map, PlanetTile tile, Matrix4x4 transform, CellRect view)
             => new MapRenderPlan(map, transform, view, new MapRenderOptions
             {
                 OverlayFootprint = SeamlessPolygonGeometry.GetCachedPolygonVertices(tile, map.Size.x),
 #if RIMWORLD_1_7
-                OverlayClipSelector = SelectOverlayClip(tile)
+                OverlayClipSelector = ExcludeHorizon
 #else
-                OverlayClipSelector = SeamlessGravTideCompat.GetOverlayClipSelector(tile)
+                OverlayClipSelector = null
 #endif
             });
-
-#if RIMWORLD_1_7
-        private static System.Func<MapDrawCommand, bool?> SelectOverlayClip(PlanetTile tile)
-        {
-            var select = SeamlessGravTideCompat.GetOverlayClipSelector(tile);
-            return select == null ? ExcludeHorizon : command => SeamlessEndlessHorizonCompat.Drawing ? false : select(command);
-        }
-#endif
-        private void DrawSkyTint()
-        {
-            if (!Enabled || !WorldRendererUtility.DrawingMap || LongEventHandler.ShouldWaitForEvent) return;
-            var host = Find.CurrentMap;
-            if (host == null || !SeamlessTileRegistry.GetMapWorldTile(host).Valid) return;
-            host.GetComponent<SeamlessTileRenderer>()?.DrawNativeSkyTint();
-        }
         [HarmonyPatch(typeof(Game), nameof(Game.UpdatePlay))]
         private static class PreparePatch
         {
             [HarmonyPriority(Priority.First)]
             [HarmonyBefore("RimExodus.Maps")]
             private static void Prefix() => Current.Game.GetComponent<SeamlessNativeRendering>().PrepareFrame();
-
-            // All original MapUpdate calls have finished; no REF map scope is active here.
-            private static void Postfix() => Current.Game.GetComponent<SeamlessNativeRendering>().DrawSkyTint();
         }
 
         [HarmonyPatch(typeof(SkyManager), nameof(SkyManager.SkyManagerUpdate))]
@@ -135,17 +164,35 @@ namespace RimExodus
             [HarmonyPriority(Priority.Last)]
             private static void Postfix()
             {
-                // The native neighbor callback draws its own lighting meshes. Keep their glow/roof
-                // vertex data, but let the focused map's overlay and one exterior quad own sky tint.
-                if (Enabled && MapRenderPlan.IsNativeView)
-                    MatBases.LightOverlay.color = new Color(1f, 1f, 1f, 0f);
-#if RIMWORLD_1_7
-                else if (Enabled && Current.Game != null && Find.CurrentMap == Current.Game.CurrentMap)
+                if (!Enabled || Current.Game == null) return;
+                var view = MapRenderPlan.CurrentNativeView;
+                if (view == null) return;
+
+                var sourceTint = MatBases.LightOverlay.color;
+
+                // CurrentNativeView includes the focused identity plan as well as neighbor plans.
+                // Capture the source map's own tint before either the EH split path removes the sky
+                // channel or the ordinary native path normalizes neighbors to the focused tint.
+                if (view.Source == Current.Game.CurrentMap)
                 {
-                    focusedSkyTint = MatBases.LightOverlay.color;
+                    focusedSkyTint = sourceTint;
                     focusedSkyTintFrame = Time.frameCount;
                 }
+#if RIMWORLD_1_7
+                // EH and the map both submit LightOverlay meshes. Keep those meshes as the
+                // glow/roof channel only, then draw one sky plane over their shared DrawArea.
+                // This also neutralizes EH's rectangular far-light frame without identifying
+                // or patching any internal EH type.
+                if (SeamlessEndlessHorizonCompat.TryPrepareSeparatedLighting(view.Source))
+                {
+                    Current.Game.GetComponent<SeamlessNativeRendering>().separatedSkyMaps.Add(view.Source);
+                    MatBases.LightOverlay.color = new Color(1f, 1f, 1f, 0f);
+                    return;
+                }
 #endif
+                else MatBases.LightOverlay.color = TryGetFocusedSkyTint(out var tint)
+                    ? tint
+                    : new Color(1f, 1f, 1f, 0f);
             }
         }
     }

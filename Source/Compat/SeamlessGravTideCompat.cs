@@ -2,17 +2,12 @@ using System;
 using HarmonyLib;
 using RimWorld;
 using RimWorld.Planet;
-using RimExodus.Maps;
 using Verse;
 
 namespace RimExodus
 {
     internal sealed class SeamlessGravTideCompat : SeamlessMapProvider
     {
-        private static readonly Func<MapDrawCommand, bool?> FloodTintSelector = _ => drawingFloodTint ? true : (bool?)null;
-        [ThreadStatic] private static bool drawingFloodTint;
-        private static bool floodTintBound;
-
         private readonly Func<PlanetTile, bool> available;
         private readonly Func<PlanetTile, string> refusal;
         private readonly WorldObjectDef seabedSite;
@@ -27,7 +22,7 @@ namespace RimExodus
             EnableNewMaps = enableNewMaps;
         }
 
-        internal static void Register(Harmony harmony)
+        internal static void Register()
         {
             if (!ModsConfig.IsActive("gravtide.mod")) return;
             try
@@ -46,7 +41,6 @@ namespace RimExodus
                     RimExodusMod.Settings?.gravTideSeamlessEnabled == true)))
                 {
                     Log.Message("[RimExodus] GravTide compatibility bound: seabed layer, availability and lease checks.");
-                    BindFloodTintClipping(harmony);
                 }
             }
             catch (Exception ex)
@@ -54,39 +48,6 @@ namespace RimExodus
                 Log.Warning($"[RimExodus] GravTide compatibility unavailable: {ex}");
             }
         }
-
-        internal static Func<MapDrawCommand, bool?> GetOverlayClipSelector(PlanetTile tile)
-            => floodTintBound && SeamlessMapProviders.For(tile) is SeamlessGravTideCompat ? FloodTintSelector : null;
-
-        private static void BindFloodTintClipping(Harmony harmony)
-        {
-            try
-            {
-                var layer = AccessTools.TypeByName("GravTide.SectionLayer_Flooded");
-                var draw = layer == null ? null : AccessTools.DeclaredMethod(layer, nameof(MapDrawLayer.DrawLayer), Type.EmptyTypes);
-                if (draw == null || draw.IsStatic || draw.ReturnType != typeof(void) || !typeof(MapDrawLayer).IsAssignableFrom(layer))
-                    throw new MissingMethodException("GravTide.SectionLayer_Flooded", "DrawLayer()");
-                harmony.Patch(draw,
-                    prefix: new HarmonyMethod(typeof(SeamlessGravTideCompat), nameof(BeginFloodTintDraw)),
-                    finalizer: new HarmonyMethod(typeof(SeamlessGravTideCompat), nameof(EndFloodTintDraw)));
-                floodTintBound = true;
-                Log.Message("[RimExodus] GravTide compatibility bound: SectionLayer_Flooded.DrawLayer overlay clipping.");
-            }
-            catch (Exception ex)
-            {
-                Log.Warning($"[RimExodus] GravTide flood tint clipping unavailable: {ex}");
-            }
-        }
-
-        // This material is shared with other layers. Mark only submissions made inside the flood draw.
-        private static void BeginFloodTintDraw(Map ___map, out bool __state)
-        {
-            __state = drawingFloodTint;
-            drawingFloodTint = floodTintBound && MapRenderPlan.CurrentNativeView is MapRenderPlan view
-                && view.Source == ___map;
-        }
-
-        private static void EndFloodTintDraw(bool __state) => drawingFloodTint = __state;
 
         public override bool Accepts(PlanetTile tile, MapParent parent) => available(tile);
 

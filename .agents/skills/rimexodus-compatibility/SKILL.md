@@ -78,7 +78,13 @@ internal static class SeamlessCells
 
 ## 你的 Mod 有自定义覆盖层时
 
-如果你的 Mod 自己向 REF 提供 `MapRenderPlan`，设置源图局部凸多边形 `OverlayFootprint`，用 `OverlayClipSelector` 选择可读的平面三角网格。返回 `true` 跳过尺寸筛选，`false` 跳过裁切，`null` 使用默认筛选。独占材质可以用 `MapDrawCommand.UsesMaterial` 匹配，共享材质应在你的图层绘制回调内标识提交。如果绘制计划由 RimExodus 管理，`SeamlessMapProvider` 只负责世界层和接缝规则，覆盖层选择需要单独的渲染适配。
+如果你的 Mod 自己向 REF 提供 `MapRenderPlan`，设置源图局部凸多边形 `OverlayFootprint`。REF 会自动裁切 X/Z 跨度均至少 17 格的可读平面三角分区，也保留任一轴超过半图的整图/长条规则；全在轮廓内外的分区会先快速保留或丢弃。更小的分区才需要 `OverlayClipSelector` 显式返回 `true`；返回 `false` 跳过裁切，`null` 使用默认筛选。独占材质可以用 `MapDrawCommand.UsesMaterial` 匹配，共享材质应在你的图层绘制回调内标识提交。如果绘制计划由 RimExodus 管理，`SeamlessMapProvider` 只负责世界层和接缝规则，小于默认阈值的特殊覆盖层选择仍需要单独的渲染适配。
+
+裁切 section 后，配套的全局染色或背景补层也必须使用同一 footprint 或同一接缝归属；不要继续用地图方形并集/差集补画，否则会在当前图方形内漏掉邻图区域，并在邻图方形的 void 上与外部背景重复叠加。
+
+同一共享材质同时承载逐格数据与全局染色时，先把通道拆开再切接缝：逐图 mesh 只保留 glow、roof 等顶点数据，全局天色另用每图唯一平面提交。拆成两个 pass 后还必须明确层次：天色底层使用独立材质、较低 render queue 和微小负高度偏移，glow/roof 留在原层；不要让两者以同一材质、同一队列、同一深度共面提交，否则 1.7 渲染批处理可能只在有原生 lighting mesh 的聚焦图吃掉底层，而远景看似正常。非矩形地图若还调用 Endless Horizon `SetRegion`，该平面应直接复用其 `drawArea`，不要分别按连续 footprint 和离散 playable/void 边界交接；也不要靠 EH 内部 mesh 的形状或 bounds 识别远场天光框。多图同时绘制时，所有 `drawArea` 必须从同一个聚焦坐标系中的完整 plan 集合统一切分，再反变换回各图局部坐标；各图分别用邻接整数 offset 计算，看似成对互补，实际会因聚焦投影的分数偏移与非传递性在外圈邻图间产生重叠或裂缝。
+
+原版回调里若要区分聚焦图与邻图，读取 `MapRenderPlan.CurrentNativeView.Source` 并与真实 `Current.Game.CurrentMap` 比较。不要用 `MapRenderPlan.IsNativeView` 识别聚焦 plan：该属性只对邻图返回 true，聚焦图的 identity plan 也有 `CurrentNativeView`，但 `IsNativeView` 为 false。
 
 ## 验证你的集成
 

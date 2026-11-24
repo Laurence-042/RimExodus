@@ -47,7 +47,7 @@ namespace RimExodus
             var harmony = new Harmony("RimExodus.SeamlessWorld");
             HarmonyInstance = harmony;
             harmony.PatchAll();
-            LongEventHandler.ExecuteWhenFinished(() => SeamlessGravTideCompat.Register(harmony));
+            LongEventHandler.ExecuteWhenFinished(SeamlessGravTideCompat.Register);
 #if RIMWORLD_1_7
             LongEventHandler.ExecuteWhenFinished(SeamlessEndlessHorizonCompat.Register);
 #endif

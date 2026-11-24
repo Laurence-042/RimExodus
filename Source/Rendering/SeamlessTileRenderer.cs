@@ -16,9 +16,10 @@ namespace RimExodus
         /// 在绘制后只清深度，使当前地图覆盖重叠带；1.7 UnityStubs 改用即时提交。
         /// 对称性：聚焦任意图块时，其所有直接邻居（原生 parent 图与地块图）都会被绘制。
         /// 光照天色分层（2026-08）：LightOverlay shader 的天色染色走材质 color alpha、
-        /// glow/roof 走顶点色，两通道独立（实验验证）——邻图 overlay 用 (1,1,1,0) 克隆材质
-        /// 做纯数据层，天色由"当前图 overlay（自己方形内）+ 全零顶点 quad（所有邻图方形并集
-        /// 减去当前图方形）"各管一块，消除 void 透明圈与多邻图交界的 sky² 双染暗带。
+        /// glow/roof 走顶点色，两通道独立（实验验证）。legacy 邻图 overlay 用 (1,1,1,0)
+        /// 克隆材质做纯数据层，并用矩形差集补天色；REF 原版回调通常直接使用裁切后的
+        /// lighting section。EH 激活时，原图/EH mesh 都改为纯数据层，天色由 EH beforeFog
+        /// 阶段按其公开 API drawArea 单独提交，避免方形远场天光和独立六边形接缝误差。
     /// </summary>
     [StaticConstructorOnStartup] // 静态 AccessTools FieldRef 初始化走启动期；Material/Mesh 保持惰性构建，加特性消 Verse 启动分析器警告
     public class SeamlessTileRenderer : MapComponent
@@ -96,9 +97,8 @@ namespace RimExodus
             try
             {
 #if RIMWORLD_1_7
-                // Endless Horizon is map background, not a world-clipper. Its upstream hook lives
-                // on DrawClippers, but submitting the meshes there lets the clipper phase own both
-                // sides of the boundary and can discard the part beyond the vanilla rectangle.
+                // Endless Horizon's public API delegates multi-map submission to RimExodus. Keep it
+                // in the map-background phase so REF applies the source map's display transform.
                 SeamlessEndlessHorizonCompat.DrawBackground(map);
 #endif
                 MapComponentDrawInner();
@@ -585,19 +585,6 @@ namespace RimExodus
 
                 return skyTintQuadMesh;
             }
-        }
-
-        internal void DrawNativeSkyTint()
-        {
-            if (Find.CurrentMap != map || !DebugViewSettings.drawLightingOverlay) return;
-            cachedNeighbors.Clear();
-            SeamlessTileGraph.PopulateNeighbors(map, cachedNeighbors);
-            if (cachedNeighbors.Count == 0) return;
-            drawCommands.Clear();
-            CollectSkyTintRects();
-            foreach (var command in drawCommands)
-                Graphics.DrawMesh(command.mesh, command.matrix, command.material, command.renderLayer);
-            drawCommands.Clear();
         }
 
         /// <summary>

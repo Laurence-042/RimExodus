@@ -158,6 +158,8 @@ RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_ref
 - 邻图渲染设置独立于 REF/legacy 模拟底层。高兼容性路径由 `SeamlessNativeRendering` 选择可见图、投影与凸边界，交给 REF `MapRuntime.Rendering`。不得重复调用 `MapUpdate`、组件 Update、CameraDriver.Update 或实际 CurrentMap setter，不在 RE 复制原版绘制层清单。两条路径互斥，切换时释放旧缓冲。
 
 - 分区覆盖层的裁切交给 REF。消费方只在目标图层的绘制范围内显式选择提交，共享材质不足以识别图层。绘制接口见 [README 的接入第三方覆盖层](README.md#接入第三方覆盖层)。
+- Endless Horizon 激活时，原图与 EH 的 `LightOverlay` mesh 只承载 glow/roof；每图唯一的天色平面复用 API `drawArea`，并同时覆盖地图与远景。`drawArea` 必须由当前聚焦图下全部候选 plan 的实际浮点显示变换统一做 Voronoi 切分，再反变换回各源图；禁止让各图用整数邻接 offset 独立推导，否则邻图与邻图之间会重叠或裂开。天色平面是 glow/roof 的底层 pass，必须使用独立材质、略低 render queue 与微小负高度偏移；不要和原生 lighting mesh 共用完全相同的材质/队列/深度，否则 1.7 批处理会吃掉聚焦图的共面天色。不要恢复逐六边形天色或方形并集补片，也不要按 EH 内部网格特征筛掉 `HorizonLighting`。
+- 未进入 EH 天光分层时，高兼容性路径不另画矩形补层：聚焦图保留原版 lighting section，邻图已由 REF 按各自 footprint 裁切的 lighting section 直接使用聚焦图天色。识别聚焦 plan 必须比较 `MapRenderPlan.CurrentNativeView.Source` 与 `Current.Game.CurrentMap`；`MapRenderPlan.IsNativeView` 只表示邻图，聚焦图 identity plan 会返回 false。
 - `SeamlessTileRenderer` 只处理已接入层的合法地图。口袋图和未接入层必须早退，避免清色覆盖星空或载具内部背景。
 - 邻图静态层当前收集 Terrain、ThingsGeneral、LightingOverlay、FogOfWar，并把 Watergen 几何送入原版 WaterDepth 子相机。水面必须保留原 `TerrainWater` shader 与深度几何配对，禁止回退到静态 TerrainFade/Hard 贴图。
 - WaterDepth 视区使用“当前视区 + 当前缩放半屏”的保守余量，解决快速横移时 RT 边缘 Clamp 拉伸；不要改成全图提交或第二套相机/RT。
