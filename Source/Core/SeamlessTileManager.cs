@@ -325,6 +325,26 @@ namespace RimExodus
             var worldTile = SeamlessTileRegistry.GetMapWorldTile(map);
             if (!worldTile.Valid) return;
 
+            CompleteMapIntegration(worldTile);
+        }
+
+        /// <summary>
+        /// 完成一张已裁切地图的运行时接入。正常生成由 <see cref="SetupNativeParentMap"/> 调用；
+        /// 旧档手动改造在 void 裁切成功后调用同一入口，避免天气、接线、传送点缓存与 REF 注册漂移。
+        /// </summary>
+        internal void CompleteRetrofit(PlanetTile worldTile)
+        {
+            if (map == null || !worldTile.Valid) return;
+            ProviderMapPrepared = SeamlessMapProviders.For(worldTile) != null;
+            setupOnStartDone = true;
+            pendingAutoGenerateTicks = -1;
+            CompleteMapIntegration(worldTile);
+        }
+
+        private void CompleteMapIntegration(PlanetTile worldTile)
+        {
+            SeamlessFramework.RegisterMap(map);
+
             SeamlessWeatherClusterManager.BindMap(map);
             SeamlessEnterSpotPlacer.PlaceEnterSpotsAllNeighbors(map, worldTile);
             AutoConnectWorldNeighbors(map, worldTile);

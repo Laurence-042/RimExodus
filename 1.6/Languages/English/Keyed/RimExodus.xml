@@ -230,6 +230,31 @@ Bring everyone home (or to a native map) first - everything on deleted tile maps
 
 SAVE NOW. After saving, RimExodus can be safely removed.</RimExodus_UninstallRestoreDone>
   <RimExodus_UninstallRestoreNoGame>Load a game first.</RimExodus_UninstallRestoreNoGame>
+
+  <RimExodus_MapRetrofitButton>Retrofit the current map</RimExodus_MapRetrofitButton>
+  <RimExodus_MapRetrofitButtonTip>Convert the map you are viewing in an older save into a seamless RimExodus map.</RimExodus_MapRetrofitButtonTip>
+  <RimExodus_MapRetrofitInstructions>Warning: Cropping to void permanently removes terrain, roofs and objects outside the seam band. It cannot be undone. Make a separate backup save first.
+
+1. Add transfer spots, close settings, and inspect the translucent green exit band and the area beyond it. If the band is hidden, turn on the seam band at the bottom right of the map.
+2. If you find anything important, remove the transfer spots before moving it inside the exit band. Add the spots again and check the entire boundary once more.
+3. Before cropping to void, make sure everything important is clear of the band and the area beyond it. Review any animals listed for removal in the confirmation dialog.</RimExodus_MapRetrofitInstructions>
+  <RimExodus_MapRetrofitAddSpots>1. Add transfer spots</RimExodus_MapRetrofitAddSpots>
+  <RimExodus_MapRetrofitRemoveSpots>2. Remove transfer spots</RimExodus_MapRetrofitRemoveSpots>
+  <RimExodus_MapRetrofitCrop>3. Crop to void</RimExodus_MapRetrofitCrop>
+  <RimExodus_MapRetrofitNoMap>Load a save and switch to the map you want to retrofit.</RimExodus_MapRetrofitNoMap>
+  <RimExodus_MapRetrofitUnsupported>This map cannot be retrofitted. The tool requires a square tile map on an enabled world layer.</RimExodus_MapRetrofitUnsupported>
+  <RimExodus_MapRetrofitAlreadyCropped>This map already contains void terrain and cannot be retrofitted again.</RimExodus_MapRetrofitAlreadyCropped>
+  <RimExodus_MapRetrofitPreviewReady>Transfer spots are in place. Close settings to inspect the translucent green exit band and the area beyond it.</RimExodus_MapRetrofitPreviewReady>
+  <RimExodus_MapRetrofitSpotsRemoved>Transfer spots removed. After moving everything important inside the exit band, add the spots again and recheck the boundary.</RimExodus_MapRetrofitSpotsRemoved>
+  <RimExodus_MapRetrofitPreviewRequired>Add transfer spots on this map, then inspect the green exit band and the area beyond it before cropping.</RimExodus_MapRetrofitPreviewRequired>
+  <RimExodus_MapRetrofitConfirm>Crop the current map? Terrain, roofs and items outside the seam band will be permanently removed. Buildings that extend into the crop area will be removed in full. This cannot be undone. Continue only after you have inspected the entire boundary and moved everything important from the boundary and the area outside it into the interior.</RimExodus_MapRetrofitConfirm>
+  <RimExodus_MapRetrofitAnimalWarning>Cropping will permanently remove the following animals ({0}). Review every entry. Go back and move any animals you want to keep inside the exit band.
+
+{1}</RimExodus_MapRetrofitAnimalWarning>
+  <RimExodus_MapRetrofitAnimalEntry>• {0} ({1}, {2})</RimExodus_MapRetrofitAnimalEntry>
+  <RimExodus_MapRetrofitColonyAnimalEntry>• {0} [colony animal] ({1}, {2})</RimExodus_MapRetrofitColonyAnimalEntry>
+  <RimExodus_MapRetrofitPawnBlocked>A pawn ({0}) is still in the area to be cropped. Move them inside the exit band first.</RimExodus_MapRetrofitPawnBlocked>
+  <RimExodus_MapRetrofitDone>The current map has been cropped and connected to RimExodus. Inspect the map, then save the result in a new slot.</RimExodus_MapRetrofitDone>
   <RimExodus_RaidOuterSpawnOpenIncidents>Configure raid arrivals...</RimExodus_RaidOuterSpawnOpenIncidents>
   <RimExodus_RaidOuterSpawnIncidentsTitle>Raid arrivals</RimExodus_RaidOuterSpawnIncidentsTitle>
   <RimExodus_RaidOuterSpawnIncidentsHint>Set arrival preferences by incident, strategy, or arrival mode. Vanilla placement takes priority if any applicable entry requires it.</RimExodus_RaidOuterSpawnIncidentsHint>

@@ -215,7 +215,9 @@ namespace RimExodus
 
             var viewRect = new Rect(0f, 0f, inRect.width - 16f, settingsContentHeight);
             Widgets.BeginScrollView(inRect, ref settingsScrollPosition, viewRect);
-            var listing = new Listing_Standard();
+            // 设置页只有纵向滚动条；Listing 默认在高度不足时自动换到右侧新列，新增末行后会把
+            // “卸载恢复”挪到不可横向滚动的屏外，看起来像按钮消失。强制单列，超高统一纵向滚动。
+            var listing = new Listing_Standard { maxOneColumn = true };
             listing.Begin(viewRect);
 
             var s = Settings;
@@ -378,22 +380,8 @@ namespace RimExodus
                     // 精简快照重生成：正式生成前为目标周围所有已加载参考图补缺失基础快照。
                     CheckRow(listing, "RimExodus_SettingsRegenSnapshotLabel", "RimExodus_SettingsRegenSnapshotTip",
                         v => s.regenerateMissingSnapshots = v, s.regenerateMissingSnapshots);
-                    // 卸载前恢复原版兼容模式（2026-08）：一次性动作，二次确认后执行。
-                    if (listing.ButtonText("RimExodus_UninstallRestoreButton".Translate(),
-                            "RimExodus_UninstallRestoreButtonTip".Translate()))
-                    {
-                        if (Current.ProgramState != ProgramState.Playing)
-                        {
-                            Messages.Message("RimExodus_UninstallRestoreNoGame".Translate(),
-                                MessageTypeDefOf.RejectInput, false);
-                        }
-                        else
-                        {
-                            Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                                "RimExodus_UninstallRestoreConfirm".Translate(), SeamlessUninstallRestore.RunRestore,
-                                destructive: true));
-                        }
-                    }
+                    // 旧档改造与卸载恢复同属高风险存档工具，同一行并列，避免新增入口把卸载挤走。
+                    DrawMapMigrationButtons(listing);
                     break;
             }
 
@@ -420,6 +408,36 @@ namespace RimExodus
             var tmp = current;
             listing.CheckboxLabeled(labelKey.Translate(), ref tmp, tipKey.Translate());
             if (tmp != current) set(tmp);
+        }
+
+        private static void DrawMapMigrationButtons(Listing_Standard listing)
+        {
+            var row = listing.GetRect(44f);
+            const float gap = 8f;
+            var width = (row.width - gap) * 0.5f;
+            var retrofitRect = new Rect(row.x, row.y, width, row.height);
+            var uninstallRect = new Rect(retrofitRect.xMax + gap, row.y, width, row.height);
+
+            if (Widgets.ButtonText(retrofitRect, "RimExodus_MapRetrofitButton".Translate()))
+                SeamlessMapRetrofit.OpenDialog();
+            TooltipHandler.TipRegion(retrofitRect, "RimExodus_MapRetrofitButtonTip".Translate());
+
+            if (Widgets.ButtonText(uninstallRect, "RimExodus_UninstallRestoreButton".Translate()))
+            {
+                if (Current.ProgramState != ProgramState.Playing)
+                {
+                    Messages.Message("RimExodus_UninstallRestoreNoGame".Translate(),
+                        MessageTypeDefOf.RejectInput, false);
+                }
+                else
+                {
+                    Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                        "RimExodus_UninstallRestoreConfirm".Translate(), SeamlessUninstallRestore.RunRestore,
+                        destructive: true));
+                }
+            }
+            TooltipHandler.TipRegion(uninstallRect, "RimExodus_UninstallRestoreButtonTip".Translate());
+            listing.Gap(listing.verticalSpacing);
         }
 
         // TextFieldNumeric 的输入缓冲（跨帧持久——字段为空时 Widgets 自初始化为当前值）。

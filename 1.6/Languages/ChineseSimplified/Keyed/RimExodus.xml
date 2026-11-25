@@ -230,6 +230,31 @@
 
 请立即存档。存档后即可安全卸载 RimExodus。</RimExodus_UninstallRestoreDone>
   <RimExodus_UninstallRestoreNoGame>请先进入一局游戏。</RimExodus_UninstallRestoreNoGame>
+
+  <RimExodus_MapRetrofitButton>改造当前聚焦的地图</RimExodus_MapRetrofitButton>
+  <RimExodus_MapRetrofitButtonTip>将旧存档中当前查看的地图就地改造成 RimExodus 无缝地图。</RimExodus_MapRetrofitButtonTip>
+  <RimExodus_MapRetrofitInstructions>警告：使用 void 裁剪会永久清除接缝带外的地形、屋顶和物品，无法撤销。请先另存一份备份。
+
+1. 补传送点，然后关闭设置，检查半透明绿色撤离带及其外侧。若看不到撤离带，在地图右下角开启接缝带显示。
+2. 若发现重要内容，先移除传送点，回到地图把它们搬到撤离带内侧，再补传送点复查整圈。
+3. 使用 void 裁剪前，确认撤离带上和外侧都没有重要内容，并核对确认框列出的待清除动物。</RimExodus_MapRetrofitInstructions>
+  <RimExodus_MapRetrofitAddSpots>1. 补传送点</RimExodus_MapRetrofitAddSpots>
+  <RimExodus_MapRetrofitRemoveSpots>2. 移除传送点</RimExodus_MapRetrofitRemoveSpots>
+  <RimExodus_MapRetrofitCrop>3. 使用 void 裁剪</RimExodus_MapRetrofitCrop>
+  <RimExodus_MapRetrofitNoMap>请先进入存档并切到要改造的地图。</RimExodus_MapRetrofitNoMap>
+  <RimExodus_MapRetrofitUnsupported>当前地图无法使用此改造功能。它仅适用于已启用接入的世界层上的方形地块地图。</RimExodus_MapRetrofitUnsupported>
+  <RimExodus_MapRetrofitAlreadyCropped>当前地图已有 void 地形，无法再次改造。</RimExodus_MapRetrofitAlreadyCropped>
+  <RimExodus_MapRetrofitPreviewReady>传送点已补齐。关闭设置，检查半透明绿色撤离带及其外侧。</RimExodus_MapRetrofitPreviewReady>
+  <RimExodus_MapRetrofitSpotsRemoved>传送点已移除。搬迁完成后请重新补点并检查。</RimExodus_MapRetrofitSpotsRemoved>
+  <RimExodus_MapRetrofitPreviewRequired>请先在当前地图补传送点，检查绿色撤离带及其外侧，再回来裁剪。</RimExodus_MapRetrofitPreviewRequired>
+  <RimExodus_MapRetrofitConfirm>要裁剪当前聚焦的地图吗？接缝带外的地形、屋顶和物品将永久清除。占地伸入裁剪区的建筑会整座移除。该操作无法撤销。只有在检查过整圈并把边上和外侧的重要内容都移到里面后，才应继续。</RimExodus_MapRetrofitConfirm>
+  <RimExodus_MapRetrofitAnimalWarning>裁剪会一并永久清除以下 {0} 只动物。请逐一确认，若有要保留的动物，请返回并先将它移到撤离带内侧。
+
+{1}</RimExodus_MapRetrofitAnimalWarning>
+  <RimExodus_MapRetrofitAnimalEntry>• {0}（{1}, {2}）</RimExodus_MapRetrofitAnimalEntry>
+  <RimExodus_MapRetrofitColonyAnimalEntry>• {0}〔殖民地动物〕（{1}, {2}）</RimExodus_MapRetrofitColonyAnimalEntry>
+  <RimExodus_MapRetrofitPawnBlocked>裁剪范围里还有角色（{0}）。请先将其移到撤离带内侧。</RimExodus_MapRetrofitPawnBlocked>
+  <RimExodus_MapRetrofitDone>当前地图已完成 void 裁剪并接入 RimExodus。检查地图后，请将结果另存为新存档。</RimExodus_MapRetrofitDone>
   <RimExodus_RaidOuterSpawnOpenIncidents>配置袭击进场…</RimExodus_RaidOuterSpawnOpenIncidents>
   <RimExodus_RaidOuterSpawnIncidentsTitle>袭击进场</RimExodus_RaidOuterSpawnIncidentsTitle>
   <RimExodus_RaidOuterSpawnIncidentsHint>可以按事件、策略和进场方式设置。任一项要求原版进场时，优先使用原版。</RimExodus_RaidOuterSpawnIncidentsHint>

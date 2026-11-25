@@ -233,7 +233,16 @@ namespace RimExodus
             {
                 if (thing is Pawn) continue;
                 if (!thing.Spawned) continue;
-                if (cellSet.Contains(thing.Position))
+                var intersectsVoid = false;
+                foreach (var occupied in thing.OccupiedRect())
+                {
+                    if (!cellSet.Contains(occupied)) continue;
+                    intersectsVoid = true;
+                    break;
+                }
+                // 旧档运行时改造可能遇到跨越裁剪线的多格建筑；只按 Position 清理会留下
+                // 半座建筑占在 void 上。生成期这里主要仍是一格自然岩，额外检查成本可忽略。
+                if (intersectsVoid)
                 {
                     toDestroy.Add(thing);
                 }

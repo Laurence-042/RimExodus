@@ -24,6 +24,10 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
   Expanded the “Configure raid arrivals” screen introduced in 1.1.5: it now lists the complete vanilla incident, strategy, and arrival-mode sets, including previously unavailable drop-pod and mech-cluster drop options. Each entry can independently use the original or a neighboring map, with one-click default restoration.
 - 邻图袭击现在从被袭击图的原版生成位置沿接缝方向映射到邻图，并直接在邻图生成；映射后会在附近验证地形、落点和通路，失败时按地图边数旋转换边重试，全部候选无效才整组回退原图，入场位置更加可靠。
   Raids arriving from a neighboring map now map the attacked map’s vanilla spawn position across the seam and generate directly on the neighboring map. Nearby terrain, landing space, and routes are validated after mapping; failures rotate to another edge based on the map polygon, and the whole group returns to the original map only when every candidate is invalid, making arrival positions more reliable.
+- 新增「改造当前聚焦的地图」工具：旧存档地图可先补传送点检查六边形范围、移除传送点搬迁重要内容，再确认执行不可逆的 void 裁剪；裁剪会列出受影响动物，并阻止范围内或容器中的其他角色被意外清除。
+  Added a “Retrofit the current map” tool for older saves: add transfer spots to inspect the hexagonal boundary, remove them while relocating important content, then explicitly confirm the irreversible void crop. The crop lists affected animals and prevents other pawns, including those inside containers, from being removed accidentally.
+- 修复高级设置页内容较长时「恢复原版兼容模式（卸载前）」按钮可能被排到不可见右侧的问题；旧档改造与卸载恢复按钮现在固定并排显示，并使用纵向滚动。
+  Fixed “Restore vanilla compatibility (before uninstalling)” being laid out in an invisible right-hand column when the Advanced settings page became too tall. The retrofit and uninstall-restore buttons now stay side by side with vertical scrolling.
 
 1.1.5
 - 新增可选的 Endless Horizon 兼容：远景现在从六边形接缝外开始，河流、海岸和远雾会沿接缝延伸，已加载的相邻地图仍优先显示真实地形。版本号不作硬限制，结构不兼容时会安全停用适配。（应 @snkss 请求）
