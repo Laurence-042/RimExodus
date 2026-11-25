@@ -13,9 +13,15 @@ If what you’re really asking is whether I’ll make more RimWorld mods in the 
 我猜，也许，大概……会？说实话，制作 RimWorld mod 有时甚至比玩游戏本身更有意思，我也确实还有一些进一步利用RimExodus中催熟的跨地图机制的想法。不过别抱太大期望，毕竟我得先把重点放回我的游戏开发；就算开发完成了，也大概率会暴死，然后我继续回去当社畜。社畜的生活大家都懂
 well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, I need to refocus on my own game development first. Even if it does get finished, it'll likely flop hard, and I'll just go back to being a corporate drone. Everyone knows how that life goes.
 
-1.1.6
+1.1.7
 - 修复了友方援军追击敌人或撤离时跨到邻图后可能一直逗留的问题。队伍下令撤离后，已经跨图的援军现在也会继续离场。（@Gargantua 报告的问题）
   Fixed allied reinforcements lingering on neighboring maps after crossing a seam to pursue enemies or withdraw. Reinforcements that have already crossed now continue leaving when their group withdraws. (Reported by @Gargantua.)
+- 新增「改造当前聚焦的地图」工具：旧存档地图可先补传送点检查六边形范围、移除传送点搬迁重要内容，再确认执行不可逆的 void 裁剪；裁剪会列出受影响动物，并阻止范围内或容器中的其他角色被意外清除。
+  Added a “Retrofit the current map” tool for older saves: add transfer spots to inspect the hexagonal boundary, remove them while relocating important content, then explicitly confirm the irreversible void crop. The crop lists affected animals and prevents other pawns, including those inside containers, from being removed accidentally.
+- 修复高级设置页内容较长时「恢复原版兼容模式（卸载前）」按钮可能被排到不可见右侧的问题；旧档改造与卸载恢复按钮现在固定并排显示，并使用纵向滚动。
+  Fixed “Restore vanilla compatibility (before uninstalling)” being laid out in an invisible right-hand column when the Advanced settings page became too tall. The retrofit and uninstall-restore buttons now stay side by side with vertical scrolling.
+
+1.1.6
 - 尝试修复：使用 Giddy-Up 2 - Continued 骑马经接缝带组成远行队时，坐骑可能没有加入队伍并继续向相邻地图撤离。现在骑手与当前坐骑会一同组成远行队（@Cortec 报告的问题）
   Attempted fix: when using Giddy-Up 2 - Continued, a mount could fail to join its rider's caravan and continue evacuating into a neighboring map. Riders and their current mounts now form the caravan together. (Reported by @Cortec.)
 - Endless Horizon 更新稳定 API 后，RimExodus 已同步切换到其公开稳定 API，不再依赖内部实现；同时改进了多地图天光渲染，修复聚焦图天色丢失、邻图接缝重叠或裂开、方形 L 状重影及六边形外侧漏染的问题。
@@ -24,11 +30,6 @@ well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is somet
   Expanded the “Configure raid arrivals” screen introduced in 1.1.5: it now lists the complete vanilla incident, strategy, and arrival-mode sets, including previously unavailable drop-pod and mech-cluster drop options. Each entry can independently use the original or a neighboring map, with one-click default restoration.
 - 邻图袭击现在从被袭击图的原版生成位置沿接缝方向映射到邻图，并直接在邻图生成；映射后会在附近验证地形、落点和通路，失败时按地图边数旋转换边重试，全部候选无效才整组回退原图，入场位置更加可靠。
   Raids arriving from a neighboring map now map the attacked map’s vanilla spawn position across the seam and generate directly on the neighboring map. Nearby terrain, landing space, and routes are validated after mapping; failures rotate to another edge based on the map polygon, and the whole group returns to the original map only when every candidate is invalid, making arrival positions more reliable.
-- 新增「改造当前聚焦的地图」工具：旧存档地图可先补传送点检查六边形范围、移除传送点搬迁重要内容，再确认执行不可逆的 void 裁剪；裁剪会列出受影响动物，并阻止范围内或容器中的其他角色被意外清除。
-  Added a “Retrofit the current map” tool for older saves: add transfer spots to inspect the hexagonal boundary, remove them while relocating important content, then explicitly confirm the irreversible void crop. The crop lists affected animals and prevents other pawns, including those inside containers, from being removed accidentally.
-- 修复高级设置页内容较长时「恢复原版兼容模式（卸载前）」按钮可能被排到不可见右侧的问题；旧档改造与卸载恢复按钮现在固定并排显示，并使用纵向滚动。
-  Fixed “Restore vanilla compatibility (before uninstalling)” being laid out in an invisible right-hand column when the Advanced settings page became too tall. The retrofit and uninstall-restore buttons now stay side by side with vertical scrolling.
-
 1.1.5
 - 新增可选的 Endless Horizon 兼容：远景现在从六边形接缝外开始，河流、海岸和远雾会沿接缝延伸，已加载的相邻地图仍优先显示真实地形。版本号不作硬限制，结构不兼容时会安全停用适配。（应 @snkss 请求）
   Added optional Endless Horizon compatibility: the horizon now begins beyond hexagonal seams, rivers, coasts, and distant fog follow the seam, and loaded neighboring maps still take priority with their real terrain. Version numbers are not hard-gated; the integration disables itself safely if the required structure is incompatible. (Requested by @snkss.)
