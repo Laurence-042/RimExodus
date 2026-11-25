@@ -95,7 +95,7 @@ namespace RimExodus
     ///
     /// 阶段4a：玩家强制 Goto 指令额外触发边界预加载检测（仅 playerForced，避免动物级联加载）。
     /// 阶段5：传送许可（Grant）生命周期——状态变更即登记/失效，见 <see cref="SeamlessTransferGrants"/>：
-    /// ① 普通撤离 job（非玩家强制、非必须入队）→ 登记 Evacuation 许可；
+    /// ① 普通撤离 Job 的同格目标由原版驱动安装前处理。
     /// ② 任何非 TransitTag job 启动 → 旧许可失效（驱动 job 被替换/打断/完成）。
     /// </summary>
     [HarmonyPatch(typeof(Pawn_JobTracker), nameof(Pawn_JobTracker.StartJob))]
@@ -121,7 +121,7 @@ namespace RimExodus
 
             // Grant 生命周期：非 TransitTag job 启动 = 旧许可的驱动 job 已被替换/打断 → 失效清除。
             // TransitTag 是我们下发 Goto 的自标识（许可驱动 job 重入本钩子，不清除）。
-            if (newJob.dutyTag != SeamlessTransferGrants.TransitTag)
+            if (!SeamlessTransferGrants.IsTransitJob(newJob))
             {
                 if ((RimExodusLog.Enabled(RimExodusLogModule.Transfer))
                     && SeamlessTransferGrants.TryGet(___pawn, out var cleared))
@@ -176,27 +176,25 @@ namespace RimExodus
                 }
             }
 
-            // 按离图目的登记：玩家直接下令撤离，以及必须加入远行队的自动离图任务，均交还原版。
-            // failIfCantJoinOrCreateCaravan 是原版的入队契约（护卫机械族与公共自动入队子树共用）：
-            // 队伍不可加入时应取消任务。若登记 Evacuation，跨图续程会丢失这项失败条件，
-            // 把随行者当成普通撤离者一路赶出已加载区域。勿按物种/giver 类型或当前有无队伍特判。
-            // 普通撤离（撤离 duty/囚犯越狱/野性恐慌/释放访客）仍跨过已加载邻图继续跑。
-            // 清理在登记前——天然处理 job 重发/队列复用（先清旧再建新）。
-            if (newJob.exitMapOnArrival && !newJob.playerForced
-                && !newJob.failIfCantJoinOrCreateCaravan)
+            // Only an ordinary exit can cross here. The original driver's mandatory
+            // caravan-joining and player departure rules remain in charge otherwise.
+            if (SeamlessEvacuationRouting.IsOrdinaryExit(newJob))
             {
-                SeamlessTransferGrants.RegisterEvacuation(___pawn, newJob);
-            }
-
-            // JobDriver_Goto 的同格 GotoCell 会在 StartJob 方法体内立即跳过移动 toil；没有
-            // TryEnterNextPathCell 事件可供踩点触发。许可已经登记、但旧 job 尚未启动时先分派：
-            // 成功跨图/离场则跳过原方法体，避免它继续给已换图的 pawn 安装旧地图 job。
-            if (newJob.def == JobDefOf.Goto && ___pawn?.Spawned == true
-                && newJob.targetA.IsValid && newJob.targetA.Cell == ___pawn.Position
-                && SeamlessMapTransferTrigger.TryTriggerStationaryGoto(___pawn))
-            {
-                JobMaker.ReturnToPool(newJob);
-                return false;
+                SeamlessEvacuationDiagnostics.OnEvacuationJobStarted(___pawn, newJob);
+                // A move to the current exit reaches the native driver without a pather step.
+                // Refresh the grid so a just-created seam is recognized by the driver.
+                if (___pawn?.Spawned == true && newJob.targetA.Cell == ___pawn.Position
+                    && SeamlessMapTransferTrigger.HasEnterSpotAt(___pawn.Map, ___pawn.Position))
+                {
+                    var map = ___pawn.Map;
+                    SeamlessMapTransferTrigger.AllowNativeWithdrawal(___pawn, map, ___pawn.Position);
+                    if (___pawn.Map != map)
+                    {
+                        JobMaker.ReturnToPool(newJob);
+                        return false;
+                    }
+                    map.exitMapGrid.Notify_LOSBlockerSpawned();
+                }
             }
 
             // 沉浸模式（seamExitBandEnabled=false，2026-08）：玩家征召 job 的 exitMapOnArrival 清除
@@ -234,7 +232,7 @@ namespace RimExodus
     {
         public static bool Prefix(Pawn_FlightTracker __instance, Job job)
         {
-            if (job?.dutyTag != SeamlessTransferGrants.TransitTag || !__instance.Flying)
+            if (!SeamlessTransferGrants.IsTransitJob(job) || !__instance.Flying)
             {
                 return true;
             }

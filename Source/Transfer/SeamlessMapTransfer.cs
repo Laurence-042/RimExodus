@@ -29,14 +29,15 @@ namespace RimExodus
         /// （一切 lord 类型、一切 pawn，捕获与剥离同点——任何新传送入口都不可能"剥了没备份"；
         /// 落地续接策略唯一出处 = <see cref="SeamlessTransferGrants"/> 的 lord 续接分支）。
         /// </summary>
-        internal static bool TryTransferPawn(Pawn pawn, Thing departureSpot, Map arrivalMap, IntVec3 arrivalCell, SeamlessTransferGrants.Grant grant, out bool wasSelected)
+        internal static bool TryTransferPawn(Pawn pawn, Thing departureSpot, Map arrivalMap, IntVec3 arrivalCell,
+            SeamlessTransferGrants.Grant grant, out bool wasSelected, bool withdrawing = false)
         {
             return TryTransferPawnInternal(pawn, departureSpot, arrivalMap, arrivalCell, grant, out wasSelected,
-                captureAssociations: true);
+                captureAssociations: true, withdrawing: withdrawing);
         }
 
         private static bool TryTransferPawnInternal(Pawn pawn, Thing departureSpot, Map arrivalMap, IntVec3 arrivalCell,
-            SeamlessTransferGrants.Grant grant, out bool wasSelected, bool captureAssociations)
+            SeamlessTransferGrants.Grant grant, out bool wasSelected, bool captureAssociations, bool withdrawing = false)
         {
             wasSelected = false;
             if (pawn == null || departureSpot == null || arrivalMap == null)
@@ -138,8 +139,13 @@ namespace RimExodus
             // Vanished 属于 Pawn.Destroy 的消失语义，会让 Hospitality 等消费者把正常离图误判为整团失踪。
             var raidState = SeamlessRaidContinuity.Current;
             var pursuing = grant?.PursuitTarget != null;
-            var raid = pursuing || grant?.Kind == SeamlessTransferGrants.GrantKind.Evacuation
-                ? raidState?.DetachForHandoff(prevLord, pawn, pursuing) : null;
+            var following = grant?.FollowTarget != null;
+            var combatPhase = pursuing || (following && SeamlessRaidContinuity.IsPursuitPhase(prevLord));
+            var raid = pursuing || following || withdrawing
+                ? raidState?.DetachForHandoff(prevLord, pawn, combatPhase) : null;
+            if (raid == null && prevLord != null && (withdrawing || following
+                || (pursuing && !(prevLord.LordJob is LordJob_SlaveRebellion))))
+                return false;
             if (raid == null) prevLord?.Notify_PawnLost(pawn, PawnLostCondition.ExitedMap);
 
             // 影子成员的持有善后不在传送流程内做（2026-08-29 收拢架构，用户定夺）：传送只发 pawn 所在地
@@ -166,7 +172,7 @@ namespace RimExodus
             // === 转移后：恢复状态 ===
             // 确保 lord 字段干净（DeSpawn 不清它，上面已 Notify_PawnLost，这里确保字段为 null）。
             pawn.lord = null;
-            if (raid != null) raidState.Arrive(raid, pawn, arrivalMap, grant.PrevLordJob, departurePhase, pursuing);
+            if (raid != null) raidState.Arrive(raid, pawn, arrivalMap, prevLord.LordJob, departurePhase, combatPhase);
 
             // 恢复征召状态。Drafted setter 会 ClearQueuedJobs + EndCurrentJob，所以必须在续程 StartJob 之前恢复。
             if (wasDrafted && pawn.drafter != null)

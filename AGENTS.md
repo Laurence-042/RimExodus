@@ -126,20 +126,20 @@ RimWorld 核心反编译位于 `C:\Users\Laure\Documents\workspace\rimworld\_ref
 
 ## 9. 传送、交互与战斗
 
-- 传送资格使用 `SeamlessTransferGrants` 许可登记制。踩点热路径只查许可并匹配；无许可不传。玩家跨图命令、NPC 撤离、追击和跟随分别登记 Bridge/Evacuation/Pursue/Follow。
+- 跨图执行以当前 Job 为准。Bridge/Pursue/Follow 在 `SeamlessTransferGrants` 绑定运行时接缝和驱动 Job；普通撤离直接读原版 Job 的离场语义和目标格。队伍状态与明确任务目标可入档，接缝、撤离选点缓存和许可由运行时重建。
 - 无缝传送的 DeSpawn 是"假离场"：overseer 被传送时 `Pawn_MechanitorTracker.Notify_DeSpawned`（UndraftAllMechs——原版"overseer 离场即解除全部机械族征召"）在 `SeamlessMapTransfer.MechanitorDespawnSuppression` 窗口内被抑制，机械族征召状态跨 overseer 传送保留；真离场（组队/被俘/销毁）不受影响。
 - 触发器必须在 `Pawn_PathFollower.TryEnterNextPathCell` Prefix 读取 `pather.nextCell`。Postfix 会晚于 job 完成和许可清理；传送成功后以 Map 是否变化决定是否跳过旧图方法体，不能用 `pawn.Spawned`。
 - `TryTransferPawn` 不自行校验 pawn 与 spot 的格距；调用方负责保证正在进入/绑定该 spot，坐标映射只依赖 spot。
 - 跨图命令的架构是“点击在真实邻图重放 + 公共函数层跨图化 + 分阶段目标载体 + StartPath 安全网”。菜单/选位期的 `SeamlessCommandTargets` 只临时绑定 Pawn；绕过原版 `PawnGotoAction`、经 `TryTakeOrderedJob` 下发的纯 Goto 必须把 Map+Cell 转交具体 Job，轮到该 Job `StartJob` 时在第三方 SetupToils 前转成 Bridge，排队期间不得只靠 Pawn 槽。纯 Goto 的 Grant 保存移动语义快照而非未启动 Job 引用；源图误登记的 destination 预约按 Job 精确释放，`Job.Clear` 清理未消费绑定以防对象池串目标。救援、俘虏、拘捕和搬起倒地者必须在原版驱动预约前桥接，落地后才写预约。其余 playerForced job 与未经过该入口的第三方路径继续由 StartPath 桥接。不要恢复整方法接管 FloatMenu 或为每个 provider 手工注入选项。designation 前置型命令的覆盖边界以审计文档为准。
 - 机械师指挥半径（`MechanitorUtility.InMechanitorCommandRange`）的跨图语义 = 连续距离（用户定夺 2026-09-17）：评估框架 = target 所在图（Thing 以 `Thing.Map` 为权威；Cell 按重放槽 / `SeamlessCommandTargets` / CurrentMap 解析——全库 7 个调用点均为玩家菜单路径、无 AI 消费者，异图即可接管）。评估 = 把 overseer 经 `SeamlessVirtualTeleporter` 虚拟传送到下令图投影位后在目标框架上跑原版 `CanCommandTo`——与射击 `SeamlessCombatCoords.ToUnified` 同一邻居表平移契约，原版阈值与 CE Postfix 放宽整条链生效。勿改为把目标格投影回 overseer 图：`CanCommandTo` 对 target.Cell 的 InBounds 会把超过宿主 void 带宽（~13-17 格）的深点误判越界。勿在各 provider 分别打补丁。
-- Follow/FollowClose 一律不得以跨图目标原生下发（JobDriver 跨图预约/寻路必失败循环，与 AttackMelee 同教训）。拦截点在 giver 基类 `JobGiver_AIFollowPawn.TryGiveJob`（`Patches_FollowGiver`，派生含 `JobGiver_AIFollowOverseer` 经 base 调用覆盖）：邻接可桥接 → 结构化 `Goto(followee)` 经 StartPath 桥接（approach-goto 在战斗链接缺失时按几何投影放行，战斗开关不关死跟随）；非邻接/不可桥接/duty 语境 → null。duty 语境 NPC 随从只走 `MarkFollowers` 瞬间扫描（ThinkNode_Duty 会抹 think-tree job 的 dutyTag，桥接 TransitTag 自标识不安全）；Follow 许可落地以 `FollowTarget` 在本图判"有目的"免游荡清扫。
+- Follow/FollowClose 一律不得以跨图目标原生下发（JobDriver 跨图预约/寻路会失败）。`JobGiver_AIFollowPawn.TryGiveJob` 依据本地 duty、真实目标和可达性生成结构化 `Goto(followee)`，经 StartPath 桥接，落地后交还原版 AI。跟随仍可按几何邻接跨图。已有 Follow Job 的目标过缝时可直接接入同一桥接，踩缝前复核目标和原阶段。ThinkNode_Duty 会覆写 dutyTag，识别 Job 来源经结构与 JobGiver。
 - 跨图寻路只支持单跳。桥点选择使用双侧代价场；普通 Pawn 与 VF 载具必须使用各自的路径成本源和准入规则。
 - 外部 Mod 若用多个 spawned Pawn 表示一个移动主体，使用 `SeamlessTransferAssociations` provider 扩展；关联 Pawn 复用 `TryTransferPawnInternal(captureAssociations:false)`，不要在核心硬编码外部字段。Giddy-Up 恢复骑乘前必须结束旧图的 Mounted job，再调用其即时 GoMount。
-- 离图按原版任务契约区分普通撤离与必须入队（见 `doc/边界行为表.md`），不要按物种、lord 或 giver 类型列例外。普通撤离目标是传送点时，`JobDriver_Goto.TryExitMap` 在到达 spot 前推迟原生离场；对端活跃则跨图续链，对端未加载/休眠则在缝线上交还原生离场。
+- 离图按原版 Job 的离场与入队契约分流（见 `doc/边界行为表.md`）。普通撤离的 Goto 目标是传送点时，`JobDriver_Goto.TryExitMap` 推迟原生离场至该格。可安全交接的队伍跨图后由本地图 duty 重发撤离 Job。对端不可用时在接缝交还原版离场，落点暂时受阻时保留 AI 阶段并重新选点。必须入队和玩家直接离场保留原版流程。
 - 跨图战斗覆盖原版/CE 的移动 projectile（含 flyOverhead）、CE instant RayCast 与纯格目标。坐标、LOS、射程和弹道以射手图统一坐标计算，逐格阻挡按归属图路由；爆炸 AoE 只在实际落点图原生结算，休眠邻图不可参与战斗。
 - 弹丸在 `Projectile.TickInterval` Prefix 于越缝前迁移 Map，保持 origin/destination 平移和剩余飞行状态；交接后命中与爆炸交回原版目标图处理。
 - `SeamlessVirtualTeleporter` 的评估窗口必须直写并恢复 `mapIndexOrState` 与 `positionInt`，禁止用 `Position` setter 触发两图网格簿记。
-- lord 是 map-anchored 状态，默认跨图后不续；只有与地图无关且已明确支持的行为在 `TryContinueLordOnArrival` 集中重建/合流。mental state 是 pawn-local，不要清理。
+- Lord 的地图本地状态由所属地图管理。支持的队伍在 `SeamlessRaidContinuity` 交接阶段和成员，落地由本地 Lord 重建 duty，再由原版 AI 派发 Job。未知或依赖所属地图的阶段保留原版处理。mental state 是 pawn-local，不要清理。
 - Pawn 脱离队伍并搬到另一张 Map 时，使用 `PawnLostCondition.ExitedMap`，与原版 `JobDriver_EnterPortal` 一致；`Vanished` 属于 `Pawn.Destroy` 的消失语义，会让 Hospitality 等消费者把正常跨图误判为整团失踪。这里只通知 lord，不得调用完整 `Pawn.ExitMap`（后者会执行转世界等真实离场副作用）。
 - 受支持的袭击跨缝是同一队伍内的地图交接。追击资格由具体目标、任务和原 Lord 阶段决定，禁止恢复物种或 DLC 派系判据。原版 Lord 保有队伍计时、伤亡、撤退条件及任务信号，拆图分队只执行本地图职责。交接不触发队伍损失或败亡。依赖地图的集结、围攻、仪式、群迁和施工阶段留在所属图，具体行为见 [边界行为表](doc/边界行为表.md)。
 - 武器射程映射曲线（默认关）：def 变异唯一入口是 `SeamlessRangeCurve`——启动长事件收尾快照原始射程，之后总是从原件重建式应用（幂等），关闭即还原；禁止增量二改 `range` 或绕开该入口散写。精度锚点距离的重映射只允许经 `Patches_RangeCurveAccuracy` 的两个 Prefix（`GetHitChanceFactor`/`HitFactorFromShooter` 入口逆映射），不得在调用点克隆原版插值公式或第二套映射；CE 不消费原版锚点，勿为其添加精度映射。两族精度 StatDef（武器 `Accuracy*` 与射手 `ShootingAccuracyFactor_*`）描述中的锚点距离文案同样只在 `SeamlessRangeCurve` 内快照-替换-还原——只替换独立数字 token（前后非数字），本地化措辞不动，勿在其他位置散改描述。

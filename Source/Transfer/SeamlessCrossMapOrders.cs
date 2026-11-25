@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using RimWorld;
 using Verse;
 using Verse.AI;
+using Verse.AI.Group;
 
 namespace RimExodus
 {
@@ -24,7 +25,9 @@ namespace RimExodus
         internal static bool TryBridgeJob(Pawn pawn, Map targetMap, IntVec3 targetLocalCell, Job nextJob = null,
             SeamlessGotoContinuation gotoContinuation = null)
         {
-            var pursuitTarget = SeamlessPursuit.Target(pawn, nextJob);
+            var followTarget = nextJob?.jobGiver is JobGiver_AIFollowPawn ? nextJob.targetA.Thing : null;
+            if (followTarget != null && !SeamlessRaidContinuity.CanFollowAcross(pawn.GetLord())) return false;
+            var pursuitTarget = followTarget == null ? SeamlessPursuit.Target(pawn, nextJob) : null;
             if (pursuitTarget != null && !SeamlessPursuit.CanCross(pawn, pursuitTarget, targetMap)) return false;
             // NPC 战斗桥接的空间聚类选点共享（2026-09 perf probe 定向优化，见 SeamlessBridgeCluster
             // 类头）：nextJob 非 playerForced = NPC 战斗 job 的 StartPath 包装（AttackMelee/
@@ -62,19 +65,22 @@ namespace RimExodus
                 SeamlessBridgeCluster.RecordSharedSpot(pawn, targetMap, Find.TickManager.TicksGame, exitSpot, gotoCell);
             }
 
-            var grant = SeamlessTransferGrants.Create(pawn, SeamlessTransferGrants.GrantKind.Bridge);
+            var grant = SeamlessTransferGrants.Create(pawn, followTarget != null
+                ? SeamlessTransferGrants.GrantKind.Follow : SeamlessTransferGrants.GrantKind.Bridge);
             grant.BoundSpot = exitSpot.Position;
             grant.FinalDestMap = targetMap;
             grant.FinalDestCell = targetLocalCell;
-            grant.NextJob = nextJob;
+            grant.NextJob = followTarget == null ? nextJob : null;
             grant.GotoContinuation = gotoContinuation;
             if (pursuitTarget != null) SeamlessTransferGrants.BindPursuit(grant, pawn, pursuitTarget, nextJob);
+            if (followTarget != null) SeamlessTransferGrants.BindFollow(grant, pawn, followTarget);
 
             // 已站在 spot/goto 格上（联合选点 C1=0 的退化情形，2026-08 实测）：Goto 目标即当前格 →
             // JobDriver 即时完成、不产生任何 pather 步进 → 触发器永不运行 → 许可被 think tree
             // 下一个 job 清掉（日志表现 = Bridge issued 后紧跟 Grant cleared）。直接以当前格触发传送。
             if (pawn.Position == gotoCell)
             {
+                grant.Driver = pawn.CurJob;
                 // nextJob == curJob 时必须解除引用（2026-09 实测 NRE 根因）：本分支的传送 DeSpawn
                 // 会结束并**回池**当前 job（Job.Clear 置 def=null）——grant.NextJob 成悬垂引用，
                 // ContinueBridgeMove.StartJob 访问 def.driverClass 即炸。正常桥接流程无此问题：
@@ -94,7 +100,16 @@ namespace RimExodus
             }
 
             var job = JobMaker.MakeJob(JobDefOf.Goto, gotoCell);
-            job.dutyTag = SeamlessTransferGrants.TransitTag;
+            var ai = nextJob != null && !nextJob.playerForced;
+            job.dutyTag = ai ? SeamlessTransferGrants.AiTransitTag : SeamlessTransferGrants.TransitTag;
+            if (ai)
+            {
+                job.expiryInterval = SeamlessTransferGrants.GrantTimeoutTicks;
+                job.locomotionUrgency = nextJob.locomotionUrgency;
+                job.canBashDoors = nextJob.canBashDoors;
+                job.canBashFences = nextJob.canBashFences;
+            }
+            grant.Driver = job;
             gotoContinuation?.ApplyToTransit(job);
             pawn.jobs.StartJob(job, JobCondition.InterruptForced);
 

@@ -36,6 +36,8 @@ namespace RimExodus
             // Explicit native graph shapes. Unknown or map-anchored phases keep their local duties.
             var job = lord.LordJob.GetType();
             var phase = lord.CurLordToil.GetType();
+            if (job == typeof(LordJob_AssistColony))
+                return phase == typeof(LordToil_HuntEnemies);
             if (AuthorityStaysOnMap(lord.LordJob))
                 return phase == typeof(LordToil_AssaultColony) && !CanReturnToDefence(lord);
             if (lord.ownedBuildings.Count != 0 || lord.ownedCorpses.Count != 0) return false;
@@ -59,7 +61,18 @@ namespace RimExodus
             return AuthorityStaysOnMap(job) || IsEntityAssault(type)
                 || type == typeof(LordJob_AssaultColony) || type == typeof(LordJob_StageThenAttack)
                 || type == typeof(LordJob_ChimeraAssault) || type == typeof(LordJob_BossgroupAssaultColony)
-                || type == typeof(LordJob_SeamlessRaidMarch);
+                || type == typeof(LordJob_SeamlessRaidMarch) || type == typeof(LordJob_ExitMapBest)
+                || HasLocalCivilianGraph(job);
+        }
+
+        private static bool KeepAuthorityOnMap(LordJob job) =>
+            AuthorityStaysOnMap(job) || HasLocalCivilianGraph(job);
+
+        private static bool HasLocalCivilianGraph(LordJob job)
+        {
+            var type = job.GetType();
+            return type == typeof(LordJob_AssistColony) || type == typeof(LordJob_TravelAndExit)
+                || type == typeof(LordJob_VisitColony) || type == typeof(LordJob_TradeWithColony);
         }
 
         private static bool AuthorityStaysOnMap(LordJob job)
@@ -111,7 +124,7 @@ namespace RimExodus
         {
             if (lord == null || !lord.ownedPawns.Contains(pawn)) return null;
             if (pursuing && (!IsPursuitPhase(lord) || lord.LordJob is LordJob_SlaveRebellion)) return null;
-            if (!pursuing && !IsWithdrawalPhase(lord.CurLordToil)) return null;
+            if (!pursuing && !IsWithdrawing(lord)) return null;
             if (!byLord.TryGetValue(lord, out var squad))
             {
                 if (!pursuing && !SupportsWithdrawal(lord.LordJob)) return null;
@@ -147,13 +160,26 @@ namespace RimExodus
             CopyRetreatProgress(originalGraph, lord.Graph);
         }
 
-        internal static bool IsWithdrawalPhase(LordToil phase) => phase is LordToil_ExitMap || phase is LordToil_PanicFlee;
+        internal static bool IsWithdrawalPhase(LordToil phase) => phase is LordToil_ExitMap
+            || phase is LordToil_PanicFlee || phase is LordToil_ExitMapAndEscortCarriers
+            || phase is LordToil_ExitMapTraderFighting;
 
-        internal bool TracksWithdrawal(Lord lord)
+        private static bool IsWithdrawing(Lord lord)
         {
-            return IsWithdrawalPhase(lord?.CurLordToil)
-                && (FindSquad(lord) != null || SupportsWithdrawal(lord.LordJob));
+            if (IsWithdrawalPhase(lord?.CurLordToil)) return true;
+            if (!(lord?.CurLordToil is LordToil_Travel)) return false;
+            var type = lord.LordJob.GetType();
+            return type == typeof(LordJob_AssistColony) || type == typeof(LordJob_TravelAndExit)
+                || (type == typeof(LordJob_VisitColony)
+                    && ((LordJob_VisitColony)lord.LordJob).exitSubgraph?.lordToils.Contains(lord.CurLordToil) == true);
         }
+
+        internal static bool CanWithdrawAcross(Lord lord) => lord == null
+            || (IsWithdrawing(lord)
+                && (Current?.FindSquad(lord) != null || SupportsWithdrawal(lord.LordJob)));
+
+        internal static bool CanFollowAcross(Lord lord) => !HasLocalEscortDuty(lord)
+            && (CanWithdrawAcross(lord) || IsPursuitPhase(lord));
 
         internal void Arrive(Squad squad, Pawn pawn, Map map, LordJob departureJob, int departurePhase, bool pursuing)
         {
@@ -181,7 +207,7 @@ namespace RimExodus
                 return;
             }
             var local = squad.LocalLord(map, arrivalJob);
-            if (authority.ownedPawns.Count == 0 && map != authority.Map && !AuthorityStaysOnMap(authority.LordJob)
+            if (authority.ownedPawns.Count == 0 && map != authority.Map && !KeepAuthorityOnMap(authority.LordJob)
                 && !UsesDifferentMarchGraph(authority.LordJob, arrivalJob))
             {
                 MoveAuthority(squad, map, local);
@@ -217,9 +243,7 @@ namespace RimExodus
                 lordManager = map.lordManager
             };
             map.lordManager.AddLord(local);
-            local.SetJob(AuthorityStaysOnMap(authority.LordJob)
-                ? new LordJob_SeamlessAssaultDetachment { AvoidGrid = authority.CurLordToil.useAvoidGrid }
-                : CloneJob(job));
+            local.SetJob(CreateLocalJob(authority, job));
             var phase = squad.MatchingPhase(local);
             if (phase == null && departurePhase >= 0 && departurePhase < local.Graph.lordToils.Count)
                 phase = local.Graph.lordToils[departurePhase];
@@ -229,6 +253,20 @@ namespace RimExodus
             squad.Detachments.Add(local);
             byLord.Add(local, squad);
             return local;
+        }
+
+        private static LordJob CreateLocalJob(Lord authority, LordJob job)
+        {
+            // Keep rally points, visit gifts and trader-specific transitions with the
+            // original Lord. The local native graph supplies duties in its own map frame.
+            var type = job.GetType();
+            if (type == typeof(LordJob_AssistColony)) return new LordJob_AssistColony(authority.faction, IntVec3.Invalid);
+            if (type == typeof(LordJob_TradeWithColony)) return new LordJob_TradeWithColony(authority.faction, IntVec3.Invalid);
+            if (type == typeof(LordJob_VisitColony)) return new LordJob_VisitColony(authority.faction, IntVec3.Invalid);
+            if (type == typeof(LordJob_TravelAndExit)) return new LordJob_TravelAndExit(IntVec3.Invalid);
+            return AuthorityStaysOnMap(authority.LordJob)
+                ? new LordJob_SeamlessAssaultDetachment { AvoidGrid = authority.CurLordToil.useAvoidGrid }
+                : CloneJob(job);
         }
 
         // Only the explicitly checked native jobs are cloned. Their job configuration is
@@ -308,9 +346,8 @@ namespace RimExodus
         public override void ExposeData()
         {
             Scribe_Collections.Look(ref squads, "rimExodusRaidContinuity", LookMode.Deep);
-            if (Scribe.mode == LoadSaveMode.Saving) pendingTransit = SeamlessTransferGrants.CaptureRaidTransit(this);
-            Scribe_Collections.Look(ref pendingTransit, "rimExodusRaidTransit", LookMode.Deep);
-            if (Scribe.mode == LoadSaveMode.Saving) pendingTransit = null;
+            if (Scribe.mode != LoadSaveMode.Saving)
+                Scribe_Collections.Look(ref pendingTransit, "rimExodusRaidTransit", LookMode.Deep);
             if (Scribe.mode != LoadSaveMode.PostLoadInit) return;
             squads ??= new List<Squad>();
             byLord.Clear();
@@ -325,11 +362,11 @@ namespace RimExodus
 
         public override void LoadedGame()
         {
-            SeamlessTransferGrants.RestoreRaidTransit(this, pendingTransit);
+            SeamlessTransferGrants.ReplanLoadedJobs(pendingTransit);
             pendingTransit = null;
         }
 
-        public override void StartedNewGame() => SeamlessTransferGrants.RestoreRaidTransit(this, null);
+        public override void StartedNewGame() => SeamlessTransferGrants.Reset();
 
         public override void GameComponentTick()
         {
@@ -359,7 +396,7 @@ namespace RimExodus
                     else squad.Detachments.RemoveAt(j);
                 }
 
-                if (authority.ownedPawns.Count == 0 && !AuthorityStaysOnMap(authority.LordJob))
+                if (authority.ownedPawns.Count == 0 && !KeepAuthorityOnMap(authority.LordJob))
                 {
                     var local = squad.Detachments.Find(candidate => !UsesDifferentMarchGraph(authority, candidate));
                     if (local != null) MoveAuthority(squad, local.Map, local);
@@ -542,6 +579,36 @@ namespace RimExodus
         {
             var squad = SeamlessRaidContinuity.Current?.FindSquad(__instance);
             if (squad?.Authority == __instance) squad.SyncPhases();
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class Patch_RaidLord_ExitReachability
+    {
+        private static IEnumerable<System.Reflection.MethodBase> TargetMethods()
+        {
+            yield return AccessTools.Method(typeof(Trigger_PawnCannotReachMapEdge), nameof(Trigger.ActivateOn));
+            yield return AccessTools.Method(typeof(Trigger_PawnCanReachMapEdge), nameof(Trigger.ActivateOn));
+        }
+
+        private static void Postfix(Trigger __instance, Lord lord, TriggerSignal signal, ref bool __result)
+        {
+            if (signal.type != TriggerSignalType.Tick) return;
+            bool requireAll = __instance is Trigger_PawnCanReachMapEdge;
+            if (__result != requireAll) return;
+            var squad = SeamlessRaidContinuity.Current?.FindSquad(lord);
+            if (squad == null || squad.Authority != lord) return;
+
+            // Each original trigger still evaluates its own map, including the native
+            // interval and pawn filters. A blocked remote group can enable native digging.
+            foreach (var local in squad.Detachments)
+            {
+                if (local?.lordManager?.lords.Contains(local) != true || SeamlessDormancyManager.IsDormant(local.Map))
+                    continue;
+                if (__instance.ActivateOn(local, signal) == requireAll) continue;
+                __result = !requireAll;
+                return;
+            }
         }
     }
 

@@ -5,6 +5,7 @@ using HarmonyLib;
 using RimWorld;
 using Verse;
 using Verse.AI;
+using Verse.AI.Group;
 
 namespace RimExodus
 {
@@ -18,15 +19,11 @@ namespace RimExodus
     ///
     /// patch 基类一次覆盖全部派生（JobGiver_AIFollowOverseer 覆写 TryGiveJob 但调 base）：
     /// 【Prefix】followee 在邻图且可桥接 → 产出结构化推进 Goto(followee)（追击样板）——
-    /// StartPath 包装按 IsNpcApproachGoto 结构判据桥接过缝，落地续跑 Goto，抵达后 think
-    /// 原生恢复 FollowClose。非邻接 / 不可桥接 / duty 语境 → null（站桩自愈，杀循环）。
+    /// StartPath 桥接到对端后由本地 AI 恢复 FollowClose。非邻接、不可达或阶段不支持交接时返回 null。
     /// 【Postfix 安全网】任何漏网的原生跨图 Follow/FollowClose（反射失败/未知派生/第三方
     /// giver）同口径转换——失败循环的确定性终结层。
     ///
-    /// duty 语境（NPC 随从）不走本链：ThinkNode_Duty 会把 think tree 产出的 job.dutyTag 无条件
-    /// 覆写为 duty.tag（2026-08 实证，见 StartPath 包装 Prefix 注），桥接自标识不安全；NPC 随从的
-    /// 跨图跟随由 NotifyPawnTransferred 的 MarkFollowers 瞬间扫描覆盖（直接 StartJob，无抹除窗口）。
-    /// 机械族/宠物 think 树无 duty，结构化 Goto 经 IsNpcApproachGoto 识别不依赖 dutyTag，安全。
+    /// ThinkNode_Duty 会覆写 dutyTag，桥接按目标和原版 JobGiver 识别实际跟随任务。
     /// 邻接判定用几何投影（SeamlessViewProjection）而非 TryGetCombatLink：跟随不是战斗语义，
     /// 不应被跨图战斗开关一并关死（StartPath 包装的对应放行见其 Prefix 内注释）。
     /// </summary>
@@ -76,8 +73,8 @@ namespace RimExodus
                 __result = null;
                 return false;
             }
-            // ② duty 语境的 NPC 随从——ThinkNode_Duty 抹 dutyTag，桥接 job 不安全；瞬间扫描链负责；
-            if (pawn.mindState?.duty?.def != null)
+            // ② 当前队伍阶段必须能在落地图重建本地跟随行为。
+            if (!SeamlessRaidContinuity.CanFollowAcross(pawn.GetLord()))
             {
                 __result = null;
                 return false;
@@ -108,7 +105,7 @@ namespace RimExodus
             if (followee == null || followee.Map == null || followee.Map == pawn.Map) return;
 
             var bridgeable = SeamlessViewProjection.TryProject(followee.Map, IntVec3.Zero, pawn.Map, out _)
-                && pawn.mindState?.duty?.def == null
+                && SeamlessRaidContinuity.CanFollowAcross(pawn.GetLord())
                 && SeamlessCrossMapOrders.CanBridgeTo(pawn, followee.Map);
             __result = bridgeable ? MakeApproachJob(followee) : null;
 

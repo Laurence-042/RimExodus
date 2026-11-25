@@ -29,6 +29,13 @@ namespace RimExodus
         {
             __state = "vanilla-no-spots";
             if (!SeamlessExitSpotFinder.HasRimExodusEnterSpots(pawn?.Map)) return true;
+            if (pawn == SeamlessEvacuationRouting.ExitSearchPawn
+                && SeamlessEvacuationRouting.TryChooseExit(pawn, mode, canBash, out spot))
+            {
+                __state = "RimExodus-withdrawal-route";
+                __result = spot.IsValid;
+                return false;
+            }
             var enterSpot = SeamlessExitSpotFinder.FindReachableEnterSpot(pawn);
             if (enterSpot.IsValid)
             {
@@ -59,6 +66,12 @@ namespace RimExodus
         static bool Prefix(Pawn pawn, ref IntVec3 spot, ref bool __result, TraverseMode mode)
         {
             if (!SeamlessExitSpotFinder.HasRimExodusEnterSpots(pawn?.Map)) return true;
+            if (pawn == SeamlessEvacuationRouting.ExitSearchPawn
+                && SeamlessEvacuationRouting.TryChooseExit(pawn, mode, false, out spot))
+            {
+                __result = spot.IsValid;
+                return false;
+            }
             var enterSpot = SeamlessExitSpotFinder.FindReachableEnterSpot(pawn);
             if (enterSpot.IsValid)
             {

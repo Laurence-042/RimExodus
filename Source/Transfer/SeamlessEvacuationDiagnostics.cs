@@ -89,7 +89,7 @@ namespace RimExodus
             if (tick < state.LastSummaryTick || tick - state.LastSummaryTick >= 600)
             {
                 state.LastSummaryTick = tick;
-                Log.Message($"[RimExodus] [caravan-exit] Evacuation grant: {pawn.LabelShort} "
+                Log.Message($"[RimExodus] [caravan-exit] Evacuation job: {pawn.LabelShort} "
                     + $"(faction={pawn.Faction?.Name ?? "none"}, map={pawn.Map.uniqueID}, "
                     + $"lord={pawn.GetLord()?.LordJob?.GetType().Name ?? "none"}, "
                     + $"duty={pawn.mindState?.duty?.def?.defName ?? "none"}, "

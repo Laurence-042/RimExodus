@@ -243,7 +243,7 @@ namespace RimExodus
                 {
                     var job = pawn.jobs?.curJob;
                     if (job != null && (job.def.defName == "RimExodus_TalkWithSettlementTrader"
-                                        || job.dutyTag == SeamlessTransferGrants.TransitTag))
+                                        || SeamlessTransferGrants.IsTransitJob(job)))
                     {
                         pawn.jobs.EndCurrentJob(JobCondition.InterruptForced, true);
                     }

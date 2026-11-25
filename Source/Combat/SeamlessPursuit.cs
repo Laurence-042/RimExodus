@@ -15,7 +15,8 @@ namespace RimExodus
 
         internal static Thing Target(Pawn pawn, Job job)
         {
-            if (job == null || job.playerForced || job.exitMapOnArrival || pawn?.mindState == null)
+            if (job == null || job.playerForced || job.exitMapOnArrival || pawn?.mindState == null
+                || job.jobGiver is JobGiver_AIFollowPawn)
                 return null;
             var attack = job.def == JobDefOf.AttackMelee || job.def == JobDefOf.AttackStatic;
             if (!attack && job.def != JobDefOf.Goto) return null;

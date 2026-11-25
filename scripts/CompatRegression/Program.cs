@@ -126,6 +126,7 @@ public static class Audit
                 "vanilla mortar projectiles retain the active backend's seam handoff");
             CheckSplitRaidDefeat(assembly, Check);
             RaidTransitChecks.Run(assembly, Check);
+            CrossMapRaidChecks.Run(assembly, shared, Check);
             if (shared)
             {
                 var callbacks = harmony.GetPatchedMethods().Select(Harmony.GetPatchInfo).SelectMany(p =>
@@ -184,6 +185,13 @@ public static class Audit
         jobField.SetValue(lord, original);
         toilField.SetValue(lord, new LordToil_AssaultColony());
         check(canPursue(lord), "an active assault is portable without a faction");
+
+        jobField.SetValue(lord, new LordJob_AssistColony());
+        toilField.SetValue(lord, RuntimeHelpers.GetUninitializedObject(typeof(LordToil_HuntEnemies)));
+        check(canPursue(lord), "native allied hunting may pursue when it has a real enemy target");
+        toilField.SetValue(lord, new LordToil_ExitMap());
+        check(!canPursue(lord), "an allied exit stage cannot start pursuing");
+        jobField.SetValue(lord, original);
 
         toilField.SetValue(lord, new LordToil_AssaultColonySappers());
         check(!canPursue(lord), "active construction targets anchor sappers to their map");
@@ -415,6 +423,12 @@ public static class Audit
         var detach = continuity.GetMethod("DetachForHandoff", instance)!;
         var arrive = continuity.GetMethod("Arrive", instance)!;
         var previousGame = Current.Game;
+        var previousHunt = DutyDefOf.HuntEnemiesIndividual;
+        var previousExit = DutyDefOf.ExitMapBest;
+        var previousLanguage = LanguageDatabase.activeLanguage;
+        var previousDefaultLanguage = LanguageDatabase.defaultLanguage;
+        var prefsField = AccessTools.Field(typeof(Prefs), "data");
+        var previousPrefs = prefsField.GetValue(null);
         try
         {
             var game = (Game)RuntimeHelpers.GetUninitializedObject(typeof(Game));
@@ -482,8 +496,40 @@ public static class Audit
                 && lord.numPawnsLostViolently == 2, "remaining members regain the same authority and casualty count");
             lord.Notify_PawnLost(pursuer, PawnLostCondition.Killed);
             check(receiver.Defeats == 1, "real squad defeat emits the original quest signal exactly once");
+
+            DutyDefOf.HuntEnemiesIndividual = new DutyDef();
+            DutyDefOf.ExitMapBest = new DutyDef();
+            var fixtureLanguage = new LoadedLanguage("English");
+            AccessTools.Field(typeof(LoadedLanguage), "workerInt").SetValue(fixtureLanguage, new LanguageWorker_English());
+            AccessTools.Field(typeof(LoadedLanguage), "dataIsLoaded").SetValue(fixtureLanguage, true);
+            LanguageDatabase.activeLanguage = LanguageDatabase.defaultLanguage = fixtureLanguage;
+            prefsField.SetValue(null, new PrefsData());
+            var ally = MakePawn(4);
+            var allyFaction = new Faction { def = new FactionDef { autoFlee = false }, Name = "Fixture allies" };
+            var alliedLord = LordMaker.MakeNewLord(allyFaction,
+                new LordJob_AssistColony(allyFaction, new IntVec3(7, 0, 9)), source, new[] { ally });
+            var allies = detach.Invoke(component, new object[] { alliedLord, ally, true });
+            check(allies != null, "the native allied hunt phase can keep its squad during pursuit");
+            arrive.Invoke(component, new[] { allies, ally, destination, alliedLord.LordJob, (object)0, true });
+            var alliedLocal = ally.GetLord();
+            check(alliedLocal != alliedLord && alliedLord.Map == source && alliedLocal.Map == destination
+                && ally.mindState.duty.def == DutyDefOf.HuntEnemiesIndividual
+                && !ally.mindState.duty.focusSecond.IsValid,
+                "allied pursuit rebuilds native hunt duty without carrying the source rally coordinates");
+            alliedLord.GotoToil(alliedLord.Graph.lordToils.First(toil => toil is LordToil_ExitMap));
+            check(alliedLocal.CurLordToil is LordToil_ExitMap && ally.mindState.duty.def == DutyDefOf.ExitMapBest
+                && alliedLord.numPawnsEverGained == 1 && alliedLord.numPawnsLostViolently == 0,
+                "the original allied Lord can order a remote pawn to exit through its local duty");
         }
-        finally { Current.Game = previousGame; }
+        finally
+        {
+            DutyDefOf.HuntEnemiesIndividual = previousHunt;
+            DutyDefOf.ExitMapBest = previousExit;
+            LanguageDatabase.activeLanguage = previousLanguage;
+            LanguageDatabase.defaultLanguage = previousDefaultLanguage;
+            prefsField.SetValue(null, previousPrefs);
+            Current.Game = previousGame;
+        }
     }
 
     private sealed class RaidSignalReceiver : ISignalReceiver

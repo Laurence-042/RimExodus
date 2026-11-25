@@ -14,7 +14,7 @@ REF 启用后首次启动会显示一次关于前置和地图底层的公告；�
 
 已接入的世界层内，任务地点、遭遇、派系基地、营地和普通地块地图都走同一条无缝链。原版根地表默认接入。RimExodus 在现有地图生成流程中加入裁切、接缝带和传送点，让相邻地块可以连续通行。
 
-Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 5.1）。`just test-compat` 检查 1.7 两种底层的 Harmony 绑定及兼容故障路径，离线运行。
+Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 5.1）。`just test-compat` 离线检查 1.7 两种底层的 Harmony 绑定、兼容故障路径、敌袭从邻图进场到家园续跑进攻，以及友军跨图追击和取消。
 
 ## 核心特性
 
@@ -22,7 +22,7 @@ Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 
 - **其他 Mod 的世界层接入**。Mod 作者可以为自己的世界层声明纳入规则、邻图生成、轮廓、邻接、偏移和离场方式。 [开发者接入](#开发者接入)
 - **直接跨图行走**：接缝处铺传送点，Pawn 走到接缝即无感切换到相邻地图；玩家下令（移动/攻击/开采/搬运等）可直接指向邻图区域。征召的殖民地机械族同样可跨缝下令——机械师指挥半径按无缝世界连续距离评估（overseer 站在缝边即可指挥缝对面，机械族过缝后连续距离内仍可继续指挥；机械师自己过缝也不会解除机械族的征召状态）；Escort 工作模式的机械族会跟随 overseer 跨缝，不会因目标在邻图而卡死报错。
 - **接缝组队与随行**：从接缝离图组建远行队后，护卫模式机械族及原版自动入队的随行者按原版条件在接缝加入队伍，即使对侧地图已加载；队伍不可加入时取消入队任务。敌人和访客的普通撤离仍穿过已加载邻图继续离开。
-- **连续撤离**（待游戏内回归）：敌人、访客等跨缝撤离后保持原来的撤离方向，结合实际地形的通行成本选择下一出口，前方无路时可侧向或后退。邻图是否加载不再决定逃跑方向；到达未加载/休眠地图的接缝时离场。已站在传送点上的撤离者再次收到同格移动任务时也会尝试跨图；传送失败会提示玩家，并在可行时按原有规则离场。
+- **连续撤离**（待游戏内回归）：支持的袭击队伍、友方援军、访客和商队跨缝后延续原版撤离阶段，由落地图的 AI 重新选出口和派发任务。出口优先沿原撤离方向，前方受阻时重新选择；到达未加载或休眠的对端接缝时按原版离场。必须加入远行队的任务沿用原版入队规则。读档时由队伍状态恢复行动。
 - **跨图战斗**：跨缝视线、目标搜索、射击与弹道交接（子弹飞过接缝后在正确的地图上连续飞行并结算）；征召 Pawn 可点击武器按钮后直接点选邻图目标，邻图枪械与视野内枪声/爆炸声照常呈现，敌对 NPC 也可跨缝追击。
 - **地图滚动软休眠**：远离玩家的地图自动休眠（不 tick、内容完好保留），更远的按距离策略删除重建；玩家家园不休眠不删除。**分级休眠**：活跃圈内无玩家 pawn 的空图按可调百分比降频 tick（接缝附近保持全速，支持跨图战斗），多图常驻时性能接近只跑有玩家的图。
 - **原生内容接入**：世界地图上的 POI（其他派系基地、远古机械师建筑群、机会地点等 Site 类目标）走近时经原版地图生成管线自动生成为无缝地块，mod 自定义结构原生兼容；派系基地可与驻军中的"贸易商"对话交易与送礼，对话面板包含原版远行队站在派系基地上的全部交互（含 mod 添加的）；"设立营地"生成的也是无缝地块。
@@ -162,7 +162,7 @@ Windows 构建入口使用系统自带的 `powershell.exe`（Windows PowerShell 
   - 每 tick / pawn 步进
     - 休眠地图整体跳过 tick 与更新：滚动休眠的净省大头，休眠判定是常数时间集合查询。
       - 设计如此：实际上是个优化手段，维持较远地图的变更的同时避免其消耗性能
-    - pawn 每次跨格移动的传送检测：无传送许可时只做一次字典查询即返回——这是全 mod 最热的路径，刻意做到最薄；有许可（正在跨缝）才做进一步检查。
+    - pawn 每次跨格移动时，跨图检测先检查当前任务。普通撤离在目标格检查接缝，其余移动按已绑定的接缝或当前追击目标判断是否过缝。
       - 实现限制：考虑到pawn远比地图边界的传送点少，那么把跨图检查做到pawn跨格移动上总比做到传送点上好。而且从信息角度上说，总得有个地方判断pawn是不是要跨图，这个在我看来属于是优化不掉的
     - job 启动 / 飞行中弹丸 / 瞄准视觉：非跨图战斗时 2-3 次引用比较即早退。
       - 实现限制：必须做这个我才能判断是否要触发邻接地图生成、跨图移动、弹丸跨图、瞄准方向修正等等一大堆真正重计算的东西，按理说正常同图没啥可感知的性能损耗
@@ -290,7 +290,7 @@ sealed class MySeamlessMaps : SeamlessMapProvider
 | `Core/` | mod 入口、设置与跨域基础数据 | `RimExodusMod`（启动/PatchAll/绑定报告）、`RimExodusMissingFrameworkNotice`（独立引导 DLL 的 REF 公告）、`RimExodusSettings`（设置窗口与 ModSettings）、`MapParent_SeamlessTile`（地块 WorldObject）、`SeamlessTileManager`（生成链入口 `GenerateTileMap`）、`SeamlessMapData`（邻居表/基础快照的载体分支唯一出处）、`SeamlessTileGraph`/`SeamlessTileRegistry`（邻接查询）、`SeamlessGridMath`（切比雪夫/邻格遍历统一口径）、`WorldTileGeometry`、`SeamlessMapUtility`（多边形归属解析）、`SeamlessEdgeCells`、`SeamlessBorderLookup`（边界带速查表）、`DebugActions_SeamlessTile`（Dev 菜单） |
 | `Generation/` | 地图生成管线：六边形裁切、void、接缝混合、分帧增量生成 | 四个注入 genStep（`GenStep_SeamlessTile` 389 备份+铺 void / `GenStep_SeamOverride` 392 接缝混合 / `GenStep_EnterSpots` 1490 铺传送点 / `GenStep_CoastalEdgeFill` 230）、`SeamlessPolygonGeometry`（接缝带几何唯一实现）、`SeamlessTerrainFill`、`SeamlessSeamOverride`（实时地图/基础快照提供器与卷积混合）、`SeamlessOceanMapSupport`（可关闭并于重启生效的原版海洋地图补全）、`SeamlessBaseSnapshotData`（原生图三层快照的序列化载体）、`SeamlessSnapshotRegenerator`（读档后为所有实际参考邻图按需补快照）、`IncrementalMapGenerator`（分帧增量生成）、`MapGenerationProgressUI`、`SeamlessEnterSpotPlacer` + `CompSeamlessTileEnterSpot`（传送点铺设与标记）、配套 patch：河流/道路对齐（`Patches_TileMutatorRiver`/`Patches_GenStepRoads`）、建筑选址（`Patches_BuildingPlacement`）、揭雾分径（`Patches_GenStepFog`）、海洋陆地步骤过滤（`Patches_OceanGeneration`）、地形守卫（`Patches_TerrainGrid`）、生成计时与互斥（`Patches_MapGenTiming`/`Patches_IncrementalMapGen`）、`Patches_GenConstruct`、远行队进图出生点（`Patches_CaravanEnterMap`） |
 | `Lifecycle/` | 地图滚动生命周期：软休眠、距离删除、天气域、原生家族/Settlement 接管 | `SeamlessDormancyGovernor`（距离策略 + 全局静态清扫）+ `Patches_Dormancy`、`SeamlessTickThrottle` + `Patches_TickThrottle`（分级休眠中间档：无玩家空图降频 tick + 接缝快速区）、`SeamlessMapGovernance`（管辖/家园特权判定唯一出处）、`SeamlessWeatherClusterManager` + `Patches_WeatherDomain`（群系连通域共享天气：决策集中在激活图、执行各图原生进行）、`Patches_CampTileMap`（营地接入生成链）、`Patches_NativeMapFamily`（"人走即删"族接管 + 败亡守卫）、`SeamlessManualDormancyGizmos`（手动休眠/删除 gizmo 唯一构造处：地块图覆写 + 原生家族 MapParent.GetGizmos Postfix）、`SeamlessSettlementTrader`/`SeamlessSettlementTalk`/`Patches_SettlementTrade`（派系基地贸易商与对话/交易） |
-| `Transfer/` | 跨缝传送机制：许可登记、触发、桥接下令 | `SeamlessMapTransferTrigger`（踩点热路径）、`SeamlessTransferGrants`（许可登记表）、`SeamlessMapTransfer`（传送执行）、`SeamlessTransferAssociations`（多 Pawn 关联随迁/恢复扩展点）、`SeamlessCrossMapOrders`（桥接下令 + 双侧代价场选点）、`SeamlessPathCostField`（Dijkstra 代价场）、`SeamlessBoundaryRules`（主体资格判定）、`Patches_Job`（StartJob 钩子：撤离登记/许可清理）、`Patches_PawnPathFollower`（nextCell 踩点触发） |
+| `Transfer/` | 跨缝传送机制：许可登记、触发、桥接下令 | `SeamlessMapTransferTrigger`（踩点热路径）、`SeamlessTransferGrants`（许可登记表）、`SeamlessMapTransfer`（传送执行）、`SeamlessTransferAssociations`（多 Pawn 关联随迁/恢复扩展点）、`SeamlessCrossMapOrders`（桥接下令 + 双侧代价场选点）、`SeamlessPathCostField`（Dijkstra 代价场）、`SeamlessBoundaryRules`（主体资格判定）、`SeamlessEvacuationRouting`（撤离方向与选点）、`Patches_Job`（StartJob 钩子：同格撤离/许可清理）、`Patches_PawnPathFollower`（nextCell 踩点触发） |
 | `Interaction/` | 跨图交互 UI 层：点击重放、选中保持、相机、虚拟传送 | `Patches_ClickReplay` + `SeamlessReplayContext`（邻图点击重放链）、`SeamlessGenUI`、`SeamlessSelectionTracker`（跨切图选中保持）、`SeamlessCameraFocus`（自动聚焦 + 无感相机）、`SeamlessVirtualTeleporter`（评估窗口零写入的坐标系虚拟传送）、`Patches_CrossMapCommon`/`Patches_ReachabilityCrossMap`（CanReach 真实化等公共函数层）、`Patches_Selector`（殖民者栏休眠过滤）、`Patches_CaravanExitDiagnostics` |
 | `Combat/` | 跨图索敌与射击 | `SeamlessCrossMapSight`（分段 LOS）、`SeamlessCombatCoords`（统一坐标与归属路由）、`SeamlessCrossMapCellTarget`（纯格目标的真实地图上下文）、`SeamlessDirectFireSupport`（原版/第三方 projectile 能力入口）、`Patches_CombatTargetSearch`（索敌两层模型跨图化）、`Patches_CombatTargeter`（武器/Ability 邻图点选）、`Patches_CombatTargeting`（TryCastShot 门/ShotReport）、`Patches_Projectile`（含原版迫击炮的弹丸缝交接与连续更新）、`Patches_CombatVisuals`（朝向/瞄准角/连线等视觉修正）、`SeamlessRaidOuterSpawn` + `SeamlessRaidDirectSpawn` + `Patches_RaidOuterSpawn`（袭击外缘计划、原版位置到邻图远侧的射线映射与直接生成）、`SeamlessRangeCurve` + `Patches_RangeCurveAccuracy`（武器射程映射曲线：远程 verb def 变异唯一入口 + 原版精度锚点距离逆映射）、`RangeCurveEditorDialog`（曲线编辑器：五行锚点编辑/预览/试算） |
 | `EdgeBehavior/` | 地图边缘语义接缝化与预加载 | `SeamlessBorderPreloader`/`SeamlessTilePreloader`（边界带预加载队列）、`Patches_CellFinder`/`Patches_RCellFinder`（边缘出口格接缝池）、`Patches_Reachability`（CanReachMapEdge）、`Patches_RegionMaker`（区域触边判定）、`Patches_ExitMapGrid`（撤离带）、`Patches_PlaySettings`（沉浸模式开关 + 缩放门控） |

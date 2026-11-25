@@ -7,7 +7,7 @@
 
 定稿语义（2026-08 用户定稿）：
 - 预加载只能由玩家操作触发。
-- NPC 撤离场景（撤离 duty/囚犯越狱/野性恐慌逃跑）：对端未加载 → 正常原生撤离；
+- NPC 撤离场景（撤离 duty/囚犯越狱）：对端未加载 → 正常原生撤离；
   对端已加载 → 传送进对端继续撤离，直到到达没有加载对端的撤离点（视为跑出视野）。
 - 玩家征召 goto 传送点格（殖民者）= 显式要求脱离地图 → 原生撤离/组队，不跨图。
   殖民地机械族保留原版 !IsColonyMech 例外（站住）。
@@ -47,7 +47,7 @@ TARGETS = ["传送圈格（离散边圈∪带外圈，spot 实铺位置）", "�
 
 # 行为取值（踩点两列的组合）
 ACT_TRANSFER_CONT = "**传送** + 续程 Goto"
-ACT_TRANSFER_EXIT = "**传送** + 对端续发撤离 job（继续跑，直到无加载对端的出口→原生撤离）"
+ACT_TRANSFER_EXIT = "可交接时传送，落地 AI 重发撤离 Job"
 ACT_TRANSFER_PLAIN = "**传送**"
 ACT_NATIVE_EXIT = "原生撤离/组队（身份受限）"
 ACT_NOTHING = "无事"
@@ -144,14 +144,14 @@ SOURCES = [
         "AI 战斗移动（追击/走位）",
         lambda name, animal: name in ("敌方人形", "敌方机械族", "盟友增援"),
         lambda name, animal, tgt: {
-            "expect": "玩家不能通过跨图逃离追击，除非敌人和旧地图一起被清理",
+            "expect": "按具体敌对目标和队伍阶段判定是否能追击",
             "flag": "无（AIFightEnemy 等不带）",
             "elig": True,
             "loaded": ACT_TRANSFER_PLAIN,
             "unloaded": ACT_NOTHING,
             "preload": {"spot": "否", "band": "否"},
             "vanilla": "无事",
-            "patch": "已实现（2026-08 阶段5：TryRegisterCombatStepTransfer——NPC 战斗体+战斗 job（AttackMelee/AttackStatic/战斗 lord duty 下 Goto）+追击目标在对端图才即席 Pursue 许可；MarkPursuers 意图三判据——Attack 系 job / mindState.enemyTarget / 推进期 Goto 的 targetA=刚跨图者（还能跨缝射则原地打）；主动推进亦落地——GotoNearestHostile 跨图版取邻图最近 → StartPath 结构判据桥接过缝 → Bridge 落地收编袭击 lord（防无 lord 被 JobGiver_ExitMap 离场“过缝秒退”））",
+            "patch": "按实际敌对目标及队伍阶段桥接，落地重建本地 duty",
         },
     ),
     (
@@ -179,7 +179,7 @@ SOURCES = [
             "unloaded": EXIT_DUTY[1],
             "preload": {"spot": "否", "band": "否"},
             "vanilla": "出口格→撤离（NPC 只能加入现有队）",
-            "patch": "已实现（Evacuation 许可：对端已加载→传送+续发撤离 job，VisitedTiles 防回弹；未生成→原生撤离）",
+            "patch": "按原版 Job 走接缝，落地 AI 重发撤离 Job",
         },
     ),
     (
@@ -189,11 +189,11 @@ SOURCES = [
             "expect": "逃跑的动物需要能进入对端已加载地图继续跑，以此允许玩家跨图追猎，直到其到达没有加载对端地图的撤离点（视为跑出玩家视野）。未掷中 flag 的 flee 不跨图（原则同上）",
             "flag": "有（Pawn_MindState 原生）",
             "elig": False,
-            "loaded": EXIT_DUTY[0],
+            "loaded": "传送后由自身 AI 重评",
             "unloaded": EXIT_DUTY[1],
             "preload": {"spot": "否", "band": "否"},
             "vanilla": "出口格→撤离（ExitMap 回世界）",
-            "patch": "已实现（Evacuation 许可，同撤离 duty：对端已加载→传送继续跑）",
+            "patch": "只桥接实际带离场标志的原版 Flee Job",
         },
     ),
     (
@@ -221,7 +221,7 @@ SOURCES = [
             "unloaded": ACT_NOTHING,
             "preload": {"spot": "否", "band": "否"},
             "vanilla": "无事",
-            "patch": "已实现（2026-09 双通道：目标跨图瞬间机械族正在 Follow/FollowClose 上 → MarkFollowers 瞬时链（Follow 许可 + FollowTarget 落地免游荡清扫）；漏登窗口（job 200 tick 过期重发）→ giver 基类拦截（Patches_FollowGiver，JobGiver_AIFollowPawn.TryGiveJob）产出结构化 Goto(followee)，StartPath 桥接过缝、落地续跑、think 原生恢复 FollowClose；非邻接/不可桥接/duty 语境 → null 杀循环）",
+            "patch": "当前 Follow Job 或跟随 JobGiver 产生跨图移动，落地重评原版跟随",
         },
     ),
 ]

@@ -14,6 +14,8 @@ If what you’re really asking is whether I’ll make more RimWorld mods in the 
 well, I guess, maybe, probably... yes? Honestly, creating RimWorld mods is sometimes even more fun than playing the game itself, and I do have some ideas for further utilizing the cross-map mechanics I developed for RimExodus. But don't get your hopes up too high; after all, I need to refocus on my own game development first. Even if it does get finished, it'll likely flop hard, and I'll just go back to being a corporate drone. Everyone knows how that life goes.
 
 1.1.6
+- 修复了友方援军追击敌人或撤离时跨到邻图后可能一直逗留的问题。队伍下令撤离后，已经跨图的援军现在也会继续离场。（@Gargantua 报告的问题）
+  Fixed allied reinforcements lingering on neighboring maps after crossing a seam to pursue enemies or withdraw. Reinforcements that have already crossed now continue leaving when their group withdraws. (Reported by @Gargantua.)
 - 尝试修复：使用 Giddy-Up 2 - Continued 骑马经接缝带组成远行队时，坐骑可能没有加入队伍并继续向相邻地图撤离。现在骑手与当前坐骑会一同组成远行队（@Cortec 报告的问题）
   Attempted fix: when using Giddy-Up 2 - Continued, a mount could fail to join its rider's caravan and continue evacuating into a neighboring map. Riders and their current mounts now form the caravan together. (Reported by @Cortec.)
 - Endless Horizon 更新稳定 API 后，RimExodus 已同步切换到其公开稳定 API，不再依赖内部实现；同时改进了多地图天光渲染，修复聚焦图天色丢失、邻图接缝重叠或裂开、方形 L 状重影及六边形外侧漏染的问题。
